@@ -76,7 +76,7 @@ case $choice in
     sleep 2
 
     # Start server with backfill enabled
-    cd /home/taewoong/company-project/squadall/server
+    cd /home/taewoong/company-project/squadrail/server
     export SQUADRAIL_KNOWLEDGE_BACKFILL_ENABLED=true
     export SQUADRAIL_KNOWLEDGE_BACKFILL_INTERVAL_MS=30000  # Check every 30s
     export SQUADRAIL_KNOWLEDGE_BACKFILL_BATCH_SIZE=10
