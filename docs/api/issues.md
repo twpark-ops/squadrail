@@ -127,6 +127,26 @@ Common message types:
 - `residualRisks[]`
 - one artifact of kind `diff`, `commit`, or `test_run`
 
+`REQUEST_CHANGES` is treated as a structured review decision. At minimum, provide:
+
+- `reviewSummary`
+- `requiredEvidence[]`
+- `changeRequests[]` where each item includes `affectedFiles[]` or `suggestedAction`
+
+`APPROVE_IMPLEMENTATION` is treated as a structured approval decision. At minimum, provide:
+
+- `approvalSummary`
+- `approvalChecklist[]`
+- `verifiedEvidence[]`
+- `residualRisks[]`
+
+`CLOSE_TASK` is treated as a structured closure decision. At minimum, provide:
+
+- `closureSummary`
+- `verificationSummary`
+- `rollbackPlan`
+- `finalArtifacts[]`
+
 ### Get Task Briefs
 
 ```

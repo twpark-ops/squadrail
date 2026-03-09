@@ -275,6 +275,26 @@ For `SUBMIT_FOR_REVIEW`, always include:
 - `residualRisks[]`
 - at least one artifact of kind `diff`, `commit`, or `test_run`
 
+For `REQUEST_CHANGES`, always include:
+
+- `reviewSummary`
+- `requiredEvidence[]`
+- `changeRequests[]` with file-level impact or a suggested action for each finding
+
+For `APPROVE_IMPLEMENTATION`, always include:
+
+- `approvalSummary`
+- `approvalChecklist[]`
+- `verifiedEvidence[]`
+- `residualRisks[]`
+
+For `CLOSE_TASK`, always include:
+
+- `closureSummary`
+- `verificationSummary`
+- `rollbackPlan`
+- `finalArtifacts[]`
+
 Use comments for status updates, questions, findings, and human-readable summaries:
 
 Use markdown formatting and include links to related entities when they exist:

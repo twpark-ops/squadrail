@@ -38,6 +38,37 @@ function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function validateRequestChangesContract(payload: Record<string, unknown> | null | undefined) {
+  const reviewPayload = payload ?? {};
+  if (!readString(reviewPayload.reviewSummary)) {
+    return "REQUEST_CHANGES requires reviewSummary";
+  }
+
+  const requiredEvidence = readStringArray(reviewPayload.requiredEvidence);
+  if (requiredEvidence.length === 0) {
+    return "REQUEST_CHANGES requires requiredEvidence";
+  }
+
+  const changeRequests = Array.isArray(reviewPayload.changeRequests) ? reviewPayload.changeRequests : [];
+  if (changeRequests.length === 0) {
+    return "REQUEST_CHANGES requires changeRequests";
+  }
+
+  for (const request of changeRequests) {
+    if (!request || typeof request !== "object") {
+      return "REQUEST_CHANGES requires structured changeRequests";
+    }
+    const requestRecord = request as Record<string, unknown>;
+    const hasAffectedFiles = readStringArray(requestRecord.affectedFiles).length > 0;
+    const hasSuggestedAction = readString(requestRecord.suggestedAction).length > 0;
+    if (!hasAffectedFiles && !hasSuggestedAction) {
+      return "REQUEST_CHANGES requires affectedFiles or suggestedAction for every change request";
+    }
+  }
+
+  return null;
+}
+
 function determineReviewSubmissionContractMode(payload: ReviewSubmissionPayloadLike): ReviewSubmissionContractMode {
   const reviewPayload = payload ?? {};
   const hasStrictFields =
@@ -95,6 +126,44 @@ function validateReviewSubmissionContract(input: {
   return null;
 }
 
+function validateApprovalContract(payload: Record<string, unknown> | null | undefined) {
+  const approvalPayload = payload ?? {};
+  if (!readString(approvalPayload.approvalSummary)) {
+    return "APPROVE_IMPLEMENTATION requires approvalSummary";
+  }
+
+  const approvalChecklist = readStringArray(approvalPayload.approvalChecklist);
+  if (approvalChecklist.length === 0) {
+    return "APPROVE_IMPLEMENTATION requires approvalChecklist";
+  }
+
+  const verifiedEvidence = readStringArray(approvalPayload.verifiedEvidence);
+  if (verifiedEvidence.length === 0) {
+    return "APPROVE_IMPLEMENTATION requires verifiedEvidence";
+  }
+
+  const residualRisks = readStringArray(approvalPayload.residualRisks);
+  if (residualRisks.length === 0) {
+    return "APPROVE_IMPLEMENTATION requires residualRisks";
+  }
+
+  return null;
+}
+
+function validateCloseTaskContract(payload: Record<string, unknown> | null | undefined) {
+  const closePayload = payload ?? {};
+  if (!readString(closePayload.closureSummary)) {
+    return "CLOSE_TASK requires closureSummary";
+  }
+  if (!readString(closePayload.verificationSummary)) {
+    return "CLOSE_TASK requires verificationSummary";
+  }
+  if (!readString(closePayload.rollbackPlan)) {
+    return "CLOSE_TASK requires rollbackPlan";
+  }
+  return null;
+}
+
 export function evaluateProtocolEvidenceRequirement(input: {
   message: CreateIssueProtocolMessage;
   latestReviewArtifacts?: ProtocolArtifactLike[];
@@ -117,7 +186,26 @@ export function evaluateProtocolEvidenceRequirement(input: {
     return null;
   }
 
+  if (message.messageType === "REQUEST_CHANGES") {
+    const reviewViolation = validateRequestChangesContract(message.payload as Record<string, unknown> | null);
+    if (reviewViolation) {
+      return {
+        violationCode: "missing_required_artifact",
+        message: `Missing required artifact: ${reviewViolation}`,
+      };
+    }
+    return null;
+  }
+
   if (message.messageType === "APPROVE_IMPLEMENTATION") {
+    const approvalViolation = validateApprovalContract(message.payload as Record<string, unknown> | null);
+    if (approvalViolation) {
+      return {
+        violationCode: "missing_required_artifact",
+        message: `Missing required artifact: ${approvalViolation}`,
+      };
+    }
+
     const mode = determineReviewSubmissionContractMode(latestReviewPayload);
     const reviewViolation = validateReviewSubmissionContract({
       payload: latestReviewPayload,
@@ -134,6 +222,13 @@ export function evaluateProtocolEvidenceRequirement(input: {
   }
 
   if (message.messageType === "CLOSE_TASK") {
+    const closeViolation = validateCloseTaskContract(message.payload as Record<string, unknown> | null);
+    if (closeViolation) {
+      return {
+        violationCode: "close_without_verification",
+        message: closeViolation,
+      };
+    }
     if (
       message.payload.finalTestStatus === "passed_with_known_risk"
       && (message.payload.remainingRisks?.length ?? 0) === 0

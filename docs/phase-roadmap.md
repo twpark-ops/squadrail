@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 1 (Slice 3 완료, Phase 2 준비)`
+현재 활성 단계: `Phase 2 (Slice 1 완료, Slice 2 준비)`
 
 ## 목표
 
@@ -109,8 +109,14 @@
   - reviewer brief retrieval query에 residual risk / test evidence 반영
   - Issue detail timeline에서 review handoff를 구조적으로 노출
   - engineer role pack / skill docs를 새 handoff contract 기준으로 정렬
+- `Phase 2 / Slice 1` 완료
+  - `REQUEST_CHANGES`에 `reviewSummary`, `requiredEvidence`, file-level follow-up 계약 강제
+  - `APPROVE_IMPLEMENTATION`에 `approvalChecklist`, `verifiedEvidence`, `residualRisks` 계약 강제
+  - `CLOSE_TASK`에 `closureSummary`, `verificationSummary`, `rollbackPlan` 계약 강제
+  - Issue detail timeline / board console / role pack / skill docs를 delivery loop 계약 기준으로 정렬
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
+  - test/build 결과의 자동 캡처와 worktree-branch binding은 `Phase 2 / Slice 2`에서 계속 진행
 
 ## Phase 1 세부 슬라이스
 

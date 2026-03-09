@@ -23,6 +23,8 @@ describe("role pack defaults", () => {
     expect(review?.content).toContain("Approval requires acceptance criteria coverage");
     expect(role?.content).toContain("Reviewer");
     expect(role?.content).toContain("Escalate to human decision");
+    expect(role?.content).toContain("approval checklist");
+    expect(role?.content).toContain("required evidence");
   });
 
   it("adds product squad-specific guidance when the preset requests product delivery mode", () => {
@@ -43,6 +45,15 @@ describe("role pack defaults", () => {
     expect(role?.content).toContain("diff summary");
     expect(role?.content).toContain("review checklist");
     expect(role?.content).toContain("residual risks");
+  });
+
+  it("teaches the tech lead pack the closure contract", () => {
+    const files = buildDefaultRolePackFiles("tech_lead");
+    const role = files.find((file) => file.filename === "ROLE.md");
+
+    expect(role?.content).toContain("closure summary");
+    expect(role?.content).toContain("verification summary");
+    expect(role?.content).toContain("rollback plan");
   });
 
   it("creates CTO and QA role packs for the large org preset", () => {

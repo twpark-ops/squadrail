@@ -61,6 +61,9 @@ describe("evaluateProtocolEvidenceRequirement", () => {
         payload: {
           approvalSummary: "looks good",
           approvalMode: "agent_review",
+          approvalChecklist: ["Acceptance criteria covered"],
+          verifiedEvidence: ["Reviewed test run"],
+          residualRisks: ["No known residual risk."],
         },
         artifacts: [],
       },
@@ -103,6 +106,9 @@ describe("evaluateProtocolEvidenceRequirement", () => {
         payload: {
           approvalSummary: "legacy evidence is sufficient",
           approvalMode: "agent_review",
+          approvalChecklist: ["Legacy review evidence checked"],
+          verifiedEvidence: ["Reviewed diff artifact"],
+          residualRisks: ["No known residual risk."],
         },
         artifacts: [],
       },
@@ -139,6 +145,9 @@ describe("evaluateProtocolEvidenceRequirement", () => {
         summary: "close",
         payload: {
           closeReason: "completed",
+          closureSummary: "Closed after merge and verification handoff.",
+          verificationSummary: "Verification evidence reviewed.",
+          rollbackPlan: "Revert the merge commit if regressions surface.",
           finalArtifacts: ["pr://123"],
           finalTestStatus: "passed",
           mergeStatus: "merged",
@@ -190,6 +199,172 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     });
 
     expect(violation).toBeNull();
+  });
+
+  it("rejects request changes without review summary and required evidence", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "needs fixes",
+        payload: {
+          reviewSummary: "",
+          changeRequests: [
+            {
+              title: "Fix retry path",
+              reason: "Backoff edge case is unverified",
+            },
+          ],
+          severity: "major",
+          mustFixBeforeApprove: true,
+          requiredEvidence: [],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "missing_required_artifact",
+    });
+    expect(violation?.message).toContain("reviewSummary");
+  });
+
+  it("rejects request changes when a change request has neither affected files nor suggested action", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "needs fixes",
+        payload: {
+          reviewSummary: "Retry path evidence is incomplete.",
+          changeRequests: [
+            {
+              title: "Fix retry path",
+              reason: "Backoff edge case is unverified",
+            },
+          ],
+          severity: "major",
+          mustFixBeforeApprove: true,
+          requiredEvidence: ["Need retry regression output"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "missing_required_artifact",
+    });
+    expect(violation?.message).toContain("affectedFiles or suggestedAction");
+  });
+
+  it("rejects approval without approval checklist and verified evidence", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "approved",
+        summary: "approved",
+        payload: {
+          approvalSummary: "looks good",
+          approvalMode: "agent_review",
+          approvalChecklist: [],
+          verifiedEvidence: [],
+          residualRisks: [],
+        },
+        artifacts: [],
+      },
+      latestReviewArtifacts: [{ kind: "diff" }],
+      latestReviewPayload: {
+        implementationSummary: "done",
+        evidence: ["tests passed"],
+        reviewChecklist: ["review"],
+        changedFiles: ["src/app.ts"],
+        testResults: ["pnpm test:run"],
+        residualRisks: ["No known residual risk."],
+        diffSummary: "Updated retry flow",
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "missing_required_artifact",
+    });
+    expect(violation?.message).toContain("approvalChecklist");
+  });
+
+  it("rejects close task without closure summary, verification summary, and rollback plan", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "close",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "",
+          verificationSummary: "",
+          rollbackPlan: "",
+          finalArtifacts: ["pr://123"],
+          finalTestStatus: "passed",
+          mergeStatus: "not_merged",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "close_without_verification",
+    });
+    expect(violation?.message).toContain("closureSummary");
   });
 
   it("rejects review submission without test results, diff summary, and residual risks", () => {
