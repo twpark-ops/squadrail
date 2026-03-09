@@ -6,7 +6,7 @@ export const issueProtocolRecipients = pgTable(
   "issue_protocol_recipients",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     messageId: uuid("message_id").notNull().references(() => issueProtocolMessages.id, { onDelete: "cascade" }),
     recipientType: text("recipient_type").notNull(),
     recipientId: text("recipient_id").notNull(),

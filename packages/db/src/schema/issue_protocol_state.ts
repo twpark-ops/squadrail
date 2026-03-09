@@ -8,7 +8,7 @@ export const issueProtocolState = pgTable(
   "issue_protocol_state",
   {
     issueId: uuid("issue_id").primaryKey().references(() => issues.id, { onDelete: "cascade" }),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     workflowState: text("workflow_state").notNull(),
     coarseIssueStatus: text("coarse_issue_status").notNull(),
     techLeadAgentId: uuid("tech_lead_agent_id").references(() => agents.id, { onDelete: "set null" }),

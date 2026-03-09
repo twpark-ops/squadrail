@@ -18,7 +18,7 @@ export const issueProtocolMessages = pgTable(
   "issue_protocol_messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull().references(() => issues.id, { onDelete: "cascade" }),
     threadId: uuid("thread_id").notNull().references(() => issueProtocolThreads.id, { onDelete: "cascade" }),
     seq: integer("seq").notNull(),

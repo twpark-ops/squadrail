@@ -1188,8 +1188,29 @@ export function issueRoutes(db: Db, storage: StorageService) {
         },
       });
       recipientHints = retrieval.recipientHints;
+
+      // Log successful brief generation
+      if (retrieval.retrievalRuns && retrieval.retrievalRuns.length > 0) {
+        logger.info(
+          {
+            issueId: issue.id,
+            messageType: message.messageType,
+            retrievalRunCount: retrieval.retrievalRuns.length,
+            retrievalRunIds: retrieval.retrievalRuns.map(r => r.retrievalRunId),
+          },
+          "Brief(s) generated successfully"
+        );
+      }
     } catch (err) {
-      logger.warn({ err, issueId: issue.id }, "failed to build protocol retrieval context");
+      logger.error(
+        {
+          err,
+          issueId: issue.id,
+          messageType: message.messageType,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        "CRITICAL: Failed to build protocol retrieval context - brief generation failed"
+      );
       // MEDIUM-2: Retrieval failure is non-critical, continue without hints
     }
 
