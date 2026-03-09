@@ -19,10 +19,15 @@ describe("inspectWorkspaceGitSnapshot", () => {
       throw new Error(`unexpected git invocation: ${args.join(" ")}`);
     });
 
-    const snapshot = await inspectWorkspaceGitSnapshot({ cwd: "/workspace/repo" });
+    const snapshot = await inspectWorkspaceGitSnapshot({
+      cwd: "/workspace/repo",
+      branchName: "expected/branch",
+    });
 
     expect(snapshot).toMatchObject({
       branchName: "feature/test",
+      expectedBranchName: "expected/branch",
+      branchMismatch: true,
       headSha: "abc123",
       hasChanges: true,
       changedFiles: ["src/app.ts", "docs/new.md"],

@@ -10,6 +10,8 @@ type GitExecutor = (input: {
 
 export type WorkspaceGitSnapshot = {
   branchName: string | null;
+  expectedBranchName: string | null;
+  branchMismatch: boolean;
   headSha: string | null;
   hasChanges: boolean;
   changedFiles: string[];
@@ -87,9 +89,13 @@ export async function inspectWorkspaceGitSnapshot(input: {
       .map((line) => parseChangedPathFromStatusLine(line))
       .filter((value): value is string => Boolean(value)),
   ));
+  const actualBranchName = readFirstLine(branchResult.stdout);
+  const expectedBranchName = input.branchName ?? null;
 
   return {
-    branchName: input.branchName ?? readFirstLine(branchResult.stdout),
+    branchName: actualBranchName ?? expectedBranchName,
+    expectedBranchName,
+    branchMismatch: Boolean(actualBranchName && expectedBranchName && actualBranchName !== expectedBranchName),
     headSha: readFirstLine(headResult.stdout),
     hasChanges: statusEntries.length > 0,
     changedFiles,

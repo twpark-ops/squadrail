@@ -1,4 +1,5 @@
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
+import type { RunVerificationSignal } from "./run-verification-signals.js";
 import { inspectWorkspaceGitSnapshot } from "./workspace-git-snapshot.js";
 
 type ProtocolRunLike = {
@@ -111,6 +112,35 @@ function buildRunEvidenceText(run: ProtocolRunLike) {
   ].filter(Boolean).join("\n");
 }
 
+function readVerificationSignals(run: ProtocolRunLike): RunVerificationSignal[] {
+  const resultJson = asRecord(run.resultJson);
+  const rawSignals = Array.isArray(resultJson.verificationSignals) ? resultJson.verificationSignals : [];
+  return rawSignals
+    .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value))
+    .map((signal): RunVerificationSignal => {
+      const source =
+        signal.source === "command_execution"
+        || signal.source === "stderr_excerpt"
+        || signal.source === "result_json"
+          ? signal.source
+          : "stdout_excerpt";
+      const confidence = signal.confidence === "structured" ? "structured" : "heuristic";
+      const status =
+        signal.status === "passed" || signal.status === "failed"
+          ? signal.status
+          : "unknown";
+      return {
+        kind: signal.kind === "build" ? "build" : "test",
+        command: readString(signal.command) ?? "",
+        source,
+        confidence,
+        status,
+        exitCode: typeof signal.exitCode === "number" && Number.isFinite(signal.exitCode) ? signal.exitCode : null,
+      };
+    })
+    .filter((signal) => signal.command.length > 0);
+}
+
 function autoArtifactMetadata(input: {
   run: ProtocolRunLike;
   issueId: string;
@@ -141,6 +171,7 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
 }) {
   const workspace = extractWorkspaceContext(input.run);
   const runEvidenceText = buildRunEvidenceText(input.run);
+  const verificationSignals = readVerificationSignals(input.run);
   const workspaceGitSnapshot =
     workspace?.cwd && workspace.workspaceUsage === "implementation"
       ? await inspectWorkspaceGitSnapshot({
@@ -161,6 +192,22 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
     },
   ];
 
+  if (input.message.messageType === "APPROVE_IMPLEMENTATION") {
+    autoArtifacts.push({
+      kind: "approval",
+      uri: `approval://${input.issueId}/${input.run.id}`,
+      label: "Approval evidence",
+      metadata: {
+        ...autoArtifactMetadata({
+          run: input.run,
+          issueId: input.issueId,
+          workspace,
+        }),
+        approvalMode: asRecord(input.message.payload).approvalMode ?? null,
+      },
+    });
+  }
+
   if (workspace?.workspaceUsage === "implementation") {
     autoArtifacts.push({
       kind: "doc",
@@ -176,6 +223,8 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
         bindingStatus: "resolved",
         cwd: workspace.cwd,
         branchName: workspaceGitSnapshot?.branchName ?? workspace.branchName,
+        expectedBranchName: workspaceGitSnapshot?.expectedBranchName ?? workspace.branchName,
+        branchMismatch: workspaceGitSnapshot?.branchMismatch ?? false,
         repoUrl: workspace.repoUrl,
         repoRef: workspace.repoRef,
         headSha: workspaceGitSnapshot?.headSha ?? null,
@@ -199,6 +248,8 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
         }),
         captureConfidence: "workspace_snapshot",
         branchName: workspaceGitSnapshot.branchName,
+        expectedBranchName: workspaceGitSnapshot.expectedBranchName,
+        branchMismatch: workspaceGitSnapshot.branchMismatch,
         headSha: workspaceGitSnapshot.headSha,
         changedFiles: workspaceGitSnapshot.changedFiles,
         statusEntries: workspaceGitSnapshot.statusEntries,
@@ -208,8 +259,24 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
   }
 
   const evidenceLines = collectEvidenceLines(input.message);
-  const runShowsTestSignal = TEST_EVIDENCE_RE.test(runEvidenceText);
-  const runShowsBuildSignal = BUILD_EVIDENCE_RE.test(runEvidenceText);
+  const testSignals = verificationSignals.filter((signal) => signal.kind === "test");
+  const buildSignals = verificationSignals.filter((signal) => signal.kind === "build");
+  const trustedTestSignals = testSignals.filter((signal) => signal.status !== "failed");
+  const trustedBuildSignals = buildSignals.filter((signal) => signal.status !== "failed");
+  const hasStructuredTestSignals = testSignals.some((signal) => signal.confidence === "structured");
+  const hasStructuredBuildSignals = buildSignals.some((signal) => signal.confidence === "structured");
+  const testSignalCommands = trustedTestSignals.map((signal) => signal.command);
+  const buildSignalCommands = trustedBuildSignals.map((signal) => signal.command);
+  const testCaptureConfidence = trustedTestSignals.some((signal) => signal.confidence === "structured")
+    ? "structured"
+    : "corroborated";
+  const buildCaptureConfidence = trustedBuildSignals.some((signal) => signal.confidence === "structured")
+    ? "structured"
+    : "corroborated";
+  const runShowsTestSignal =
+    trustedTestSignals.length > 0 || (!hasStructuredTestSignals && TEST_EVIDENCE_RE.test(runEvidenceText));
+  const runShowsBuildSignal =
+    trustedBuildSignals.length > 0 || (!hasStructuredBuildSignals && BUILD_EVIDENCE_RE.test(runEvidenceText));
   const testEvidence = runShowsTestSignal
     ? evidenceLines.filter((line) => TEST_EVIDENCE_RE.test(line))
     : [];
@@ -229,7 +296,9 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
           workspace,
           evidenceLines: testEvidence,
         }),
-        captureConfidence: "corroborated",
+        captureConfidence: testCaptureConfidence,
+        observedCommands: testSignalCommands,
+        observedStatuses: trustedTestSignals.map((signal) => signal.status),
       },
     });
   }
@@ -246,7 +315,9 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
           workspace,
           evidenceLines: buildEvidence,
         }),
-        captureConfidence: "corroborated",
+        captureConfidence: buildCaptureConfidence,
+        observedCommands: buildSignalCommands,
+        observedStatuses: trustedBuildSignals.map((signal) => signal.status),
       },
     });
   }

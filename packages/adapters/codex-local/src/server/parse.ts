@@ -4,6 +4,12 @@ export function parseCodexJsonl(stdout: string) {
   let sessionId: string | null = null;
   const messages: string[] = [];
   let errorMessage: string | null = null;
+  const commandExecutions: Array<{
+    command: string;
+    status: string | null;
+    exitCode: number | null;
+    aggregatedOutput: string | null;
+  }> = [];
   const usage = {
     inputTokens: 0,
     cachedInputTokens: 0,
@@ -34,6 +40,19 @@ export function parseCodexJsonl(stdout: string) {
       if (asString(item.type, "") === "agent_message") {
         const text = asString(item.text, "");
         if (text) messages.push(text);
+      } else if (asString(item.type, "") === "command_execution") {
+        const command = asString(item.command, "").trim();
+        if (command) {
+          commandExecutions.push({
+            command,
+            status: asString(item.status, "").trim() || null,
+            exitCode:
+              typeof item.exit_code === "number" && Number.isFinite(item.exit_code)
+                ? item.exit_code
+                : null,
+            aggregatedOutput: asString(item.aggregated_output, "").trim() || null,
+          });
+        }
       }
       continue;
     }
@@ -58,6 +77,7 @@ export function parseCodexJsonl(stdout: string) {
     summary: messages.join("\n\n").trim(),
     usage,
     errorMessage,
+    commandExecutions,
   };
 }
 

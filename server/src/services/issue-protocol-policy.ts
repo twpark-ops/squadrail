@@ -26,24 +26,30 @@ export function hasProtocolArtifactKind(
   return (artifacts ?? []).some((artifact) => kinds.includes(artifact.kind));
 }
 
-function isCorroboratedAutoArtifact(artifact: ProtocolArtifactLike) {
+function isTrustedAutoArtifact(artifact: ProtocolArtifactLike) {
   if (artifact.metadata?.autoCaptured !== true) return false;
-  return artifact.metadata?.captureConfidence === "corroborated";
+  return artifact.metadata?.captureConfidence === "corroborated"
+    || artifact.metadata?.captureConfidence === "structured";
 }
 
 function hasReviewSubmissionEvidenceArtifact(artifacts: ProtocolArtifactLike[] | undefined) {
   return (artifacts ?? []).some((artifact) => {
-    if (artifact.kind === "diff" || artifact.kind === "commit") return true;
-    if (artifact.kind === "test_run") return isCorroboratedAutoArtifact(artifact) || artifact.metadata?.autoCaptured !== true;
-    return false;
+    return artifact.kind === "diff" || artifact.kind === "commit";
   });
 }
 
-function hasCloseVerificationArtifact(artifacts: ProtocolArtifactLike[] | undefined) {
+function hasRepoEvidenceArtifact(artifacts: ProtocolArtifactLike[] | undefined) {
+  return (artifacts ?? []).some((artifact) => artifact.kind === "diff" || artifact.kind === "commit");
+}
+
+function hasApprovalArtifact(artifacts: ProtocolArtifactLike[] | undefined) {
+  return (artifacts ?? []).some((artifact) => artifact.kind === "approval");
+}
+
+function hasVerificationArtifact(artifacts: ProtocolArtifactLike[] | undefined) {
   return (artifacts ?? []).some((artifact) => {
-    if (artifact.kind === "diff" || artifact.kind === "commit" || artifact.kind === "approval") return true;
     if (artifact.kind === "test_run" || artifact.kind === "build_run") {
-      return isCorroboratedAutoArtifact(artifact) || artifact.metadata?.autoCaptured !== true;
+      return isTrustedAutoArtifact(artifact) || artifact.metadata?.autoCaptured !== true;
     }
     if (artifact.kind === "doc") {
       return artifact.metadata?.autoCaptured !== true;
@@ -146,7 +152,7 @@ function validateReviewSubmissionContract(input: {
   }
 
   if (!hasReviewSubmissionEvidenceArtifact(input.artifacts)) {
-    return "SUBMIT_FOR_REVIEW requires diff, commit, or corroborated test_run artifact";
+    return "SUBMIT_FOR_REVIEW requires diff or commit artifact";
   }
 
   return null;
@@ -272,11 +278,15 @@ export function evaluateProtocolEvidenceRequirement(input: {
     }
     if (
       message.payload.mergeStatus === "merged"
-      && !hasCloseVerificationArtifact(message.artifacts)
+      && (
+        !hasRepoEvidenceArtifact(message.artifacts)
+        || !hasApprovalArtifact(message.artifacts)
+        || !hasVerificationArtifact(message.artifacts)
+      )
     ) {
       return {
         violationCode: "close_without_verification",
-        message: "Close task requires diff, commit, approval, or corroborated verification artifacts when merge status is merged",
+        message: "Close task requires repo evidence, approval, and corroborated verification artifacts when merge status is merged",
       };
     }
     return null;
