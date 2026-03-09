@@ -4,6 +4,7 @@ import {
   assertResolvedWorkspaceReadyForExecution,
   type ResolvedWorkspaceForRun,
   resolveRuntimeSessionParamsForWorkspace,
+  requiresIsolatedProjectWorkspace,
   WorkspaceResolutionError,
 } from "../services/heartbeat-workspace.js";
 import { shouldResetTaskSessionForWake } from "../services/heartbeat.ts";
@@ -117,6 +118,52 @@ describe("assertResolvedWorkspaceReadyForExecution", () => {
         }),
       }),
     ).not.toThrow();
+  });
+});
+
+describe("requiresIsolatedProjectWorkspace", () => {
+  it("returns true when implementation usage has an isolated execution policy", () => {
+    expect(
+      requiresIsolatedProjectWorkspace({
+        usage: "implementation",
+        workspaces: [
+          {
+            metadata: {
+              executionPolicy: {
+                mode: "isolated",
+                applyFor: ["implementation"],
+                isolationStrategy: "worktree",
+                isolatedRoot: null,
+                branchTemplate: null,
+                writable: true,
+              },
+            },
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for non-implementation usage", () => {
+    expect(
+      requiresIsolatedProjectWorkspace({
+        usage: "review",
+        workspaces: [
+          {
+            metadata: {
+              executionPolicy: {
+                mode: "isolated",
+                applyFor: ["implementation"],
+                isolationStrategy: "worktree",
+                isolatedRoot: null,
+                branchTemplate: null,
+                writable: true,
+              },
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 
