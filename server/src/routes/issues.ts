@@ -30,7 +30,7 @@ import {
   projectService,
 } from "../services/index.js";
 import { logger } from "../middleware/logger.js";
-import { forbidden, HttpError, notFound, unauthorized } from "../errors.js";
+import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 
 const MAX_ATTACHMENT_BYTES = Number(process.env.SQUADRAIL_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
@@ -165,16 +165,41 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
   }
 
-  async function assertActiveReviewer(companyId: string, reviewerAgentId: string) {
-    const reviewer = await agentsSvc.getById(reviewerAgentId);
-    if (!reviewer || reviewer.companyId !== companyId) {
-      throw notFound("Reviewer agent not found");
+  async function assertActiveCompanyAgent(
+    companyId: string,
+    agentId: string,
+    label: "Assignee" | "Reviewer",
+  ) {
+    const agent = await agentsSvc.getById(agentId);
+    if (!agent || agent.companyId !== companyId) {
+      throw notFound(`${label} agent not found`);
     }
-    if (reviewer.status === "pending_approval") {
-      throw forbidden("Cannot assign review to pending approval agents");
+    if (agent.status === "pending_approval") {
+      throw conflict(`Cannot assign ${label.toLowerCase()} to pending approval agents`);
     }
-    if (reviewer.status === "terminated") {
-      throw forbidden("Cannot assign review to terminated agents");
+    if (agent.status === "terminated") {
+      throw conflict(`Cannot assign ${label.toLowerCase()} to terminated agents`);
+    }
+    return agent;
+  }
+
+  async function assertInternalWorkItemAssignee(companyId: string, assigneeAgentId: string) {
+    const assignee = await assertActiveCompanyAgent(companyId, assigneeAgentId, "Assignee");
+    const allowedRoles = getAllowedProtocolRoles(assignee);
+    if (allowedRoles.has("tech_lead")) {
+      return { agent: assignee, protocolRole: "tech_lead" as const };
+    }
+    if (allowedRoles.has("engineer")) {
+      return { agent: assignee, protocolRole: "engineer" as const };
+    }
+    throw unprocessable("Assignee agent must support engineer or tech_lead protocol role");
+  }
+
+  async function assertInternalWorkItemReviewer(companyId: string, reviewerAgentId: string) {
+    const reviewer = await assertActiveCompanyAgent(companyId, reviewerAgentId, "Reviewer");
+    const allowedRoles = getAllowedProtocolRoles(reviewer);
+    if (!allowedRoles.has("reviewer")) {
+      throw unprocessable("Reviewer agent must support reviewer protocol role");
     }
     return reviewer;
   }
@@ -741,7 +766,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     const actor = getActorInfo(req);
     const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
-    await assertActiveReviewer(rootIssue.companyId, req.body.reviewerAgentId);
+    const assignee = await assertInternalWorkItemAssignee(rootIssue.companyId, req.body.assigneeAgentId);
+    await assertInternalWorkItemReviewer(rootIssue.companyId, req.body.reviewerAgentId);
 
     const labelNames = [
       "team:internal",
@@ -787,9 +813,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
       },
     });
 
-    const assigneeRole = workItem.assigneeAgentId === req.body.assigneeAgentId
-      ? (await agentsSvc.getById(req.body.assigneeAgentId))
-      : null;
     const assignmentMessage: CreateIssueProtocolMessage = {
       messageType: "ASSIGN_TASK",
       sender,
@@ -797,10 +820,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         {
           recipientType: "agent",
           recipientId: req.body.assigneeAgentId,
-          role:
-            assigneeRole?.role === "manager" || assigneeRole?.role === "tech_lead" || /tech lead/i.test(assigneeRole?.title ?? "")
-              ? "tech_lead"
-              : "engineer",
+          role: assignee.protocolRole,
         },
         {
           recipientType: "agent",
@@ -826,14 +846,29 @@ export function issueRoutes(db: Db, storage: StorageService) {
       artifacts: [],
     };
 
-    const dispatch = await appendProtocolMessageAndDispatch({
-      issue: workItem,
-      message: assignmentMessage,
-      actor,
-    });
+    let dispatch;
+    try {
+      dispatch = await appendProtocolMessageAndDispatch({
+        issue: workItem,
+        message: assignmentMessage,
+        actor,
+      });
+    } catch (err) {
+      try {
+        await svc.remove(workItem.id);
+      } catch (cleanupErr) {
+        logger.error(
+          { err: cleanupErr, issueId: workItem.id, parentIssueId: rootIssue.id },
+          "failed to clean up internal work item after initial protocol assignment failed",
+        );
+      }
+      throw err;
+    }
+
+    const refreshedWorkItem = await svc.getById(workItem.id) ?? workItem;
 
     res.status(201).json({
-      issue: workItem,
+      issue: refreshedWorkItem,
       protocol: dispatch.result,
       warnings: dispatch.warnings,
     });
