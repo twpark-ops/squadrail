@@ -19,6 +19,23 @@ describe("knowledge embedding service", () => {
     expect(normalizeEmbeddingInput("hello\nworld")).toBe("hello world");
   });
 
+  it("truncates oversized embedding input to a safe token budget", () => {
+    const oversized = Array.from({ length: 6505 }, (_, index) => `token${index}`).join(" ");
+    const normalized = normalizeEmbeddingInput(oversized);
+    const tokens = normalized.split(" ").filter(Boolean);
+
+    expect(tokens.length).toBeLessThanOrEqual(4001);
+    expect(normalized.endsWith("[truncated]")).toBe(true);
+  });
+
+  it("truncates oversized embedding input by character length before token overflow", () => {
+    const oversized = "x".repeat(25_000);
+    const normalized = normalizeEmbeddingInput(oversized);
+
+    expect(normalized.length).toBeLessThanOrEqual(20_012);
+    expect(normalized.endsWith("[truncated]")).toBe(true);
+  });
+
   it("reports unavailable provider info when no API key exists", () => {
     const service = knowledgeEmbeddingService();
     expect(service.getProviderInfo()).toEqual({

@@ -159,5 +159,5 @@ MIT &copy; 2026 Squadrail
 </p>
 
 <p align="center">
-  <sub>Open source under MIT. Built for teams that want agents to work like a real squad.</sub>
+  <sub>🚀 AI Squads on Rails — Open source under MIT. Built for teams that want agents to work like a real squad.</sub>
 </p>

@@ -52,6 +52,21 @@ function getProtocolRole(agentRole: string): string {
   return "reviewer";
 }
 
+function getAllowedProtocolRoles(agent: {
+  role: string;
+  title?: string | null;
+}) {
+  const allowed = new Set<string>([agent.role, getProtocolRole(agent.role)]);
+  if (agent.role === "qa") {
+    allowed.add("reviewer");
+  }
+  if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) {
+    allowed.add("tech_lead");
+    allowed.add("reviewer");
+  }
+  return allowed;
+}
+
 export function issueRoutes(db: Db, storage: StorageService) {
   const router = Router();
   const svc = issueService(db);
@@ -239,12 +254,13 @@ export function issueRoutes(db: Db, storage: StorageService) {
         });
       }
 
-      const expectedProtocolRole = getProtocolRole(agent.role);
-      if (message.sender.role !== agent.role && message.sender.role !== expectedProtocolRole) {
+      const allowedProtocolRoles = getAllowedProtocolRoles(agent);
+      if (!allowedProtocolRoles.has(message.sender.role)) {
         return denyWithProtocolViolation(403, `Role mismatch: claimed ${message.sender.role}, actual ${agent.role}`, {
           reason: "role_escalation_attempt",
           claimedRole: message.sender.role,
           actualRole: agent.role,
+          allowedRoles: Array.from(allowedProtocolRoles),
         });
       }
 

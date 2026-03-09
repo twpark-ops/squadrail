@@ -202,6 +202,24 @@ describe("knowledge import helpers", () => {
     });
   });
 
+  it("assigns unique monotonic chunk indexes for large markdown sections", () => {
+    const largeSection = Array.from({ length: 220 }, (_, index) => `line ${index + 1}`).join("\n");
+    const chunks = chunkWorkspaceFile({
+      relativePath: "docs/runbook/large.md",
+      content: [
+        "# Intro",
+        largeSection,
+        "## Followup",
+        largeSection,
+      ].join("\n"),
+      language: "markdown",
+    });
+
+    const chunkIndexes = chunks.map((chunk) => chunk.chunkIndex);
+    expect(new Set(chunkIndexes).size).toBe(chunkIndexes.length);
+    expect(chunkIndexes).toEqual([...chunkIndexes].sort((left, right) => left - right));
+  });
+
   it("chunks python files with semantic parser metadata", () => {
     const chunks = chunkWorkspaceFile({
       relativePath: "src/worker.py",

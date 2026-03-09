@@ -5,6 +5,8 @@ const DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small";
 const DEFAULT_OPENAI_EMBEDDINGS_ENDPOINT = "https://api.openai.com/v1/embeddings";
 const DEFAULT_EMBEDDING_TIMEOUT_MS = 15_000;
 const DEFAULT_EMBEDDING_BATCH_SIZE = 32;
+const DEFAULT_MAX_EMBEDDING_INPUT_WORDS = 4000;
+const DEFAULT_MAX_EMBEDDING_INPUT_CHARS = 20_000;
 
 export interface KnowledgeEmbeddingProviderInfo {
   available: boolean;
@@ -44,7 +46,18 @@ function toPositiveInt(value: string | undefined, fallback: number) {
 
 function normalizeEmbeddingInput(text: string) {
   const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length > 0 ? normalized : "[blank]";
+  if (normalized.length === 0) return "[blank]";
+
+  if (normalized.length > DEFAULT_MAX_EMBEDDING_INPUT_CHARS) {
+    return `${normalized.slice(0, DEFAULT_MAX_EMBEDDING_INPUT_CHARS).trimEnd()} [truncated]`;
+  }
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length <= DEFAULT_MAX_EMBEDDING_INPUT_WORDS) {
+    return normalized;
+  }
+
+  return `${tokens.slice(0, DEFAULT_MAX_EMBEDDING_INPUT_WORDS).join(" ")} [truncated]`;
 }
 
 function resolveOpenAiEmbeddingConfig(): OpenAiEmbeddingConfig | null {

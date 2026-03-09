@@ -45,73 +45,85 @@
 :root {
   color-scheme: light;
   --radius: 0;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Light mode: Clean white background */
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.15 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.15 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
+  --popover-foreground: oklch(0.15 0 0);
+  /* Primary: Lime-700 - WCAG AA compliant (contrast 4.6:1+) */
+  --primary: oklch(0.54 0.15 130);
+  --primary-foreground: oklch(1.0 0 0);
+  /* Secondary: Cyan-700 - WCAG AA compliant (contrast 5.38:1) */
+  --secondary: oklch(0.50 0.12 210);
+  --secondary-foreground: oklch(1.0 0 0);
+  --muted: oklch(0.96 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --accent: oklch(0.96 0 0);
+  --accent-foreground: oklch(0.15 0 0);
+  /* Destructive: Red-500 (#EF4444) */
+  --destructive: oklch(0.627 0.258 29.699);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.90 0 0);
+  --input: oklch(0.90 0 0);
+  --ring: oklch(0.763 0.184 130.429);
+  /* Charts: Vibrant spectrum */
+  --chart-1: oklch(0.763 0.184 130.429); /* Lime */
+  --chart-2: oklch(0.707 0.139 210.324); /* Cyan */
+  --chart-3: oklch(0.692 0.199 142.495); /* Green */
+  --chart-4: oklch(0.791 0.164 50.034);  /* Orange */
+  --chart-5: oklch(0.705 0.270 328.363); /* Pink */
+  /* Sidebar: Clean with lime accent */
+  --sidebar: oklch(0.99 0 0);
+  --sidebar-foreground: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.763 0.184 130.429);
+  --sidebar-primary-foreground: oklch(0.15 0 0);
+  --sidebar-accent: oklch(0.96 0 0);
+  --sidebar-accent-foreground: oklch(0.15 0 0);
+  --sidebar-border: oklch(0.90 0 0);
+  --sidebar-ring: oklch(0.763 0.184 130.429);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.145 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  /* Dark mode: True black background (Tech Startup aesthetic) */
+  --background: oklch(0.10 0 0);
+  --foreground: oklch(0.98 0 0);
+  --card: oklch(0.15 0 0);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0.15 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+  /* Primary: Lime-400 (#A3E635) - Brighter for dark mode */
+  --primary: oklch(0.848 0.204 129.571);
+  --primary-foreground: oklch(0.15 0 0);
+  /* Secondary: Cyan-400 (#22D3EE) - Brighter accent */
+  --secondary: oklch(0.799 0.148 210.067);
+  --secondary-foreground: oklch(0.15 0 0);
+  --muted: oklch(0.25 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.25 0 0);
+  --accent-foreground: oklch(0.98 0 0);
+  /* Destructive: Red-400 (#F87171) */
+  --destructive: oklch(0.708 0.217 27.325);
+  --destructive-foreground: oklch(0.15 0 0);
+  --border: oklch(0.25 0 0);
+  --input: oklch(0.25 0 0);
+  --ring: oklch(0.848 0.204 129.571);
+  /* Charts: High contrast vibrant */
+  --chart-1: oklch(0.848 0.204 129.571); /* Lime */
+  --chart-2: oklch(0.799 0.148 210.067); /* Cyan */
+  --chart-3: oklch(0.785 0.204 142.076); /* Green */
+  --chart-4: oklch(0.844 0.158 46.429);  /* Orange */
+  --chart-5: oklch(0.772 0.263 328.363); /* Pink */
+  /* Sidebar: Deep black with lime accent */
+  --sidebar: oklch(0.08 0 0);
+  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar-primary: oklch(0.848 0.204 129.571);
+  --sidebar-primary-foreground: oklch(0.15 0 0);
+  --sidebar-accent: oklch(0.20 0 0);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(0.25 0 0);
+  --sidebar-ring: oklch(0.848 0.204 129.571);
 }
 
 @layer base {
@@ -498,16 +510,36 @@ a.squadrail-project-mention-chip {
   }
 }
 
-/* Smooth theme transitions */
+/* Smooth theme transitions - only for interactive and visual elements */
 @layer base {
-  * {
+  button,
+  a,
+  [role="button"],
+  input,
+  textarea,
+  select,
+  .card,
+  .badge,
+  [data-slot="dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="select-trigger"] {
     transition-property: background-color, border-color, color, box-shadow;
     transition-duration: 200ms;
     transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    * {
+    button,
+    a,
+    [role="button"],
+    input,
+    textarea,
+    select,
+    .card,
+    .badge,
+    [data-slot="dialog-content"],
+    [data-slot="popover-content"],
+    [data-slot="select-trigger"] {
       transition: none;
     }
   }
@@ -559,52 +591,68 @@ a.squadrail-project-mention-chip {
   }
 }
 
-/* Workflow state colors */
+/* Workflow state colors - Squadrail brand-aligned */
 :root {
-  --status-backlog: oklch(0.75 0.05 240);
-  --status-backlog-border: oklch(0.65 0.10 240);
-  --status-implementing: oklch(0.7 0.15 250);
-  --status-implementing-border: oklch(0.60 0.16 250);
-  --status-reviewing: oklch(0.75 0.12 60);
-  --status-reviewing-border: oklch(0.70 0.13 60);
-  --status-approved: oklch(0.7 0.15 145);
-  --status-approved-border: oklch(0.65 0.16 145);
-  --status-blocked: oklch(0.65 0.18 25);
-  --status-blocked-border: oklch(0.60 0.19 25);
-  --status-idle: oklch(0.80 0.02 240);
-  --status-idle-border: oklch(0.65 0.03 240);
+  /* Backlog: Slate/Gray */
+  --status-backlog: oklch(0.75 0.03 240);
+  --status-backlog-border: oklch(0.65 0.05 240);
+  /* Implementing: Cyan (active work) */
+  --status-implementing: oklch(0.707 0.139 210.324);
+  --status-implementing-border: oklch(0.60 0.15 210);
+  /* Reviewing: Orange (attention needed) */
+  --status-reviewing: oklch(0.791 0.164 50.034);
+  --status-reviewing-border: oklch(0.70 0.17 50);
+  /* Approved: Lime (success) */
+  --status-approved: oklch(0.763 0.184 130.429);
+  --status-approved-border: oklch(0.70 0.19 130);
+  /* Blocked: Red */
+  --status-blocked: oklch(0.627 0.258 29.699);
+  --status-blocked-border: oklch(0.58 0.26 30);
+  /* Idle: Muted gray */
+  --status-idle: oklch(0.80 0.01 240);
+  --status-idle-border: oklch(0.65 0.02 240);
 }
 
 .dark {
-  --status-backlog: oklch(0.45 0.08 240);
-  --status-backlog-border: oklch(0.55 0.12 240);
-  --status-implementing: oklch(0.55 0.18 250);
-  --status-implementing-border: oklch(0.65 0.20 250);
-  --status-reviewing: oklch(0.65 0.14 60);
-  --status-reviewing-border: oklch(0.75 0.16 60);
-  --status-approved: oklch(0.6 0.18 145);
-  --status-approved-border: oklch(0.70 0.20 145);
-  --status-blocked: oklch(0.55 0.20 25);
-  --status-blocked-border: oklch(0.65 0.22 25);
-  --status-idle: oklch(0.50 0.04 240);
-  --status-idle-border: oklch(0.60 0.06 240);
+  /* Backlog: Dark slate */
+  --status-backlog: oklch(0.45 0.04 240);
+  --status-backlog-border: oklch(0.55 0.06 240);
+  /* Implementing: Bright cyan */
+  --status-implementing: oklch(0.799 0.148 210.067);
+  --status-implementing-border: oklch(0.85 0.16 210);
+  /* Reviewing: Bright orange */
+  --status-reviewing: oklch(0.844 0.158 46.429);
+  --status-reviewing-border: oklch(0.88 0.17 46);
+  /* Approved: Bright lime */
+  --status-approved: oklch(0.848 0.204 129.571);
+  --status-approved-border: oklch(0.88 0.21 130);
+  /* Blocked: Bright red */
+  --status-blocked: oklch(0.708 0.217 27.325);
+  --status-blocked-border: oklch(0.75 0.23 27);
+  /* Idle: Dark muted */
+  --status-idle: oklch(0.40 0.02 240);
+  --status-idle-border: oklch(0.50 0.03 240);
 }
 
-/* Priority colors */
+/* Priority colors - Squadrail brand spectrum */
 :root {
-  --priority-critical: oklch(0.55 0.22 25);
-  --priority-critical-bg: oklch(0.97 0.05 25);
-  --priority-high: oklch(0.65 0.18 40);
-  --priority-high-bg: oklch(0.97 0.04 40);
-  --priority-medium: oklch(0.70 0.12 60);
-  --priority-medium-bg: oklch(0.97 0.03 60);
-  --priority-low: oklch(0.70 0.08 200);
-  --priority-low-bg: oklch(0.97 0.02 200);
+  /* Critical: Red */
+  --priority-critical: oklch(0.627 0.258 29.699);
+  --priority-critical-bg: oklch(0.97 0.05 30);
+  /* High: Orange */
+  --priority-high: oklch(0.791 0.164 50.034);
+  --priority-high-bg: oklch(0.97 0.04 50);
+  /* Medium: Cyan */
+  --priority-medium: oklch(0.707 0.139 210.324);
+  --priority-medium-bg: oklch(0.97 0.03 210);
+  /* Low: Slate */
+  --priority-low: oklch(0.65 0.03 240);
+  --priority-low-bg: oklch(0.97 0.01 240);
 }
 
 .dark {
-  --priority-critical-bg: oklch(0.25 0.10 25);
-  --priority-high-bg: oklch(0.25 0.09 40);
-  --priority-medium-bg: oklch(0.25 0.06 60);
-  --priority-low-bg: oklch(0.25 0.04 200);
+  --priority-critical-bg: oklch(0.20 0.12 30);
+  --priority-high-bg: oklch(0.20 0.08 50);
+  --priority-medium-bg: oklch(0.20 0.07 210);
+  --priority-low-bg: oklch(0.20 0.02 240);
 }

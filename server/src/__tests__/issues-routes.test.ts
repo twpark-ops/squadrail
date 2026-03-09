@@ -397,7 +397,7 @@ describe("issue routes wakeup handling", () => {
         sender: {
           actorType: "agent",
           actorId: "cto-1",
-          role: "tech_lead",
+          role: "cto",
         },
         recipients: [
           { recipientType: "agent", recipientId: "22222222-2222-4222-8222-222222222222", role: "tech_lead" },
