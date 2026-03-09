@@ -69,6 +69,17 @@ function mapWorkspaceRowToRoutingRow(
   };
 }
 
+export function requiresIsolatedProjectWorkspace(input: {
+  usage: ProjectWorkspaceUsageProfile;
+  workspaces: Array<Pick<typeof projectWorkspaces.$inferSelect, "metadata">>;
+}) {
+  if (input.usage !== "implementation") return false;
+  return input.workspaces.some((workspace) => {
+    const policy = readProjectWorkspaceExecutionPolicyFromMetadata(workspace.metadata);
+    return policy?.mode === "isolated" && policy.applyFor.includes("implementation");
+  });
+}
+
 export async function resolveWorkspaceForRun(input: {
   db: Db;
   agent: typeof agents.$inferSelect;
@@ -134,6 +145,31 @@ export async function resolveWorkspaceForRun(input: {
         branchName: resolvedProjectWorkspace.branchName,
         workspaceHints,
         warnings: resolvedProjectWorkspace.warnings,
+      };
+    }
+
+    const isolatedWorkspaceRequired = requiresIsolatedProjectWorkspace({
+      usage: workspaceUsage,
+      workspaces: projectWorkspaceRows,
+    });
+
+    if (isolatedWorkspaceRequired) {
+      const fallbackCwd = resolveDefaultAgentWorkspaceDir(input.agent.id);
+      await fs.mkdir(fallbackCwd, { recursive: true });
+      return {
+        cwd: fallbackCwd,
+        source: "agent_home",
+        projectId: resolvedProjectId,
+        workspaceId: projectWorkspaceRows[0]?.id ?? null,
+        repoUrl: projectWorkspaceRows[0]?.repoUrl ?? null,
+        repoRef: projectWorkspaceRows[0]?.repoRef ?? null,
+        executionPolicy: null,
+        workspaceUsage,
+        branchName: null,
+        workspaceHints,
+        warnings: [
+          `Implementation requires an isolated project workspace, but a safe isolated workspace could not be prepared. Using blocked fallback workspace "${fallbackCwd}" so the run fails explicitly instead of mutating a shared checkout.`,
+        ],
       };
     }
 

@@ -307,7 +307,7 @@ async function ensureIsolatedWorkspace(input: {
         const clean = await isGitWorkTreeClean(targetDir);
         if (!clean) {
           warnings.push(
-            `Isolated workspace "${targetDir}" is bound to branch "${existingBranchName}" instead of "${branchName}" and contains local changes. Falling back to the shared project workspace rather than reusing a stale branch.`,
+            `Isolated workspace "${targetDir}" is bound to branch "${existingBranchName}" instead of "${branchName}" and contains local changes. Manual cleanup is required before implementation can continue.`,
           );
           return null;
         }
@@ -320,6 +320,12 @@ async function ensureIsolatedWorkspace(input: {
           `Removed stale isolated workspace "${targetDir}" because it was bound to branch "${existingBranchName}" instead of "${branchName}".`,
         );
       } else {
+        const clean = await isGitWorkTreeClean(targetDir);
+        if (!clean) {
+          warnings.push(
+            `Reusing existing isolated workspace "${targetDir}" with local changes from a prior implementation attempt.`,
+          );
+        }
         return { cwd: targetDir, warnings, branchName: existingBranchName ?? branchName };
       }
     } else if (await isDirectoryEmpty(targetDir)) {
@@ -360,8 +366,11 @@ async function ensureIsolatedWorkspace(input: {
       const existingWorktreeAvailable = await pathIsDirectory(existingWorktree.path);
       const existingWorktreeValid = existingWorktreeAvailable && await isGitWorkTree(existingWorktree.path);
       if (existingWorktreeValid) {
+        const clean = await isGitWorkTreeClean(existingWorktree.path);
         warnings.push(
-          `Branch "${branchName}" is already attached to existing worktree "${existingWorktree.path}". Reusing that isolated workspace.`,
+          clean
+            ? `Branch "${branchName}" is already attached to existing worktree "${existingWorktree.path}". Reusing that isolated workspace.`
+            : `Branch "${branchName}" is already attached to existing worktree "${existingWorktree.path}" with local changes from a prior attempt. Reusing that isolated workspace.`,
         );
         return { cwd: existingWorktree.path, warnings, branchName };
       }

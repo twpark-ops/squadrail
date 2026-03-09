@@ -41,6 +41,8 @@ const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_MAX = 10;
 const RUN_LEASE_TTL_MS = 45_000;
 const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
+const RUN_DISPATCH_WATCHDOG_MS = 8_000;
+const RUN_DISPATCH_RETRY_LIMIT = 2;
 const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 const WORKSPACE_CONTEXT_KEY = "squadrailWorkspace";
 const WORKSPACES_CONTEXT_KEY = "squadrailWorkspaces";
@@ -336,6 +338,23 @@ export function shouldReapHeartbeatRun(input: {
   return true;
 }
 
+export function decideDispatchWatchdogAction(input: {
+  runStatus: string;
+  leaseStatus?: string | null;
+  checkpointPhase?: string | null;
+  dispatchAttempts: number;
+  hasRunningProcess: boolean;
+}) {
+  if (input.hasRunningProcess) return "noop" as const;
+  if (input.runStatus !== "running") return "noop" as const;
+  if (input.leaseStatus && input.leaseStatus !== "launching") return "noop" as const;
+  if (input.checkpointPhase !== "claim.queued" && input.checkpointPhase !== "dispatch.redispatch") {
+    return "noop" as const;
+  }
+  if (input.dispatchAttempts >= RUN_DISPATCH_RETRY_LIMIT) return "fail" as const;
+  return "redispatch" as const;
+}
+
 function normalizeAgentNameKey(value: string | null | undefined) {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
@@ -429,6 +448,29 @@ function resolveNextSessionState(input: {
 export function heartbeatService(db: Db) {
   const runLogStore = getRunLogStore();
   const secretsSvc = secretService(db);
+  const dispatchWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const dispatchWatchdogAttempts = new Map<string, number>();
+
+  function clearDispatchWatchdog(runId: string) {
+    const timer = dispatchWatchdogTimers.get(runId);
+    if (timer) {
+      clearTimeout(timer);
+      dispatchWatchdogTimers.delete(runId);
+    }
+    dispatchWatchdogAttempts.delete(runId);
+  }
+
+  function scheduleDispatchWatchdog(runId: string) {
+    const existing = dispatchWatchdogTimers.get(runId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      void handleDispatchWatchdog(runId).catch((err) => {
+        logger.error({ err, runId }, "dispatch watchdog failed");
+      });
+    }, RUN_DISPATCH_WATCHDOG_MS);
+    timer.unref?.();
+    dispatchWatchdogTimers.set(runId, timer);
+  }
 
   async function getAgent(agentId: string) {
     return db
@@ -444,6 +486,25 @@ export function heartbeatService(db: Db) {
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.id, runId))
       .then((rows) => rows[0] ?? null);
+  }
+
+  async function getRunLease(runId: string) {
+    return db
+      .select()
+      .from(heartbeatRunLeases)
+      .where(eq(heartbeatRunLeases.runId, runId))
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function nextRunEventSeq(runId: string) {
+    const latest = await db
+      .select({ seq: heartbeatRunEvents.seq })
+      .from(heartbeatRunEvents)
+      .where(eq(heartbeatRunEvents.runId, runId))
+      .orderBy(desc(heartbeatRunEvents.seq))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    return (latest?.seq ?? 0) + 1;
   }
 
   async function getRuntimeState(agentId: string) {
@@ -773,7 +834,119 @@ export function heartbeatService(db: Db) {
       },
       heartbeatAt: claimedAt,
     });
+    clearDispatchWatchdog(claimed.id);
+    scheduleDispatchWatchdog(claimed.id);
     return claimed;
+  }
+
+  async function handleDispatchWatchdog(runId: string) {
+    dispatchWatchdogTimers.delete(runId);
+
+    const run = await getRun(runId);
+    if (!run) {
+      clearDispatchWatchdog(runId);
+      return;
+    }
+
+    const lease = await getRunLease(runId);
+    const checkpoint = parseObject(lease?.checkpointJson);
+    const checkpointPhase = readNonEmptyString(checkpoint.phase);
+    const dispatchAttempts = dispatchWatchdogAttempts.get(runId) ?? 0;
+    const action = decideDispatchWatchdogAction({
+      runStatus: run.status,
+      leaseStatus: lease?.status ?? null,
+      checkpointPhase,
+      dispatchAttempts,
+      hasRunningProcess: runningProcesses.has(runId),
+    });
+
+    if (action === "noop") {
+      clearDispatchWatchdog(runId);
+      return;
+    }
+
+    if (action === "redispatch") {
+      const attempt = dispatchAttempts + 1;
+      dispatchWatchdogAttempts.set(runId, attempt);
+      const heartbeatAt = new Date();
+      await upsertRunLease({
+        run,
+        status: "launching",
+        checkpointJson: {
+          phase: "dispatch.redispatch",
+          message: "dispatch watchdog is re-dispatching heartbeat execution",
+          attempt,
+          previousPhase: checkpointPhase,
+        },
+        heartbeatAt,
+      });
+      await appendRunEvent(run, await nextRunEventSeq(run.id), {
+        eventType: "dispatch.watchdog",
+        stream: "system",
+        level: "warn",
+        message: "dispatch watchdog is re-dispatching heartbeat execution",
+        payload: {
+          attempt,
+          previousPhase: checkpointPhase,
+          leaseStatus: lease?.status ?? null,
+        },
+      });
+      scheduleDispatchWatchdog(run.id);
+      runWithoutDbContext(() => {
+        logger.warn({ runId: run.id, attempt }, "dispatch watchdog re-dispatching heartbeat execution");
+        void executeRun(run.id).catch((err) => {
+          logger.error({ err, runId: run.id, attempt }, "redispatched heartbeat execution failed");
+        });
+      });
+      return;
+    }
+
+    const failedAt = new Date();
+    const error = "Dispatch watchdog timed out before execution started";
+    const failedRun = await setRunStatus(run.id, "failed", {
+      error,
+      errorCode: "dispatch_timeout",
+      finishedAt: failedAt,
+    });
+    await setWakeupStatus(run.wakeupRequestId, "failed", {
+      finishedAt: failedAt,
+      error,
+    });
+    const eventRun = failedRun ?? run;
+    await upsertRunLease({
+      run: eventRun,
+      status: "failed",
+      checkpointJson: {
+        phase: "dispatch.timeout",
+        message: error,
+        attempts: dispatchAttempts,
+      },
+      heartbeatAt: failedAt,
+      leaseExpiresAt: failedAt,
+      releasedAt: failedAt,
+      lastError: error,
+    });
+    await appendRunEvent(eventRun, await nextRunEventSeq(eventRun.id), {
+      eventType: "dispatch.watchdog",
+      stream: "system",
+      level: "error",
+      message: error,
+      payload: {
+        attempts: dispatchAttempts,
+        checkpointPhase,
+        leaseStatus: lease?.status ?? null,
+      },
+    });
+    clearDispatchWatchdog(runId);
+    await releaseIssueExecutionAndPromote(eventRun);
+    await wakeLeadSupervisorForRunFailure({
+      run: eventRun,
+      status: "failed",
+      errorCode: "dispatch_timeout",
+      error,
+    });
+    await finalizeAgentStatus(run.agentId, "failed");
+    await startNextQueuedRunForAgent(run.agentId);
   }
 
   async function finalizeAgentStatus(
@@ -897,6 +1070,7 @@ export function heartbeatService(db: Db) {
       await finalizeAgentStatus(run.agentId, "failed");
       await startNextQueuedRunForAgent(run.agentId);
       runningProcesses.delete(run.id);
+      clearDispatchWatchdog(run.id);
       reaped.push(run.id);
     }
 
@@ -1010,6 +1184,7 @@ export function heartbeatService(db: Db) {
   }
 
   async function executeRun(runId: string) {
+    clearDispatchWatchdog(runId);
     logger.info({ runId }, "heartbeat execution entered");
     let run = await getRun(runId);
     if (!run) return;
@@ -1022,6 +1197,7 @@ export function heartbeatService(db: Db) {
         return;
       }
       run = claimed;
+      clearDispatchWatchdog(run.id);
     }
 
     const agent = await getAgent(run.agentId);
@@ -1662,6 +1838,7 @@ export function heartbeatService(db: Db) {
 
       await finalizeAgentStatus(agent.id, "failed");
     } finally {
+      clearDispatchWatchdog(runId);
       if (leaseHeartbeatTimer) {
         clearInterval(leaseHeartbeatTimer);
       }
@@ -2567,6 +2744,7 @@ export function heartbeatService(db: Db) {
       }
 
       runningProcesses.delete(run.id);
+      clearDispatchWatchdog(run.id);
       await finalizeAgentStatus(run.agentId, "cancelled");
       await startNextQueuedRunForAgent(run.agentId);
       return cancelled;
@@ -2608,6 +2786,7 @@ export function heartbeatService(db: Db) {
           running.child.kill("SIGTERM");
           runningProcesses.delete(run.id);
         }
+        clearDispatchWatchdog(run.id);
         await releaseIssueExecutionAndPromote(run);
       }
 

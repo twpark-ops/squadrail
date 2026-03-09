@@ -319,4 +319,133 @@ describe("resolveProjectWorkspaceByPolicy", () => {
       ]),
     );
   });
+
+  it("keeps a dirty stale isolated worktree blocked instead of reusing it", async () => {
+    const repo = await createTempWorkspace();
+    const isolatedRoot = path.join(repo, ".isolated");
+    const staleTarget = path.join(isolatedRoot, "issue-42-agent-implementer-workspace-im");
+    await fs.mkdir(staleTarget, { recursive: true });
+    const gitWorktrees = new Set([repo, staleTarget]);
+
+    setProjectWorkspaceGitExecutorForTests(async ({ cwd, args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        if (cwd && gitWorktrees.has(cwd)) return { stdout: "true\n" };
+        throw new Error("not a git worktree");
+      }
+      if (args[0] === "branch" && args[1] === "--show-current") {
+        if (cwd === staleTarget) return { stdout: "old/stale-branch\n" };
+        return { stdout: "main\n" };
+      }
+      if (args[0] === "status" && args[1] === "--porcelain") {
+        if (cwd === staleTarget) return { stdout: " M src/app.ts\n" };
+        return { stdout: "" };
+      }
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const result = await resolveProjectWorkspaceByPolicy({
+      agentId: "agent-implementer",
+      issueId: "issue-42",
+      projectId: "project-1",
+      taskKey: "issue-42",
+      context: {
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      },
+      workspaces: [
+        {
+          id: "workspace-impl",
+          name: "impl",
+          cwd: repo,
+          repoUrl: null,
+          repoRef: "HEAD",
+          metadata: {
+            executionPolicy: {
+              mode: "isolated",
+              applyFor: ["implementation"],
+              isolationStrategy: "worktree",
+              isolatedRoot,
+              branchTemplate: "squadrail/{projectId}/{agentId}/{issueId}",
+            },
+          },
+          isPrimary: true,
+        },
+      ],
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("recreates a stale clone when the branch binding no longer matches", async () => {
+    const repo = await createTempWorkspace();
+    const isolatedRoot = path.join(repo, ".clones");
+    const staleTarget = path.join(isolatedRoot, "issue-42-agent-implementer-workspace-im");
+    await fs.mkdir(staleTarget, { recursive: true });
+    const gitWorktrees = new Set([repo, staleTarget]);
+
+    setProjectWorkspaceGitExecutorForTests(async ({ cwd, args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        if (cwd && gitWorktrees.has(cwd)) return { stdout: "true\n" };
+        throw new Error("not a git worktree");
+      }
+      if (args[0] === "branch" && args[1] === "--show-current") {
+        if (cwd === staleTarget) return { stdout: "old/stale-branch\n" };
+        return { stdout: "main\n" };
+      }
+      if (args[0] === "status" && args[1] === "--porcelain") {
+        return { stdout: "" };
+      }
+      if (args[0] === "clone") {
+        const targetDir = args[3];
+        if (!targetDir) throw new Error("missing target dir");
+        await fs.mkdir(targetDir, { recursive: true });
+        gitWorktrees.add(targetDir);
+        return { stdout: "" };
+      }
+      if (args[0] === "checkout" && args[1] === "-b") {
+        return { stdout: "" };
+      }
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const result = await resolveProjectWorkspaceByPolicy({
+      agentId: "agent-implementer",
+      issueId: "issue-42",
+      projectId: "project-1",
+      taskKey: "issue-42",
+      context: {
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      },
+      workspaces: [
+        {
+          id: "workspace-impl",
+          name: "impl",
+          cwd: repo,
+          repoUrl: null,
+          repoRef: "HEAD",
+          metadata: {
+            executionPolicy: {
+              mode: "isolated",
+              applyFor: ["implementation"],
+              isolationStrategy: "clone",
+              isolatedRoot,
+              branchTemplate: "squadrail/{projectId}/{agentId}/{issueId}",
+            },
+          },
+          isPrimary: true,
+        },
+      ],
+    });
+
+    expect(result?.source).toBe("project_isolated");
+    expect(result?.cwd).toBe(staleTarget);
+    expect(result?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Removed stale isolated workspace"),
+      ]),
+    );
+  });
 });

@@ -136,10 +136,12 @@
   - existing worktree branch collision 시 기존 attached path 재사용
   - clean stale isolated worktree는 branch mismatch 감지 후 제거/재생성
   - empty stale isolated directory는 recreation 전에 safe cleanup
+  - dirty stale isolated workspace는 manual cleanup required 상태로 승격하고 unsafe shared fallback을 차단
+  - isolated workspace 준비가 실패한 implementation run은 blocked fallback warning과 함께 명시적으로 실패
+  - cold-start `claim-only` run은 dispatch watchdog이 redispatch 후 timeout failover까지 담당
 - 잔여 주의사항
-  - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
-  - adapter별 structured verification metadata 깊이 차이는 `Phase 3 / Slice 2`에서 계속 정리
-  - dirty stale workspace에 대한 escalation/retry 정책은 `Phase 3 / Slice 3`에서 계속 진행
+  - adapter별 structured verification metadata 깊이 차이는 여전히 존재하며, 특히 `claude_local`은 `exitCode`가 비어 있는 경우가 많다
+  - implementation retry/resume 정책과 clone strategy 운영 표면은 `Phase 3 / Slice 3`에서 계속 정리
 
 ## Phase 1 세부 슬라이스
 

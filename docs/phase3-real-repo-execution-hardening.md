@@ -52,12 +52,15 @@ Phase 3의 목표는 `실제 repo에서 작업했다`는 증거를 run, protocol
 - isolated worktree가 다른 경로에 이미 붙어 있으면 해당 path를 재사용해 branch collision을 흡수
 - clean 상태의 stale isolated worktree는 branch mismatch를 감지하면 제거 후 재생성
 - empty stale directory는 안전하게 정리하고 recreation
+- dirty stale isolated workspace는 조용히 shared workspace로 내려가지 않고 manual cleanup이 필요한 blocked 상태로 승격
+- implementation usage에서 safe isolated workspace를 만들 수 없으면 blocked fallback warning을 남겨 실행을 명시적으로 실패시킴
+- claimed run이 cold-start 구간에서 `claim.queued`에 머무르면 dispatch watchdog이 redispatch/failover를 수행
 
 다음 작업 범위:
 
-- isolated clone cleanup 정책
-- dirty stale workspace에 대한 recovery/escalation 정책
 - implementation retry/resume 정책과 branch collision 처리의 운영 표면 보강
+- clone strategy의 branch collision / dirty stale state 운영 표면 보강
+- dispatch watchdog 이후에도 preflight 초입이 지연되는 경우를 위한 추가 계측
 
 ## 완료 기준
 
@@ -67,3 +70,4 @@ Phase 3 전체 완료 기준:
 2. review submission은 실제 repo diff 또는 genuine commit evidence와 연결된다.
 3. close 단계는 verification evidence와 repo state 없이 통과하지 않는다.
 4. 운영자는 run event만 봐도 어떤 workspace에서 어떤 diff가 생겼는지 파악할 수 있다.
+5. implementation run은 unsafe fallback workspace에서 조용히 실행되지 않고, dispatch stall은 watchdog event로 드러난다.
