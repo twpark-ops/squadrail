@@ -6,7 +6,7 @@ export const issueTaskBriefs = pgTable(
   "issue_task_briefs",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").notNull().references(() => issues.id, { onDelete: "cascade" }),
     briefScope: text("brief_scope").notNull(),
     briefVersion: integer("brief_version").notNull(),

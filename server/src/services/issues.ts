@@ -355,8 +355,50 @@ export function issueService(db: Db) {
         .from(issues)
         .where(and(...conditions))
         .orderBy(hasSearch ? asc(searchOrder) : asc(priorityOrder), asc(priorityOrder), desc(issues.updatedAt));
-      const withLabels = await withIssueLabels(db, rows);
-      const runMap = await activeRunMapForIssues(db, withLabels);
+
+      // Parallelize label and run queries to reduce latency
+      const [labelsByIssueId, runMap] = await Promise.all([
+        labelMapForIssues(db, rows.map((row) => row.id)),
+        (async () => {
+          const runIds = rows
+            .map((row) => row.executionRunId)
+            .filter((id): id is string => id != null);
+          if (runIds.length === 0) return new Map<string, IssueActiveRunRow>();
+          const runRows = await db
+            .select({
+              id: heartbeatRuns.id,
+              status: heartbeatRuns.status,
+              agentId: heartbeatRuns.agentId,
+              invocationSource: heartbeatRuns.invocationSource,
+              triggerDetail: heartbeatRuns.triggerDetail,
+              startedAt: heartbeatRuns.startedAt,
+              finishedAt: heartbeatRuns.finishedAt,
+              createdAt: heartbeatRuns.createdAt,
+            })
+            .from(heartbeatRuns)
+            .where(
+              and(
+                inArray(heartbeatRuns.id, runIds),
+                inArray(heartbeatRuns.status, ACTIVE_RUN_STATUSES),
+              ),
+            );
+          const map = new Map<string, IssueActiveRunRow>();
+          for (const row of runRows) {
+            map.set(row.id, row);
+          }
+          return map;
+        })(),
+      ]);
+
+      const withLabels = rows.map((row) => {
+        const issueLabels = labelsByIssueId.get(row.id) ?? [];
+        return {
+          ...row,
+          labels: issueLabels,
+          labelIds: issueLabels.map((label) => label.id),
+        };
+      });
+
       return withActiveRuns(withLabels, runMap);
     },
 

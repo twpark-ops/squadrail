@@ -5,7 +5,7 @@ export const retrievalPolicies = pgTable(
   "retrieval_policies",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
     eventType: text("event_type").notNull(),
     workflowState: text("workflow_state").notNull(),

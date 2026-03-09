@@ -62,6 +62,13 @@ const importProjectWorkspaceSchema = z.object({
   maxFiles: z.number().int().min(1).max(500).optional(),
 }).strict().optional();
 
+const listDocumentsSchema = z.object({
+  companyId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
+  sourceType: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+});
+
 const listRetrievalPoliciesSchema = z.object({
   companyId: z.string().uuid(),
   role: z.string().min(1).optional(),
@@ -92,6 +99,18 @@ export function knowledgeRoutes(db: Db) {
   const imports = knowledgeImportService(db);
   const projects = projectService(db);
   const setup = setupProgressService(db);
+
+  router.get("/knowledge/documents", async (req, res) => {
+    const parsed = listDocumentsSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    assertCompanyAccess(req, parsed.data.companyId);
+    const documents = await knowledge.listDocuments(parsed.data);
+    res.json(documents);
+  });
 
   router.post("/knowledge/documents", async (req, res) => {
     const parsed = createKnowledgeDocumentSchema.safeParse(req.body);

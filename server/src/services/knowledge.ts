@@ -103,6 +103,30 @@ export function knowledgeService(db: Db) {
         .where(eq(knowledgeDocuments.id, documentId))
         .then((rows) => rows[0] ?? null),
 
+    listDocuments: async (input: {
+      companyId: string;
+      projectId?: string | null;
+      sourceType?: string | null;
+      limit?: number;
+    }) => {
+      const conditions = [eq(knowledgeDocuments.companyId, input.companyId)];
+
+      if (input.projectId) {
+        conditions.push(eq(knowledgeDocuments.projectId, input.projectId));
+      }
+
+      if (input.sourceType) {
+        conditions.push(eq(knowledgeDocuments.sourceType, input.sourceType));
+      }
+
+      return db
+        .select()
+        .from(knowledgeDocuments)
+        .where(and(...conditions))
+        .orderBy(desc(knowledgeDocuments.updatedAt))
+        .limit(input.limit ?? 200);
+    },
+
     listDocumentChunks: async (documentId: string) =>
       db
         .select()

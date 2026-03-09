@@ -6,7 +6,7 @@ export const knowledgeChunkLinks = pgTable(
   "knowledge_chunk_links",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     chunkId: uuid("chunk_id").notNull().references(() => knowledgeChunks.id, { onDelete: "cascade" }),
     entityType: text("entity_type").notNull(),
     entityId: text("entity_id").notNull(),

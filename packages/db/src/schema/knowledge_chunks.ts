@@ -14,7 +14,7 @@ export const knowledgeChunks = pgTable(
   "knowledge_chunks",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     documentId: uuid("document_id").notNull().references(() => knowledgeDocuments.id, { onDelete: "cascade" }),
     chunkIndex: integer("chunk_index").notNull(),
     headingPath: text("heading_path"),

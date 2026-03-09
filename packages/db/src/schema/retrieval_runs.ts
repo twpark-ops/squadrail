@@ -8,7 +8,7 @@ export const retrievalRuns = pgTable(
   "retrieval_runs",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     issueId: uuid("issue_id").references(() => issues.id, { onDelete: "set null" }),
     triggeringMessageId: uuid("triggering_message_id").references(() => issueProtocolMessages.id, { onDelete: "set null" }),
     actorType: text("actor_type").notNull(),

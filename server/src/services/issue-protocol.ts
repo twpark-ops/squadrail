@@ -554,10 +554,12 @@ export function issueProtocolService(db: Db) {
       if (!issue) throw notFound("Issue not found");
 
       return db.transaction(async (tx) => {
+        // Use SELECT FOR UPDATE to prevent race conditions when multiple protocol messages arrive concurrently
         const currentState = await tx
           .select()
           .from(issueProtocolState)
           .where(eq(issueProtocolState.issueId, issue.id))
+          .for("update")
           .then((rows: Array<typeof issueProtocolState.$inferSelect>) => rows[0] ?? null);
 
         await validateMessage(currentState, input.message);

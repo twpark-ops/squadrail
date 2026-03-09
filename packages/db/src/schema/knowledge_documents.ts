@@ -8,7 +8,7 @@ export const knowledgeDocuments = pgTable(
   "knowledge_documents",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     sourceType: text("source_type").notNull(),
     authorityLevel: text("authority_level").notNull(),
     repoUrl: text("repo_url"),

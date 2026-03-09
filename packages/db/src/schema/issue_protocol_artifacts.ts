@@ -6,7 +6,7 @@ export const issueProtocolArtifacts = pgTable(
   "issue_protocol_artifacts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").notNull().references(() => companies.id),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     messageId: uuid("message_id").notNull().references(() => issueProtocolMessages.id, { onDelete: "cascade" }),
     artifactKind: text("artifact_kind").notNull(),
     artifactUri: text("artifact_uri").notNull(),
