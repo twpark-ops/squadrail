@@ -7,7 +7,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { authApi } from "./api/auth";
 import { healthApi } from "./api/health";
 import { companiesApi } from "./api/companies";
-import { Dashboard } from "./pages/Dashboard";
+import { DashboardOptimized as Dashboard } from "./pages/DashboardOptimized";
 import { Companies } from "./pages/Companies";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";

@@ -1175,11 +1175,13 @@ function chunkMarkdownFile(input: {
     });
   }
 
-  return sections.flatMap((section, sectionIndex) => {
+  let nextChunkIndex = 0;
+
+  return sections.flatMap((section) => {
     const sectionLines = section.textContent.split(/\r?\n/);
     if (sectionLines.length <= DEFAULT_MARKDOWN_CHUNK_LINE_COUNT) {
       return [{
-        chunkIndex: sectionIndex,
+        chunkIndex: nextChunkIndex++,
         headingPath: section.headingPath,
         symbolName: null,
         tokenCount: estimateTokenCount(section.textContent),
@@ -1205,9 +1207,9 @@ function chunkMarkdownFile(input: {
         parentHeadingPath: section.headingPath,
       },
     });
-    return nested.map((chunk, nestedIndex) => ({
+    return nested.map((chunk) => ({
       ...chunk,
-      chunkIndex: sectionIndex * 100 + nestedIndex,
+      chunkIndex: nextChunkIndex++,
       headingPath: section.headingPath,
       searchText: [section.headingPath, chunk.textContent].join("\n"),
       metadata: {

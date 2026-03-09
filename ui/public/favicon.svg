@@ -1,7 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
-  <rect width="48" height="48" rx="12" fill="#0F172A"/>
-  <path d="M8 10H22C26 10 29 11 32 14L38 20C40 22 42 23 44 23" stroke="#F4A261" stroke-width="4.5"/>
-  <path d="M8 22H24C27 22 30 23 33 25L40 32" stroke="#F8FAFC" stroke-width="4.5"/>
-  <path d="M8 34H28" stroke="#2A9D8F" stroke-width="4.5"/>
-  <circle cx="38" cy="30" r="2.4" fill="#F8FAFC"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Squadrail favicon: Rails + Squad concept -->
+  <rect width="64" height="64" rx="12" fill="#0A0A0A"/>
+
+  <!-- Rails (lime green tracks) -->
+  <path d="M12 20 h40 M12 28 h40 M12 36 h40 M12 44 h40"
+        stroke="#84CC16"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+  <!-- Squad (cyan dots moving along rails) -->
+  <circle cx="18" cy="20" r="3.5" fill="#06B6D4"/>
+  <circle cx="30" cy="28" r="3.5" fill="#06B6D4"/>
+  <circle cx="42" cy="36" r="3.5" fill="#06B6D4"/>
+  <circle cx="50" cy="44" r="3.5" fill="#06B6D4"/>
+
+  <!-- Motion trail -->
+  <circle cx="14" cy="20" r="1.5" fill="#06B6D4" opacity="0.4"/>
+  <circle cx="26" cy="28" r="1.5" fill="#06B6D4" opacity="0.4"/>
+  <circle cx="38" cy="36" r="1.5" fill="#06B6D4" opacity="0.4"/>
+  <circle cx="46" cy="44" r="1.5" fill="#06B6D4" opacity="0.4"/>
 </svg>
