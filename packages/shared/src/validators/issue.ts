@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../constants.js";
 
+const internalWorkItemKinds = ["plan", "implementation", "review", "qa"] as const;
+const stringListSchema = z.array(z.string().trim().min(1).max(500)).max(20);
+
 export const issueAssigneeAdapterOverridesSchema = z
   .object({
     adapterConfig: z.record(z.unknown()).optional(),
@@ -25,6 +28,25 @@ export const createIssueSchema = z.object({
 });
 
 export type CreateIssue = z.infer<typeof createIssueSchema>;
+
+export const createInternalWorkItemSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(10_000).optional().nullable(),
+  kind: z.enum(internalWorkItemKinds),
+  priority: z.enum(ISSUE_PRIORITIES).optional().default("medium"),
+  assigneeAgentId: z.string().uuid(),
+  reviewerAgentId: z.string().uuid(),
+  goal: z.string().trim().min(1).max(500).optional(),
+  acceptanceCriteria: stringListSchema.min(1),
+  definitionOfDone: stringListSchema.min(1),
+  deadlineAt: z.string().datetime().nullable().optional(),
+  requiredKnowledgeTags: stringListSchema.optional(),
+  relatedIssueIds: z.array(z.string().uuid()).max(20).optional(),
+  watchReviewer: z.boolean().optional().default(true),
+  watchLead: z.boolean().optional().default(true),
+});
+
+export type CreateInternalWorkItem = z.infer<typeof createInternalWorkItemSchema>;
 
 export const createIssueLabelSchema = z.object({
   name: z.string().trim().min(1).max(48),

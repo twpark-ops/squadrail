@@ -4,10 +4,12 @@ import { runWithoutDbContext, type Db } from "@squadrail/db";
 import {
   addIssueCommentSchema,
   createIssueAttachmentMetadataSchema,
+  createInternalWorkItemSchema,
   createIssueLabelSchema,
   checkoutIssueSchema,
   createIssueSchema,
   createIssueProtocolMessageSchema,
+  type CreateIssueProtocolMessage,
   linkIssueApprovalSchema,
   updateIssueSchema,
 } from "@squadrail/shared";
@@ -28,7 +30,7 @@ import {
   projectService,
 } from "../services/index.js";
 import { logger } from "../middleware/logger.js";
-import { forbidden, HttpError, unauthorized } from "../errors.js";
+import { forbidden, HttpError, notFound, unauthorized } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 
 const MAX_ATTACHMENT_BYTES = Number(process.env.SQUADRAIL_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
@@ -160,6 +162,158 @@ export function issueRoutes(db: Db, storage: StorageService) {
     } catch (err) {
       logger.warn({ err, issueId: issue.id, agentId }, failureMessage);
       return null;
+    }
+  }
+
+  async function assertActiveReviewer(companyId: string, reviewerAgentId: string) {
+    const reviewer = await agentsSvc.getById(reviewerAgentId);
+    if (!reviewer || reviewer.companyId !== companyId) {
+      throw notFound("Reviewer agent not found");
+    }
+    if (reviewer.status === "pending_approval") {
+      throw forbidden("Cannot assign review to pending approval agents");
+    }
+    if (reviewer.status === "terminated") {
+      throw forbidden("Cannot assign review to terminated agents");
+    }
+    return reviewer;
+  }
+
+  async function buildTaskAssignmentSender(req: Request, companyId: string): Promise<CreateIssueProtocolMessage["sender"]> {
+    const actor = getActorInfo(req);
+    if (req.actor.type === "board") {
+      return {
+        actorType: "user",
+        actorId: actor.actorId,
+        role: "human_board",
+      };
+    }
+
+    if (!req.actor.agentId) {
+      throw forbidden("Agent authentication required");
+    }
+
+    const agent = await agentsSvc.getById(req.actor.agentId);
+    if (!agent || agent.companyId !== companyId) {
+      throw forbidden("Agent not found");
+    }
+
+    if (agent.role === "cto") {
+      return { actorType: "agent", actorId: agent.id, role: "cto" };
+    }
+    if (agent.role === "pm") {
+      return { actorType: "agent", actorId: agent.id, role: "pm" };
+    }
+    if (agent.role === "tech_lead" || agent.role === "manager" || /tech lead/i.test(agent.title ?? "")) {
+      return { actorType: "agent", actorId: agent.id, role: "tech_lead" };
+    }
+
+    throw forbidden("Agent cannot create internal work items through protocol assignment");
+  }
+
+  async function appendProtocolMessageAndDispatch(input: {
+    issue: {
+      id: string;
+      companyId: string;
+      projectId: string | null;
+      identifier: string | null;
+      title: string;
+      description: string | null;
+      labels?: Array<{ id: string; name: string; color: string }>;
+    };
+    message: CreateIssueProtocolMessage;
+    actor: ReturnType<typeof getActorInfo>;
+  }) {
+    const result = await protocolSvc.appendMessage({
+      issueId: input.issue.id,
+      message: input.message,
+      mirrorToComments: true,
+      authorAgentId: input.actor.agentId,
+      authorUserId: input.actor.actorType === "user" ? input.actor.actorId : null,
+    });
+
+    await logActivity(db, {
+      companyId: input.issue.companyId,
+      actorType: input.actor.actorType,
+      actorId: input.actor.actorId,
+      agentId: input.actor.agentId,
+      runId: input.actor.runId,
+      action: "issue.protocol_message.created",
+      entityType: "issue",
+      entityId: input.issue.id,
+      details: {
+        messageType: input.message.messageType,
+        workflowStateBefore: input.message.workflowStateBefore,
+        workflowStateAfter: input.message.workflowStateAfter,
+        summary: input.message.summary,
+      },
+    });
+
+    let recipientHints: Array<{
+      recipientId: string;
+      recipientRole: string;
+      retrievalRunId: string;
+      briefId: string;
+      briefScope: string;
+    }> = [];
+    try {
+      const retrieval = await issueRetrieval.handleProtocolMessage({
+        companyId: input.issue.companyId,
+        issueId: input.issue.id,
+        issue: {
+          id: input.issue.id,
+          projectId: input.issue.projectId ?? null,
+          identifier: input.issue.identifier ?? null,
+          title: input.issue.title,
+          description: input.issue.description ?? null,
+          labels: input.issue.labels ?? [],
+        },
+        triggeringMessageId: result.message.id,
+        triggeringMessageSeq: result.message.seq,
+        message: input.message,
+        actor: {
+          actorType: input.actor.actorType,
+          actorId: input.actor.actorId,
+        },
+      });
+      recipientHints = retrieval.recipientHints;
+
+      if (retrieval.retrievalRuns && retrieval.retrievalRuns.length > 0) {
+        logger.info(
+          {
+            issueId: input.issue.id,
+            messageType: input.message.messageType,
+            retrievalRunCount: retrieval.retrievalRuns.length,
+            retrievalRunIds: retrieval.retrievalRuns.map((run) => run.retrievalRunId),
+          },
+          "Brief(s) generated successfully",
+        );
+      }
+    } catch (err) {
+      logger.error(
+        {
+          err,
+          issueId: input.issue.id,
+          messageType: input.message.messageType,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
+      );
+    }
+
+    try {
+      await protocolExecution.dispatchMessage({
+        issueId: input.issue.id,
+        companyId: input.issue.companyId,
+        protocolMessageId: result.message.id,
+        message: input.message,
+        recipientHints,
+        actor: input.actor,
+      });
+      return { result, warnings: [] as string[] };
+    } catch (err) {
+      logger.error({ err, issueId: input.issue.id }, "Protocol dispatch failed - agents may not be notified");
+      return { result, warnings: ["Wakeup dispatch failed - agents may not be notified"] };
     }
   }
 
@@ -559,7 +713,130 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const mentionedProjects = mentionedProjectIds.length > 0
       ? await projectsSvc.listByIds(issue.companyId, mentionedProjectIds)
       : [];
-    res.json({ ...issue, ancestors, project: project ?? null, goal: goal ?? null, mentionedProjects });
+    const [internalWorkItems, internalWorkItemSummary] = await Promise.all([
+      svc.listInternalWorkItems(issue.id),
+      svc.getInternalWorkItemSummary(issue.id),
+    ]);
+    res.json({
+      ...issue,
+      ancestors,
+      internalWorkItems,
+      internalWorkItemSummary,
+      project: project ?? null,
+      goal: goal ?? null,
+      mentionedProjects,
+    });
+  });
+
+  router.post("/issues/:id/internal-work-items", validate(createInternalWorkItemSchema), async (req, res) => {
+    const rootIssueId = req.params.id as string;
+    const rootIssue = await svc.getById(rootIssueId);
+    if (!rootIssue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+
+    assertCompanyAccess(req, rootIssue.companyId);
+    await assertCanAssignTasks(req, rootIssue.companyId);
+
+    const actor = getActorInfo(req);
+    const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
+    await assertActiveReviewer(rootIssue.companyId, req.body.reviewerAgentId);
+
+    const labelNames = [
+      "team:internal",
+      req.body.kind === "plan"
+        ? "work:plan"
+        : req.body.kind === "implementation"
+          ? "work:implementation"
+          : req.body.kind === "review"
+            ? "work:review"
+            : "work:qa",
+      ...(req.body.watchReviewer === false ? [] : ["watch:reviewer"]),
+      ...(req.body.watchLead === false ? [] : ["watch:lead"]),
+    ];
+
+    const workItem = await svc.createInternalWorkItem({
+      parentIssueId: rootIssue.id,
+      companyId: rootIssue.companyId,
+      title: req.body.title,
+      description: req.body.description ?? null,
+      kind: req.body.kind,
+      priority: req.body.priority,
+      assigneeAgentId: req.body.assigneeAgentId,
+      createdByAgentId: actor.agentId,
+      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      labelNames,
+    });
+
+    await logActivity(db, {
+      companyId: workItem.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.created",
+      entityType: "issue",
+      entityId: workItem.id,
+      details: {
+        title: workItem.title,
+        identifier: workItem.identifier,
+        parentIssueId: rootIssue.id,
+        internalWorkItem: true,
+        kind: req.body.kind,
+      },
+    });
+
+    const assigneeRole = workItem.assigneeAgentId === req.body.assigneeAgentId
+      ? (await agentsSvc.getById(req.body.assigneeAgentId))
+      : null;
+    const assignmentMessage: CreateIssueProtocolMessage = {
+      messageType: "ASSIGN_TASK",
+      sender,
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: req.body.assigneeAgentId,
+          role:
+            assigneeRole?.role === "manager" || assigneeRole?.role === "tech_lead" || /tech lead/i.test(assigneeRole?.title ?? "")
+              ? "tech_lead"
+              : "engineer",
+        },
+        {
+          recipientType: "agent",
+          recipientId: req.body.reviewerAgentId,
+          role: "reviewer",
+        },
+      ],
+      workflowStateBefore: "backlog",
+      workflowStateAfter: "assigned",
+      summary: `Assign internal ${req.body.kind} work item`,
+      requiresAck: false,
+      payload: {
+        goal: req.body.goal?.trim() || req.body.title,
+        acceptanceCriteria: req.body.acceptanceCriteria,
+        definitionOfDone: req.body.definitionOfDone,
+        priority: req.body.priority,
+        assigneeAgentId: req.body.assigneeAgentId,
+        reviewerAgentId: req.body.reviewerAgentId,
+        deadlineAt: req.body.deadlineAt ?? null,
+        relatedIssueIds: req.body.relatedIssueIds,
+        requiredKnowledgeTags: req.body.requiredKnowledgeTags,
+      },
+      artifacts: [],
+    };
+
+    const dispatch = await appendProtocolMessageAndDispatch({
+      issue: workItem,
+      message: assignmentMessage,
+      actor,
+    });
+
+    res.status(201).json({
+      issue: workItem,
+      protocol: dispatch.result,
+      warnings: dispatch.warnings,
+    });
   });
 
   router.get("/issues/:id/approvals", async (req, res) => {
@@ -1110,14 +1387,20 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     if (!(await assertCanPostProtocolMessage(req, res, issue, message))) return;
 
-    let result;
+    let dispatch;
     try {
-      result = await protocolSvc.appendMessage({
-        issueId: id,
+      dispatch = await appendProtocolMessageAndDispatch({
+        issue: {
+          id: issue.id,
+          companyId: issue.companyId,
+          projectId: issue.projectId ?? null,
+          identifier: issue.identifier ?? null,
+          title: issue.title,
+          description: issue.description ?? null,
+          labels: issue.labels ?? [],
+        },
         message,
-        mirrorToComments: true,
-        authorAgentId: actor.agentId,
-        authorUserId: req.actor.type === "board" ? req.actor.userId : null,
+        actor,
       });
     } catch (err) {
       const inferredViolation = inferProtocolViolationFromError(err);
@@ -1142,99 +1425,11 @@ export function issueRoutes(db: Db, storage: StorageService) {
       next(err);
       return;
     }
-
-    await logActivity(db, {
-      companyId: issue.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.protocol_message.created",
-      entityType: "issue",
-      entityId: issue.id,
-      details: {
-        messageType: message.messageType,
-        workflowStateBefore: message.workflowStateBefore,
-        workflowStateAfter: message.workflowStateAfter,
-        summary: message.summary,
-      },
-    });
-
-    let recipientHints: Array<{
-      recipientId: string;
-      recipientRole: string;
-      retrievalRunId: string;
-      briefId: string;
-      briefScope: string;
-    }> = [];
-    try {
-      const retrieval = await issueRetrieval.handleProtocolMessage({
-        companyId: issue.companyId,
-        issueId: issue.id,
-        issue: {
-          id: issue.id,
-          projectId: issue.projectId ?? null,
-          identifier: issue.identifier ?? null,
-          title: issue.title,
-          description: issue.description ?? null,
-          labels: issue.labels ?? [],
-        },
-        triggeringMessageId: result.message.id,
-        triggeringMessageSeq: result.message.seq,
-        message,
-        actor: {
-          actorType: actor.actorType,
-          actorId: actor.actorId,
-        },
-      });
-      recipientHints = retrieval.recipientHints;
-
-      // Log successful brief generation
-      if (retrieval.retrievalRuns && retrieval.retrievalRuns.length > 0) {
-        logger.info(
-          {
-            issueId: issue.id,
-            messageType: message.messageType,
-            retrievalRunCount: retrieval.retrievalRuns.length,
-            retrievalRunIds: retrieval.retrievalRuns.map(r => r.retrievalRunId),
-          },
-          "Brief(s) generated successfully"
-        );
-      }
-    } catch (err) {
-      logger.error(
-        {
-          err,
-          issueId: issue.id,
-          messageType: message.messageType,
-          errorMessage: err instanceof Error ? err.message : String(err),
-        },
-        "CRITICAL: Failed to build protocol retrieval context - brief generation failed"
-      );
-      // MEDIUM-2: Retrieval failure is non-critical, continue without hints
-    }
-
-    // MEDIUM-2: Wait for dispatch to complete before responding
-    try {
-      await protocolExecution.dispatchMessage({
-        issueId: issue.id,
-        companyId: issue.companyId,
-        protocolMessageId: result.message.id,
-        message,
-        recipientHints,
-        actor,
-      });
-    } catch (err) {
-      logger.error({ err, issueId: issue.id }, "Protocol dispatch failed - agents may not be notified");
-      // Return success with warning since message was persisted
-      res.status(201).json({
-        ...result,
-        warnings: ["Wakeup dispatch failed - agents may not be notified"],
-      });
-      return;
-    }
-
-    res.status(201).json(result);
+    res.status(201).json(
+      dispatch.warnings.length > 0
+        ? { ...dispatch.result, warnings: dispatch.warnings }
+        : dispatch.result,
+    );
   });
 
   router.get("/issues/:id/comments/:commentId", async (req, res) => {

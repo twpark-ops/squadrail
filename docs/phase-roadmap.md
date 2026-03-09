@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 1 (design)`
+현재 활성 단계: `Phase 1 (Slice 2 준비)`
 
 ## 목표
 
@@ -92,8 +92,24 @@
   - preflight 예외 explicit failure 처리
   - checkpoint event / run lease / orphan reaper 보강
   - 실서버에서 `schedule -> dispatch -> entered -> checkpoint -> lease heartbeat -> success` 검증
+- `Phase 1 / Slice 1` 완료
+  - `hidden child issue` 기반 internal work item 생성 API 추가
+  - reserved label 자동 보장 (`team:internal`, `work:*`, `watch:*`)
+  - root issue detail에 internal work item summary / child list 추가
+  - route contract 테스트, 전체 typecheck, 전체 test, build 통과
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
+
+## Phase 1 세부 슬라이스
+
+1. Slice 1 완료
+   - hidden child issue 생성
+   - parent summary 노출
+   - UI read path 연결
+2. Slice 2 예정
+   - reviewer watch wake rule
+   - lead supervisor wake rule
+   - child issue 주요 protocol event 기반 supervision
 
 ## 현재 진행 순서
 

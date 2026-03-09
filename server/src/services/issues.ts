@@ -80,8 +80,62 @@ function sameRunLock(checkoutRunId: string | null, actorRunId: string | null) {
 
 const TERMINAL_HEARTBEAT_RUN_STATUSES = new Set(["succeeded", "failed", "cancelled", "timed_out"]);
 
+const INTERNAL_WORK_ITEM_LABEL_COLORS = {
+  "team:internal": "#64748B",
+  "work:plan": "#2563EB",
+  "work:implementation": "#EA580C",
+  "work:review": "#7C3AED",
+  "work:qa": "#059669",
+  "watch:reviewer": "#0F766E",
+  "watch:lead": "#4F46E5",
+} as const;
+
+type InternalWorkItemKind = "plan" | "implementation" | "review" | "qa";
+
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
+}
+
+async function ensureLabelsByName(
+  dbOrTx: any,
+  companyId: string,
+  specs: Array<{ name: string; color: string }>,
+) {
+  const names = [...new Set(specs.map((spec) => spec.name))];
+  if (names.length === 0) return [];
+
+  const existing = await dbOrTx
+    .select()
+    .from(labels)
+    .where(and(eq(labels.companyId, companyId), inArray(labels.name, names)));
+
+  const labelByName = new Map<string, typeof labels.$inferSelect>();
+  for (const label of existing) {
+    if (!labelByName.has(label.name)) {
+      labelByName.set(label.name, label);
+    }
+  }
+
+  for (const spec of specs) {
+    if (labelByName.has(spec.name)) continue;
+    const [created] = await dbOrTx
+      .insert(labels)
+      .values({
+        companyId,
+        name: spec.name,
+        color: spec.color,
+      })
+      .returning();
+    labelByName.set(created.name, created);
+  }
+
+  return specs.map((spec) => {
+    const label = labelByName.get(spec.name);
+    if (!label) {
+      throw conflict(`Reserved label ${spec.name} could not be created`);
+    }
+    return label;
+  });
 }
 
 async function labelMapForIssues(dbOrTx: any, issueIds: string[]): Promise<Map<string, IssueLabelRow[]>> {
@@ -218,6 +272,58 @@ export function issueService(db: Db) {
     }
   }
 
+  async function validateCreateIssueInput(
+    companyId: string,
+    data: Omit<typeof issues.$inferInsert, "companyId"> & { labelIds?: string[] },
+  ) {
+    if (data.assigneeAgentId && data.assigneeUserId) {
+      throw unprocessable("Issue can only have one assignee");
+    }
+    if (data.assigneeAgentId) {
+      await assertAssignableAgent(companyId, data.assigneeAgentId);
+    }
+    if (data.assigneeUserId) {
+      await assertAssignableUser(companyId, data.assigneeUserId);
+    }
+    if (data.status === "in_progress" && !data.assigneeAgentId && !data.assigneeUserId) {
+      throw unprocessable("in_progress issues require an assignee");
+    }
+  }
+
+  async function createIssueRecord(
+    tx: any,
+    companyId: string,
+    data: Omit<typeof issues.$inferInsert, "companyId"> & { labelIds?: string[] },
+  ) {
+    const { labelIds: inputLabelIds, ...issueData } = data;
+    const [company] = await tx
+      .update(companies)
+      .set({ issueCounter: sql`${companies.issueCounter} + 1` })
+      .where(eq(companies.id, companyId))
+      .returning({ issueCounter: companies.issueCounter, issuePrefix: companies.issuePrefix });
+
+    const issueNumber = company.issueCounter;
+    const identifier = `${company.issuePrefix}-${issueNumber}`;
+
+    const values = { ...issueData, companyId, issueNumber, identifier } as typeof issues.$inferInsert;
+    if (values.status === "in_progress" && !values.startedAt) {
+      values.startedAt = new Date();
+    }
+    if (values.status === "done") {
+      values.completedAt = new Date();
+    }
+    if (values.status === "cancelled") {
+      values.cancelledAt = new Date();
+    }
+
+    const [issue] = await tx.insert(issues).values(values).returning();
+    if (inputLabelIds) {
+      await syncIssueLabels(issue.id, companyId, inputLabelIds, tx);
+    }
+    const [enriched] = await withIssueLabels(tx, [issue]);
+    return enriched;
+  }
+
   async function syncIssueLabels(
     issueId: string,
     companyId: string,
@@ -283,6 +389,51 @@ export function issueService(db: Db) {
       .then((rows) => rows[0] ?? null);
 
     return adopted;
+  }
+
+  function summarizeInternalWorkItems(items: IssueWithLabels[]) {
+    const summary = {
+      total: items.length,
+      backlog: 0,
+      todo: 0,
+      inProgress: 0,
+      inReview: 0,
+      blocked: 0,
+      done: 0,
+      cancelled: 0,
+      activeAssigneeAgentIds: [] as string[],
+      blockerIssueId: null as string | null,
+      reviewRequestedIssueId: null as string | null,
+    };
+
+    const activeAssigneeIds = new Set<string>();
+
+    for (const item of items) {
+      if (item.status === "backlog") summary.backlog += 1;
+      else if (item.status === "todo") summary.todo += 1;
+      else if (item.status === "in_progress") summary.inProgress += 1;
+      else if (item.status === "in_review") summary.inReview += 1;
+      else if (item.status === "blocked") summary.blocked += 1;
+      else if (item.status === "done") summary.done += 1;
+      else if (item.status === "cancelled") summary.cancelled += 1;
+
+      if (item.assigneeAgentId && ["todo", "in_progress", "in_review", "blocked"].includes(item.status)) {
+        activeAssigneeIds.add(item.assigneeAgentId);
+      }
+    }
+
+    const latestBlocked = [...items]
+      .filter((item) => item.status === "blocked")
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
+    const latestReview = [...items]
+      .filter((item) => item.status === "in_review")
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
+
+    summary.activeAssigneeAgentIds = [...activeAssigneeIds];
+    summary.blockerIssueId = latestBlocked?.id ?? null;
+    summary.reviewRequestedIssueId = latestReview?.id ?? null;
+
+    return summary;
   }
 
   return {
@@ -413,6 +564,26 @@ export function issueService(db: Db) {
       return enriched;
     },
 
+    listInternalWorkItems: async (parentIssueId: string) => {
+      const rows = await db
+        .select()
+        .from(issues)
+        .where(and(eq(issues.parentId, parentIssueId), sql`${issues.hiddenAt} is not null`))
+        .orderBy(asc(issues.createdAt), asc(issues.id));
+      const labeled = await withIssueLabels(db, rows);
+      return labeled;
+    },
+
+    getInternalWorkItemSummary: async (parentIssueId: string) => {
+      const rows = await db
+        .select()
+        .from(issues)
+        .where(and(eq(issues.parentId, parentIssueId), sql`${issues.hiddenAt} is not null`))
+        .orderBy(asc(issues.createdAt), asc(issues.id));
+      const labeled = await withIssueLabels(db, rows);
+      return summarizeInternalWorkItems(labeled);
+    },
+
     getByIdentifier: async (identifier: string) => {
       const row = await db
         .select()
@@ -428,46 +599,89 @@ export function issueService(db: Db) {
       companyId: string,
       data: Omit<typeof issues.$inferInsert, "companyId"> & { labelIds?: string[] },
     ) => {
-      const { labelIds: inputLabelIds, ...issueData } = data;
-      if (data.assigneeAgentId && data.assigneeUserId) {
-        throw unprocessable("Issue can only have one assignee");
+      await validateCreateIssueInput(companyId, data);
+      return db.transaction((tx) => createIssueRecord(tx, companyId, data));
+    },
+
+    createInternalWorkItem: async (input: {
+      parentIssueId: string;
+      companyId: string;
+      title: string;
+      description?: string | null;
+      kind: InternalWorkItemKind;
+      priority: string;
+      assigneeAgentId: string;
+      createdByAgentId?: string | null;
+      createdByUserId?: string | null;
+      labelNames: string[];
+    }) => {
+      const parentIssue = await db
+        .select({
+          id: issues.id,
+          companyId: issues.companyId,
+          projectId: issues.projectId,
+          goalId: issues.goalId,
+          hiddenAt: issues.hiddenAt,
+          requestDepth: issues.requestDepth,
+        })
+        .from(issues)
+        .where(eq(issues.id, input.parentIssueId))
+        .then((rows) => rows[0] ?? null);
+
+      if (!parentIssue) {
+        throw notFound("Parent issue not found");
       }
-      if (data.assigneeAgentId) {
-        await assertAssignableAgent(companyId, data.assigneeAgentId);
+      if (parentIssue.companyId !== input.companyId) {
+        throw unprocessable("Parent issue must belong to same company");
       }
-      if (data.assigneeUserId) {
-        await assertAssignableUser(companyId, data.assigneeUserId);
+      if (parentIssue.hiddenAt) {
+        throw unprocessable("Internal work items can only be created under visible root issues");
       }
-      if (data.status === "in_progress" && !data.assigneeAgentId && !data.assigneeUserId) {
-        throw unprocessable("in_progress issues require an assignee");
-      }
+
+      await validateCreateIssueInput(input.companyId, {
+        parentId: parentIssue.id,
+        projectId: parentIssue.projectId,
+        goalId: parentIssue.goalId,
+        title: input.title,
+        description: input.description ?? null,
+        status: "backlog",
+        priority: input.priority,
+        assigneeAgentId: input.assigneeAgentId,
+        assigneeUserId: null,
+        requestDepth: (parentIssue.requestDepth ?? 0) + 1,
+        hiddenAt: new Date(),
+        createdByAgentId: input.createdByAgentId ?? null,
+        createdByUserId: input.createdByUserId ?? null,
+        labelIds: [],
+      });
+
       return db.transaction(async (tx) => {
-        const [company] = await tx
-          .update(companies)
-          .set({ issueCounter: sql`${companies.issueCounter} + 1` })
-          .where(eq(companies.id, companyId))
-          .returning({ issueCounter: companies.issueCounter, issuePrefix: companies.issuePrefix });
+        const hiddenAt = new Date();
+        const ensuredLabels = await ensureLabelsByName(
+          tx,
+          input.companyId,
+          input.labelNames.map((name) => ({
+            name,
+            color: INTERNAL_WORK_ITEM_LABEL_COLORS[name as keyof typeof INTERNAL_WORK_ITEM_LABEL_COLORS] ?? "#64748B",
+          })),
+        );
 
-        const issueNumber = company.issueCounter;
-        const identifier = `${company.issuePrefix}-${issueNumber}`;
-
-        const values = { ...issueData, companyId, issueNumber, identifier } as typeof issues.$inferInsert;
-        if (values.status === "in_progress" && !values.startedAt) {
-          values.startedAt = new Date();
-        }
-        if (values.status === "done") {
-          values.completedAt = new Date();
-        }
-        if (values.status === "cancelled") {
-          values.cancelledAt = new Date();
-        }
-
-        const [issue] = await tx.insert(issues).values(values).returning();
-        if (inputLabelIds) {
-          await syncIssueLabels(issue.id, companyId, inputLabelIds, tx);
-        }
-        const [enriched] = await withIssueLabels(tx, [issue]);
-        return enriched;
+        return createIssueRecord(tx, input.companyId, {
+          parentId: parentIssue.id,
+          projectId: parentIssue.projectId,
+          goalId: parentIssue.goalId,
+          title: input.title,
+          description: input.description ?? null,
+          status: "backlog",
+          priority: input.priority,
+          assigneeAgentId: input.assigneeAgentId,
+          assigneeUserId: null,
+          requestDepth: (parentIssue.requestDepth ?? 0) + 1,
+          hiddenAt,
+          createdByAgentId: input.createdByAgentId ?? null,
+          createdByUserId: input.createdByUserId ?? null,
+          labelIds: ensuredLabels.map((label) => label.id),
+        });
       });
     },
 
