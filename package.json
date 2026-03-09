@@ -1,0 +1,44 @@
+{
+  "name": "squadrail-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-runner.mjs dev",
+    "dev:watch": "SQUADRAIL_MIGRATION_PROMPT=never node scripts/dev-runner.mjs watch",
+    "dev:server": "pnpm --filter @squadrail/server dev",
+    "dev:ui": "pnpm --filter @squadrail/ui dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "db:generate": "pnpm --filter @squadrail/db generate",
+    "db:migrate": "pnpm --filter @squadrail/db migrate",
+    "secrets:migrate-inline-env": "tsx scripts/migrate-inline-env-secrets.ts",
+    "db:backup": "./scripts/backup-db.sh",
+    "squadrail": "node cli/node_modules/tsx/dist/cli.mjs cli/src/index.ts",
+    "build:npm": "./scripts/build-npm.sh",
+    "release": "./scripts/release.sh",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "check:tokens": "node scripts/check-forbidden-tokens.mjs",
+    "docs:dev": "cd docs && npx mintlify dev",
+    "smoke:openclaw-join": "./scripts/smoke/openclaw-join.sh",
+    "smoke:openclaw-docker-ui": "./scripts/smoke/openclaw-docker-ui.sh",
+    "smoke:local-ui-flow": "./scripts/smoke/local-ui-flow.sh",
+    "test:browser-smoke": "./scripts/smoke/local-ui-flow.sh",
+    "audit:tenant-rls": "node scripts/audit/tenant-rls.mjs",
+    "bench:retrieval-vector": "node scripts/bench/retrieval-vector.mjs",
+    "bootstrap:swiftsight-org": "node scripts/bootstrap/generate-swiftsight-org-bundle.mjs",
+    "bootstrap:swiftsight-org:canonical": "node scripts/bootstrap/generate-swiftsight-org-bundle.mjs --root /home/taewoong/workspace/cloud-swiftsight --out bootstrap-bundles/cloud-swiftsight --company-name cloud-swiftsight"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.4"
+}

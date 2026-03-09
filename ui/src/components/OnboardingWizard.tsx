@@ -1,0 +1,1329 @@
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AdapterEnvironmentTestResult, RolePackPresetDescriptor, RolePackPresetKey } from "@squadrail/shared";
+import { useDialog } from "../context/DialogContext";
+import { useCompany } from "../context/CompanyContext";
+import { companiesApi } from "../api/companies";
+import { goalsApi } from "../api/goals";
+import { agentsApi } from "../api/agents";
+import { issuesApi } from "../api/issues";
+import { projectsApi } from "../api/projects";
+import { knowledgeApi } from "../api/knowledge";
+import { queryKeys } from "../lib/queryKeys";
+import { Dialog, DialogPortal } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { cn } from "../lib/utils";
+import { getUIAdapter } from "../adapters";
+import { defaultCreateValues } from "./agent-config-defaults";
+import {
+  DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
+  DEFAULT_CODEX_LOCAL_MODEL
+} from "@squadrail/adapter-codex-local";
+import { AsciiArtAnimation } from "./AsciiArtAnimation";
+import { ChoosePathButton } from "./PathInstructionsModal";
+import { HintIcon } from "./agent-config-primitives";
+import {
+  Building2,
+  Bot,
+  Code,
+  ListTodo,
+  Rocket,
+  ArrowLeft,
+  ArrowRight,
+  Sparkles,
+  Check,
+  Loader2,
+  FolderOpen,
+  ChevronDown,
+  X
+} from "lucide-react";
+
+type Step = 1 | 2 | 3 | 4;
+type AdapterType =
+  | "claude_local"
+  | "codex_local";
+
+const DEFAULT_ROLE_PACK_PRESET_KEY: RolePackPresetKey = "squadrail_default_v1";
+const DEFAULT_TASK_TITLE = "Review squad setup and prepare the first delivery plan";
+const DEFAULT_TASK_DESCRIPTION = [
+  "Review the seeded Tech Lead, Engineer, and Reviewer role packs for this company.",
+  "Confirm the selected execution engine and working directory are ready for real implementation work.",
+  "Then write the first implementation plan with explicit acceptance criteria, reviewer ownership, and blockers.",
+].join("\n\n");
+
+const ONBOARDING_ADAPTER_OPTIONS = [
+  {
+    value: "claude_local" as const,
+    label: "Claude Code",
+    icon: Sparkles,
+    desc: "Primary local execution engine",
+    recommended: true,
+  },
+  {
+    value: "codex_local" as const,
+    label: "Codex",
+    icon: Code,
+    desc: "Primary local execution engine",
+    recommended: true,
+  },
+];
+
+export function OnboardingWizard() {
+  const { onboardingOpen, onboardingOptions, closeOnboarding } = useDialog();
+  const { companies, setSelectedCompanyId } = useCompany();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const initialStep = onboardingOptions.initialStep ?? 1;
+  const existingCompanyId = onboardingOptions.companyId;
+
+  const [step, setStep] = useState<Step>(initialStep);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [modelOpen, setModelOpen] = useState(false);
+
+  // Step 1
+  const [companyName, setCompanyName] = useState("");
+  const [companyGoal, setCompanyGoal] = useState("");
+
+  // Step 2
+  const [agentName, setAgentName] = useState("CEO");
+  const [adapterType, setAdapterType] = useState<AdapterType>("claude_local");
+  const [cwd, setCwd] = useState("");
+  const [model, setModel] = useState("");
+  const [setupWorkspaceId, setSetupWorkspaceId] = useState("");
+  const [command, setCommand] = useState("");
+  const [args, setArgs] = useState("");
+  const [url, setUrl] = useState("");
+  const [adapterEnvResult, setAdapterEnvResult] =
+    useState<AdapterEnvironmentTestResult | null>(null);
+  const [adapterEnvError, setAdapterEnvError] = useState<string | null>(null);
+  const [adapterEnvLoading, setAdapterEnvLoading] = useState(false);
+  const [forceUnsetAnthropicApiKey, setForceUnsetAnthropicApiKey] =
+    useState(false);
+  const [unsetAnthropicLoading, setUnsetAnthropicLoading] = useState(false);
+  const [selectedRolePackPresetKey, setSelectedRolePackPresetKey] = useState<RolePackPresetKey>(DEFAULT_ROLE_PACK_PRESET_KEY);
+
+  // Step 3
+  const [taskTitle, setTaskTitle] = useState(DEFAULT_TASK_TITLE);
+  const [taskDescription, setTaskDescription] = useState(DEFAULT_TASK_DESCRIPTION);
+
+  // Auto-grow textarea for task description
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoResizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, []);
+
+  // Created entity IDs — pre-populate from existing company when skipping step 1
+  const [createdCompanyId, setCreatedCompanyId] = useState<string | null>(
+    existingCompanyId ?? null
+  );
+  const [createdCompanyPrefix, setCreatedCompanyPrefix] = useState<
+    string | null
+  >(null);
+  const [createdAgentId, setCreatedAgentId] = useState<string | null>(null);
+  const [createdIssueRef, setCreatedIssueRef] = useState<string | null>(null);
+
+  // Sync step and company when onboarding opens with options.
+  // Keep this independent from company-list refreshes so Step 1 completion
+  // doesn't get reset after creating a company.
+  useEffect(() => {
+    if (!onboardingOpen) return;
+    const cId = onboardingOptions.companyId ?? null;
+    setStep(onboardingOptions.initialStep ?? 1);
+    setCreatedCompanyId(cId);
+    setCreatedCompanyPrefix(null);
+    setSelectedRolePackPresetKey(DEFAULT_ROLE_PACK_PRESET_KEY);
+  }, [
+    onboardingOpen,
+    onboardingOptions.companyId,
+    onboardingOptions.initialStep
+  ]);
+
+  // Backfill issue prefix for an existing company once companies are loaded.
+  useEffect(() => {
+    if (!onboardingOpen || !createdCompanyId || createdCompanyPrefix) return;
+    const company = companies.find((c) => c.id === createdCompanyId);
+    if (company) {
+      setCreatedCompanyPrefix(company.issuePrefix);
+      if (!companyName.trim()) setCompanyName(company.name);
+    }
+  }, [onboardingOpen, createdCompanyId, createdCompanyPrefix, companies]);
+
+  // Resize textarea when step 3 is shown or description changes
+  useEffect(() => {
+    if (step === 3) autoResizeTextarea();
+  }, [step, taskDescription, autoResizeTextarea]);
+
+  const { data: adapterModels } = useQuery({
+    queryKey: ["adapter-models", adapterType],
+    queryFn: () => agentsApi.adapterModels(adapterType),
+    enabled: onboardingOpen && step === 2
+  });
+  const { data: setupProgress } = useQuery({
+    queryKey: createdCompanyId
+      ? queryKeys.companies.setupProgress(createdCompanyId)
+      : ["companies", "__none__", "setup-progress"],
+    queryFn: () => companiesApi.getSetupProgress(createdCompanyId!),
+    enabled: onboardingOpen && Boolean(createdCompanyId),
+  });
+  const { data: rolePackPresets = [] } = useQuery({
+    queryKey: queryKeys.companies.rolePackPresets,
+    queryFn: () => companiesApi.listRolePackPresets(),
+    enabled: onboardingOpen,
+  });
+  const { data: rolePacks = [] } = useQuery({
+    queryKey: createdCompanyId
+      ? queryKeys.companies.rolePacks(createdCompanyId)
+      : ["companies", "__none__", "role-packs"],
+    queryFn: () => companiesApi.listRolePacks(createdCompanyId!),
+    enabled: onboardingOpen && Boolean(createdCompanyId),
+  });
+  const { data: projects = [] } = useQuery({
+    queryKey: createdCompanyId
+      ? queryKeys.projects.list(createdCompanyId)
+      : ["projects", "__none__"],
+    queryFn: () => projectsApi.list(createdCompanyId!),
+    enabled: onboardingOpen && step === 2 && Boolean(createdCompanyId),
+  });
+  const { data: doctorReport, refetch: refetchDoctor } = useQuery({
+    queryKey: createdCompanyId
+      ? queryKeys.companies.doctor(
+          createdCompanyId,
+          false,
+          setupProgress?.selectedWorkspaceId ?? undefined
+        )
+      : ["companies", "__none__", "doctor"],
+    queryFn: () =>
+      companiesApi.getDoctorReport(createdCompanyId!, {
+        workspaceId: setupProgress?.selectedWorkspaceId ?? undefined,
+      }),
+    enabled: onboardingOpen && step === 4 && Boolean(createdCompanyId),
+  });
+  const workspaces = useMemo(
+    () =>
+      projects.flatMap((project) =>
+        project.workspaces.map((workspace) => ({
+          ...workspace,
+          projectId: project.id,
+          projectName: project.name,
+        }))
+      ),
+    [projects]
+  );
+  const selectedWorkspace =
+    workspaces.find((workspace) => workspace.id === setupWorkspaceId) ??
+    workspaces.find((workspace) => workspace.id === setupProgress?.selectedWorkspaceId) ??
+    null;
+  const isLocalAdapter =
+    adapterType === "claude_local" || adapterType === "codex_local";
+  const effectiveAdapterCommand =
+    command.trim() ||
+    (adapterType === "codex_local" ? "codex" : "claude");
+
+  useEffect(() => {
+    if (step !== 2) return;
+    setAdapterEnvResult(null);
+    setAdapterEnvError(null);
+  }, [step, adapterType, cwd, model, command, args, url]);
+
+  useEffect(() => {
+    if (!setupProgress) return;
+    if (!setupWorkspaceId && setupProgress.selectedWorkspaceId) {
+      setSetupWorkspaceId(setupProgress.selectedWorkspaceId);
+    }
+    if (!setupProgress.selectedEngine) return;
+    if (setupProgress.selectedEngine === "claude_local" || setupProgress.selectedEngine === "codex_local") {
+      setAdapterType(setupProgress.selectedEngine);
+    }
+  }, [setupProgress, setupWorkspaceId]);
+
+  const selectedModel = (adapterModels ?? []).find((m) => m.id === model);
+  const hasAnthropicApiKeyOverrideCheck =
+    adapterEnvResult?.checks.some(
+      (check) =>
+        check.code === "claude_anthropic_api_key_overrides_subscription"
+    ) ?? false;
+  const shouldSuggestUnsetAnthropicApiKey =
+    adapterType === "claude_local" &&
+    adapterEnvResult?.status === "fail" &&
+    hasAnthropicApiKeyOverrideCheck;
+  const selectedRolePackPreset =
+    rolePackPresets.find((preset) => preset.key === selectedRolePackPresetKey) ??
+    ({
+      key: DEFAULT_ROLE_PACK_PRESET_KEY,
+      label: "Squadrail Default",
+      description: "General-purpose delivery squad for protocol-first planning, implementation, and review.",
+      recommended: true,
+      starterTaskTitle: DEFAULT_TASK_TITLE,
+      starterTaskDescription: DEFAULT_TASK_DESCRIPTION,
+    } satisfies RolePackPresetDescriptor);
+  const workspaceImport = useMutation({
+    mutationFn: async () => {
+      if (!selectedWorkspace) {
+        throw new Error("Select a primary workspace before importing knowledge.");
+      }
+      return knowledgeApi.importProjectWorkspace(selectedWorkspace.projectId, {
+        workspaceId: selectedWorkspace.id,
+      });
+    },
+    onSuccess: async () => {
+      if (!createdCompanyId) return;
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.companies.setupProgress(createdCompanyId),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["companies", createdCompanyId, "doctor"],
+      });
+    },
+  });
+
+  function reset() {
+    setStep(1);
+    setLoading(false);
+    setError(null);
+    setCompanyName("");
+    setCompanyGoal("");
+    setAgentName("CEO");
+    setAdapterType("claude_local");
+    setCwd("");
+    setModel("");
+    setSetupWorkspaceId("");
+    setCommand("");
+    setArgs("");
+    setUrl("");
+    setAdapterEnvResult(null);
+    setAdapterEnvError(null);
+    setAdapterEnvLoading(false);
+    setForceUnsetAnthropicApiKey(false);
+    setUnsetAnthropicLoading(false);
+    setSelectedRolePackPresetKey(DEFAULT_ROLE_PACK_PRESET_KEY);
+    setTaskTitle(DEFAULT_TASK_TITLE);
+    setTaskDescription(DEFAULT_TASK_DESCRIPTION);
+    setCreatedCompanyId(null);
+    setCreatedCompanyPrefix(null);
+    setCreatedAgentId(null);
+    setCreatedIssueRef(null);
+  }
+
+  function handleClose() {
+    reset();
+    closeOnboarding();
+  }
+
+  function buildAdapterConfig(): Record<string, unknown> {
+    const adapter = getUIAdapter(adapterType);
+    const config = adapter.buildAdapterConfig({
+      ...defaultCreateValues,
+      adapterType,
+      cwd,
+      model: adapterType === "codex_local" ? model || DEFAULT_CODEX_LOCAL_MODEL : model,
+      command,
+      args,
+      url,
+      dangerouslySkipPermissions: adapterType === "claude_local",
+      dangerouslyBypassSandbox:
+        adapterType === "codex_local"
+          ? DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX
+          : defaultCreateValues.dangerouslyBypassSandbox
+    });
+    if (adapterType === "claude_local" && forceUnsetAnthropicApiKey) {
+      const env =
+        typeof config.env === "object" &&
+        config.env !== null &&
+        !Array.isArray(config.env)
+          ? { ...(config.env as Record<string, unknown>) }
+          : {};
+      env.ANTHROPIC_API_KEY = { type: "plain", value: "" };
+      config.env = env;
+    }
+    return config;
+  }
+
+  async function runAdapterEnvironmentTest(
+    adapterConfigOverride?: Record<string, unknown>
+  ): Promise<AdapterEnvironmentTestResult | null> {
+    if (!createdCompanyId) {
+      setAdapterEnvError(
+        "Create or select a company before testing adapter environment."
+      );
+      return null;
+    }
+    setAdapterEnvLoading(true);
+    setAdapterEnvError(null);
+    try {
+      const result = await agentsApi.testEnvironment(
+        createdCompanyId,
+        adapterType,
+        {
+          adapterConfig: adapterConfigOverride ?? buildAdapterConfig()
+        }
+      );
+      setAdapterEnvResult(result);
+      return result;
+    } catch (err) {
+      setAdapterEnvError(
+        err instanceof Error ? err.message : "Adapter environment test failed"
+      );
+      return null;
+    } finally {
+      setAdapterEnvLoading(false);
+    }
+  }
+
+  async function handleStep1Next() {
+    setLoading(true);
+    setError(null);
+    try {
+      const company = await companiesApi.create({ name: companyName.trim() });
+      setCreatedCompanyId(company.id);
+      setCreatedCompanyPrefix(company.issuePrefix);
+      setSelectedCompanyId(company.id);
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.companies.setupProgress(company.id)
+      });
+
+      if (companyGoal.trim()) {
+        await goalsApi.create(company.id, {
+          title: companyGoal.trim(),
+          level: "company",
+          status: "active"
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.goals.list(company.id)
+        });
+      }
+
+      setStep(2);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create company");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStep2Next() {
+    if (!createdCompanyId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      if (isLocalAdapter) {
+        const result = adapterEnvResult ?? (await runAdapterEnvironmentTest());
+        if (!result) return;
+      }
+
+      if (!setupProgress?.steps.squadReady) {
+        await companiesApi.seedDefaultRolePacks(createdCompanyId, {
+          force: false,
+          presetKey: selectedRolePackPresetKey,
+        });
+      }
+
+      if (taskTitle === DEFAULT_TASK_TITLE && taskDescription === DEFAULT_TASK_DESCRIPTION) {
+        setTaskTitle(selectedRolePackPreset.starterTaskTitle);
+        setTaskDescription(selectedRolePackPreset.starterTaskDescription);
+      }
+
+      await companiesApi.updateSetupProgress(createdCompanyId, {
+        selectedEngine:
+          adapterType === "claude_local" || adapterType === "codex_local"
+            ? adapterType
+            : null,
+        selectedWorkspaceId: setupWorkspaceId || null
+      });
+
+      const agent = await agentsApi.create(createdCompanyId, {
+        name: agentName.trim(),
+        role: "ceo",
+        adapterType,
+        adapterConfig: buildAdapterConfig(),
+        runtimeConfig: {
+          heartbeat: {
+            enabled: true,
+            intervalSec: 3600,
+            wakeOnDemand: true,
+            cooldownSec: 10,
+            maxConcurrentRuns: 1
+          }
+        }
+      });
+      setCreatedAgentId(agent.id);
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agents.list(createdCompanyId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.companies.setupProgress(createdCompanyId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.companies.rolePacks(createdCompanyId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.companies.doctor(createdCompanyId)
+      });
+      setStep(3);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create agent");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUnsetAnthropicApiKey() {
+    if (!createdCompanyId || unsetAnthropicLoading) return;
+    setUnsetAnthropicLoading(true);
+    setError(null);
+    setAdapterEnvError(null);
+    setForceUnsetAnthropicApiKey(true);
+
+    const configWithUnset = (() => {
+      const config = buildAdapterConfig();
+      const env =
+        typeof config.env === "object" &&
+        config.env !== null &&
+        !Array.isArray(config.env)
+          ? { ...(config.env as Record<string, unknown>) }
+          : {};
+      env.ANTHROPIC_API_KEY = { type: "plain", value: "" };
+      config.env = env;
+      return config;
+    })();
+
+    try {
+      if (createdAgentId) {
+        await agentsApi.update(
+          createdAgentId,
+          { adapterConfig: configWithUnset },
+          createdCompanyId
+        );
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.agents.list(createdCompanyId)
+        });
+      }
+
+      const result = await runAdapterEnvironmentTest(configWithUnset);
+      if (result?.status === "fail") {
+        setError(
+          "Retried with ANTHROPIC_API_KEY unset in adapter config, but the environment test is still failing."
+        );
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to unset ANTHROPIC_API_KEY and retry."
+      );
+    } finally {
+      setUnsetAnthropicLoading(false);
+    }
+  }
+
+  async function handleStep3Next() {
+    if (!createdCompanyId || !createdAgentId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const issue = await issuesApi.create(createdCompanyId, {
+        title: taskTitle.trim(),
+        ...(taskDescription.trim()
+          ? { description: taskDescription.trim() }
+          : {}),
+        assigneeAgentId: createdAgentId,
+        status: "todo"
+      });
+      setCreatedIssueRef(issue.identifier ?? issue.id);
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.list(createdCompanyId)
+      });
+      await companiesApi.updateSetupProgress(createdCompanyId, {
+        metadata: {
+          firstIssueReady: true,
+        },
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.companies.setupProgress(createdCompanyId)
+      });
+      setStep(4);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create task");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLaunch() {
+    if (!createdAgentId) return;
+    setLoading(true);
+    setError(null);
+    setLoading(false);
+    reset();
+    closeOnboarding();
+    if (createdCompanyPrefix && createdIssueRef) {
+      navigate(`/${createdCompanyPrefix}/issues/${createdIssueRef}`);
+      return;
+    }
+    if (createdCompanyPrefix) {
+      navigate(`/${createdCompanyPrefix}/dashboard`);
+      return;
+    }
+    navigate("/dashboard");
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (step === 1 && companyName.trim()) handleStep1Next();
+      else if (step === 2 && agentName.trim()) handleStep2Next();
+      else if (step === 3 && taskTitle.trim()) handleStep3Next();
+      else if (step === 4) handleLaunch();
+    }
+  }
+
+  if (!onboardingOpen) return null;
+
+  return (
+    <Dialog
+      open={onboardingOpen}
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
+    >
+      <DialogPortal>
+        {/* Plain div instead of DialogOverlay — Radix's overlay wraps in
+            RemoveScroll which blocks wheel events on our custom (non-DialogContent)
+            scroll container. A plain div preserves the background without scroll-locking. */}
+        <div className="fixed inset-0 z-50 bg-background" />
+        <div className="fixed inset-0 z-50 flex" onKeyDown={handleKeyDown}>
+          {/* Close button */}
+          <button
+            onClick={handleClose}
+            className="absolute top-4 left-4 z-10 rounded-sm p-1.5 text-muted-foreground/60 hover:text-foreground transition-colors"
+          >
+            <X className="h-5 w-5" />
+            <span className="sr-only">Close</span>
+          </button>
+
+          {/* Left half — form */}
+          <div className="w-full md:w-1/2 flex flex-col overflow-y-auto">
+            <div className="w-full max-w-md mx-auto my-auto px-8 py-12 shrink-0">
+              {/* Progress indicators */}
+              <div className="flex items-center gap-2 mb-8">
+                <Sparkles className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Get Started</span>
+                <span className="text-sm text-muted-foreground/60">
+                  Step {step} of 4
+                </span>
+                <div className="flex items-center gap-1.5 ml-auto">
+                  {[1, 2, 3, 4].map((s) => (
+                    <div
+                      key={s}
+                      className={cn(
+                        "h-1.5 w-6 rounded-full transition-colors",
+                        s < step
+                          ? "bg-green-500"
+                          : s === step
+                            ? "bg-foreground"
+                            : "bg-muted"
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Step content */}
+              {step === 1 && (
+                <div className="space-y-5">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="bg-muted/50 p-2">
+                      <Building2 className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium">Name your company</h3>
+                      <p className="text-xs text-muted-foreground">
+                        This is the organization your agents will work for.
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Company name
+                    </label>
+                    <input
+                      className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                      placeholder="Acme Corp"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Mission / goal (optional)
+                    </label>
+                    <textarea
+                      className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50 resize-none min-h-[60px]"
+                      placeholder="What is this company trying to achieve?"
+                      value={companyGoal}
+                      onChange={(e) => setCompanyGoal(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {step === 2 && (
+                <div className="space-y-5">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="bg-muted/50 p-2">
+                      <Bot className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium">Configure your first execution agent</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Pick the engine, connect an optional workspace, and seed the squad preset you want to operate.
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-2 block">
+                      Squad preset
+                    </label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {rolePackPresets.map((preset) => (
+                        <button
+                          key={preset.key}
+                          className={cn(
+                            "flex items-start justify-between gap-3 rounded-md border p-3 text-left transition-colors",
+                            selectedRolePackPresetKey === preset.key
+                              ? "border-foreground bg-accent"
+                              : "border-border hover:bg-accent/50"
+                          )}
+                          onClick={() => setSelectedRolePackPresetKey(preset.key)}
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium">{preset.label}</span>
+                              {preset.recommended && (
+                                <span className="rounded-full bg-green-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                                  Recommended
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{preset.description}</p>
+                          </div>
+                          {selectedRolePackPresetKey === preset.key && <Check className="mt-0.5 h-4 w-4" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Agent name
+                    </label>
+                    <input
+                      className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                      placeholder="CEO"
+                      value={agentName}
+                      onChange={(e) => setAgentName(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Adapter type radio cards */}
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-2 block">
+                      Adapter type
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {ONBOARDING_ADAPTER_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          className={cn(
+                            "flex flex-col items-center gap-1.5 rounded-md border p-3 text-xs transition-colors relative",
+                            adapterType === opt.value
+                              ? "border-foreground bg-accent"
+                              : "border-border hover:bg-accent/50"
+                          )}
+                          onClick={() => {
+                            const nextType = opt.value as AdapterType;
+                            setAdapterType(nextType);
+                            if (nextType === "codex_local" && !model) {
+                              setModel(DEFAULT_CODEX_LOCAL_MODEL);
+                            }
+                          }}
+                        >
+                          {opt.recommended && (
+                            <span className="absolute -top-1.5 -right-1.5 bg-green-500 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none">
+                              Recommended
+                            </span>
+                          )}
+                          <opt.icon className="h-4 w-4" />
+                          <span className="font-medium">{opt.label}</span>
+                          <span className="text-muted-foreground text-[10px]">
+                            {opt.desc}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Conditional adapter fields */}
+                  {(adapterType === "claude_local" ||
+                    adapterType === "codex_local") && (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <label className="text-xs text-muted-foreground">
+                            Working directory
+                          </label>
+                          <HintIcon text="Squadrail works best when each squad or workspace has a dedicated folder for memory, logs, and local execution state. Create a folder and put the path here." />
+                        </div>
+                        <div className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
+                          <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <input
+                            className="w-full bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/50"
+                            placeholder="/path/to/project"
+                            value={cwd}
+                            onChange={(e) => setCwd(e.target.value)}
+                          />
+                          <ChoosePathButton />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          Primary workspace (optional)
+                        </label>
+                        <select
+                          className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                          value={setupWorkspaceId}
+                          onChange={(event) => setSetupWorkspaceId(event.target.value)}
+                        >
+                          <option value="">Select a workspace later</option>
+                          {workspaces.map((workspace) => (
+                            <option key={workspace.id} value={workspace.id}>
+                              {workspace.projectName} / {workspace.name}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          The primary workspace is reused by doctor, import, and retrieval bootstrap.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          Model
+                        </label>
+                        <Popover open={modelOpen} onOpenChange={setModelOpen}>
+                          <PopoverTrigger asChild>
+                            <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
+                              <span
+                                className={cn(
+                                  !model && "text-muted-foreground"
+                                )}
+                              >
+                                {selectedModel
+                                  ? selectedModel.label
+                                  : model || "Default"}
+                              </span>
+                              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            className="w-[var(--radix-popover-trigger-width)] p-1"
+                            align="start"
+                          >
+                            <button
+                              className={cn(
+                                "flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",
+                                !model && "bg-accent"
+                              )}
+                              onClick={() => {
+                                setModel("");
+                                setModelOpen(false);
+                              }}
+                            >
+                              Default
+                            </button>
+                            {(adapterModels ?? []).map((m) => (
+                              <button
+                                key={m.id}
+                                className={cn(
+                                  "flex items-center justify-between w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",
+                                  m.id === model && "bg-accent"
+                                )}
+                                onClick={() => {
+                                  setModel(m.id);
+                                  setModelOpen(false);
+                                }}
+                              >
+                                <span>{m.label}</span>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {m.id}
+                                </span>
+                              </button>
+                            ))}
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+                  )}
+
+                  {isLocalAdapter && (
+                    <div className="space-y-2 rounded-md border border-border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-medium">
+                            Adapter environment check
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Runs a live probe that asks the adapter CLI to
+                            respond with hello.
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs"
+                          disabled={adapterEnvLoading}
+                          onClick={() => void runAdapterEnvironmentTest()}
+                        >
+                          {adapterEnvLoading ? "Testing..." : "Test now"}
+                        </Button>
+                      </div>
+
+                      {adapterEnvError && (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px] text-destructive">
+                          {adapterEnvError}
+                        </div>
+                      )}
+
+                      {adapterEnvResult && (
+                        <AdapterEnvironmentResult result={adapterEnvResult} />
+                      )}
+
+                      {shouldSuggestUnsetAnthropicApiKey && (
+                        <div className="rounded-md border border-amber-300/60 bg-amber-50/40 px-2.5 py-2 space-y-2">
+                          <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                            Claude failed while <span className="font-mono">ANTHROPIC_API_KEY</span> is set.
+                            You can clear it in this CEO adapter config and retry the probe.
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5 text-xs"
+                            disabled={adapterEnvLoading || unsetAnthropicLoading}
+                            onClick={() => void handleUnsetAnthropicApiKey()}
+                          >
+                            {unsetAnthropicLoading ? "Retrying..." : "Unset ANTHROPIC_API_KEY"}
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="rounded-md border border-border/70 bg-muted/20 px-2.5 py-2 text-[11px] space-y-1.5">
+                        <p className="font-medium">Manual debug</p>
+                        <p className="text-muted-foreground font-mono break-all">
+                          {adapterType === "codex_local"
+                            ? `${effectiveAdapterCommand} exec --json -`
+                            : `${effectiveAdapterCommand} --print - --output-format stream-json --verbose`}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Prompt:{" "}
+                          <span className="font-mono">Respond with hello.</span>
+                        </p>
+                        {adapterType === "codex_local" ? (
+                          <p className="text-muted-foreground">
+                            If auth fails, set{" "}
+                            <span className="font-mono">OPENAI_API_KEY</span>{" "}
+                            in
+                            env or run <span className="font-mono">codex login</span>.
+                          </p>
+                        ) : (
+                          <p className="text-muted-foreground">
+                            If login is required, run{" "}
+                            <span className="font-mono">claude login</span> and
+                            retry.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-md border border-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-medium">Role pack seed</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Default Tech Lead, Engineer, and Reviewer packs are seeded automatically if missing.
+                        </p>
+                      </div>
+                      <div className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {setupProgress?.steps.squadReady || rolePacks.length > 0
+                          ? `${Math.max(rolePacks.length, 3)} ready`
+                          : "pending"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div className="space-y-5">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="bg-muted/50 p-2">
+                      <ListTodo className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium">Launch the first squad task</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Start with a real delivery-oriented task. Keep the scope tight and define the expected outcome clearly.
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Task title
+                    </label>
+                    <input
+                      className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+                      placeholder="e.g. Research competitor pricing"
+                      value={taskTitle}
+                      onChange={(e) => setTaskTitle(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Description (optional)
+                    </label>
+                    <textarea
+                      ref={textareaRef}
+                      className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50 resize-none min-h-[120px] max-h-[300px] overflow-y-auto"
+                      placeholder="Add more detail about what the agent should do..."
+                      value={taskDescription}
+                      onChange={(e) => setTaskDescription(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {step === 4 && (
+                <div className="space-y-5">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="bg-muted/50 p-2">
+                      <Rocket className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium">Ready to launch</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Your kickoff task is assigned. Review the current setup state before jumping into the issue.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="border border-border divide-y divide-border">
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {companyName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Company</p>
+                      </div>
+                      <Check className="h-4 w-4 text-green-500 shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <Bot className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {agentName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {getUIAdapter(adapterType).label}
+                        </p>
+                      </div>
+                      <Check className="h-4 w-4 text-green-500 shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <ListTodo className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {taskTitle}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Task</p>
+                      </div>
+                      <Check className="h-4 w-4 text-green-500 shrink-0" />
+                    </div>
+                  </div>
+                  {setupProgress && (
+                    <div className="rounded-md border border-border p-3 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-medium">Setup readiness</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Current status: {setupProgress.status}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs"
+                          onClick={() => void refetchDoctor()}
+                        >
+                          Refresh doctor
+                        </Button>
+                      </div>
+                      {selectedWorkspace && !setupProgress.steps.knowledgeSeeded && (
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 p-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-medium">
+                              Import workspace knowledge
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              Use {selectedWorkspace.projectName} / {selectedWorkspace.name} as the first retrieval knowledge source.
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5 text-xs"
+                            disabled={workspaceImport.isPending}
+                            onClick={() => workspaceImport.mutate()}
+                          >
+                            {workspaceImport.isPending ? "Importing..." : "Import workspace"}
+                          </Button>
+                        </div>
+                      )}
+                      {workspaceImport.isError && (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+                          {workspaceImport.error instanceof Error
+                            ? workspaceImport.error.message
+                            : "Workspace import failed"}
+                        </div>
+                      )}
+                      {workspaceImport.data && (
+                        <div className="rounded-md border border-emerald-300/70 bg-emerald-50/60 px-3 py-2 text-[11px] text-emerald-900">
+                          Imported {workspaceImport.data.importedFiles} files from {workspaceImport.data.workspaceName}.
+                          {" "}
+                          Scanned {workspaceImport.data.scannedFiles} and created {workspaceImport.data.documents.length} knowledge documents.
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {Object.entries(setupProgress.steps).map(([key, done]) => (
+                          <div
+                            key={key}
+                            className={cn(
+                              "rounded-md border px-2.5 py-2 text-[11px]",
+                              done
+                                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                : "border-border bg-muted/30 text-muted-foreground"
+                            )}
+                          >
+                            <div className="font-medium">
+                              {key.replace(/([a-z])([A-Z])/g, "$1 $2")}
+                            </div>
+                            <div>{done ? "Ready" : "Pending"}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {doctorReport && (
+                        <div className="rounded-md border border-border bg-muted/20 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-medium">
+                              Doctor: {doctorReport.status.toUpperCase()}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              pass {doctorReport.summary.pass} / warn {doctorReport.summary.warn} / fail {doctorReport.summary.fail}
+                            </span>
+                          </div>
+                          <div className="mt-2 space-y-1.5">
+                            {doctorReport.checks
+                              .filter((check) => check.status !== "pass")
+                              .slice(0, 3)
+                              .map((check) => (
+                                <div key={check.code} className="text-[11px] text-muted-foreground">
+                                  <span className="font-medium text-foreground">{check.label}</span>
+                                  {" · "}
+                                  {check.message}
+                                </div>
+                              ))}
+                            {doctorReport.checks.every((check) => check.status === "pass") && (
+                              <div className="text-[11px] text-muted-foreground">
+                                Core readiness checks are passing for the selected setup.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {!setupProgress.steps.workspaceConnected && (
+                        <div className="rounded-md border border-amber-300/60 bg-amber-50/40 px-3 py-2 text-[11px] text-amber-900/90">
+                          Connect a primary workspace in Company Settings to unlock import, retrieval bootstrap, and higher-confidence task briefs.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Error */}
+              {error && (
+                <div className="mt-3">
+                  <p className="text-xs text-destructive">{error}</p>
+                </div>
+              )}
+
+              {/* Footer navigation */}
+              <div className="flex items-center justify-between mt-8">
+                <div>
+                  {step > 1 && step > (onboardingOptions.initialStep ?? 1) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setStep((step - 1) as Step)}
+                      disabled={loading}
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+                      Back
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {step === 1 && (
+                    <Button
+                      size="sm"
+                      disabled={!companyName.trim() || loading}
+                      onClick={handleStep1Next}
+                    >
+                      {loading ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <ArrowRight className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      {loading ? "Creating..." : "Next"}
+                    </Button>
+                  )}
+                  {step === 2 && (
+                    <Button
+                      size="sm"
+                      disabled={
+                        !agentName.trim() || loading || adapterEnvLoading
+                      }
+                      onClick={handleStep2Next}
+                    >
+                      {loading ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <ArrowRight className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      {loading ? "Creating..." : "Next"}
+                    </Button>
+                  )}
+                  {step === 3 && (
+                    <Button
+                      size="sm"
+                      disabled={!taskTitle.trim() || loading}
+                      onClick={handleStep3Next}
+                    >
+                      {loading ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <ArrowRight className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      {loading ? "Creating..." : "Next"}
+                    </Button>
+                  )}
+                  {step === 4 && (
+                    <>
+                      {createdCompanyPrefix && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`/${createdCompanyPrefix}/company/settings`)}
+                        >
+                          Open Setup Console
+                        </Button>
+                      )}
+                      <Button size="sm" disabled={loading} onClick={handleLaunch}>
+                        {loading ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                        ) : (
+                          <ArrowRight className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        {loading ? "Opening..." : "Open Issue"}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right half — ASCII art (hidden on mobile) */}
+          <div className="hidden md:block w-1/2 overflow-hidden">
+            <AsciiArtAnimation />
+          </div>
+        </div>
+      </DialogPortal>
+    </Dialog>
+  );
+}
+
+function AdapterEnvironmentResult({
+  result
+}: {
+  result: AdapterEnvironmentTestResult;
+}) {
+  const statusLabel =
+    result.status === "pass"
+      ? "Passed"
+      : result.status === "warn"
+        ? "Warnings"
+        : "Failed";
+  const statusClass =
+    result.status === "pass"
+      ? "text-green-700 dark:text-green-300 border-green-300 dark:border-green-500/40 bg-green-50 dark:bg-green-500/10"
+      : result.status === "warn"
+        ? "text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10"
+        : "text-red-700 dark:text-red-300 border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10";
+
+  return (
+    <div className={`rounded-md border px-2.5 py-2 text-[11px] ${statusClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{statusLabel}</span>
+        <span className="opacity-80">
+          {new Date(result.testedAt).toLocaleTimeString()}
+        </span>
+      </div>
+      <div className="mt-1.5 space-y-1">
+        {result.checks.map((check, idx) => (
+          <div
+            key={`${check.code}-${idx}`}
+            className="leading-relaxed break-words"
+          >
+            <span className="font-medium uppercase tracking-wide opacity-80">
+              {check.level}
+            </span>
+            <span className="mx-1 opacity-60">·</span>
+            <span>{check.message}</span>
+            {check.detail && (
+              <span className="block opacity-75 break-all">
+                ({check.detail})
+              </span>
+            )}
+            {check.hint && (
+              <span className="block opacity-90 break-words">
+                Hint: {check.hint}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
