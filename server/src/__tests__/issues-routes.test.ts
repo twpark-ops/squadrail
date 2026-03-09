@@ -16,6 +16,7 @@ const {
   mockIssueCreateInternalWorkItem,
   mockIssueRemove,
   mockHeartbeatWakeup,
+  mockHeartbeatGetRun,
   mockAgentGetById,
   mockProtocolGetState,
   mockProtocolAppendMessage,
@@ -38,6 +39,7 @@ const {
   mockIssueCreateInternalWorkItem: vi.fn(),
   mockIssueRemove: vi.fn(),
   mockHeartbeatWakeup: vi.fn(),
+  mockHeartbeatGetRun: vi.fn(),
   mockAgentGetById: vi.fn(),
   mockProtocolGetState: vi.fn(),
   mockProtocolAppendMessage: vi.fn(),
@@ -62,7 +64,7 @@ vi.mock("../services/index.js", () => ({
   }),
   heartbeatService: () => ({
     wakeup: mockHeartbeatWakeup,
-    getRun: vi.fn(),
+    getRun: mockHeartbeatGetRun,
   }),
   issueApprovalService: () => ({
     listApprovalsForIssue: vi.fn(),
@@ -267,6 +269,7 @@ describe("issue routes wakeup handling", () => {
       reviewRequestedIssueId: null,
     });
     mockAgentGetById.mockResolvedValue(null);
+    mockHeartbeatGetRun.mockResolvedValue(null);
     mockProtocolGetState.mockResolvedValue(null);
     mockProtocolAppendMessage.mockResolvedValue({
       message: { id: "protocol-message-1", seq: 1 },
@@ -927,5 +930,95 @@ describe("issue routes wakeup handling", () => {
 
     expect(response.statusCode).toBe(201);
     expect(mockProtocolAppendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto-attaches execution run artifacts to agent protocol messages", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-201",
+      title: "Protocol issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockHeartbeatGetRun.mockResolvedValue({
+      id: "run-1",
+      companyId: "company-1",
+      agentId: "eng-1",
+      invocationSource: "automation",
+      status: "running",
+      startedAt: new Date("2026-03-10T00:00:00.000Z"),
+      finishedAt: null,
+      stdoutExcerpt: "pnpm test:run\npnpm build",
+      stderrExcerpt: null,
+      contextSnapshot: {
+        issueId: "11111111-1111-4111-8111-111111111111",
+        squadrailWorkspace: {
+          cwd: "/workspace/repo",
+          source: "project_isolated",
+          projectId: "project-1",
+          workspaceId: "workspace-1",
+          repoUrl: "git@github.com:org/repo.git",
+          repoRef: "main",
+          workspaceUsage: "implementation",
+          branchName: "squadrail/clo-201-eng-1",
+        },
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: {
+        ...buildAgentActor("eng-1"),
+        runId: "run-1",
+      },
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "rev-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          artifacts: expect.arrayContaining([
+            expect.objectContaining({ kind: "run", uri: "run://run-1" }),
+            expect.objectContaining({ kind: "test_run", uri: "run://run-1/test" }),
+            expect.objectContaining({ kind: "build_run", uri: "run://run-1/build" }),
+          ]),
+        }),
+      }),
+    );
   });
 });

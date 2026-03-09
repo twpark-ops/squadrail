@@ -17,7 +17,7 @@ import {
 
 type ProtocolWakeSource = "assignment" | "automation";
 type ProtocolDispatchKind = "wakeup" | "notify_only" | "skip_sender" | "skip_unsupported_adapter";
-type ProtocolDispatchMode = "default" | "reviewer_watch" | "lead_supervisor";
+type ProtocolDispatchMode = "default" | "reviewer_watch" | "lead_supervisor" | "implementation_followup";
 
 export interface ProtocolExecutionRecipientHint {
   recipientId: string;
@@ -75,6 +75,8 @@ function protocolExecutionReason(messageType: string) {
       return "protocol_clarification_requested";
     case "PROPOSE_PLAN":
       return "protocol_plan_proposed";
+    case "START_IMPLEMENTATION":
+      return "protocol_implementation_started";
     case "ESCALATE_BLOCKER":
       return "protocol_blocker_escalated";
     case "SUBMIT_FOR_REVIEW":
@@ -118,12 +120,16 @@ function buildDispatchPlanBase(input: {
   recipientHint?: ProtocolExecutionRecipientHint;
   issueContext?: InternalWorkItemSupervisorContext | null;
   dispatchMode?: ProtocolDispatchMode;
+  forceFollowupRun?: boolean;
 }) {
   const internalMetadata = buildInternalWorkItemDispatchMetadata(input.issueContext);
   const dispatchMetadata =
-    input.dispatchMode && input.dispatchMode !== "default"
-      ? { protocolDispatchMode: input.dispatchMode }
-      : {};
+    {
+      ...(input.dispatchMode && input.dispatchMode !== "default"
+        ? { protocolDispatchMode: input.dispatchMode }
+        : {}),
+      ...(input.forceFollowupRun ? { forceFollowupRun: true } : {}),
+    };
 
   return {
     recipientRole: input.recipient.role,
@@ -220,6 +226,12 @@ export function buildProtocolExecutionDispatchPlan(input: {
     const recipientHint = input.recipientHints?.find(
       (hint) => hint.recipientId === recipient.recipientId && hint.recipientRole === recipient.role,
     );
+    const implementationFollowupActive =
+      recipient.recipientType === "agent"
+      && recipient.role === "engineer"
+      && input.message.messageType === "START_IMPLEMENTATION"
+      && Boolean(input.senderAgentId)
+      && recipient.recipientId === input.senderAgentId;
     const reviewerWatchActive =
       recipient.recipientType === "agent" &&
       recipient.role === "reviewer" &&
@@ -236,7 +248,13 @@ export function buildProtocolExecutionDispatchPlan(input: {
       recipient,
       recipientHint,
       issueContext: input.issueContext,
-      dispatchMode: reviewerWatchActive ? "reviewer_watch" : "default",
+      dispatchMode:
+        implementationFollowupActive
+          ? "implementation_followup"
+          : reviewerWatchActive
+            ? "reviewer_watch"
+            : "default",
+      forceFollowupRun: implementationFollowupActive,
     });
 
     if (recipient.recipientType !== "agent") {
@@ -247,7 +265,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       return { kind: "notify_only", ...base };
     }
 
-    if (input.senderAgentId && recipient.recipientId === input.senderAgentId) {
+    if (input.senderAgentId && recipient.recipientId === input.senderAgentId && !implementationFollowupActive) {
       return { kind: "skip_sender", ...base };
     }
 
