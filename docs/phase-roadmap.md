@@ -117,7 +117,8 @@
 - `Phase 2 / Slice 2` 완료
   - engineer가 자기 자신에게 보내는 `START_IMPLEMENTATION`이 `skip_sender`로 소실되지 않고 `implementation_followup` wake로 이어지도록 조정
   - same-agent issue execution coalescing에 `forceFollowupRun` 예외를 추가해 analysis run 뒤에 구현 run이 따로 생성되도록 보강
-  - agent protocol message에 현재 heartbeat run 기준 `run`, `workspace binding`, `test_run`, `build_run` artifact 자동 첨부
+  - agent protocol message에 현재 heartbeat run 기준 `run` artifact를 자동 첨부하고, implementation run에서만 resolved workspace binding을 기록
+  - `test_run`/`build_run` auto artifact는 현재 run 출력으로 corroborate된 경우에만 첨부되도록 보강
   - route/dispatch/heartbeat 경계 테스트 추가로 self-followup implementation run과 auto artifact capture 회귀 고정
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요

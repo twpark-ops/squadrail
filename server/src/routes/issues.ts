@@ -32,7 +32,10 @@ import {
 import { logger } from "../middleware/logger.js";
 import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
-import { enrichProtocolMessageArtifactsFromRun } from "../services/protocol-run-artifacts.js";
+import {
+  enrichProtocolMessageArtifactsFromRun,
+  runMatchesIssueScope,
+} from "../services/protocol-run-artifacts.js";
 
 const MAX_ATTACHMENT_BYTES = Number(process.env.SQUADRAIL_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_CONTENT_TYPES = new Set([
@@ -266,6 +269,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         activeRun
         && activeRun.companyId === input.issue.companyId
         && activeRun.agentId === input.actor.agentId
+        && runMatchesIssueScope(activeRun, input.issue.id)
       ) {
         effectiveMessage = enrichProtocolMessageArtifactsFromRun({
           message: input.message,

@@ -237,6 +237,55 @@ export function validateHumanBoardProtocolIntervention(input: {
   return null;
 }
 
+export function validateProtocolRecipientContract(message: CreateIssueProtocolMessage) {
+  const payload = message.payload as Record<string, unknown>;
+
+  if (message.messageType === "ASSIGN_TASK") {
+    const assigneeAgentId = payload.assigneeAgentId as string;
+    const reviewerAgentId = payload.reviewerAgentId as string;
+    const assigneeInRecipients = message.recipients.find(
+      (recipient) => recipient.recipientType === "agent" && recipient.recipientId === assigneeAgentId,
+    );
+    if (!assigneeInRecipients) {
+      return "assigneeAgentId must be in recipients list";
+    }
+    if (reviewerAgentId === assigneeAgentId) {
+      return "Reviewer must be different from assignee";
+    }
+  }
+
+  if (message.messageType === "REASSIGN_TASK") {
+    const newAssigneeAgentId = payload.newAssigneeAgentId as string;
+    const newReviewerAgentId = payload.newReviewerAgentId as string | null | undefined;
+    const newAssigneeInRecipients = message.recipients.find(
+      (recipient) => recipient.recipientType === "agent" && recipient.recipientId === newAssigneeAgentId,
+    );
+    if (!newAssigneeInRecipients) {
+      return "newAssigneeAgentId must be in recipients list";
+    }
+    if (message.recipients.length > 0 && message.recipients[0].recipientId !== newAssigneeAgentId) {
+      return "newAssignee must be first recipient for proper transfer logic";
+    }
+    if (newReviewerAgentId && newReviewerAgentId === newAssigneeAgentId) {
+      return "Reviewer must be different from assignee";
+    }
+  }
+
+  if (message.messageType === "START_IMPLEMENTATION") {
+    const hasSelfEngineerRecipient = message.recipients.some(
+      (recipient) =>
+        recipient.recipientType === "agent"
+        && recipient.role === "engineer"
+        && recipient.recipientId === message.sender.actorId,
+    );
+    if (!hasSelfEngineerRecipient) {
+      return "START_IMPLEMENTATION must include the assigned engineer as a recipient";
+    }
+  }
+
+  return null;
+}
+
 type ProtocolOwnershipState = {
   techLeadAgentId: string | null;
   primaryEngineerAgentId: string | null;
@@ -313,9 +362,12 @@ async function getLatestSubmittedReviewMessage(tx: any, issueId: string) {
     .then((rows: Array<typeof issueProtocolMessages.$inferSelect>) => rows[0] ?? null);
 }
 
-async function getMessageArtifacts(tx: any, messageId: string): Promise<Array<Pick<IssueProtocolArtifact, "kind">>> {
+async function getMessageArtifacts(
+  tx: any,
+  messageId: string,
+): Promise<Array<Pick<IssueProtocolArtifact, "kind" | "metadata">>> {
   return tx
-    .select({ kind: issueProtocolArtifacts.artifactKind })
+    .select({ kind: issueProtocolArtifacts.artifactKind, metadata: issueProtocolArtifacts.metadata })
     .from(issueProtocolArtifacts)
     .where(eq(issueProtocolArtifacts.messageId, messageId));
 }
@@ -403,38 +455,9 @@ export function issueProtocolService(db: Db) {
       }
     }
 
-    // MEDIUM-1: Validate payload-recipients consistency
-    const payload = message.payload as Record<string, unknown>;
-    if (message.messageType === "ASSIGN_TASK") {
-      const assigneeAgentId = payload.assigneeAgentId as string;
-      const reviewerAgentId = payload.reviewerAgentId as string;
-      const assigneeInRecipients = message.recipients.find(
-        (r) => r.recipientType === "agent" && r.recipientId === assigneeAgentId,
-      );
-      if (!assigneeInRecipients) {
-        throw unprocessable("assigneeAgentId must be in recipients list");
-      }
-      if (reviewerAgentId === assigneeAgentId) {
-        throw unprocessable("Reviewer must be different from assignee");
-      }
-    }
-
-    if (message.messageType === "REASSIGN_TASK") {
-      const newAssigneeAgentId = payload.newAssigneeAgentId as string;
-      const newReviewerAgentId = payload.newReviewerAgentId as string | null | undefined;
-      const newAssigneeInRecipients = message.recipients.find(
-        (r) => r.recipientType === "agent" && r.recipientId === newAssigneeAgentId,
-      );
-      if (!newAssigneeInRecipients) {
-        throw unprocessable("newAssigneeAgentId must be in recipients list");
-      }
-      // Validate first recipient is the new assignee for transfer logic
-      if (message.recipients.length > 0 && message.recipients[0].recipientId !== newAssigneeAgentId) {
-        throw unprocessable("newAssignee must be first recipient for proper transfer logic");
-      }
-      if (newReviewerAgentId && newReviewerAgentId === newAssigneeAgentId) {
-        throw unprocessable("Reviewer must be different from assignee");
-      }
+    const recipientContractViolation = validateProtocolRecipientContract(message);
+    if (recipientContractViolation) {
+      throw unprocessable(recipientContractViolation);
     }
   }
 
