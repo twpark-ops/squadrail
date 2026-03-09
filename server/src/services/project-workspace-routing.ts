@@ -13,6 +13,11 @@ type GitExecutor = (input: {
   args: string[];
 }) => Promise<{ stdout: string; stderr?: string }>;
 
+type GitWorktreeEntry = {
+  path: string;
+  branchName: string | null;
+};
+
 let gitExecutorOverride: GitExecutor | null = null;
 
 export type ProjectWorkspaceRoutingRow = {
@@ -64,6 +69,89 @@ async function isGitWorkTree(targetPath: string) {
   } catch {
     return false;
   }
+}
+
+async function readGitBranchName(targetPath: string) {
+  try {
+    const { stdout } = await runGit(["branch", "--show-current"], targetPath);
+    const branchName = stdout.trim();
+    return branchName.length > 0 ? branchName : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isGitWorkTreeClean(targetPath: string) {
+  try {
+    const { stdout } = await runGit(["status", "--porcelain"], targetPath);
+    return stdout.trim().length === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function isDirectoryEmpty(targetPath: string) {
+  try {
+    const entries = await fs.readdir(targetPath);
+    return entries.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function parseWorktreeList(stdout: string): GitWorktreeEntry[] {
+  const entries: GitWorktreeEntry[] = [];
+  let currentPath: string | null = null;
+  let currentBranch: string | null = null;
+
+  const flush = () => {
+    if (!currentPath) return;
+    entries.push({
+      path: currentPath,
+      branchName: currentBranch,
+    });
+    currentPath = null;
+    currentBranch = null;
+  };
+
+  for (const rawLine of stdout.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    if (line.startsWith("worktree ")) {
+      flush();
+      currentPath = line.slice("worktree ".length).trim();
+      continue;
+    }
+    if (line.startsWith("branch ")) {
+      const ref = line.slice("branch ".length).trim();
+      currentBranch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+    }
+  }
+  flush();
+  return entries;
+}
+
+async function listGitWorktrees(baseCwd: string) {
+  try {
+    const { stdout } = await runGit(["worktree", "list", "--porcelain"], baseCwd);
+    return parseWorktreeList(stdout);
+  } catch {
+    return [];
+  }
+}
+
+async function removeIsolatedWorkspace(input: {
+  baseCwd: string;
+  targetDir: string;
+  strategy: NonNullable<ProjectWorkspaceExecutionPolicy["isolationStrategy"]>;
+}) {
+  if (input.strategy === "worktree") {
+    await runGit(["worktree", "remove", "--force", input.targetDir], input.baseCwd).catch(() => undefined);
+  }
+  await fs.rm(input.targetDir, { recursive: true, force: true }).catch(() => undefined);
 }
 
 async function runGit(args: string[], cwd?: string) {
@@ -214,12 +302,37 @@ async function ensureIsolatedWorkspace(input: {
 
   if (await pathIsDirectory(targetDir)) {
     if (await isGitWorkTree(targetDir)) {
-      return { cwd: targetDir, warnings, branchName };
+      const existingBranchName = await readGitBranchName(targetDir);
+      if (branchName && existingBranchName && existingBranchName !== branchName) {
+        const clean = await isGitWorkTreeClean(targetDir);
+        if (!clean) {
+          warnings.push(
+            `Isolated workspace "${targetDir}" is bound to branch "${existingBranchName}" instead of "${branchName}" and contains local changes. Falling back to the shared project workspace rather than reusing a stale branch.`,
+          );
+          return null;
+        }
+        await removeIsolatedWorkspace({
+          baseCwd: input.baseCwd,
+          targetDir,
+          strategy,
+        });
+        warnings.push(
+          `Removed stale isolated workspace "${targetDir}" because it was bound to branch "${existingBranchName}" instead of "${branchName}".`,
+        );
+      } else {
+        return { cwd: targetDir, warnings, branchName: existingBranchName ?? branchName };
+      }
+    } else if (await isDirectoryEmpty(targetDir)) {
+      await fs.rm(targetDir, { recursive: true, force: true });
+      warnings.push(
+        `Removed empty stale isolated workspace directory "${targetDir}" before recreating it.`,
+      );
+    } else {
+      warnings.push(
+        `Isolated workspace path "${targetDir}" already exists but is not a git worktree/clone. Falling back to the shared project workspace.`,
+      );
+      return null;
     }
-    warnings.push(
-      `Isolated workspace path "${targetDir}" already exists but is not a git worktree/clone. Falling back to the shared project workspace.`,
-    );
-    return null;
   }
 
   if (!(await isGitWorkTree(input.baseCwd))) {
@@ -241,13 +354,43 @@ async function ensureIsolatedWorkspace(input: {
   }
 
   if (branchName) {
+    const existingWorktree = (await listGitWorktrees(input.baseCwd))
+      .find((entry) => entry.branchName === branchName);
+    if (existingWorktree && existingWorktree.path !== targetDir) {
+      const existingWorktreeAvailable = await pathIsDirectory(existingWorktree.path);
+      const existingWorktreeValid = existingWorktreeAvailable && await isGitWorkTree(existingWorktree.path);
+      if (existingWorktreeValid) {
+        warnings.push(
+          `Branch "${branchName}" is already attached to existing worktree "${existingWorktree.path}". Reusing that isolated workspace.`,
+        );
+        return { cwd: existingWorktree.path, warnings, branchName };
+      }
+      await runGit(["worktree", "prune"], input.baseCwd).catch(() => undefined);
+      warnings.push(
+        `Pruned stale git worktree metadata for branch "${branchName}" before recreating the isolated workspace.`,
+      );
+    }
+
     const branchExists = await runGit(["rev-parse", "--verify", `refs/heads/${branchName}`], input.baseCwd)
       .then(() => true)
       .catch(() => false);
-    if (branchExists) {
-      await runGit(["worktree", "add", targetDir, branchName], input.baseCwd);
-    } else {
-      await runGit(["worktree", "add", "-b", branchName, targetDir, targetRef], input.baseCwd);
+    try {
+      if (branchExists) {
+        await runGit(["worktree", "add", targetDir, branchName], input.baseCwd);
+      } else {
+        await runGit(["worktree", "add", "-b", branchName, targetDir, targetRef], input.baseCwd);
+      }
+    } catch (err) {
+      await runGit(["worktree", "prune"], input.baseCwd).catch(() => undefined);
+      const recoveredWorktree = (await listGitWorktrees(input.baseCwd))
+        .find((entry) => entry.branchName === branchName);
+      if (recoveredWorktree && await pathIsDirectory(recoveredWorktree.path) && await isGitWorkTree(recoveredWorktree.path)) {
+        warnings.push(
+          `Recovered existing worktree "${recoveredWorktree.path}" for branch "${branchName}" after retrying stale worktree metadata cleanup.`,
+        );
+        return { cwd: recoveredWorktree.path, warnings, branchName };
+      }
+      throw err;
     }
   } else {
     await runGit(["worktree", "add", "--detach", targetDir, targetRef], input.baseCwd);

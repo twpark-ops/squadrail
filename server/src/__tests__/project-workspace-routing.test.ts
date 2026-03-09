@@ -156,4 +156,167 @@ describe("resolveProjectWorkspaceByPolicy", () => {
     expect(gitWorktrees.has(result!.cwd)).toBe(true);
     expect(result?.branchName).toContain("squadrail/");
   });
+
+  it("reuses an existing worktree when the implementation branch is already attached elsewhere", async () => {
+    const repo = await createTempWorkspace();
+    const isolatedRoot = path.join(repo, ".isolated");
+    const existingWorktree = path.join(repo, ".other-worktrees", "issue-42-agent-implementer-workspace-im");
+    const expectedBranchName = "squadrail/project-1/agent-implemente/issue-42";
+    await fs.mkdir(existingWorktree, { recursive: true });
+    const gitWorktrees = new Set([repo, existingWorktree]);
+
+    setProjectWorkspaceGitExecutorForTests(async ({ cwd, args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        if (cwd && gitWorktrees.has(cwd)) return { stdout: "true\n" };
+        throw new Error("not a git worktree");
+      }
+      if (args[0] === "worktree" && args[1] === "list") {
+        return {
+          stdout: [
+            `worktree ${repo}`,
+            "HEAD abc123",
+            "branch refs/heads/main",
+            "",
+            `worktree ${existingWorktree}`,
+            "HEAD def456",
+            `branch refs/heads/${expectedBranchName}`,
+            "",
+          ].join("\n"),
+        };
+      }
+      if (args[0] === "rev-parse" && args[1] === "--verify") {
+        return { stdout: `refs/heads/${expectedBranchName}\n` };
+      }
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const result = await resolveProjectWorkspaceByPolicy({
+      agentId: "agent-implementer",
+      issueId: "issue-42",
+      projectId: "project-1",
+      taskKey: "issue-42",
+      context: {
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      },
+      workspaces: [
+        {
+          id: "workspace-impl",
+          name: "impl",
+          cwd: repo,
+          repoUrl: null,
+          repoRef: "HEAD",
+          metadata: {
+            executionPolicy: {
+              mode: "isolated",
+              applyFor: ["implementation"],
+              isolationStrategy: "worktree",
+              isolatedRoot,
+              branchTemplate: "squadrail/{projectId}/{agentId}/{issueId}",
+            },
+          },
+          isPrimary: true,
+        },
+      ],
+    });
+
+    expect(result?.source).toBe("project_isolated");
+    expect(result?.cwd).toBe(existingWorktree);
+    expect(result?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("already attached to existing worktree"),
+      ]),
+    );
+  });
+
+  it("removes a clean stale isolated worktree when the branch binding no longer matches", async () => {
+    const repo = await createTempWorkspace();
+    const isolatedRoot = path.join(repo, ".isolated");
+    const staleTarget = path.join(isolatedRoot, "issue-42-agent-implementer-workspace-im");
+    await fs.mkdir(staleTarget, { recursive: true });
+    const gitWorktrees = new Set([repo, staleTarget]);
+
+    setProjectWorkspaceGitExecutorForTests(async ({ cwd, args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        if (cwd && gitWorktrees.has(cwd)) return { stdout: "true\n" };
+        throw new Error("not a git worktree");
+      }
+      if (args[0] === "branch" && args[1] === "--show-current") {
+        if (cwd === staleTarget) return { stdout: "old/stale-branch\n" };
+        return { stdout: "main\n" };
+      }
+      if (args[0] === "status" && args[1] === "--porcelain") {
+        return { stdout: "" };
+      }
+      if (args[0] === "worktree" && args[1] === "remove") {
+        const targetDir = args[3];
+        if (!targetDir) throw new Error("missing target dir");
+        gitWorktrees.delete(targetDir);
+        await fs.rm(targetDir, { recursive: true, force: true });
+        return { stdout: "" };
+      }
+      if (args[0] === "worktree" && args[1] === "list") {
+        return {
+          stdout: [
+            `worktree ${repo}`,
+            "HEAD abc123",
+            "branch refs/heads/main",
+            "",
+          ].join("\n"),
+        };
+      }
+      if (args[0] === "rev-parse" && args[1] === "--verify") {
+        throw new Error("branch missing");
+      }
+      if (args[0] === "worktree" && args[1] === "add") {
+        const targetDir = args.includes("-b") ? args[4] : args[2];
+        if (!targetDir) throw new Error("missing target dir");
+        await fs.mkdir(targetDir, { recursive: true });
+        gitWorktrees.add(targetDir);
+        return { stdout: "" };
+      }
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const result = await resolveProjectWorkspaceByPolicy({
+      agentId: "agent-implementer",
+      issueId: "issue-42",
+      projectId: "project-1",
+      taskKey: "issue-42",
+      context: {
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      },
+      workspaces: [
+        {
+          id: "workspace-impl",
+          name: "impl",
+          cwd: repo,
+          repoUrl: null,
+          repoRef: "HEAD",
+          metadata: {
+            executionPolicy: {
+              mode: "isolated",
+              applyFor: ["implementation"],
+              isolationStrategy: "worktree",
+              isolatedRoot,
+              branchTemplate: "squadrail/{projectId}/{agentId}/{issueId}",
+            },
+          },
+          isPrimary: true,
+        },
+      ],
+    });
+
+    expect(result?.source).toBe("project_isolated");
+    expect(result?.cwd).toBe(staleTarget);
+    expect(result?.branchName).toContain("squadrail/");
+    expect(result?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Removed stale isolated workspace"),
+      ]),
+    );
+  });
 });

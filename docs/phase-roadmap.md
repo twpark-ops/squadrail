@@ -132,9 +132,14 @@
   - `APPROVE_IMPLEMENTATION` 메시지에 `approval` artifact 자동 첨부
   - `codex_local`, `cursor_local`, `opencode_local`, `claude_local` result에 structured command execution 기록을 남겨 verification signal의 신뢰도를 높임
   - `merged` close는 `repo evidence + approval + verification evidence` 조합을 요구하도록 강화
+- `Phase 3 / Slice 3` 시작
+  - existing worktree branch collision 시 기존 attached path 재사용
+  - clean stale isolated worktree는 branch mismatch 감지 후 제거/재생성
+  - empty stale isolated directory는 recreation 전에 safe cleanup
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
   - adapter별 structured verification metadata 깊이 차이는 `Phase 3 / Slice 2`에서 계속 정리
+  - dirty stale workspace에 대한 escalation/retry 정책은 `Phase 3 / Slice 3`에서 계속 진행
 
 ## Phase 1 세부 슬라이스
 

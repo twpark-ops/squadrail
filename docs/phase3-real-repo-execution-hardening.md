@@ -47,11 +47,17 @@ Phase 3의 목표는 `실제 repo에서 작업했다`는 증거를 run, protocol
 
 ### Slice 3. Workspace lifecycle hardening
 
-후속 작업 범위:
+이번 턴에 시작한 범위:
 
-- isolated worktree/clone cleanup 정책
-- stale branch/worktree 감지와 recovery
-- implementation retry/resume 정책과 branch collision 처리
+- isolated worktree가 다른 경로에 이미 붙어 있으면 해당 path를 재사용해 branch collision을 흡수
+- clean 상태의 stale isolated worktree는 branch mismatch를 감지하면 제거 후 재생성
+- empty stale directory는 안전하게 정리하고 recreation
+
+다음 작업 범위:
+
+- isolated clone cleanup 정책
+- dirty stale workspace에 대한 recovery/escalation 정책
+- implementation retry/resume 정책과 branch collision 처리의 운영 표면 보강
 
 ## 완료 기준
 
