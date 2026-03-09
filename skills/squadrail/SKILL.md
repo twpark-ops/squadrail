@@ -69,6 +69,7 @@ If `SQUADRAIL_WAKE_COMMENT_ID` is set, find that specific comment first and trea
 **Step 7 — Do the work.** Use your tools and capabilities.
 
 **Step 8 — Update status and communicate.** Always include the run ID header.
+Use protocol messages for structured workflow transitions and handoffs. Use comments for narrative context, human-visible progress, blockers, and @-mention wakeups.
 If you are blocked at any point, you MUST update the issue to `blocked` before exiting the heartbeat, with a comment that explains the blocker and who needs to act.
 
 ```json
@@ -101,6 +102,7 @@ Workspace rules:
 ## Critical Rules
 
 - **Always checkout** before working. Never PATCH to `in_progress` manually.
+- **Use protocol messages for structured delivery.** `ASSIGN_TASK`, `START_IMPLEMENTATION`, `SUBMIT_FOR_REVIEW`, `REQUEST_CHANGES`, `APPROVE_IMPLEMENTATION`, and `CLOSE_TASK` belong in `/protocol/messages`, not plain comments.
 - **Never retry a 409.** The task belongs to someone else.
 - **Never look for unassigned work.**
 - **Self-assign only for explicit @-mention handoff.** This requires a mention-triggered wake with `SQUADRAIL_WAKE_COMMENT_ID` and a comment that clearly directs you to do the task. Use checkout (never direct assignee patch). Otherwise, no assignments = exit.
@@ -114,6 +116,60 @@ Workspace rules:
 - **Budget**: auto-paused at 100%. Above 80%, focus on critical tasks only.
 - **Escalate** via `chainOfCommand` when stuck. Reassign to manager or create a task for them.
 - **Hiring**: use `squadrail-create-agent` skill for new agent creation workflows.
+
+## Protocol Handoffs (Required)
+
+Structured handoffs and workflow transitions must use protocol messages:
+
+```json
+POST /api/issues/{issueId}/protocol/messages
+Headers: X-Squadrail-Run-Id: $SQUADRAIL_RUN_ID
+{
+  "messageType": "SUBMIT_FOR_REVIEW",
+  "sender": {
+    "actorType": "agent",
+    "actorId": "$SQUADRAIL_AGENT_ID",
+    "role": "engineer"
+  },
+  "recipients": [
+    {
+      "recipientType": "agent",
+      "recipientId": "{reviewerAgentId}",
+      "role": "reviewer"
+    }
+  ],
+  "workflowStateBefore": "implementing",
+  "workflowStateAfter": "submitted_for_review",
+  "summary": "Submit retry worker changes for review",
+  "payload": {
+    "implementationSummary": "Added bounded retries and idempotency guards.",
+    "evidence": ["retrieval brief reviewed", "bounded retry tests green"],
+    "diffSummary": "retry worker now caps retries and records idempotency keys",
+    "changedFiles": ["server/src/workers/retry-worker.ts", "server/src/__tests__/retry-worker.test.ts"],
+    "testResults": ["pnpm vitest retry-worker"],
+    "reviewChecklist": ["retry path covered", "idempotency behavior preserved"],
+    "residualRisks": ["Need production observation for queue latency under burst traffic."]
+  },
+  "artifacts": [
+    {
+      "kind": "diff",
+      "uri": "file://tmp/retry-worker.diff"
+    }
+  ]
+}
+```
+
+For `SUBMIT_FOR_REVIEW`, the payload must include:
+
+- `implementationSummary`
+- `diffSummary`
+- `changedFiles[]`
+- `testResults[]`
+- `reviewChecklist[]`
+- `residualRisks[]`
+- at least one artifact of kind `diff`, `commit`, or `test_run`
+
+Comments remain useful, but they are not the authoritative source for review handoff state.
 
 ## Comment Style (Required)
 
@@ -208,6 +264,9 @@ PATCH /api/agents/{agentId}/instructions-path
 | My assignments       | `GET /api/companies/:companyId/issues?assigneeAgentId=:id&status=todo,in_progress,blocked` |
 | Checkout task        | `POST /api/issues/:issueId/checkout`                                                       |
 | Get task + ancestors | `GET /api/issues/:issueId`                                                                 |
+| Get protocol state   | `GET /api/issues/:issueId/protocol/state`                                                  |
+| List protocol msgs   | `GET /api/issues/:issueId/protocol/messages`                                               |
+| Post protocol msg    | `POST /api/issues/:issueId/protocol/messages`                                              |
 | Get task brief       | `GET /api/issues/:issueId/protocol/briefs?latest=true&scope=:role`                        |
 | Get retrieval hits   | `GET /api/knowledge/retrieval-runs/:retrievalRunId/hits`                                  |
 | Get comments         | `GET /api/issues/:issueId/comments`                                                        |

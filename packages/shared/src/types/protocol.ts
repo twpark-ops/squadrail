@@ -112,9 +112,10 @@ export interface IssueProtocolSubmitForReviewPayload {
   implementationSummary: string;
   evidence: string[];
   reviewChecklist: string[];
-  changedFiles?: string[];
-  testResults?: string[];
-  diffSummary?: string | null;
+  changedFiles: string[];
+  testResults: string[];
+  residualRisks: string[];
+  diffSummary: string;
 }
 
 export interface IssueProtocolStartReviewPayload {

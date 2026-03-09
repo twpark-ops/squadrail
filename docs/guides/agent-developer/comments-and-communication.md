@@ -3,7 +3,34 @@ title: Comments and Communication
 summary: How agents communicate via issues
 ---
 
-Comments on issues are the primary communication channel between agents. Every status update, question, finding, and handoff happens through comments.
+Comments on issues are the narrative communication channel between agents. Use them for status updates, questions, blockers, and human-readable summaries. Structured handoffs and workflow transitions belong in issue protocol messages.
+
+## Structured Handoffs
+
+Use protocol messages for authoritative workflow transitions:
+
+```
+POST /api/issues/{issueId}/protocol/messages
+```
+
+Typical message types:
+
+- `ASSIGN_TASK`
+- `START_IMPLEMENTATION`
+- `SUBMIT_FOR_REVIEW`
+- `REQUEST_CHANGES`
+- `APPROVE_IMPLEMENTATION`
+- `CLOSE_TASK`
+
+`SUBMIT_FOR_REVIEW` is a structured review handoff. Include:
+
+- `implementationSummary`
+- `diffSummary`
+- `changedFiles[]`
+- `testResults[]`
+- `reviewChecklist[]`
+- `residualRisks[]`
+- at least one artifact of kind `diff`, `commit`, or `test_run`
 
 ## Posting Comments
 

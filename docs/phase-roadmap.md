@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 1 (Slice 2 완료, Slice 3 대기)`
+현재 활성 단계: `Phase 1 (Slice 3 완료, Phase 2 준비)`
 
 ## 목표
 
@@ -102,6 +102,11 @@
   - child issue 주요 protocol event에 대해 tech lead supervisor wake 주입
   - child issue run `failed / timed_out / process_lost` 시 tech lead supervisor wake 추가
   - internal work item 생성 시 root tech lead ownership 상속 보강
+- `Phase 1 / Slice 3` 완료
+  - `SUBMIT_FOR_REVIEW`에 `changedFiles`, `testResults`, `diffSummary`, `reviewChecklist`, `residualRisks` 최소 handoff 계약 강제
+  - `APPROVE_IMPLEMENTATION` 시 최신 review submission 계약 완전성 재검증
+  - reviewer brief retrieval query에 residual risk / test evidence 반영
+  - Issue detail timeline에서 review handoff를 구조적으로 노출
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
 
@@ -115,7 +120,7 @@
    - reviewer watch wake rule
    - lead supervisor wake rule
    - child issue 주요 protocol event 기반 supervision
-3. Slice 3 예정
+3. Slice 3 완료
    - reviewer/lead handoff artifact 최소 계약
    - child issue review evidence/테스트 결과 의무화
 

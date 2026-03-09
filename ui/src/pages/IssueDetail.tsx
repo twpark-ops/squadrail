@@ -178,7 +178,7 @@ function collectProtocolEvidence(message: IssueProtocolMessage) {
     .map((artifact) => artifact.label ?? artifact.uri)
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 
-  for (const key of ["evidence", "reviewChecklist", "testResults", "finalArtifacts", "followUpActions"]) {
+  for (const key of ["evidence", "reviewChecklist", "testResults", "residualRisks", "finalArtifacts", "followUpActions"]) {
     const value = payload[key];
     if (!Array.isArray(value)) continue;
     for (const entry of value) {
@@ -187,6 +187,44 @@ function collectProtocolEvidence(message: IssueProtocolMessage) {
   }
 
   return Array.from(new Set([...evidence, ...artifactLabels])).slice(0, 8);
+}
+
+function readProtocolStringArray(payload: Record<string, unknown>, key: string) {
+  const value = payload[key];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function readProtocolString(payload: Record<string, unknown>, key: string) {
+  const value = payload[key];
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+type ProtocolReviewHandoffSnapshot = {
+  implementationSummary: string | null;
+  diffSummary: string | null;
+  changedFiles: string[];
+  testResults: string[];
+  reviewChecklist: string[];
+  residualRisks: string[];
+};
+
+function readProtocolReviewHandoff(message: IssueProtocolMessage): ProtocolReviewHandoffSnapshot | null {
+  if (message.messageType !== "SUBMIT_FOR_REVIEW") return null;
+  const payload = asRecord(message.payload) ?? {};
+  return {
+    implementationSummary: readProtocolString(payload, "implementationSummary"),
+    diffSummary: readProtocolString(payload, "diffSummary"),
+    changedFiles: readProtocolStringArray(payload, "changedFiles"),
+    testResults: readProtocolStringArray(payload, "testResults"),
+    reviewChecklist: readProtocolStringArray(payload, "reviewChecklist"),
+    residualRisks: readProtocolStringArray(payload, "residualRisks"),
+  };
 }
 
 function latestBriefsByScope(briefs: IssueTaskBrief[]) {
@@ -1313,6 +1351,7 @@ export function IssueDetail() {
                     <div className="mt-3 space-y-3">
                       {protocolTimeline.map((message) => {
                         const evidence = collectProtocolEvidence(message);
+                        const reviewHandoff = readProtocolReviewHandoff(message);
                         return (
                           <div key={message.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3">
                             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
@@ -1362,6 +1401,48 @@ export function IssueDetail() {
                                     </li>
                                   ))}
                                 </ul>
+                              </div>
+                            )}
+                            {reviewHandoff && (
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                {reviewHandoff.implementationSummary && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Implementation Summary
+                                    </div>
+                                    <p className="mt-2 text-sm text-foreground">{reviewHandoff.implementationSummary}</p>
+                                  </div>
+                                )}
+                                {reviewHandoff.diffSummary && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Diff Summary
+                                    </div>
+                                    <p className="mt-2 text-sm text-foreground">{reviewHandoff.diffSummary}</p>
+                                  </div>
+                                )}
+                                {[
+                                  ["Changed Files", reviewHandoff.changedFiles],
+                                  ["Test Results", reviewHandoff.testResults],
+                                  ["Review Checklist", reviewHandoff.reviewChecklist],
+                                  ["Residual Risks", reviewHandoff.residualRisks],
+                                ].map(([title, items]) =>
+                                  Array.isArray(items) && items.length > 0 ? (
+                                    <div key={`${message.id}:${title}`} className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        {title}
+                                      </div>
+                                      <ul className="mt-2 space-y-1 text-sm text-foreground">
+                                        {items.map((item) => (
+                                          <li key={`${message.id}:${title}:${item}`} className="flex gap-2">
+                                            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
+                                            <span>{item}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null
+                                )}
                               </div>
                             )}
                           </div>

@@ -422,6 +422,7 @@ export function issueProtocolService(db: Db) {
       }
       const violation = evaluateProtocolEvidenceRequirement({
         message,
+        latestReviewPayload: latestSubmit.payload as Record<string, unknown> | null,
         latestReviewArtifacts: await getMessageArtifacts(tx, latestSubmit.id),
       });
       if (violation) {

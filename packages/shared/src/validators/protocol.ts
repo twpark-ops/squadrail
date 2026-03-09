@@ -31,6 +31,7 @@ import {
 const uuidSchema = z.string().uuid();
 const optionalUuidSchema = uuidSchema.nullable().optional();
 const stringArraySchema = z.array(z.string());
+const nonEmptyStringArraySchema = z.array(z.string().trim().min(1));
 
 export const issueProtocolWorkflowStateSchema = z.enum(ISSUE_PROTOCOL_WORKFLOW_STATES);
 export const issueProtocolBlockedPhaseSchema = z.enum(ISSUE_PROTOCOL_BLOCKED_PHASES);
@@ -126,12 +127,13 @@ export const issueProtocolEscalateBlockerPayloadSchema = z.object({
 }).strict();
 
 export const issueProtocolSubmitForReviewPayloadSchema = z.object({
-  implementationSummary: z.string().min(1),
-  evidence: stringArraySchema.min(1),
-  reviewChecklist: stringArraySchema.min(1),
-  changedFiles: stringArraySchema.optional(),
-  testResults: stringArraySchema.optional(),
-  diffSummary: z.string().nullable().optional(),
+  implementationSummary: z.string().trim().min(1),
+  evidence: nonEmptyStringArraySchema.min(1),
+  reviewChecklist: nonEmptyStringArraySchema.min(1),
+  changedFiles: nonEmptyStringArraySchema.min(1),
+  testResults: nonEmptyStringArraySchema.min(1),
+  residualRisks: nonEmptyStringArraySchema.min(1),
+  diffSummary: z.string().trim().min(1),
 }).strict();
 
 export const issueProtocolStartReviewPayloadSchema = z.object({
