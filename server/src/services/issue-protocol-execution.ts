@@ -5,9 +5,19 @@ import { canDispatchProtocolToAdapter } from "../adapters/index.js";
 import { logActivity } from "./activity-log.js";
 import { agentService } from "./agents.js";
 import { heartbeatService } from "./heartbeat.js";
+import {
+  buildInternalWorkItemDispatchMetadata,
+  isLeadWatchEnabled,
+  isReviewerWatchEnabled,
+  leadSupervisorProtocolReason,
+  loadInternalWorkItemSupervisorContext,
+  reviewerWatchReason,
+  type InternalWorkItemSupervisorContext,
+} from "./internal-work-item-supervision.js";
 
 type ProtocolWakeSource = "assignment" | "automation";
 type ProtocolDispatchKind = "wakeup" | "notify_only" | "skip_sender" | "skip_unsupported_adapter";
+type ProtocolDispatchMode = "default" | "reviewer_watch" | "lead_supervisor";
 
 export interface ProtocolExecutionRecipientHint {
   recipientId: string;
@@ -96,6 +106,91 @@ function shouldWakeRecipientForMessage(messageType: string, recipientRole: strin
   return true;
 }
 
+function buildDispatchPlanBase(input: {
+  issueId: string;
+  protocolMessageId: string;
+  message: CreateIssueProtocolMessage;
+  protocolPayload: Record<string, unknown>;
+  wakeHints: Record<string, unknown>;
+  source: ProtocolWakeSource;
+  reason: string;
+  recipient: CreateIssueProtocolMessage["recipients"][number];
+  recipientHint?: ProtocolExecutionRecipientHint;
+  issueContext?: InternalWorkItemSupervisorContext | null;
+  dispatchMode?: ProtocolDispatchMode;
+}) {
+  const internalMetadata = buildInternalWorkItemDispatchMetadata(input.issueContext);
+  const dispatchMetadata =
+    input.dispatchMode && input.dispatchMode !== "default"
+      ? { protocolDispatchMode: input.dispatchMode }
+      : {};
+
+  return {
+    recipientRole: input.recipient.role,
+    recipientType: input.recipient.recipientType,
+    recipientId: input.recipient.recipientId,
+    reason: input.reason,
+    source: input.source,
+    payload: {
+      ...input.wakeHints,
+      issueId: input.issueId,
+      protocolMessageId: input.protocolMessageId,
+      protocolMessageType: input.message.messageType,
+      protocolWorkflowStateBefore: input.message.workflowStateBefore,
+      protocolWorkflowStateAfter: input.message.workflowStateAfter,
+      protocolSummary: input.message.summary,
+      protocolPayload: input.protocolPayload,
+      ...internalMetadata,
+      ...dispatchMetadata,
+      ...(input.recipientHint?.briefId ? { latestBriefId: input.recipientHint.briefId } : {}),
+      ...(input.recipientHint?.briefScope ? { latestBriefScope: input.recipientHint.briefScope } : {}),
+      ...(input.recipientHint?.retrievalRunId ? { retrievalRunId: input.recipientHint.retrievalRunId } : {}),
+      ...(input.recipientHint?.briefContentMarkdown || input.recipientHint?.briefEvidenceSummary?.length
+        ? {
+            taskBrief: {
+              id: input.recipientHint?.briefId ?? null,
+              scope: input.recipientHint?.briefScope ?? null,
+              retrievalRunId: input.recipientHint?.retrievalRunId ?? null,
+              contentMarkdown: input.recipientHint?.briefContentMarkdown ?? null,
+              evidence: input.recipientHint?.briefEvidenceSummary ?? [],
+            },
+          }
+        : {}),
+    },
+    contextSnapshot: {
+      ...input.wakeHints,
+      issueId: input.issueId,
+      taskId: input.issueId,
+      protocolMessageId: input.protocolMessageId,
+      protocolMessageType: input.message.messageType,
+      protocolWorkflowStateBefore: input.message.workflowStateBefore,
+      protocolWorkflowStateAfter: input.message.workflowStateAfter,
+      protocolSummary: input.message.summary,
+      wakeReason: input.reason,
+      source: "issue.protocol",
+      protocolRecipientRole: input.recipient.role,
+      protocolSenderRole: input.message.sender.role,
+      protocolPayload: input.protocolPayload,
+      ...internalMetadata,
+      ...dispatchMetadata,
+      ...(input.recipientHint?.briefId ? { latestBriefId: input.recipientHint.briefId } : {}),
+      ...(input.recipientHint?.briefScope ? { latestBriefScope: input.recipientHint.briefScope } : {}),
+      ...(input.recipientHint?.retrievalRunId ? { retrievalRunId: input.recipientHint.retrievalRunId } : {}),
+      ...(input.recipientHint?.briefContentMarkdown || input.recipientHint?.briefEvidenceSummary?.length
+        ? {
+            taskBrief: {
+              id: input.recipientHint?.briefId ?? null,
+              scope: input.recipientHint?.briefScope ?? null,
+              retrievalRunId: input.recipientHint?.retrievalRunId ?? null,
+              contentMarkdown: input.recipientHint?.briefContentMarkdown ?? null,
+              evidence: input.recipientHint?.briefEvidenceSummary ?? [],
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 export function shouldTransferActiveIssueExecution(input: {
   messageType: string;
   targetAgentId: string | null | undefined;
@@ -114,82 +209,41 @@ export function buildProtocolExecutionDispatchPlan(input: {
   message: CreateIssueProtocolMessage;
   senderAgentId?: string | null;
   recipientHints?: ProtocolExecutionRecipientHint[];
+  issueContext?: InternalWorkItemSupervisorContext | null;
 }) {
   const reason = protocolExecutionReason(input.message.messageType);
   const source = protocolExecutionSource(input.message.messageType);
   const protocolPayload = asRecord(input.message.payload);
   const wakeHints = protocolWakeHints(protocolPayload);
 
-  return input.message.recipients.map<ProtocolExecutionDispatchPlanItem>((recipient) => {
+  const plan = input.message.recipients.map<ProtocolExecutionDispatchPlanItem>((recipient) => {
     const recipientHint = input.recipientHints?.find(
       (hint) => hint.recipientId === recipient.recipientId && hint.recipientRole === recipient.role,
     );
-    const base = {
-      recipientRole: recipient.role,
-      recipientType: recipient.recipientType,
-      recipientId: recipient.recipientId,
-      reason,
+    const reviewerWatchActive =
+      recipient.recipientType === "agent" &&
+      recipient.role === "reviewer" &&
+      (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
+      isReviewerWatchEnabled(input.issueContext);
+    const base = buildDispatchPlanBase({
+      issueId: input.issueId,
+      protocolMessageId: input.protocolMessageId,
+      message: input.message,
+      protocolPayload,
+      wakeHints,
       source,
-      payload: {
-        ...wakeHints,
-        issueId: input.issueId,
-        protocolMessageId: input.protocolMessageId,
-        protocolMessageType: input.message.messageType,
-        protocolWorkflowStateBefore: input.message.workflowStateBefore,
-        protocolWorkflowStateAfter: input.message.workflowStateAfter,
-        protocolSummary: input.message.summary,
-        protocolPayload,
-        ...(recipientHint?.briefId ? { latestBriefId: recipientHint.briefId } : {}),
-        ...(recipientHint?.briefScope ? { latestBriefScope: recipientHint.briefScope } : {}),
-        ...(recipientHint?.retrievalRunId ? { retrievalRunId: recipientHint.retrievalRunId } : {}),
-        ...(recipientHint?.briefContentMarkdown || recipientHint?.briefEvidenceSummary?.length
-          ? {
-              taskBrief: {
-                id: recipientHint?.briefId ?? null,
-                scope: recipientHint?.briefScope ?? null,
-                retrievalRunId: recipientHint?.retrievalRunId ?? null,
-                contentMarkdown: recipientHint?.briefContentMarkdown ?? null,
-                evidence: recipientHint?.briefEvidenceSummary ?? [],
-              },
-            }
-          : {}),
-      },
-      contextSnapshot: {
-        ...wakeHints,
-        issueId: input.issueId,
-        taskId: input.issueId,
-        protocolMessageId: input.protocolMessageId,
-        protocolMessageType: input.message.messageType,
-        protocolWorkflowStateBefore: input.message.workflowStateBefore,
-        protocolWorkflowStateAfter: input.message.workflowStateAfter,
-        protocolSummary: input.message.summary,
-        wakeReason: reason,
-        source: "issue.protocol",
-        protocolRecipientRole: recipient.role,
-        protocolSenderRole: input.message.sender.role,
-        protocolPayload,
-        ...(recipientHint?.briefId ? { latestBriefId: recipientHint.briefId } : {}),
-        ...(recipientHint?.briefScope ? { latestBriefScope: recipientHint.briefScope } : {}),
-        ...(recipientHint?.retrievalRunId ? { retrievalRunId: recipientHint.retrievalRunId } : {}),
-        ...(recipientHint?.briefContentMarkdown || recipientHint?.briefEvidenceSummary?.length
-          ? {
-              taskBrief: {
-                id: recipientHint?.briefId ?? null,
-                scope: recipientHint?.briefScope ?? null,
-                retrievalRunId: recipientHint?.retrievalRunId ?? null,
-                contentMarkdown: recipientHint?.briefContentMarkdown ?? null,
-                evidence: recipientHint?.briefEvidenceSummary ?? [],
-              },
-            }
-          : {}),
-      },
-    };
+      reason: reviewerWatchActive ? reviewerWatchReason(input.message.messageType) : reason,
+      recipient,
+      recipientHint,
+      issueContext: input.issueContext,
+      dispatchMode: reviewerWatchActive ? "reviewer_watch" : "default",
+    });
 
     if (recipient.recipientType !== "agent") {
       return { kind: "notify_only", ...base };
     }
 
-    if (!shouldWakeRecipientForMessage(input.message.messageType, recipient.role)) {
+    if (!reviewerWatchActive && !shouldWakeRecipientForMessage(input.message.messageType, recipient.role)) {
       return { kind: "notify_only", ...base };
     }
 
@@ -199,6 +253,44 @@ export function buildProtocolExecutionDispatchPlan(input: {
 
     return { kind: "wakeup", ...base };
   });
+
+  const leadSupervisorReason = leadSupervisorProtocolReason(input.message.messageType);
+  const leadSupervisorAgentId =
+    leadSupervisorReason && isLeadWatchEnabled(input.issueContext)
+      ? input.issueContext?.techLeadAgentId ?? null
+      : null;
+
+  if (
+    leadSupervisorAgentId &&
+    !input.message.recipients.some(
+      (recipient) => recipient.recipientType === "agent" && recipient.recipientId === leadSupervisorAgentId,
+    )
+  ) {
+    const leadBase = buildDispatchPlanBase({
+      issueId: input.issueId,
+      protocolMessageId: input.protocolMessageId,
+      message: input.message,
+      protocolPayload,
+      wakeHints,
+      source,
+      reason: leadSupervisorReason,
+      recipient: {
+        recipientType: "agent",
+        recipientId: leadSupervisorAgentId,
+        role: "tech_lead",
+      },
+      issueContext: input.issueContext,
+      dispatchMode: "lead_supervisor",
+    });
+
+    if (input.senderAgentId && leadSupervisorAgentId === input.senderAgentId) {
+      plan.push({ kind: "skip_sender", ...leadBase });
+    } else {
+      plan.push({ kind: "wakeup", ...leadBase });
+    }
+  }
+
+  return plan;
 }
 
 export function issueProtocolExecutionService(db: Db) {
@@ -219,12 +311,14 @@ export function issueProtocolExecutionService(db: Db) {
         runId: string | null;
       };
     }) => {
+      const issueContext = await loadInternalWorkItemSupervisorContext(db, input.companyId, input.issueId);
       const plan = buildProtocolExecutionDispatchPlan({
         issueId: input.issueId,
         protocolMessageId: input.protocolMessageId,
         message: input.message,
         senderAgentId: input.actor.agentId,
         recipientHints: input.recipientHints,
+        issueContext,
       });
 
       const primaryWakeRecipient = plan.find(

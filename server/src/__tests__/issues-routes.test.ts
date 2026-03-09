@@ -17,6 +17,7 @@ const {
   mockIssueRemove,
   mockHeartbeatWakeup,
   mockAgentGetById,
+  mockProtocolGetState,
   mockProtocolAppendMessage,
   mockProtocolDispatchMessage,
   mockIssueRetrievalHandleProtocolMessage,
@@ -38,6 +39,7 @@ const {
   mockIssueRemove: vi.fn(),
   mockHeartbeatWakeup: vi.fn(),
   mockAgentGetById: vi.fn(),
+  mockProtocolGetState: vi.fn(),
   mockProtocolAppendMessage: vi.fn(),
   mockProtocolDispatchMessage: vi.fn(),
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
@@ -79,7 +81,7 @@ vi.mock("../services/index.js", () => ({
     handleProtocolMessage: mockIssueRetrievalHandleProtocolMessage,
   }),
   issueProtocolService: () => ({
-    getState: vi.fn(),
+    getState: mockProtocolGetState,
     listMessages: vi.fn(),
     listViolations: vi.fn(),
     listReviewCycles: vi.fn(),
@@ -265,6 +267,7 @@ describe("issue routes wakeup handling", () => {
       reviewRequestedIssueId: null,
     });
     mockAgentGetById.mockResolvedValue(null);
+    mockProtocolGetState.mockResolvedValue(null);
     mockProtocolAppendMessage.mockResolvedValue({
       message: { id: "protocol-message-1", seq: 1 },
       state: {},
@@ -533,7 +536,20 @@ describe("issue routes wakeup handling", () => {
           title: "Engineer",
         };
       }
+      if (agentId === "66666666-6666-4666-8666-666666666666") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "tech_lead",
+          status: "active",
+          title: "Cloud Tech Lead",
+        };
+      }
       return null;
+    });
+    mockProtocolGetState.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      techLeadAgentId: "66666666-6666-4666-8666-666666666666",
     });
     mockProtocolAppendMessage.mockResolvedValue({
       message: { id: "protocol-message-1", seq: 1 },
@@ -578,6 +594,12 @@ describe("issue routes wakeup handling", () => {
         issueId: "33333333-3333-4333-8333-333333333333",
         message: expect.objectContaining({
           messageType: "ASSIGN_TASK",
+          recipients: expect.arrayContaining([
+            expect.objectContaining({
+              recipientId: "66666666-6666-4666-8666-666666666666",
+              role: "tech_lead",
+            }),
+          ]),
           payload: expect.objectContaining({
             assigneeAgentId: "44444444-4444-4444-8444-444444444444",
             reviewerAgentId: "55555555-5555-4555-8555-555555555555",
@@ -630,6 +652,7 @@ describe("issue routes wakeup handling", () => {
         title: "Bad assignee",
         kind: "implementation",
         priority: "high",
+        watchLead: false,
         assigneeAgentId: "44444444-4444-4444-8444-444444444444",
         reviewerAgentId: "55555555-5555-4555-8555-555555555555",
         acceptanceCriteria: ["Assignment brief is generated"],
@@ -683,6 +706,7 @@ describe("issue routes wakeup handling", () => {
         title: "Bad reviewer",
         kind: "implementation",
         priority: "high",
+        watchLead: false,
         assigneeAgentId: "44444444-4444-4444-8444-444444444444",
         reviewerAgentId: "55555555-5555-4555-8555-555555555555",
         acceptanceCriteria: ["Assignment brief is generated"],
@@ -715,6 +739,7 @@ describe("issue routes wakeup handling", () => {
         title: "Self review",
         kind: "implementation",
         priority: "high",
+        watchLead: false,
         assigneeAgentId: "44444444-4444-4444-8444-444444444444",
         reviewerAgentId: "44444444-4444-4444-8444-444444444444",
         acceptanceCriteria: ["Assignment brief is generated"],
@@ -786,6 +811,7 @@ describe("issue routes wakeup handling", () => {
         title: "Implement root fix",
         kind: "implementation",
         priority: "high",
+        watchLead: false,
         assigneeAgentId: "44444444-4444-4444-8444-444444444444",
         reviewerAgentId: "55555555-5555-4555-8555-555555555555",
         acceptanceCriteria: ["Assignment brief is generated"],
@@ -795,6 +821,61 @@ describe("issue routes wakeup handling", () => {
 
     expect(response.statusCode).toBe(422);
     expect(mockIssueRemove).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333");
+  });
+
+  it("rejects lead watch when no root tech lead is available", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-165A",
+      title: "Root issue",
+      description: "Parent delivery issue",
+      projectId: null,
+      goalId: null,
+      labels: [],
+      hiddenAt: null,
+    });
+    mockAgentGetById.mockImplementation(async (agentId: string) => {
+      if (agentId === "44444444-4444-4444-8444-444444444444") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "engineer",
+          status: "active",
+          title: "Engineer",
+        };
+      }
+      if (agentId === "55555555-5555-4555-8555-555555555555") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "reviewer",
+          status: "active",
+          title: "Reviewer",
+        };
+      }
+      return null;
+    });
+    mockProtocolGetState.mockResolvedValue(null);
+
+    const response = await invokeRoute({
+      path: "/issues/:id/internal-work-items",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        title: "Missing lead watch owner",
+        kind: "implementation",
+        priority: "high",
+        assigneeAgentId: "44444444-4444-4444-8444-444444444444",
+        reviewerAgentId: "55555555-5555-4555-8555-555555555555",
+        acceptanceCriteria: ["Assignment brief is generated"],
+        definitionOfDone: ["Engineer receives the child work item"],
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.body).toEqual({ error: "Lead watch requires a root tech lead or tech lead creator" });
+    expect(mockIssueCreateInternalWorkItem).not.toHaveBeenCalled();
   });
 
   it("allows cto agents to post task assignment protocol messages without explicit grants", async () => {

@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 1 (Slice 2 준비)`
+현재 활성 단계: `Phase 1 (Slice 2 완료, Slice 3 대기)`
 
 ## 목표
 
@@ -97,6 +97,11 @@
   - reserved label 자동 보장 (`team:internal`, `work:*`, `watch:*`)
   - root issue detail에 internal work item summary / child list 추가
   - route contract 테스트, 전체 typecheck, 전체 test, build 통과
+- `Phase 1 / Slice 2` 완료
+  - hidden child issue assignment에서 reviewer `watch wake` 활성화
+  - child issue 주요 protocol event에 대해 tech lead supervisor wake 주입
+  - child issue run `failed / timed_out / process_lost` 시 tech lead supervisor wake 추가
+  - internal work item 생성 시 root tech lead ownership 상속 보강
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
 
@@ -106,10 +111,13 @@
    - hidden child issue 생성
    - parent summary 노출
    - UI read path 연결
-2. Slice 2 예정
+2. Slice 2 완료
    - reviewer watch wake rule
    - lead supervisor wake rule
    - child issue 주요 protocol event 기반 supervision
+3. Slice 3 예정
+   - reviewer/lead handoff artifact 최소 계약
+   - child issue review evidence/테스트 결과 의무화
 
 ## 현재 진행 순서
 

@@ -188,6 +188,11 @@ Phase 1 MVP wake rules:
 
 이렇게 하면 별도 `supervisor loop` 프로세스를 만들지 않아도, event-driven supervision이 먼저 가능해진다.
 
+추가 규칙:
+
+- child issue는 가능하면 root issue의 `techLeadAgentId`를 상속한다
+- `watch:lead`가 활성화된 internal work item은 유효한 tech lead owner 없이 생성하지 않는다
+
 ### 6. parent issue summary
 
 root issue는 child issue 상태를 자동 요약해서 보여준다.
