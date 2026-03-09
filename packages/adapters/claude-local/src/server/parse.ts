@@ -9,6 +9,13 @@ export function parseClaudeStreamJson(stdout: string) {
   let model = "";
   let finalResult: Record<string, unknown> | null = null;
   const assistantTexts: string[] = [];
+  const pendingCommandToolUses = new Map<string, string>();
+  const commandExecutions: Array<{
+    command: string;
+    status: string | null;
+    exitCode: number | null;
+    aggregatedOutput: string | null;
+  }> = [];
 
   for (const rawLine of stdout.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -33,7 +40,48 @@ export function parseClaudeStreamJson(stdout: string) {
         if (asString(block.type, "") === "text") {
           const text = asString(block.text, "");
           if (text) assistantTexts.push(text);
+        } else if (asString(block.type, "") === "tool_use") {
+          const toolName = asString(block.name, "").trim().toLowerCase();
+          const toolId = asString(block.id, "").trim();
+          const input = parseObject(block.input);
+          const command = asString(input.command, "").trim();
+          if (toolId && command && /(?:^|_)(?:bash|shell)(?:$|_)/i.test(toolName)) {
+            pendingCommandToolUses.set(toolId, command);
+          }
         }
+      }
+      continue;
+    }
+
+    if (type === "user") {
+      const message = parseObject(event.message);
+      const content = Array.isArray(message.content) ? message.content : [];
+      for (const entry of content) {
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+        const block = entry as Record<string, unknown>;
+        if (asString(block.type, "") !== "tool_result") continue;
+        const toolUseId = asString(block.tool_use_id, "").trim();
+        const command = toolUseId ? pendingCommandToolUses.get(toolUseId) ?? "" : "";
+        if (!command) continue;
+        let aggregatedOutput = "";
+        if (typeof block.content === "string") {
+          aggregatedOutput = block.content.trim();
+        } else if (Array.isArray(block.content)) {
+          aggregatedOutput = block.content
+            .map((part) => {
+              const item = parseObject(part);
+              return asString(item.text, "").trim();
+            })
+            .filter(Boolean)
+            .join("\n")
+            .trim();
+        }
+        commandExecutions.push({
+          command,
+          status: block.is_error === true ? "failed" : "completed",
+          exitCode: null,
+          aggregatedOutput: aggregatedOutput || null,
+        });
       }
       continue;
     }
@@ -71,7 +119,12 @@ export function parseClaudeStreamJson(stdout: string) {
     costUsd,
     usage,
     summary,
-    resultJson: finalResult,
+    resultJson: finalResult
+      ? {
+          ...finalResult,
+          ...(commandExecutions.length > 0 ? { commandExecutions } : {}),
+        }
+      : null,
   };
 }
 

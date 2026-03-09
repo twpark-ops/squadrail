@@ -36,13 +36,13 @@ Phase 3의 목표는 `실제 repo에서 작업했다`는 증거를 run, protocol
 - run output / resultJson에서 `verificationSignals`를 구조적으로 추출해 `resultJson.verificationSignals`와 run event에 저장
 - protocol artifact가 raw regex 대신 `verificationSignals`를 우선 사용해 `test_run` / `build_run` metadata를 강화
 - `APPROVE_IMPLEMENTATION` 메시지에 `approval` artifact 자동 첨부
-- `codex_local` run result에 실제 `command_execution` 결과를 구조적으로 남겨 verification signal이 heuristic text만 보지 않도록 보강
+- `codex_local`, `cursor_local`, `opencode_local`, `claude_local` run result에 shell/tool execution 기록을 구조적으로 남겨 verification signal이 heuristic text만 보지 않도록 보강
 - `merged` close는 이제 `repo evidence + approval + verification evidence` 조합이 없으면 통과하지 않도록 강화
 
 다음 작업 범위:
 
-- Claude/Cursor/OpenCode adapter 쪽도 structured command execution capture를 확장
 - explicit verification command의 stdout/stderr/exit status를 artifact metadata에 더 풍부하게 반영
+- adapter별 구조화 수준 차이를 줄여 `exit status`, `stderr`, `aggregated output` 필드를 더 일관되게 맞추기
 - close 단계에서 merged 상태의 verification artifact completeness를 UI와 운영 가이드까지 더 강하게 연결
 
 ### Slice 3. Workspace lifecycle hardening

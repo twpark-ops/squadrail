@@ -8,6 +8,19 @@ describe("cursor parser", () => {
     const stdout = [
       JSON.stringify({ type: "system", subtype: "init", session_id: "chat_123", model: "gpt-5" }),
       JSON.stringify({
+        type: "tool_use",
+        part: {
+          callID: "call_1",
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: { command: "pnpm test:run" },
+            output: "all green",
+            metadata: { exit: 0 },
+          },
+        },
+      }),
+      JSON.stringify({
         type: "assistant",
         message: {
           content: [{ type: "output_text", text: "hello" }],
@@ -38,6 +51,14 @@ describe("cursor parser", () => {
     });
     expect(parsed.costUsd).toBeCloseTo(0.001, 6);
     expect(parsed.errorMessage).toBe("model access denied");
+    expect(parsed.commandExecutions).toEqual([
+      {
+        command: "pnpm test:run",
+        status: "completed",
+        exitCode: 0,
+        aggregatedOutput: "all green",
+      },
+    ]);
   });
 
   it("parses multiplexed stdout-prefixed json lines", () => {

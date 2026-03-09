@@ -49,10 +49,32 @@ function readSessionId(event: Record<string, unknown>): string | null {
   );
 }
 
+function isCommandLikeToolName(name: string) {
+  return /(?:^|_)(?:bash|shell)(?:$|_)/i.test(name) || name === "command_execution";
+}
+
+function readCommand(value: unknown): string | null {
+  const record = parseObject(value);
+  const command = asString(record.command, "").trim();
+  return command || null;
+}
+
+function readExitCode(value: unknown) {
+  const record = parseObject(value);
+  const exit = record.exitCode ?? record.exit;
+  return typeof exit === "number" && Number.isFinite(exit) ? exit : null;
+}
+
 export function parseCursorJsonl(stdout: string) {
   let sessionId: string | null = null;
   const messages: string[] = [];
   let errorMessage: string | null = null;
+  const commandExecutions: Array<{
+    command: string;
+    status: string | null;
+    exitCode: number | null;
+    aggregatedOutput: string | null;
+  }> = [];
   let totalCostUsd = 0;
   const usage = {
     inputTokens: 0,
@@ -74,6 +96,56 @@ export function parseCursorJsonl(stdout: string) {
 
     if (type === "assistant") {
       messages.push(...collectAssistantText(event.message));
+      continue;
+    }
+
+    if (type === "tool_call") {
+      const subtype = asString(event.subtype, "").trim().toLowerCase();
+      if (subtype === "completed" || subtype === "complete" || subtype === "finished") {
+        const toolCall = parseObject(event.tool_call ?? event.toolCall);
+        const [toolName] = Object.keys(toolCall);
+        const payload = toolName ? parseObject(toolCall[toolName]) : {};
+        if (toolName && isCommandLikeToolName(toolName)) {
+          const result = payload.result ?? payload.output ?? parseObject(payload.function).result;
+          const success = parseObject(parseObject(result).success);
+          const command = readCommand(success) ?? readCommand(result) ?? readCommand(payload.args) ?? readCommand(payload);
+          if (command) {
+            const aggregatedOutput = [
+              asString(success.stdout, "").trim(),
+              asString(success.stderr, "").trim(),
+              asString(parseObject(result).output, "").trim(),
+            ].filter(Boolean).join("\n").trim() || null;
+            commandExecutions.push({
+              command,
+              status: asString(payload.status, "").trim() || subtype || null,
+              exitCode: readExitCode(success) ?? readExitCode(parseObject(payload.metadata)),
+              aggregatedOutput,
+            });
+          }
+        }
+      }
+      continue;
+    }
+
+    if (type === "tool_use") {
+      const part = parseObject(event.part);
+      const toolName = asString(part.tool, "tool").trim();
+      const state = parseObject(part.state);
+      if (isCommandLikeToolName(toolName)) {
+        const command = readCommand(state.input);
+        if (command) {
+          const aggregatedOutput = [
+            asString(state.output, "").trim(),
+            asString(state.stderr, "").trim(),
+          ].filter(Boolean).join("\n").trim() || null;
+          commandExecutions.push({
+            command,
+            status: asString(state.status, "").trim() || null,
+            exitCode: readExitCode(state.metadata),
+            aggregatedOutput,
+          });
+        }
+      }
       continue;
     }
 
@@ -146,6 +218,7 @@ export function parseCursorJsonl(stdout: string) {
     usage,
     costUsd: totalCostUsd > 0 ? totalCostUsd : null,
     errorMessage,
+    commandExecutions,
   };
 }
 

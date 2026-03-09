@@ -7,6 +7,19 @@ describe("opencode_local parser", () => {
   it("extracts session, summary, usage, cost, and terminal error message", () => {
     const stdout = [
       JSON.stringify({ type: "step_start", sessionID: "ses_123" }),
+      JSON.stringify({
+        type: "tool_use",
+        part: {
+          callID: "call_1",
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: { command: "pnpm build" },
+            output: "built",
+            metadata: { exit: 0 },
+          },
+        },
+      }),
       JSON.stringify({ type: "text", part: { type: "text", text: "hello" } }),
       JSON.stringify({
         type: "step_finish",
@@ -45,6 +58,14 @@ describe("opencode_local parser", () => {
     });
     expect(parsed.costUsd).toBeCloseTo(0.003, 6);
     expect(parsed.errorMessage).toBe("model access denied");
+    expect(parsed.commandExecutions).toEqual([
+      {
+        command: "pnpm build",
+        status: "completed",
+        exitCode: 0,
+        aggregatedOutput: "built",
+      },
+    ]);
   });
 });
 
