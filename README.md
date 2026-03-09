@@ -225,7 +225,6 @@ Full authentication, internet-exposed.
 
 - [GitHub Issues](https://github.com/twpark-ops/squadrail/issues)
 - [GitHub Discussions](https://github.com/twpark-ops/squadrail/discussions)
-- [Discord]()
 
 ---
 
