@@ -16,10 +16,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/twpark-ops/squadall.git",
+    "url": "https://github.com/twpark-ops/squadrail.git",
     "directory": "cli"
   },
-  "homepage": "https://github.com/twpark-ops/squadall",
+  "homepage": "https://github.com/twpark-ops/squadrail",
   "files": [
     "dist"
   ],
