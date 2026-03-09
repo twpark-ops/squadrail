@@ -6,6 +6,7 @@ import {
   agentTaskSessions,
   agentWakeupRequests,
   heartbeatRunEvents,
+  heartbeatRunLeases,
   heartbeatRuns,
   costEvents,
   issues,
@@ -30,6 +31,8 @@ import {
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_MAX = 10;
+const RUN_LEASE_TTL_MS = 45_000;
+const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 const WORKSPACE_CONTEXT_KEY = "squadrailWorkspace";
 const WORKSPACES_CONTEXT_KEY = "squadrailWorkspaces";
@@ -233,6 +236,59 @@ function isSameTaskScope(left: string | null, right: string | null) {
 function truncateDisplayId(value: string | null | undefined, max = 128) {
   if (!value) return null;
   return value.length > max ? value.slice(0, max) : value;
+}
+
+function toEpochMillis(value: Date | string | null | undefined) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function computeLeaseExpiresAt(now = new Date()) {
+  return new Date(now.getTime() + RUN_LEASE_TTL_MS);
+}
+
+type RunLeaseLike = {
+  status?: string | null;
+  checkpointJson?: Record<string, unknown> | null;
+  leaseExpiresAt?: Date | string | null;
+  releasedAt?: Date | string | null;
+};
+
+export function buildProcessLostError(lease?: RunLeaseLike | null) {
+  const checkpoint = parseObject(lease?.checkpointJson);
+  const phase = readNonEmptyString(checkpoint.phase);
+  if (phase) {
+    return `Process lost during ${phase} -- server may have restarted`;
+  }
+  return "Process lost -- server may have restarted";
+}
+
+export function shouldReapHeartbeatRun(input: {
+  runStatus: string;
+  runUpdatedAt: Date | string | null | undefined;
+  lease?: RunLeaseLike | null;
+  now?: Date;
+  staleThresholdMs?: number;
+}) {
+  if (input.runStatus !== "queued" && input.runStatus !== "running") return false;
+
+  const nowMs = (input.now ?? new Date()).getTime();
+  const leaseExpiresAtMs = toEpochMillis(input.lease?.leaseExpiresAt);
+  const leaseReleasedAtMs = toEpochMillis(input.lease?.releasedAt);
+
+  if (!leaseReleasedAtMs && leaseExpiresAtMs !== null && leaseExpiresAtMs > nowMs) {
+    return false;
+  }
+
+  const refTime = leaseExpiresAtMs ?? toEpochMillis(input.runUpdatedAt) ?? 0;
+  const staleThresholdMs = input.staleThresholdMs ?? 0;
+  if (staleThresholdMs > 0 && nowMs - refTime < staleThresholdMs) {
+    return false;
+  }
+
+  return true;
 }
 
 function normalizeAgentNameKey(value: string | null | undefined) {
@@ -530,6 +586,45 @@ export function heartbeatService(db: Db) {
       .where(eq(agentWakeupRequests.id, wakeupRequestId));
   }
 
+  async function upsertRunLease(input: {
+    run: typeof heartbeatRuns.$inferSelect;
+    status: string;
+    checkpointJson?: Record<string, unknown> | null;
+    heartbeatAt?: Date;
+    leaseExpiresAt?: Date;
+    releasedAt?: Date | null;
+    lastError?: string | null;
+  }) {
+    const heartbeatAt = input.heartbeatAt ?? new Date();
+    const leaseExpiresAt = input.leaseExpiresAt ?? computeLeaseExpiresAt(heartbeatAt);
+
+    await db
+      .insert(heartbeatRunLeases)
+      .values({
+        runId: input.run.id,
+        companyId: input.run.companyId,
+        agentId: input.run.agentId,
+        status: input.status,
+        checkpointJson: input.checkpointJson ?? null,
+        heartbeatAt,
+        leaseExpiresAt,
+        releasedAt: input.releasedAt ?? null,
+        lastError: input.lastError ?? null,
+      })
+      .onConflictDoUpdate({
+        target: heartbeatRunLeases.runId,
+        set: {
+          status: input.status,
+          checkpointJson: input.checkpointJson ?? null,
+          heartbeatAt,
+          leaseExpiresAt,
+          releasedAt: input.releasedAt ?? null,
+          lastError: input.lastError ?? null,
+          updatedAt: new Date(),
+        },
+      });
+  }
+
   async function appendRunEvent(
     run: typeof heartbeatRuns.$inferSelect,
     seq: number,
@@ -624,6 +719,15 @@ export function heartbeatService(db: Db) {
     });
 
     await setWakeupStatus(claimed.wakeupRequestId, "claimed", { claimedAt });
+    await upsertRunLease({
+      run: claimed,
+      status: "launching",
+      checkpointJson: {
+        phase: "claim.queued",
+        message: "run claimed for execution",
+      },
+      heartbeatAt: claimedAt,
+    });
     return claimed;
   }
 
@@ -682,26 +786,46 @@ export function heartbeatService(db: Db) {
       .select()
       .from(heartbeatRuns)
       .where(inArray(heartbeatRuns.status, ["queued", "running"]));
+    const leases = activeRuns.length > 0
+      ? await db
+          .select()
+          .from(heartbeatRunLeases)
+          .where(inArray(heartbeatRunLeases.runId, activeRuns.map((run) => run.id)))
+      : [];
+    const leaseByRunId = new Map(leases.map((lease) => [lease.runId, lease]));
 
     const reaped: string[] = [];
 
     for (const run of activeRuns) {
       if (runningProcesses.has(run.id)) continue;
+      const lease = leaseByRunId.get(run.id) ?? null;
+      if (!shouldReapHeartbeatRun({
+        runStatus: run.status,
+        runUpdatedAt: run.updatedAt,
+        lease,
+        now,
+        staleThresholdMs,
+      })) continue;
 
-      // Apply staleness threshold to avoid false positives
-      if (staleThresholdMs > 0) {
-        const refTime = run.updatedAt ? new Date(run.updatedAt).getTime() : 0;
-        if (now.getTime() - refTime < staleThresholdMs) continue;
-      }
+      const processLostError = buildProcessLostError(lease);
 
       await setRunStatus(run.id, "failed", {
-        error: "Process lost -- server may have restarted",
+        error: processLostError,
         errorCode: "process_lost",
         finishedAt: now,
       });
       await setWakeupStatus(run.wakeupRequestId, "failed", {
         finishedAt: now,
-        error: "Process lost -- server may have restarted",
+        error: processLostError,
+      });
+      await upsertRunLease({
+        run,
+        status: "lost",
+        checkpointJson: parseObject(lease?.checkpointJson),
+        heartbeatAt: now,
+        leaseExpiresAt: now,
+        releasedAt: now,
+        lastError: processLostError,
       });
       const updatedRun = await getRun(run.id);
       if (updatedRun) {
@@ -709,7 +833,13 @@ export function heartbeatService(db: Db) {
           eventType: "lifecycle",
           stream: "system",
           level: "error",
-          message: "Process lost -- server may have restarted",
+          message: processLostError,
+          payload: lease
+            ? {
+                leaseStatus: lease.status,
+                checkpoint: lease.checkpointJson ?? null,
+              }
+            : undefined,
         });
         await releaseIssueExecutionAndPromote(updatedRun);
       }
@@ -804,7 +934,21 @@ export function heartbeatService(db: Db) {
       if (claimedRuns.length === 0) return [];
 
       for (const claimedRun of claimedRuns) {
+        logger.info(
+          {
+            runId: claimedRun.id,
+            agentId: claimedRun.agentId,
+          },
+          "scheduling heartbeat execution",
+        );
         runWithoutDbContext(() => {
+          logger.info(
+            {
+              runId: claimedRun.id,
+              agentId: claimedRun.agentId,
+            },
+            "dispatching heartbeat execution task",
+          );
           void executeRun(claimedRun.id).catch((err) => {
             logger.error({ err, runId: claimedRun.id }, "queued heartbeat execution failed");
           });
@@ -815,6 +959,7 @@ export function heartbeatService(db: Db) {
   }
 
   async function executeRun(runId: string) {
+    logger.info({ runId }, "heartbeat execution entered");
     let run = await getRun(runId);
     if (!run) return;
     if (run.status !== "queued" && run.status !== "running") return;
@@ -844,99 +989,158 @@ export function heartbeatService(db: Db) {
       return;
     }
 
-    const runtime = await ensureRuntimeState(agent);
     const context = parseObject(run.contextSnapshot);
     const taskKey = deriveTaskKey(context, null);
     const sessionCodec = getAdapterSessionCodec(agent.adapterType);
     const issueId = readNonEmptyString(context.issueId);
-    const issueAssigneeConfig = issueId
-      ? await db
-          .select({
-            assigneeAgentId: issues.assigneeAgentId,
-            assigneeAdapterOverrides: issues.assigneeAdapterOverrides,
-          })
-          .from(issues)
-          .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
-          .then((rows) => rows[0] ?? null)
-      : null;
-    const issueAssigneeOverrides =
-      issueAssigneeConfig && issueAssigneeConfig.assigneeAgentId === agent.id
-        ? parseIssueAssigneeAdapterOverrides(
-            issueAssigneeConfig.assigneeAdapterOverrides,
-          )
-        : null;
-    const taskSession = taskKey
-      ? await getTaskSession(agent.companyId, agent.id, agent.adapterType, taskKey)
-      : null;
-    const resetTaskSession = shouldResetTaskSessionForWake(context);
-    const sessionResetReason = describeSessionResetReason(context);
-    const taskSessionForRun = resetTaskSession ? null : taskSession;
-    const previousSessionParams = normalizeSessionParams(
-      sessionCodec.deserialize(taskSessionForRun?.sessionParamsJson ?? null),
-    );
-    const resolvedWorkspace = await resolveWorkspaceForRun({
-      db,
-      agent,
-      context,
-      taskKey,
-      previousSessionParams,
-      useProjectWorkspace: issueAssigneeOverrides?.useProjectWorkspace ?? null,
-    });
-    const runtimeSessionResolution = resolveRuntimeSessionParamsForWorkspace({
-      agentId: agent.id,
-      previousSessionParams,
-      resolvedWorkspace,
-    });
-    const runtimeSessionParams = runtimeSessionResolution.sessionParams;
-    const runtimeWorkspaceWarnings = [
-      ...resolvedWorkspace.warnings,
-      ...(runtimeSessionResolution.warning ? [runtimeSessionResolution.warning] : []),
-      ...(resetTaskSession && sessionResetReason
-        ? [
-            taskKey
-              ? `Skipping saved session resume for task "${taskKey}" because ${sessionResetReason}.`
-              : `Skipping saved session resume because ${sessionResetReason}.`,
-          ]
-        : []),
-    ];
-    const workspaceContext = {
-      cwd: resolvedWorkspace.cwd,
-      source: resolvedWorkspace.source,
-      projectId: resolvedWorkspace.projectId,
-      workspaceId: resolvedWorkspace.workspaceId,
-      repoUrl: resolvedWorkspace.repoUrl,
-      repoRef: resolvedWorkspace.repoRef,
-      executionPolicy: resolvedWorkspace.executionPolicy,
-      workspaceUsage: resolvedWorkspace.workspaceUsage,
-      branchName: resolvedWorkspace.branchName,
-    };
-    context[WORKSPACE_CONTEXT_KEY] = workspaceContext;
-    context.squadrailWorkspace = workspaceContext;
-    context[WORKSPACES_CONTEXT_KEY] = resolvedWorkspace.workspaceHints;
-    context.squadrailWorkspaces = resolvedWorkspace.workspaceHints;
-    if (resolvedWorkspace.projectId && !readNonEmptyString(context.projectId)) {
-      context.projectId = resolvedWorkspace.projectId;
-    }
-    const runtimeSessionFallback = taskKey || resetTaskSession ? null : runtime.sessionId;
-    const previousSessionDisplayId = truncateDisplayId(
-      taskSessionForRun?.sessionDisplayId ??
-        (sessionCodec.getDisplayId ? sessionCodec.getDisplayId(runtimeSessionParams) : null) ??
-        readNonEmptyString(runtimeSessionParams?.sessionId) ??
-        runtimeSessionFallback,
-    );
-    const runtimeForAdapter = {
-      sessionId: readNonEmptyString(runtimeSessionParams?.sessionId) ?? runtimeSessionFallback,
-      sessionParams: runtimeSessionParams,
-      sessionDisplayId: previousSessionDisplayId,
-      taskKey,
-    };
-
     let seq = 1;
     let handle: RunLogHandle | null = null;
     let stdoutExcerpt = "";
     let stderrExcerpt = "";
+    let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let currentPhase = "preflight.init";
+    let eventRun = run;
+    let taskSession: typeof agentTaskSessions.$inferSelect | null = null;
+    let previousSessionParams: Record<string, unknown> | null = null;
+    let previousSessionDisplayId: string | null = null;
+    let runtimeWorkspaceWarnings: string[] = [];
+    let resolvedWorkspace: ResolvedWorkspaceForRun | null = null;
+    let runtimeForAdapter: {
+      sessionId: string | null;
+      sessionParams: Record<string, unknown> | null;
+      sessionDisplayId: string | null;
+      taskKey: string | null;
+    } = {
+      sessionId: null,
+      sessionParams: null,
+      sessionDisplayId: null,
+      taskKey,
+    };
+
+    const appendCheckpoint = async (
+      phase: string,
+      message: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      currentPhase = phase;
+      await upsertRunLease({
+        run: eventRun,
+        status: phase.startsWith("finalize.") ? "finalizing" : phase.startsWith("adapter.") ? "executing" : "launching",
+        checkpointJson: {
+          phase,
+          message,
+          ...(payload ?? {}),
+        },
+      });
+      await appendRunEvent(eventRun, seq++, {
+        eventType: "checkpoint",
+        stream: "system",
+        level: "info",
+        message,
+        payload,
+      });
+    };
 
     try {
+      await appendCheckpoint("preflight.runtime_state", "loading runtime state");
+      const runtime = await ensureRuntimeState(agent);
+
+      const issueAssigneeConfig = issueId
+        ? await db
+            .select({
+              assigneeAgentId: issues.assigneeAgentId,
+              assigneeAdapterOverrides: issues.assigneeAdapterOverrides,
+            })
+            .from(issues)
+            .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
+            .then((rows) => rows[0] ?? null)
+        : null;
+      const issueAssigneeOverrides =
+        issueAssigneeConfig && issueAssigneeConfig.assigneeAgentId === agent.id
+          ? parseIssueAssigneeAdapterOverrides(
+              issueAssigneeConfig.assigneeAdapterOverrides,
+            )
+          : null;
+      taskSession = taskKey
+        ? await getTaskSession(agent.companyId, agent.id, agent.adapterType, taskKey)
+        : null;
+      const resetTaskSession = shouldResetTaskSessionForWake(context);
+      const sessionResetReason = describeSessionResetReason(context);
+      const taskSessionForRun = resetTaskSession ? null : taskSession;
+      previousSessionParams = normalizeSessionParams(
+        sessionCodec.deserialize(taskSessionForRun?.sessionParamsJson ?? null),
+      );
+
+      await appendCheckpoint("preflight.workspace_resolve", "resolving workspace");
+      resolvedWorkspace = await resolveWorkspaceForRun({
+        db,
+        agent,
+        context,
+        taskKey,
+        previousSessionParams,
+        useProjectWorkspace: issueAssigneeOverrides?.useProjectWorkspace ?? null,
+      });
+      await appendCheckpoint("preflight.workspace_resolved", "workspace resolved", {
+        source: resolvedWorkspace.source,
+        workspaceId: resolvedWorkspace.workspaceId ?? null,
+        projectId: resolvedWorkspace.projectId ?? null,
+        workspaceUsage: resolvedWorkspace.workspaceUsage ?? null,
+      });
+
+      const runtimeSessionResolution = resolveRuntimeSessionParamsForWorkspace({
+        agentId: agent.id,
+        previousSessionParams,
+        resolvedWorkspace,
+      });
+      const runtimeSessionParams = runtimeSessionResolution.sessionParams;
+      runtimeWorkspaceWarnings = [
+        ...resolvedWorkspace.warnings,
+        ...(runtimeSessionResolution.warning ? [runtimeSessionResolution.warning] : []),
+        ...(resetTaskSession && sessionResetReason
+          ? [
+              taskKey
+                ? `Skipping saved session resume for task "${taskKey}" because ${sessionResetReason}.`
+                : `Skipping saved session resume because ${sessionResetReason}.`,
+            ]
+          : []),
+      ];
+      const workspaceContext = {
+        cwd: resolvedWorkspace.cwd,
+        source: resolvedWorkspace.source,
+        projectId: resolvedWorkspace.projectId,
+        workspaceId: resolvedWorkspace.workspaceId,
+        repoUrl: resolvedWorkspace.repoUrl,
+        repoRef: resolvedWorkspace.repoRef,
+        executionPolicy: resolvedWorkspace.executionPolicy,
+        workspaceUsage: resolvedWorkspace.workspaceUsage,
+        branchName: resolvedWorkspace.branchName,
+      };
+      context[WORKSPACE_CONTEXT_KEY] = workspaceContext;
+      context.squadrailWorkspace = workspaceContext;
+      context[WORKSPACES_CONTEXT_KEY] = resolvedWorkspace.workspaceHints;
+      context.squadrailWorkspaces = resolvedWorkspace.workspaceHints;
+      if (resolvedWorkspace.projectId && !readNonEmptyString(context.projectId)) {
+        context.projectId = resolvedWorkspace.projectId;
+      }
+
+      const runtimeSessionFallback = taskKey || resetTaskSession ? null : runtime.sessionId;
+      previousSessionDisplayId = truncateDisplayId(
+        taskSessionForRun?.sessionDisplayId ??
+          (sessionCodec.getDisplayId ? sessionCodec.getDisplayId(runtimeSessionParams) : null) ??
+          readNonEmptyString(runtimeSessionParams?.sessionId) ??
+          runtimeSessionFallback,
+      );
+      runtimeForAdapter = {
+        sessionId: readNonEmptyString(runtimeSessionParams?.sessionId) ?? runtimeSessionFallback,
+        sessionParams: runtimeSessionParams,
+        sessionDisplayId: previousSessionDisplayId,
+        taskKey,
+      };
+      await appendCheckpoint("preflight.runtime_session_ready", "runtime session resolved", {
+        sessionDisplayId: runtimeForAdapter.sessionDisplayId,
+        taskKey,
+      });
+
       const startedAt = run.startedAt ?? new Date();
       const runningWithSession = await db
         .update(heartbeatRuns)
@@ -948,7 +1152,10 @@ export function heartbeatService(db: Db) {
         .where(eq(heartbeatRuns.id, run.id))
         .returning()
         .then((rows) => rows[0] ?? null);
-      if (runningWithSession) run = runningWithSession;
+      if (runningWithSession) {
+        run = runningWithSession;
+        eventRun = runningWithSession;
+      }
 
       const runningAgent = await db
         .update(agents)
@@ -969,8 +1176,7 @@ export function heartbeatService(db: Db) {
         });
       }
 
-      const currentRun = run;
-      await appendRunEvent(currentRun, seq++, {
+      await appendRunEvent(eventRun, seq++, {
         eventType: "lifecycle",
         stream: "system",
         level: "info",
@@ -991,6 +1197,9 @@ export function heartbeatService(db: Db) {
           updatedAt: new Date(),
         })
         .where(eq(heartbeatRuns.id, runId));
+      await appendCheckpoint("preflight.log_store_ready", "run log store ready", {
+        logStore: handle.store,
+      });
 
       const onLog = async (stream: "stdout" | "stderr", chunk: string) => {
         if (stream === "stdout") stdoutExcerpt = appendExcerpt(stdoutExcerpt, chunk);
@@ -1027,6 +1236,10 @@ export function heartbeatService(db: Db) {
       assertResolvedWorkspaceReadyForExecution({
         resolvedWorkspace,
       });
+      await appendCheckpoint("preflight.workspace_ready", "workspace ready for execution", {
+        source: resolvedWorkspace.source,
+        workspaceUsage: resolvedWorkspace.workspaceUsage ?? null,
+      });
 
       const config = parseObject(agent.adapterConfig);
       const mergedConfig = issueAssigneeOverrides?.adapterConfig
@@ -1036,8 +1249,12 @@ export function heartbeatService(db: Db) {
         agent.companyId,
         mergedConfig,
       );
+      await appendCheckpoint("preflight.adapter_config_ready", "adapter runtime config resolved", {
+        adapterType: agent.adapterType,
+      });
       const onAdapterMeta = async (meta: AdapterInvocationMeta) => {
-        await appendRunEvent(currentRun, seq++, {
+        currentPhase = "adapter.invoke";
+        await appendRunEvent(eventRun, seq++, {
           eventType: "adapter.invoke",
           stream: "system",
           level: "info",
@@ -1061,6 +1278,20 @@ export function heartbeatService(db: Db) {
           "local agent jwt secret missing or invalid; running without injected SQUADRAIL_API_KEY",
         );
       }
+      await appendCheckpoint("adapter.execute_start", "starting adapter execution", {
+        adapterType: agent.adapterType,
+      });
+      leaseHeartbeatTimer = setInterval(() => {
+        void upsertRunLease({
+          run: eventRun,
+          status: "executing",
+          checkpointJson: {
+            phase: currentPhase,
+            message: "lease heartbeat",
+          },
+        });
+      }, RUN_LEASE_HEARTBEAT_INTERVAL_MS);
+      leaseHeartbeatTimer.unref?.();
       const adapterResult = await adapter.execute({
         runId: run.id,
         agent,
@@ -1104,6 +1335,10 @@ export function heartbeatService(db: Db) {
             : outcome === "timed_out"
               ? "timed_out"
               : "failed";
+      await appendCheckpoint("finalize.persist_outcome", "persisting adapter outcome", {
+        outcome,
+        status,
+      });
 
       const usageJson =
         adapterResult.usage || adapterResult.costUsd != null
@@ -1158,6 +1393,19 @@ export function heartbeatService(db: Db) {
           },
         });
         await releaseIssueExecutionAndPromote(finalizedRun);
+        await upsertRunLease({
+          run: finalizedRun,
+          status: status === "succeeded" ? "released" : status,
+          checkpointJson: {
+            phase: "finalize.complete",
+            message: `run ${outcome}`,
+            status,
+          },
+          heartbeatAt: new Date(),
+          leaseExpiresAt: new Date(),
+          releasedAt: new Date(),
+          lastError: outcome === "succeeded" ? null : (adapterResult.errorMessage ?? "run_failed"),
+        });
       }
 
       if (finalizedRun) {
@@ -1188,7 +1436,7 @@ export function heartbeatService(db: Db) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown adapter failure";
       const errorCode = err instanceof WorkspaceResolutionError ? err.code : "adapter_failed";
-      logger.error({ err, runId }, "heartbeat execution failed");
+      logger.error({ err, runId, phase: currentPhase }, "heartbeat execution failed");
 
       let logSummary: { bytes: number; sha256?: string; compressed: boolean } | null = null;
       if (handle) {
@@ -1213,6 +1461,18 @@ export function heartbeatService(db: Db) {
         finishedAt: new Date(),
         error: message,
       });
+      await upsertRunLease({
+        run: eventRun,
+        status: "failed",
+        checkpointJson: {
+          phase: currentPhase,
+          message,
+        },
+        heartbeatAt: new Date(),
+        leaseExpiresAt: new Date(),
+        releasedAt: new Date(),
+        lastError: message,
+      });
 
       if (failedRun) {
         await appendRunEvent(failedRun, seq++, {
@@ -1220,6 +1480,12 @@ export function heartbeatService(db: Db) {
           stream: "system",
           level: "error",
           message,
+          payload: {
+            phase: currentPhase,
+            taskKey,
+            workspaceSource: resolvedWorkspace?.source ?? null,
+            workspaceUsage: resolvedWorkspace?.workspaceUsage ?? null,
+          },
         });
         await releaseIssueExecutionAndPromote(failedRun);
 
@@ -1248,6 +1514,9 @@ export function heartbeatService(db: Db) {
 
       await finalizeAgentStatus(agent.id, "failed");
     } finally {
+      if (leaseHeartbeatTimer) {
+        clearInterval(leaseHeartbeatTimer);
+      }
       await startNextQueuedRunForAgent(agent.id);
     }
   }
@@ -2036,6 +2305,7 @@ export function heartbeatService(db: Db) {
       const run = await getRun(runId);
       if (!run) throw notFound("Heartbeat run not found");
       if (run.status !== "running" && run.status !== "queued") return run;
+      const cancelledAt = new Date();
 
       const running = runningProcesses.get(run.id);
       if (running) {
@@ -2049,14 +2319,27 @@ export function heartbeatService(db: Db) {
       }
 
       const cancelled = await setRunStatus(run.id, "cancelled", {
-        finishedAt: new Date(),
+        finishedAt: cancelledAt,
         error: "Cancelled by control plane",
         errorCode: "cancelled",
       });
 
       await setWakeupStatus(run.wakeupRequestId, "cancelled", {
-        finishedAt: new Date(),
+        finishedAt: cancelledAt,
         error: "Cancelled by control plane",
+      });
+
+      await upsertRunLease({
+        run: cancelled ?? run,
+        status: "cancelled",
+        checkpointJson: {
+          phase: "finalize.cancelled",
+          message: "run cancelled by control plane",
+        },
+        heartbeatAt: cancelledAt,
+        leaseExpiresAt: cancelledAt,
+        releasedAt: cancelledAt,
+        lastError: "Cancelled by control plane",
       });
 
       if (cancelled) {
@@ -2082,15 +2365,28 @@ export function heartbeatService(db: Db) {
         .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, ["queued", "running"])));
 
       for (const run of runs) {
-        await setRunStatus(run.id, "cancelled", {
-          finishedAt: new Date(),
+        const cancelledAt = new Date();
+        const cancelled = await setRunStatus(run.id, "cancelled", {
+          finishedAt: cancelledAt,
           error: "Cancelled due to agent pause",
           errorCode: "cancelled",
         });
 
         await setWakeupStatus(run.wakeupRequestId, "cancelled", {
-          finishedAt: new Date(),
+          finishedAt: cancelledAt,
           error: "Cancelled due to agent pause",
+        });
+        await upsertRunLease({
+          run: cancelled ?? run,
+          status: "cancelled",
+          checkpointJson: {
+            phase: "finalize.cancelled",
+            message: "run cancelled due to agent pause",
+          },
+          heartbeatAt: cancelledAt,
+          leaseExpiresAt: cancelledAt,
+          releasedAt: cancelledAt,
+          lastError: "Cancelled due to agent pause",
         });
 
         const running = runningProcesses.get(run.id);

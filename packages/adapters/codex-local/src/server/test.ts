@@ -16,6 +16,8 @@ import {
 import path from "node:path";
 import { parseCodexJsonl } from "./parse.js";
 
+const DEFAULT_CODEX_LOCAL_SERVER_BYPASS = true;
+
 function summarizeStatus(checks: AdapterEnvironmentCheck[]): AdapterEnvironmentTestResult["status"] {
   if (checks.some((check) => check.level === "error")) return "fail";
   if (checks.some((check) => check.level === "warn")) return "warn";
@@ -136,7 +138,10 @@ export async function testEnvironment(
       const search = asBoolean(config.search, false);
       const bypass = asBoolean(
         config.dangerouslyBypassApprovalsAndSandbox,
-        asBoolean(config.dangerouslyBypassSandbox, false),
+        asBoolean(
+          config.dangerouslyBypassSandbox,
+          DEFAULT_CODEX_LOCAL_SERVER_BYPASS,
+        ),
       );
       const extraArgs = (() => {
         const fromExtraArgs = asStringArray(config.extraArgs);
