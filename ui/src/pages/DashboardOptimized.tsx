@@ -200,6 +200,32 @@ export function DashboardOptimized() {
                 to="/activity"
                 description={<span>{data.protocol.protocolMessagesLast24h} messages in 24h</span>}
               />
+              <MetricCardV2
+                icon={Clock3}
+                value={data.executionReliability.runningRuns + data.executionReliability.queuedRuns}
+                label="Heartbeat Runs"
+                to="/agents"
+                description={
+                  <span>
+                    {data.executionReliability.runningRuns} running, {data.executionReliability.queuedRuns} queued
+                  </span>
+                }
+              />
+              <MetricCardV2
+                icon={MessageSquareMore}
+                value={
+                  data.executionReliability.dispatchTimeoutsLast24h
+                  + data.executionReliability.processLostLast24h
+                  + data.executionReliability.workspaceBlockedLast24h
+                }
+                label="Execution Risks (24h)"
+                to="/activity"
+                description={
+                  <span>
+                    watchdog {data.executionReliability.dispatchRedispatchesLast24h}, blocked {data.executionReliability.workspaceBlockedLast24h}
+                  </span>
+                }
+              />
             </div>
           </section>
 

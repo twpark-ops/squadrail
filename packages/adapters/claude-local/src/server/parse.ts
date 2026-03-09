@@ -3,6 +3,60 @@ import { asString, asNumber, parseObject, parseJson } from "@squadrail/adapter-u
 
 const CLAUDE_AUTH_REQUIRED_RE = /(?:not\s+logged\s+in|please\s+log\s+in|please\s+run\s+`?claude\s+login`?|login\s+required|requires\s+login|unauthorized|authentication\s+required)/i;
 const URL_RE = /(https?:\/\/[^\s'"`<>()[\]{};,!?]+[^\s'"`<>()[\]{};,!.?:]+)/gi;
+const EXIT_CODE_PATTERNS = [
+  /\bexit(?:ed)?\s+(?:with\s+)?code\s*[:=]?\s*(-?\d+)\b/i,
+  /\bexit_code\s*[:=]?\s*(-?\d+)\b/i,
+  /\bexitCode\s*[:=]?\s*(-?\d+)\b/i,
+] as const;
+
+function readExitCode(value: unknown): number | null {
+  const record = parseObject(value);
+  const direct = [record.exit_code, record.exitCode, record.code, record.status_code]
+    .find((entry) => typeof entry === "number" && Number.isFinite(entry));
+  return typeof direct === "number" ? direct : null;
+}
+
+function inferExitCodeFromText(text: string, isError: boolean): number | null {
+  for (const pattern of EXIT_CODE_PATTERNS) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const parsed = Number.parseInt(match[1], 10);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return isError ? 1 : 0;
+}
+
+function extractToolResultContent(input: {
+  block: Record<string, unknown>;
+  isError: boolean;
+}) {
+  const structuredExitCode =
+    readExitCode(input.block) ??
+    readExitCode(input.block.metadata);
+  let aggregatedOutput = "";
+  let contentExitCode = structuredExitCode;
+
+  if (typeof input.block.content === "string") {
+    aggregatedOutput = input.block.content.trim();
+  } else if (Array.isArray(input.block.content)) {
+    aggregatedOutput = input.block.content
+      .map((part) => {
+        const item = parseObject(part);
+        contentExitCode = contentExitCode ?? readExitCode(item) ?? readExitCode(item.metadata);
+        return asString(item.text, "").trim();
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  const exitCode = contentExitCode ?? inferExitCodeFromText(aggregatedOutput, input.isError);
+  return {
+    aggregatedOutput: aggregatedOutput || null,
+    exitCode,
+  };
+}
 
 export function parseClaudeStreamJson(stdout: string) {
   let sessionId: string | null = null;
@@ -63,24 +117,16 @@ export function parseClaudeStreamJson(stdout: string) {
         const toolUseId = asString(block.tool_use_id, "").trim();
         const command = toolUseId ? pendingCommandToolUses.get(toolUseId) ?? "" : "";
         if (!command) continue;
-        let aggregatedOutput = "";
-        if (typeof block.content === "string") {
-          aggregatedOutput = block.content.trim();
-        } else if (Array.isArray(block.content)) {
-          aggregatedOutput = block.content
-            .map((part) => {
-              const item = parseObject(part);
-              return asString(item.text, "").trim();
-            })
-            .filter(Boolean)
-            .join("\n")
-            .trim();
-        }
+        const isError = block.is_error === true;
+        const { aggregatedOutput, exitCode } = extractToolResultContent({
+          block,
+          isError,
+        });
         commandExecutions.push({
           command,
-          status: block.is_error === true ? "failed" : "completed",
-          exitCode: null,
-          aggregatedOutput: aggregatedOutput || null,
+          status: exitCode === 0 ? "completed" : "failed",
+          exitCode,
+          aggregatedOutput,
         });
       }
       continue;

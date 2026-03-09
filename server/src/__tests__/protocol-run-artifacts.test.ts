@@ -40,6 +40,8 @@ describe("enrichProtocolMessageArtifactsFromRun", () => {
             repoRef: "main",
             workspaceUsage: "implementation",
             branchName: "squadrail/issue-1-eng-1",
+            workspaceState: "resumed_dirty",
+            hasLocalChanges: true,
           },
         },
       },
@@ -81,6 +83,8 @@ describe("enrichProtocolMessageArtifactsFromRun", () => {
             bindingType: "implementation_workspace",
             branchName: "squadrail/issue-1-eng-1",
             headSha: "abc123",
+            workspaceState: "resumed_dirty",
+            hasLocalChanges: true,
           }),
         }),
         expect.objectContaining({

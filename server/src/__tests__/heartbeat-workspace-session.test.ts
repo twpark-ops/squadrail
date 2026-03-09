@@ -20,6 +20,8 @@ function buildResolvedWorkspace(overrides: Partial<ResolvedWorkspaceForRun> = {}
     executionPolicy: null,
     workspaceUsage: null,
     branchName: null,
+    workspaceState: null,
+    hasLocalChanges: null,
     workspaceHints: [],
     warnings: [],
     ...overrides,

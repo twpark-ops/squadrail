@@ -31,7 +31,7 @@ Phase 3의 목표는 `실제 repo에서 작업했다`는 증거를 run, protocol
 
 ### Slice 2. Verification artifact capture
 
-이번 턴에 시작한 범위:
+이번 턴에 완료한 범위:
 
 - run output / resultJson에서 `verificationSignals`를 구조적으로 추출해 `resultJson.verificationSignals`와 run event에 저장
 - protocol artifact가 raw regex 대신 `verificationSignals`를 우선 사용해 `test_run` / `build_run` metadata를 강화
@@ -41,13 +41,12 @@ Phase 3의 목표는 `실제 repo에서 작업했다`는 증거를 run, protocol
 
 다음 작업 범위:
 
-- explicit verification command의 stdout/stderr/exit status를 artifact metadata에 더 풍부하게 반영
-- adapter별 구조화 수준 차이를 줄여 `exit status`, `stderr`, `aggregated output` 필드를 더 일관되게 맞추기
-- close 단계에서 merged 상태의 verification artifact completeness를 UI와 운영 가이드까지 더 강하게 연결
+- Claude tool_result에서도 `exitCode`를 구조적으로 추론해 adapter별 structured verification 깊이 차이를 축소
+- verification signal이 adapter별로 더 일관되게 `passed/failed` 상태를 갖도록 보강
 
 ### Slice 3. Workspace lifecycle hardening
 
-이번 턴에 시작한 범위:
+이번 턴에 완료한 범위:
 
 - isolated worktree가 다른 경로에 이미 붙어 있으면 해당 path를 재사용해 branch collision을 흡수
 - clean 상태의 stale isolated worktree는 branch mismatch를 감지하면 제거 후 재생성
@@ -55,12 +54,11 @@ Phase 3의 목표는 `실제 repo에서 작업했다`는 증거를 run, protocol
 - dirty stale isolated workspace는 조용히 shared workspace로 내려가지 않고 manual cleanup이 필요한 blocked 상태로 승격
 - implementation usage에서 safe isolated workspace를 만들 수 없으면 blocked fallback warning을 남겨 실행을 명시적으로 실패시킴
 - claimed run이 cold-start 구간에서 `claim.queued`에 머무르면 dispatch watchdog이 redispatch/failover를 수행
+- isolated workspace가 `fresh`, `reused_clean`, `resumed_dirty`, `recreated_clean`, `recovered_existing` 중 어떤 경로였는지 execution context / artifact에 남김
 
 다음 작업 범위:
 
-- implementation retry/resume 정책과 branch collision 처리의 운영 표면 보강
-- clone strategy의 branch collision / dirty stale state 운영 표면 보강
-- dispatch watchdog 이후에도 preflight 초입이 지연되는 경우를 위한 추가 계측
+- Phase 4 운영 표면에서 execution reliability와 workspace lifecycle state를 소비
 
 ## 완료 기준
 
@@ -71,3 +69,4 @@ Phase 3 전체 완료 기준:
 3. close 단계는 verification evidence와 repo state 없이 통과하지 않는다.
 4. 운영자는 run event만 봐도 어떤 workspace에서 어떤 diff가 생겼는지 파악할 수 있다.
 5. implementation run은 unsafe fallback workspace에서 조용히 실행되지 않고, dispatch stall은 watchdog event로 드러난다.
+6. adapter별 verification signal이 구조적으로 `passed/failed`를 구분할 수 있고, workspace retry/resume 경로가 artifact에 남는다.
