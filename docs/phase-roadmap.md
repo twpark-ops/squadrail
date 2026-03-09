@@ -130,11 +130,11 @@
   - run output / resultJson에서 `verificationSignals`를 구조적으로 추출해 `resultJson.verificationSignals`와 run event에 저장
   - protocol artifact가 `verificationSignals`를 우선 사용해 `test_run` / `build_run` metadata를 강화
   - `APPROVE_IMPLEMENTATION` 메시지에 `approval` artifact 자동 첨부
-  - `codex_local` result에 structured `command_execution` 기록을 남겨 verification signal의 신뢰도를 높임
+  - `codex_local`, `cursor_local`, `opencode_local`, `claude_local` result에 structured command execution 기록을 남겨 verification signal의 신뢰도를 높임
   - `merged` close는 `repo evidence + approval + verification evidence` 조합을 요구하도록 강화
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
-  - Claude/Cursor/OpenCode 쪽 structured verification capture 확장은 `Phase 3 / Slice 2`에서 계속 진행
+  - adapter별 structured verification metadata 깊이 차이는 `Phase 3 / Slice 2`에서 계속 정리
 
 ## Phase 1 세부 슬라이스
 
