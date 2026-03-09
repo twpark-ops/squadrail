@@ -129,6 +129,11 @@ describe("shouldResetTaskSessionForWake", () => {
     expect(shouldResetTaskSessionForWake({ wakeReason: "issue_reassigned" })).toBe(true);
   });
 
+  it("resets session context on reviewer watch assignment wakes", () => {
+    expect(shouldResetTaskSessionForWake({ wakeReason: "issue_watch_assigned" })).toBe(true);
+    expect(shouldResetTaskSessionForWake({ wakeReason: "issue_watch_reassigned" })).toBe(true);
+  });
+
   it("resets session context on timer heartbeats", () => {
     expect(shouldResetTaskSessionForWake({ wakeSource: "timer" })).toBe(true);
   });

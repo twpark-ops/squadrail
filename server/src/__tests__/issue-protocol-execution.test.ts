@@ -90,6 +90,68 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     expect(plan[1]?.kind).toBe("notify_only");
   });
 
+  it("wakes reviewer recipients for internal child issue assignment when watch mode is enabled", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "child-1",
+      protocolMessageId: "msg-1c",
+      senderAgentId: null,
+      issueContext: {
+        issueId: "child-1",
+        parentId: "root-1",
+        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
+        labelNames: ["team:internal", "work:implementation", "watch:reviewer", "watch:lead"],
+        techLeadAgentId: "lead-1",
+      },
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "assign child work item",
+        payload: {
+          goal: "goal",
+          acceptanceCriteria: ["a"],
+          definitionOfDone: ["d"],
+          priority: "high",
+          assigneeAgentId: "00000000-0000-0000-0000-000000000001",
+          reviewerAgentId: "00000000-0000-0000-0000-000000000002",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[1]).toMatchObject({
+      kind: "wakeup",
+      reason: "issue_watch_assigned",
+      payload: {
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+        protocolDispatchMode: "reviewer_watch",
+      },
+      contextSnapshot: {
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+        protocolDispatchMode: "reviewer_watch",
+      },
+    });
+  });
+
   it("skips wakeup to the sender agent", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-1",
@@ -201,6 +263,62 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       },
       contextSnapshot: {
         timeoutCode: "review_start_timeout",
+      },
+    });
+  });
+
+  it("injects a lead supervisor wake for tracked child issue protocol events", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "child-2",
+      protocolMessageId: "msg-4b",
+      senderAgentId: "eng-1",
+      issueContext: {
+        issueId: "child-2",
+        parentId: "root-2",
+        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
+        labelNames: ["team:internal", "work:implementation", "watch:lead"],
+        techLeadAgentId: "lead-1",
+      },
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "ready for review",
+        payload: {
+          summary: "review package",
+          evidence: ["tests"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan).toHaveLength(2);
+    expect(plan[1]).toMatchObject({
+      kind: "wakeup",
+      recipientId: "lead-1",
+      recipientRole: "tech_lead",
+      reason: "issue_supervisor_review_submitted",
+      payload: {
+        issueInternalWorkItem: true,
+        rootIssueId: "root-2",
+        protocolDispatchMode: "lead_supervisor",
+      },
+      contextSnapshot: {
+        issueInternalWorkItem: true,
+        rootIssueId: "root-2",
+        protocolDispatchMode: "lead_supervisor",
       },
     });
   });

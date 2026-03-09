@@ -168,7 +168,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
   async function assertActiveCompanyAgent(
     companyId: string,
     agentId: string,
-    label: "Assignee" | "Reviewer",
+    label: "Assignee" | "Reviewer" | "Tech Lead",
   ) {
     const agent = await agentsSvc.getById(agentId);
     if (!agent || agent.companyId !== companyId) {
@@ -202,6 +202,15 @@ export function issueRoutes(db: Db, storage: StorageService) {
       throw unprocessable("Reviewer agent must support reviewer protocol role");
     }
     return reviewer;
+  }
+
+  async function assertInternalWorkItemLeadSupervisor(companyId: string, techLeadAgentId: string) {
+    const techLead = await assertActiveCompanyAgent(companyId, techLeadAgentId, "Tech Lead");
+    const allowedRoles = getAllowedProtocolRoles(techLead);
+    if (!allowedRoles.has("tech_lead")) {
+      throw unprocessable("Lead supervisor agent must support tech_lead protocol role");
+    }
+    return techLead;
   }
 
   async function buildTaskAssignmentSender(req: Request, companyId: string): Promise<CreateIssueProtocolMessage["sender"]> {
@@ -766,11 +775,23 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     const actor = getActorInfo(req);
     const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
+    const rootProtocolState = await protocolSvc.getState(rootIssue.id);
     if (req.body.assigneeAgentId === req.body.reviewerAgentId) {
       throw unprocessable("Reviewer must be different from assignee");
     }
     const assignee = await assertInternalWorkItemAssignee(rootIssue.companyId, req.body.assigneeAgentId);
     await assertInternalWorkItemReviewer(rootIssue.companyId, req.body.reviewerAgentId);
+    const watchLeadRequested = req.body.watchLead !== false;
+    const resolvedLeadAgentId =
+      sender.actorType === "agent" && sender.role === "tech_lead"
+        ? sender.actorId
+        : rootProtocolState?.techLeadAgentId ?? null;
+    if (watchLeadRequested && !resolvedLeadAgentId) {
+      throw unprocessable("Lead watch requires a root tech lead or tech lead creator");
+    }
+    if (resolvedLeadAgentId) {
+      await assertInternalWorkItemLeadSupervisor(rootIssue.companyId, resolvedLeadAgentId);
+    }
 
     const labelNames = [
       "team:internal",
@@ -816,21 +837,40 @@ export function issueRoutes(db: Db, storage: StorageService) {
       },
     });
 
+    const assignmentRecipients: CreateIssueProtocolMessage["recipients"] = [
+      {
+        recipientType: "agent",
+        recipientId: req.body.assigneeAgentId,
+        role: assignee.protocolRole,
+      },
+      {
+        recipientType: "agent",
+        recipientId: req.body.reviewerAgentId,
+        role: "reviewer",
+      },
+    ];
+
+    const inheritedLeadAgentId = resolvedLeadAgentId;
+    const senderIsInheritedLead =
+      sender.actorType === "agent" && sender.role === "tech_lead" && sender.actorId === inheritedLeadAgentId;
+    if (
+      inheritedLeadAgentId &&
+      !senderIsInheritedLead &&
+      !assignmentRecipients.some(
+        (recipient) => recipient.recipientType === "agent" && recipient.recipientId === inheritedLeadAgentId,
+      )
+    ) {
+      assignmentRecipients.push({
+        recipientType: "agent",
+        recipientId: inheritedLeadAgentId,
+        role: "tech_lead",
+      });
+    }
+
     const assignmentMessage: CreateIssueProtocolMessage = {
       messageType: "ASSIGN_TASK",
       sender,
-      recipients: [
-        {
-          recipientType: "agent",
-          recipientId: req.body.assigneeAgentId,
-          role: assignee.protocolRole,
-        },
-        {
-          recipientType: "agent",
-          recipientId: req.body.reviewerAgentId,
-          role: "reviewer",
-        },
-      ],
+      recipients: assignmentRecipients,
       workflowStateBefore: "backlog",
       workflowStateAfter: "assigned",
       summary: `Assign internal ${req.body.kind} work item`,

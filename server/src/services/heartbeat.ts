@@ -27,6 +27,12 @@ import {
   type ResolvedWorkspaceForRun,
   WorkspaceResolutionError,
 } from "./heartbeat-workspace.js";
+import {
+  buildInternalWorkItemDispatchMetadata,
+  isLeadWatchEnabled,
+  leadSupervisorRunFailureReason,
+  loadInternalWorkItemSupervisorContext,
+} from "./internal-work-item-supervision.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
@@ -122,7 +128,12 @@ export function shouldResetTaskSessionForWake(
   contextSnapshot: Record<string, unknown> | null | undefined,
 ) {
   const wakeReason = readNonEmptyString(contextSnapshot?.wakeReason);
-  if (wakeReason === "issue_assigned" || wakeReason === "issue_reassigned") return true;
+  if (
+    wakeReason === "issue_assigned" ||
+    wakeReason === "issue_reassigned" ||
+    wakeReason === "issue_watch_assigned" ||
+    wakeReason === "issue_watch_reassigned"
+  ) return true;
 
   const wakeSource = readNonEmptyString(contextSnapshot?.wakeSource);
   if (wakeSource === "timer") return true;
@@ -135,7 +146,12 @@ function describeSessionResetReason(
   contextSnapshot: Record<string, unknown> | null | undefined,
 ) {
   const wakeReason = readNonEmptyString(contextSnapshot?.wakeReason);
-  if (wakeReason === "issue_assigned" || wakeReason === "issue_reassigned") {
+  if (
+    wakeReason === "issue_assigned" ||
+    wakeReason === "issue_reassigned" ||
+    wakeReason === "issue_watch_assigned" ||
+    wakeReason === "issue_watch_reassigned"
+  ) {
     return `wake reason is ${wakeReason}`;
   }
 
@@ -842,6 +858,12 @@ export function heartbeatService(db: Db) {
             : undefined,
         });
         await releaseIssueExecutionAndPromote(updatedRun);
+        await wakeLeadSupervisorForRunFailure({
+          run: updatedRun,
+          status: "failed",
+          errorCode: "process_lost",
+          error: processLostError,
+        });
       }
       await finalizeAgentStatus(run.agentId, "failed");
       await startNextQueuedRunForAgent(run.agentId);
@@ -1393,6 +1415,22 @@ export function heartbeatService(db: Db) {
           },
         });
         await releaseIssueExecutionAndPromote(finalizedRun);
+        if (status === "failed" || status === "timed_out") {
+          await wakeLeadSupervisorForRunFailure({
+            run: finalizedRun,
+            status,
+            errorCode:
+              status === "timed_out"
+                ? "timeout"
+                : status === "failed"
+                  ? (adapterResult.errorCode ?? "adapter_failed")
+                  : null,
+            error:
+              outcome === "succeeded"
+                ? null
+                : adapterResult.errorMessage ?? (outcome === "timed_out" ? "Timed out" : "Adapter failed"),
+          });
+        }
         await upsertRunLease({
           run: finalizedRun,
           status: status === "succeeded" ? "released" : status,
@@ -1488,6 +1526,12 @@ export function heartbeatService(db: Db) {
           },
         });
         await releaseIssueExecutionAndPromote(failedRun);
+        await wakeLeadSupervisorForRunFailure({
+          run: failedRun,
+          status: "failed",
+          errorCode,
+          error: message,
+        });
 
         await updateRuntimeState(agent, failedRun, {
           exitCode: null,
@@ -1518,6 +1562,70 @@ export function heartbeatService(db: Db) {
         clearInterval(leaseHeartbeatTimer);
       }
       await startNextQueuedRunForAgent(agent.id);
+    }
+  }
+
+  async function wakeLeadSupervisorForRunFailure(input: {
+    run: typeof heartbeatRuns.$inferSelect;
+    status: "failed" | "timed_out";
+    errorCode?: string | null;
+    error?: string | null;
+  }) {
+    const issueId = readNonEmptyString(parseObject(input.run.contextSnapshot).issueId);
+    if (!issueId) return;
+
+    const issueContext = await loadInternalWorkItemSupervisorContext(db, input.run.companyId, issueId);
+    if (!issueContext || !isLeadWatchEnabled(issueContext)) return;
+
+    const leadAgentId = issueContext.techLeadAgentId;
+    if (!leadAgentId || leadAgentId === input.run.agentId) return;
+
+    const reason = leadSupervisorRunFailureReason({
+      status: input.status,
+      errorCode: input.errorCode ?? null,
+    });
+    if (!reason) return;
+
+    const internalMetadata = buildInternalWorkItemDispatchMetadata(issueContext);
+
+    try {
+      await enqueueWakeup(leadAgentId, {
+        source: "automation",
+        triggerDetail: "system",
+        reason,
+        payload: {
+          issueId,
+          failedRunId: input.run.id,
+          failedRunStatus: input.status,
+          failedRunErrorCode: input.errorCode ?? null,
+          failedRunError: input.error ?? null,
+          ...internalMetadata,
+          protocolDispatchMode: "lead_supervisor",
+        },
+        contextSnapshot: {
+          issueId,
+          taskId: issueId,
+          source: "heartbeat.run",
+          failedRunId: input.run.id,
+          failedRunStatus: input.status,
+          failedRunErrorCode: input.errorCode ?? null,
+          failedRunError: input.error ?? null,
+          ...internalMetadata,
+          protocolDispatchMode: "lead_supervisor",
+        },
+      });
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          issueId,
+          leadAgentId,
+          failedRunId: input.run.id,
+          failedRunStatus: input.status,
+          failedRunErrorCode: input.errorCode ?? null,
+        },
+        "failed to wake lead supervisor after child issue run failure",
+      );
     }
   }
 
