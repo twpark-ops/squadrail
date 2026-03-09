@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { resolveDefaultAgentWorkspaceDir } from "../home-paths.js";
 import {
+  assertResolvedWorkspaceReadyForExecution,
   type ResolvedWorkspaceForRun,
   resolveRuntimeSessionParamsForWorkspace,
+  WorkspaceResolutionError,
 } from "../services/heartbeat-workspace.js";
 import { shouldResetTaskSessionForWake } from "../services/heartbeat.ts";
 
@@ -88,6 +90,33 @@ describe("resolveRuntimeSessionParamsForWorkspace", () => {
       workspaceId: "workspace-1",
     });
     expect(result.warning).toBeNull();
+  });
+});
+
+describe("assertResolvedWorkspaceReadyForExecution", () => {
+  it("rejects implementation runs that resolved to agent home", () => {
+    expect(() =>
+      assertResolvedWorkspaceReadyForExecution({
+        resolvedWorkspace: buildResolvedWorkspace({
+          cwd: resolveDefaultAgentWorkspaceDir("agent-123"),
+          source: "agent_home",
+          workspaceUsage: "implementation",
+          warnings: ["Project workspace has no local cwd configured."],
+        }),
+      }),
+    ).toThrowError(WorkspaceResolutionError);
+  });
+
+  it("allows analysis runs to continue in agent home", () => {
+    expect(() =>
+      assertResolvedWorkspaceReadyForExecution({
+        resolvedWorkspace: buildResolvedWorkspace({
+          cwd: resolveDefaultAgentWorkspaceDir("agent-123"),
+          source: "agent_home",
+          workspaceUsage: "analysis",
+        }),
+      }),
+    ).not.toThrow();
   });
 });
 

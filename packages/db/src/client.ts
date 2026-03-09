@@ -243,6 +243,9 @@ async function applyPendingMigrationsManually(
 
       await runInTransaction(sql, async () => {
         for (const statement of splitMigrationStatements(migrationContent)) {
+          if (await migrationStatementAlreadyApplied(sql, statement)) {
+            continue;
+          }
           await sql.unsafe(statement);
         }
 
@@ -644,10 +647,13 @@ export async function applyPendingMigrations(url: string): Promise<void> {
   if (initialState.status === "upToDate") return;
 
   const sql = postgres(url, { max: 1 });
+  let migrateError: unknown = null;
 
   try {
     const db = drizzlePg(sql);
     await migratePg(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  } catch (error) {
+    migrateError = error;
   } finally {
     await sql.end();
   }
@@ -662,6 +668,9 @@ export async function applyPendingMigrations(url: string): Promise<void> {
   }
 
   if (state.status !== "needsMigrations" || state.reason !== "pending-migrations") {
+    if (migrateError) {
+      throw migrateError;
+    }
     throw new Error("Migrations are still pending after attempted apply; run inspectMigrations for details.");
   }
 

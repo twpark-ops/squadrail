@@ -61,7 +61,7 @@ describe("generate-swiftsight-org-bundle", () => {
 
     expect(manifest.source).toBeNull();
     expect(manifest.projects).toHaveLength(5);
-    expect(manifest.agents).toHaveLength(18);
+    expect(manifest.agents).toHaveLength(13);
 
     const cloudProject = manifest.projects.find((project) => project.slug === "swiftsight-cloud");
     expect(cloudProject?.workspaces.find((workspace) => workspace.name === "implementation")?.executionPolicy).toMatchObject({

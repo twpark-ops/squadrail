@@ -1,0 +1,70 @@
+@startuml
+title Squadrail Agent Team Mode Architecture
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Control Plane" {
+  [Issue]
+  [Protocol State Machine]
+  [RAG / Brief Service]
+  [Approvals / Budgets]
+  [Projects / Workspaces]
+}
+
+package "Team Coordination Plane" {
+  [Team Run Supervisor]
+  [Shared Work Items]
+  [Mailbox]
+  [Handoff Artifacts]
+}
+
+package "Execution Plane" {
+  [Heartbeat Scheduler]
+  [Run Lease / Recovery]
+  [Adapter Runtime]
+  [Workspace Isolation]
+}
+
+package "Agents" {
+  [Lead Agent]
+  [Engineer Agent]
+  [Reviewer Agent]
+}
+
+[Issue] --> [Protocol State Machine]
+[Protocol State Machine] --> [RAG / Brief Service]
+[Protocol State Machine] --> [Team Run Supervisor]
+[Approvals / Budgets] --> [Team Run Supervisor]
+[Projects / Workspaces] --> [Workspace Isolation]
+
+[Team Run Supervisor] --> [Shared Work Items]
+[Team Run Supervisor] --> [Mailbox]
+[Team Run Supervisor] --> [Handoff Artifacts]
+
+[Heartbeat Scheduler] --> [Run Lease / Recovery]
+[Run Lease / Recovery] --> [Adapter Runtime]
+[Adapter Runtime] --> [Workspace Isolation]
+
+[Shared Work Items] --> [Lead Agent]
+[Shared Work Items] --> [Engineer Agent]
+[Shared Work Items] --> [Reviewer Agent]
+
+[Mailbox] --> [Lead Agent]
+[Mailbox] --> [Engineer Agent]
+[Mailbox] --> [Reviewer Agent]
+
+[Lead Agent] --> [Team Run Supervisor]
+[Engineer Agent] --> [Handoff Artifacts]
+[Reviewer Agent] --> [Handoff Artifacts]
+
+[Engineer Agent] --> [Protocol State Machine]
+[Reviewer Agent] --> [Protocol State Machine]
+[Lead Agent] --> [Protocol State Machine]
+
+[Run Lease / Recovery] --> [Team Run Supervisor] : lost / blocked / done events
+[Handoff Artifacts] --> [Reviewer Agent]
+[RAG / Brief Service] --> [Engineer Agent]
+[RAG / Brief Service] --> [Reviewer Agent]
+
+@enduml

@@ -14,6 +14,7 @@ import {
 } from "@squadrail/shared";
 import { resolveDefaultAgentWorkspaceDir } from "../home-paths.js";
 import {
+  deriveProjectWorkspaceUsageFromContext,
   resolveProjectWorkspaceByPolicy,
   type ProjectWorkspaceRoutingRow,
 } from "./project-workspace-routing.js";
@@ -39,6 +40,16 @@ export type ResolvedWorkspaceForRun = {
   }>;
   warnings: string[];
 };
+
+export class WorkspaceResolutionError extends Error {
+  readonly code: "workspace_required";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceResolutionError";
+    this.code = "workspace_required";
+  }
+}
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
@@ -66,6 +77,7 @@ export async function resolveWorkspaceForRun(input: {
   previousSessionParams: Record<string, unknown> | null;
   useProjectWorkspace?: boolean | null;
 }): Promise<ResolvedWorkspaceForRun> {
+  const workspaceUsage = deriveProjectWorkspaceUsageFromContext(input.context);
   const issueId = readNonEmptyString(input.context.issueId);
   const contextProjectId = readNonEmptyString(input.context.projectId);
   const issueProjectId = issueId
@@ -144,7 +156,7 @@ export async function resolveWorkspaceForRun(input: {
           repoUrl: workspace.repoUrl,
           repoRef: workspace.repoRef,
           executionPolicy: null,
-          workspaceUsage: null,
+          workspaceUsage,
           branchName: null,
           workspaceHints,
           warnings: [],
@@ -171,13 +183,13 @@ export async function resolveWorkspaceForRun(input: {
     }
     return {
       cwd: fallbackCwd,
-      source: "project_shared",
+      source: "agent_home",
       projectId: resolvedProjectId,
       workspaceId: projectWorkspaceRows[0]?.id ?? null,
       repoUrl: projectWorkspaceRows[0]?.repoUrl ?? null,
       repoRef: projectWorkspaceRows[0]?.repoRef ?? null,
       executionPolicy: null,
-      workspaceUsage: null,
+      workspaceUsage,
       branchName: null,
       workspaceHints,
       warnings,
@@ -191,18 +203,26 @@ export async function resolveWorkspaceForRun(input: {
       .then((stats) => stats.isDirectory())
       .catch(() => false);
     if (sessionCwdExists) {
+      const sessionSource =
+        sessionCwd === resolveDefaultAgentWorkspaceDir(input.agent.id) ? "agent_home" : "task_session";
+      const sessionWarnings =
+        sessionSource === "agent_home" && resolvedProjectId
+          ? [
+              `Saved session is still using fallback workspace "${sessionCwd}" because no project workspace directory is available for this issue.`,
+            ]
+          : [];
       return {
         cwd: sessionCwd,
-        source: "task_session",
+        source: sessionSource,
         projectId: resolvedProjectId,
         workspaceId: readNonEmptyString(input.previousSessionParams?.workspaceId),
         repoUrl: readNonEmptyString(input.previousSessionParams?.repoUrl),
         repoRef: readNonEmptyString(input.previousSessionParams?.repoRef),
         executionPolicy: null,
-        workspaceUsage: null,
+        workspaceUsage,
         branchName: readNonEmptyString(input.previousSessionParams?.branchName),
         workspaceHints,
-        warnings: [],
+        warnings: sessionWarnings,
       };
     }
   }
@@ -231,11 +251,27 @@ export async function resolveWorkspaceForRun(input: {
     repoUrl: null,
     repoRef: null,
     executionPolicy: null,
-    workspaceUsage: null,
+    workspaceUsage,
     branchName: null,
     workspaceHints,
     warnings,
   };
+}
+
+export function assertResolvedWorkspaceReadyForExecution(input: {
+  resolvedWorkspace: ResolvedWorkspaceForRun;
+}) {
+  const { resolvedWorkspace } = input;
+  if (resolvedWorkspace.workspaceUsage !== "implementation") return;
+  if (resolvedWorkspace.source !== "agent_home") return;
+
+  const warningText =
+    resolvedWorkspace.warnings.length > 0
+      ? ` ${resolvedWorkspace.warnings.join(" ")}`
+      : "";
+  throw new WorkspaceResolutionError(
+    `Implementation run requires a connected project workspace. Resolved fallback workspace "${resolvedWorkspace.cwd}" cannot be used for code-changing execution.${warningText}`,
+  );
 }
 
 export function resolveRuntimeSessionParamsForWorkspace(input: {
