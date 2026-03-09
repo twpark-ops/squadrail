@@ -10,6 +10,7 @@ import {
   issueProtocolViolations,
   issueReviewCycles,
   issues,
+  projects,
 } from "@squadrail/db";
 import type {
   CreateIssueProtocolMessage,
@@ -295,6 +296,7 @@ type ProtocolOwnershipState = {
 export function resolveProtocolOwnershipForMessage(input: {
   currentState: ProtocolOwnershipState | null;
   message: CreateIssueProtocolMessage;
+  fallbackTechLeadAgentId?: string | null;
 }) {
   const currentPayload = input.message.payload as Record<string, unknown>;
   const assignTargetAgentId =
@@ -312,11 +314,11 @@ export function resolveProtocolOwnershipForMessage(input: {
         ? assignTargetAgentId
         : input.message.sender.role === "tech_lead"
           ? input.message.sender.actorId
-          : explicitTechLeadRecipientId ?? input.currentState?.techLeadAgentId ?? null
+          : explicitTechLeadRecipientId ?? input.currentState?.techLeadAgentId ?? input.fallbackTechLeadAgentId ?? null
       : input.message.messageType === "REASSIGN_TASK"
         ? assignTargetRole === "tech_lead"
           ? assignTargetAgentId
-          : input.currentState?.techLeadAgentId ?? null
+          : input.currentState?.techLeadAgentId ?? input.fallbackTechLeadAgentId ?? null
         : input.currentState?.techLeadAgentId ?? null;
 
   const primaryEngineerAgentId =
@@ -609,6 +611,14 @@ export function issueProtocolService(db: Db) {
 
       if (!issue) throw notFound("Issue not found");
 
+      const fallbackTechLeadAgentId = issue.projectId
+        ? await db
+          .select({ leadAgentId: projects.leadAgentId })
+          .from(projects)
+          .where(eq(projects.id, issue.projectId))
+          .then((rows) => rows[0]?.leadAgentId ?? null)
+        : null;
+
       return db.transaction(async (tx) => {
         // Use SELECT FOR UPDATE to prevent race conditions when multiple protocol messages arrive concurrently
         const currentState = await tx
@@ -760,6 +770,7 @@ export function issueProtocolService(db: Db) {
               }
             : null,
           message: input.message,
+          fallbackTechLeadAgentId,
         });
 
         const nextStateValues: typeof issueProtocolState.$inferInsert = {

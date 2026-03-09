@@ -388,6 +388,120 @@ describe("enrichProtocolMessageArtifactsFromRun", () => {
     );
   });
 
+  it("captures Claude bash tool executions from active live logs before resultJson is finalized", async () => {
+    setWorkspaceGitExecutorForTests(async ({ args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { stdout: "true\n" };
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return { stdout: "abc123\n" };
+      if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "squadrail/issue-4-eng-1\n" };
+      if (args[0] === "status") return { stdout: "## squadrail/issue-4-eng-1\n M internal/observability/tracing.go\n" };
+      if (args[0] === "diff" && args[1] === "--shortstat") return { stdout: " 1 file changed, 8 insertions(+), 1 deletion(-)\n" };
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const liveLogContent = [
+      JSON.stringify({
+        ts: "2026-03-10T00:00:00.000Z",
+        stream: "stdout",
+        chunk: [
+          JSON.stringify({
+            type: "assistant",
+            message: {
+              content: [
+                {
+                  type: "tool_use",
+                  id: "toolu_test",
+                  name: "Bash",
+                  input: {
+                    command: "go test ./internal/observability -count=1 -v",
+                  },
+                },
+              ],
+            },
+          }),
+          JSON.stringify({
+            type: "user",
+            message: {
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: "toolu_test",
+                  is_error: false,
+                  content: "PASS\nok\tinternal/observability\t5.501s",
+                },
+              ],
+            },
+          }),
+        ].join("\n"),
+      }),
+    ].join("\n");
+
+    const message = await enrichProtocolMessageArtifactsFromRun({
+      issueId: "issue-4",
+      liveLogContent,
+      run: {
+        id: "run-4",
+        companyId: "company-1",
+        agentId: "eng-1",
+        invocationSource: "automation",
+        status: "running",
+        startedAt: new Date("2026-03-10T00:03:00.000Z"),
+        finishedAt: null,
+        stdoutExcerpt: null,
+        stderrExcerpt: null,
+        contextSnapshot: {
+          issueId: "issue-4",
+          squadrailWorkspace: {
+            cwd: "/workspace/repo",
+            source: "project_isolated",
+            projectId: "project-1",
+            workspaceId: "workspace-1",
+            workspaceUsage: "implementation",
+          },
+        },
+      },
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "submit for review",
+        payload: {
+          implementationSummary: "done",
+          evidence: ["Focused observability patch complete"],
+          diffSummary: "updated tracing version resolution",
+          changedFiles: ["internal/observability/tracing.go"],
+          testResults: ["go test ./internal/observability -count=1 -v"],
+          reviewChecklist: ["focused tests passed"],
+          residualRisks: ["fallback remains active in non-stamped builds"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(message.artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "test_run",
+          metadata: expect.objectContaining({
+            captureConfidence: "structured",
+            observedCommands: ["go test ./internal/observability -count=1 -v"],
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("does not auto-capture failed structured verification as passing evidence", async () => {
     const message = await enrichProtocolMessageArtifactsFromRun({
       issueId: "issue-2",

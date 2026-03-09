@@ -134,6 +134,8 @@ CLOSE_TASK
 
 **Result:** Agents receive relevant context, not entire codebases.
 
+Current implementation details: [docs/rag-current-architecture.md](docs/rag-current-architecture.md)
+
 ---
 
 ## Architecture

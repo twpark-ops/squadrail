@@ -29,6 +29,9 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@squadrail/shared": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^24.6.0",
     "typescript": "^5.7.3"

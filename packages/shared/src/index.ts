@@ -140,6 +140,8 @@ export {
   type RolePackRoleKey,
   type RolePackPresetKey,
 } from "./constants.js";
+export type { ProtocolRunRequirement } from "./protocol-run-requirements.js";
+export { resolveProtocolRunRequirement } from "./protocol-run-requirements.js";
 
 export type {
   Company,

@@ -55,13 +55,31 @@ describe("generate-swiftsight-org-bundle", () => {
           } | null;
         }>;
       }>;
-      agents: unknown[];
+      agents: Array<{
+        slug: string;
+        adapterType: string;
+        title: string;
+      }>;
       source: null;
     };
 
     expect(manifest.source).toBeNull();
     expect(manifest.projects).toHaveLength(5);
-    expect(manifest.agents).toHaveLength(13);
+    expect(manifest.agents).toHaveLength(18);
+    expect(manifest.agents.filter((agent) => agent.title === "Engineer")).toHaveLength(10);
+    expect(manifest.agents.filter((agent) => agent.title === "Tech Lead")).toHaveLength(4);
+    expect(
+      manifest.agents
+        .filter((agent) => agent.title === "Engineer")
+        .map((agent) => agent.adapterType),
+    ).toEqual(
+      expect.arrayContaining([
+        "claude_local",
+        "codex_local",
+      ]),
+    );
+    expect(manifest.agents.some((agent) => agent.slug === "swiftsight-cloud-engineer-claude")).toBe(true);
+    expect(manifest.agents.some((agent) => agent.slug === "swiftsight-worker-engineer-codex")).toBe(true);
 
     const cloudProject = manifest.projects.find((project) => project.slug === "swiftsight-cloud");
     expect(cloudProject?.workspaces.find((workspace) => workspace.name === "implementation")?.executionPolicy).toMatchObject({

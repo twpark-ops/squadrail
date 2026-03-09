@@ -1,5 +1,6 @@
 export const type = "claude_local";
 export const label = "Claude Code (local)";
+export const DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS = true;
 
 export const models = [
   { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
@@ -25,6 +26,6 @@ Core fields:
 - env (object, optional): KEY=VALUE environment variables
 
 Operational fields:
-- timeoutSec (number, optional): run timeout in seconds
+- timeoutSec (number, optional): run timeout in seconds (defaults to 900 for newly created agents)
 - graceSec (number, optional): SIGTERM grace period in seconds
 `;

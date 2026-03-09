@@ -2,6 +2,12 @@ type VerificationSignalKind = "test" | "build";
 type VerificationSignalSource = "command_execution" | "stdout_excerpt" | "stderr_excerpt" | "result_json";
 type VerificationSignalConfidence = "structured" | "heuristic";
 type VerificationSignalStatus = "passed" | "failed" | "unknown";
+const SHELL_TOOL_NAME_RE = /(?:^|_)(?:bash|shell)(?:$|_)/i;
+const EXIT_CODE_PATTERNS = [
+  /\bexit(?:ed)?\s+(?:with\s+)?code\s*[:=]?\s*(-?\d+)\b/i,
+  /\bexit_code\s*[:=]?\s*(-?\d+)\b/i,
+  /\bexitCode\s*[:=]?\s*(-?\d+)\b/i,
+] as const;
 
 export type RunVerificationSignal = {
   kind: VerificationSignalKind;
@@ -19,6 +25,24 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readExitCode(value: unknown): number | null {
+  const record = asRecord(value);
+  const direct = [record.exit_code, record.exitCode, record.code, record.status_code]
+    .find((entry) => typeof entry === "number" && Number.isFinite(entry));
+  return typeof direct === "number" ? direct : null;
+}
+
+function inferExitCodeFromText(text: string, isError: boolean): number | null {
+  for (const pattern of EXIT_CODE_PATTERNS) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const parsed = Number.parseInt(match[1], 10);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return isError ? 1 : 0;
 }
 
 function uniqueSignals(signals: RunVerificationSignal[]) {
@@ -174,6 +198,7 @@ function extractStructuredSignalsFromLiveLog(logContent: string | null | undefin
   if (!logContent) return [];
 
   const signals: RunVerificationSignal[] = [];
+  const pendingCommandToolUses = new Map<string, string>();
   const outerLines = logContent
     .split(/\r?\n/u)
     .map((line) => line.trim())
@@ -202,6 +227,70 @@ function extractStructuredSignalsFromLiveLog(logContent: string | null | undefin
       try {
         eventRecord = asRecord(JSON.parse(innerLine));
       } catch {
+        continue;
+      }
+
+      if (readString(eventRecord.type) === "assistant") {
+        const message = asRecord(eventRecord.message);
+        const content = Array.isArray(message.content) ? message.content : [];
+        for (const entry of content) {
+          const block = asRecord(entry);
+          if (readString(block.type) !== "tool_use") continue;
+          const toolName = readString(block.name) ?? "";
+          const toolId = readString(block.id);
+          const input = asRecord(block.input);
+          const command = readString(input.command);
+          if (!toolId || !command || !SHELL_TOOL_NAME_RE.test(toolName)) continue;
+          pendingCommandToolUses.set(toolId, command);
+        }
+        continue;
+      }
+
+      if (readString(eventRecord.type) === "user") {
+        const message = asRecord(eventRecord.message);
+        const content = Array.isArray(message.content) ? message.content : [];
+        for (const entry of content) {
+          const block = asRecord(entry);
+          if (readString(block.type) !== "tool_result") continue;
+          const toolUseId = readString(block.tool_use_id);
+          const command = toolUseId ? pendingCommandToolUses.get(toolUseId) ?? null : null;
+          if (!command) continue;
+
+          const isError = block.is_error === true;
+          let aggregatedOutput = "";
+          let exitCode = readExitCode(block) ?? readExitCode(block.metadata);
+          const contentValue = block.content;
+
+          if (typeof contentValue === "string") {
+            aggregatedOutput = contentValue.trim();
+          } else if (Array.isArray(contentValue)) {
+            aggregatedOutput = contentValue
+              .map((part) => {
+                const item = asRecord(part);
+                exitCode = exitCode ?? readExitCode(item) ?? readExitCode(item.metadata);
+                return readString(item.text) ?? "";
+              })
+              .filter(Boolean)
+              .join("\n")
+              .trim();
+          }
+
+          exitCode = exitCode ?? inferExitCodeFromText(aggregatedOutput, isError);
+          const normalizedStatus = normalizeStructuredStatus(isError ? "failed" : "completed", exitCode);
+
+          for (const kind of detectSignalKinds(command)) {
+            signals.push({
+              kind,
+              command,
+              source: "command_execution",
+              confidence: "structured",
+              status: normalizedStatus,
+              exitCode,
+            });
+          }
+
+          pendingCommandToolUses.delete(toolUseId ?? "");
+        }
         continue;
       }
 

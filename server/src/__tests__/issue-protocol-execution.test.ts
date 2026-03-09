@@ -152,6 +152,92 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
   });
 
+  it("includes review submission artifacts in reviewer wake context", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-review-1",
+      protocolMessageId: "msg-review-1",
+      senderAgentId: "eng-1",
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Ready for review",
+        payload: {
+          implementationSummary: "Implemented build-info version resolution.",
+          diffSummary: "2 files changed, 52 insertions(+), 5 deletions(-)",
+          changedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
+          testResults: ["go test ./internal/observability -count=1: PASS"],
+          evidence: ["resolveServiceVersion() replaces the hard-coded constant."],
+          reviewChecklist: ["Version is no longer hard-coded."],
+          residualRisks: ["Fallback remains necessary outside stamped builds."],
+        },
+        artifacts: [
+          {
+            kind: "diff",
+            uri: "run://run-1/workspace-diff",
+            label: "2 files changed, 52 insertions(+), 5 deletions(-)",
+            metadata: {
+              changedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
+              diffStat: "2 files changed, 52 insertions(+), 5 deletions(-)",
+            },
+          },
+          {
+            kind: "doc",
+            uri: "workspace://ws-1/binding",
+            label: "Workspace binding project_isolated",
+            metadata: {
+              bindingType: "implementation_workspace",
+              cwd: "/tmp/.squadrail-worktrees/swiftsight-cloud/run-1",
+              branchName: "squadrail/test/review",
+              headSha: "abc123",
+            },
+          },
+          {
+            kind: "test_run",
+            uri: "run://run-1/test",
+            label: "go test ./internal/observability -count=1",
+            metadata: {
+              observedStatus: "passed",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(plan[0]?.kind).toBe("wakeup");
+    expect(plan[0]?.contextSnapshot.reviewSubmission).toMatchObject({
+      implementationSummary: "Implemented build-info version resolution.",
+      changedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
+      implementationWorkspace: {
+        bindingType: "implementation_workspace",
+        cwd: "/tmp/.squadrail-worktrees/swiftsight-cloud/run-1",
+      },
+      diffArtifact: {
+        kind: "diff",
+        label: "2 files changed, 52 insertions(+), 5 deletions(-)",
+      },
+      verificationArtifacts: [
+        {
+          kind: "test_run",
+          label: "go test ./internal/observability -count=1",
+          observedStatus: "passed",
+        },
+      ],
+    });
+  });
+
   it("skips wakeup to the sender agent", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-1",
@@ -185,6 +271,45 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
 
     expect(plan[0]?.kind).toBe("skip_sender");
+  });
+
+  it("keeps CANCEL_TASK recipients as notify_only", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-1",
+      protocolMessageId: "msg-cancel",
+      senderAgentId: null,
+      message: {
+        messageType: "CANCEL_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "cancelled",
+        summary: "cancel task",
+        payload: {
+          reason: "stop",
+          cancelType: "manual_stop",
+          replacementIssueId: null,
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan.map((item) => item.kind)).toEqual(["notify_only", "notify_only"]);
   });
 
   it("requeues the sender for START_IMPLEMENTATION follow-up execution", () => {
@@ -227,6 +352,64 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       contextSnapshot: {
         forceFollowupRun: true,
         protocolDispatchMode: "implementation_followup",
+      },
+    });
+  });
+
+  it("requeues the project tech lead for CLOSE_TASK after reviewer approval, even when reviewer and tech lead are the same agent", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-approval-1",
+      protocolMessageId: "msg-approval-1",
+      senderAgentId: "lead-1",
+      issueContext: {
+        issueId: "issue-approval-1",
+        parentId: null,
+        hiddenAt: null,
+        labelNames: [],
+        techLeadAgentId: "lead-1",
+      },
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "approved",
+        summary: "approved",
+        payload: {
+          approvalSummary: "Looks good.",
+          approvalMode: "agent_review",
+          approvalChecklist: ["Focused tests passed."],
+          verifiedEvidence: ["go test ./internal/observability -count=1: PASS"],
+          residualRisks: ["Fallback remains relevant in unstamped builds."],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan).toHaveLength(2);
+    expect(plan[1]).toMatchObject({
+      kind: "wakeup",
+      recipientId: "lead-1",
+      recipientRole: "tech_lead",
+      reason: "issue_ready_for_closure",
+      payload: {
+        forceFollowupRun: true,
+        protocolDispatchMode: "approval_close_followup",
+      },
+      contextSnapshot: {
+        forceFollowupRun: true,
+        protocolDispatchMode: "approval_close_followup",
+        protocolRecipientRole: "tech_lead",
       },
     });
   });

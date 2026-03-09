@@ -97,4 +97,56 @@ describe("extractRunVerificationSignals", () => {
       },
     ]);
   });
+
+  it("extracts structured Claude bash tool signals from live logs before final result is stored", () => {
+    const signals = extractRunVerificationSignals({
+      logContent: [
+        JSON.stringify({
+          ts: "2026-03-10T00:00:00.000Z",
+          stream: "stdout",
+          chunk: [
+            JSON.stringify({
+              type: "assistant",
+              message: {
+                content: [
+                  {
+                    type: "tool_use",
+                    id: "toolu_test",
+                    name: "Bash",
+                    input: {
+                      command: "go test ./internal/observability -count=1 -v",
+                    },
+                  },
+                ],
+              },
+            }),
+            JSON.stringify({
+              type: "user",
+              message: {
+                content: [
+                  {
+                    type: "tool_result",
+                    tool_use_id: "toolu_test",
+                    is_error: false,
+                    content: "PASS\nok  internal/observability\t5.501s",
+                  },
+                ],
+              },
+            }),
+          ].join("\n"),
+        }),
+      ].join("\n"),
+    });
+
+    expect(signals).toEqual([
+      {
+        kind: "test",
+        command: "go test ./internal/observability -count=1 -v",
+        source: "command_execution",
+        confidence: "structured",
+        status: "passed",
+        exitCode: 0,
+      },
+    ]);
+  });
 });

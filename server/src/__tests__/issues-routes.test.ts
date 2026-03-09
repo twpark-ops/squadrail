@@ -17,6 +17,7 @@ const {
   mockIssueRemove,
   mockHeartbeatWakeup,
   mockHeartbeatGetRun,
+  mockHeartbeatCancelIssueScope,
   mockAgentGetById,
   mockProtocolGetState,
   mockProtocolAppendMessage,
@@ -40,6 +41,7 @@ const {
   mockIssueRemove: vi.fn(),
   mockHeartbeatWakeup: vi.fn(),
   mockHeartbeatGetRun: vi.fn(),
+  mockHeartbeatCancelIssueScope: vi.fn(),
   mockAgentGetById: vi.fn(),
   mockProtocolGetState: vi.fn(),
   mockProtocolAppendMessage: vi.fn(),
@@ -65,6 +67,7 @@ vi.mock("../services/index.js", () => ({
   heartbeatService: () => ({
     wakeup: mockHeartbeatWakeup,
     getRun: mockHeartbeatGetRun,
+    cancelIssueScope: mockHeartbeatCancelIssueScope,
   }),
   issueApprovalService: () => ({
     listApprovalsForIssue: vi.fn(),
@@ -270,6 +273,10 @@ describe("issue routes wakeup handling", () => {
     });
     mockAgentGetById.mockResolvedValue(null);
     mockHeartbeatGetRun.mockResolvedValue(null);
+    mockHeartbeatCancelIssueScope.mockResolvedValue({
+      cancelledWakeupCount: 0,
+      cancelledRunCount: 0,
+    });
     mockProtocolGetState.mockResolvedValue(null);
     mockProtocolAppendMessage.mockResolvedValue({
       message: { id: "protocol-message-1", seq: 1 },
@@ -949,6 +956,9 @@ describe("issue routes wakeup handling", () => {
       title: "Engineer",
       permissions: {},
     });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
     mockHeartbeatGetRun.mockResolvedValue({
       id: "run-1",
       companyId: "company-1",
@@ -990,7 +1000,7 @@ describe("issue routes wakeup handling", () => {
           role: "engineer",
         },
         recipients: [
-          { recipientType: "agent", recipientId: "rev-1", role: "reviewer" },
+          { recipientType: "agent", recipientId: "eng-1", role: "reviewer" },
         ],
         workflowStateBefore: "implementing",
         workflowStateAfter: "submitted_for_review",
@@ -1012,6 +1022,13 @@ describe("issue routes wakeup handling", () => {
     expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.objectContaining({
+          recipients: [
+            expect.objectContaining({
+              recipientType: "agent",
+              recipientId: "rev-1",
+              role: "reviewer",
+            }),
+          ],
           artifacts: expect.arrayContaining([
             expect.objectContaining({ kind: "run", uri: "run://run-1" }),
             expect.objectContaining({ kind: "test_run", uri: "run://run-1/test" }),
@@ -1096,5 +1113,204 @@ describe("issue routes wakeup handling", () => {
         }),
       }),
     );
+  });
+
+  it("auto-injects the configured reviewer recipient for SUBMIT_FOR_REVIEW", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-203",
+      title: "Review recipient issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [
+          { kind: "diff", uri: "run://run-1/workspace-diff", label: "Workspace diff" },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          recipients: expect.arrayContaining([
+            expect.objectContaining({
+              recipientType: "agent",
+              recipientId: "rev-1",
+              role: "reviewer",
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("normalizes incorrect reviewer recipients for SUBMIT_FOR_REVIEW", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-204",
+      title: "Review recipient normalization issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+          { recipientType: "agent", recipientId: "eng-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          recipients: [
+            expect.objectContaining({
+              recipientType: "agent",
+              recipientId: "eng-1",
+              role: "engineer",
+            }),
+            expect.objectContaining({
+              recipientType: "agent",
+              recipientId: "rev-1",
+              role: "reviewer",
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("cancels issue-scoped heartbeat execution when CANCEL_TASK is posted", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-202",
+      title: "Cancelled issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-2", seq: 2 },
+      state: { workflowState: "cancelled" },
+    });
+    mockHeartbeatCancelIssueScope.mockResolvedValue({
+      cancelledWakeupCount: 2,
+      cancelledRunCount: 1,
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        messageType: "CANCEL_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+          { recipientType: "agent", recipientId: "rev-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "cancelled",
+        summary: "Stop the work",
+        payload: {
+          reason: "Superseded by a clean rerun",
+          cancelType: "manual_stop",
+          replacementIssueId: null,
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatCancelIssueScope).toHaveBeenCalledWith({
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      reason: "Issue cancelled via protocol",
+    });
+    expect(mockProtocolDispatchMessage).not.toHaveBeenCalled();
   });
 });
