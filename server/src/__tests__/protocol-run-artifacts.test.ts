@@ -280,6 +280,114 @@ describe("enrichProtocolMessageArtifactsFromRun", () => {
     );
   });
 
+  it("captures test and build artifacts from active run live logs before resultJson is finalized", async () => {
+    setWorkspaceGitExecutorForTests(async ({ args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { stdout: "true\n" };
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return { stdout: "abc123\n" };
+      if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "squadrail/issue-3-eng-1\n" };
+      if (args[0] === "status") return { stdout: "## squadrail/issue-3-eng-1\n M src/release-label.js\n" };
+      if (args[0] === "diff" && args[1] === "--shortstat") return { stdout: " 1 file changed, 6 insertions(+), 2 deletions(-)\n" };
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const liveLogContent = [
+      JSON.stringify({
+        ts: "2026-03-10T00:00:00.000Z",
+        stream: "stdout",
+        chunk: `${JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            command: "/usr/bin/zsh -lc 'pnpm test'",
+            exit_code: 0,
+            status: "completed",
+          },
+        })}\n${JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            command: "/usr/bin/zsh -lc 'pnpm build'",
+            exit_code: 0,
+            status: "completed",
+          },
+        })}`,
+      }),
+    ].join("\n");
+
+    const message = await enrichProtocolMessageArtifactsFromRun({
+      issueId: "issue-3",
+      liveLogContent,
+      run: {
+        id: "run-3",
+        companyId: "company-1",
+        agentId: "eng-1",
+        invocationSource: "automation",
+        status: "running",
+        startedAt: new Date("2026-03-10T00:02:00.000Z"),
+        finishedAt: null,
+        stdoutExcerpt: null,
+        stderrExcerpt: null,
+        contextSnapshot: {
+          issueId: "issue-3",
+          squadrailWorkspace: {
+            cwd: "/workspace/repo",
+            source: "project_isolated",
+            projectId: "project-1",
+            workspaceId: "workspace-1",
+            workspaceUsage: "implementation",
+          },
+        },
+      },
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "submit for review",
+        payload: {
+          implementationSummary: "done",
+          evidence: ["Validated with pnpm build"],
+          diffSummary: "updated release label normalization",
+          changedFiles: ["src/release-label.js"],
+          testResults: ["pnpm test"],
+          reviewChecklist: ["changed one file"],
+          residualRisks: ["pending external merge"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(message.artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "test_run",
+          metadata: expect.objectContaining({
+            captureConfidence: "structured",
+            observedCommands: ["/usr/bin/zsh -lc 'pnpm test'"],
+          }),
+        }),
+        expect.objectContaining({
+          kind: "build_run",
+          metadata: expect.objectContaining({
+            captureConfidence: "structured",
+            observedCommands: ["/usr/bin/zsh -lc 'pnpm build'"],
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("does not auto-capture failed structured verification as passing evidence", async () => {
     const message = await enrichProtocolMessageArtifactsFromRun({
       issueId: "issue-2",

@@ -116,6 +116,7 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   const workspaceContext = parseObject(context.squadrailWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
   const workspaceSource = asString(workspaceContext.source, "");
+  const workspaceUsage = asString(workspaceContext.workspaceUsage, "");
   const workspaceId = asString(workspaceContext.workspaceId, "") || null;
   const workspaceRepoUrl = asString(workspaceContext.repoUrl, "") || null;
   const workspaceRepoRef = asString(workspaceContext.repoRef, "") || null;
@@ -184,6 +185,9 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   }
   if (workspaceSource) {
     env.SQUADRAIL_WORKSPACE_SOURCE = workspaceSource;
+  }
+  if (workspaceUsage) {
+    env.SQUADRAIL_WORKSPACE_USAGE = workspaceUsage;
   }
   if (workspaceId) {
     env.SQUADRAIL_WORKSPACE_ID = workspaceId;

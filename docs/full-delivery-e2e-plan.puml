@@ -1,0 +1,39 @@
+@startuml
+title Full Delivery E2E Golden Path
+
+actor Board
+participant "Squadrail API" as API
+participant "Engineer" as ENG
+participant "Reviewer" as REV
+participant "Tech Lead" as TL
+database "Isolated Worktree" as WT
+
+Board -> API: Create company / project / workspace
+Board -> API: Create tech lead / engineer / reviewer
+Board -> API: Create issue
+Board -> API: ASSIGN_TASK
+
+API -> ENG: assignment wake
+ENG -> API: ACK_ASSIGNMENT
+ENG -> API: START_IMPLEMENTATION
+API -> ENG: implementation follow-up wake
+ENG -> WT: edit code + run test/build
+ENG -> API: SUBMIT_FOR_REVIEW
+
+API -> REV: review wake
+REV -> API: START_REVIEW
+REV -> API: APPROVE_IMPLEMENTATION
+
+API -> TL: approval wake
+TL -> API: CLOSE_TASK
+
+API -> Board: issue done + artifacts + run history
+
+note right of WT
+  Success requires:
+  - isolated workspace used
+  - actual diff exists
+  - tests/build pass in worktree
+end note
+
+@enduml

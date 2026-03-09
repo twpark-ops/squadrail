@@ -7,7 +7,10 @@ import {
   requiresIsolatedProjectWorkspace,
   WorkspaceResolutionError,
 } from "../services/heartbeat-workspace.js";
-import { shouldResetTaskSessionForWake } from "../services/heartbeat.ts";
+import {
+  attachResolvedWorkspaceContextToRunContext,
+  shouldResetTaskSessionForWake,
+} from "../services/heartbeat.ts";
 
 function buildResolvedWorkspace(overrides: Partial<ResolvedWorkspaceForRun> = {}): ResolvedWorkspaceForRun {
   return {
@@ -93,6 +96,55 @@ describe("resolveRuntimeSessionParamsForWorkspace", () => {
       workspaceId: "workspace-1",
     });
     expect(result.warning).toBeNull();
+  });
+});
+
+describe("attachResolvedWorkspaceContextToRunContext", () => {
+  it("persists resolved workspace metadata onto the run context snapshot", () => {
+    const contextSnapshot: Record<string, unknown> = {
+      issueId: "issue-1",
+      taskId: "issue-1",
+    };
+
+    attachResolvedWorkspaceContextToRunContext({
+      contextSnapshot,
+      resolvedWorkspace: buildResolvedWorkspace({
+        source: "project_isolated",
+        workspaceUsage: "implementation",
+        branchName: "squadrail/issue-1-eng-1",
+        workspaceState: "resumed_dirty",
+        hasLocalChanges: true,
+        workspaceHints: [
+          {
+            workspaceId: "workspace-1",
+            cwd: "/tmp/project",
+            repoUrl: null,
+            repoRef: null,
+            executionPolicy: null,
+          },
+        ],
+      }),
+    });
+
+    expect(contextSnapshot).toMatchObject({
+      projectId: "project-1",
+      squadrailWorkspace: {
+        cwd: "/tmp/project",
+        source: "project_isolated",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        workspaceUsage: "implementation",
+        branchName: "squadrail/issue-1-eng-1",
+        workspaceState: "resumed_dirty",
+        hasLocalChanges: true,
+      },
+      squadrailWorkspaces: [
+        {
+          workspaceId: "workspace-1",
+          cwd: "/tmp/project",
+        },
+      ],
+    });
   });
 });
 

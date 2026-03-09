@@ -10,7 +10,12 @@ export {
   type MigrationBootstrapResult,
   type Db,
 } from "./client.js";
-export { runWithDbContext, runWithoutDbContext } from "./context.js";
+export {
+  runWithDbContext,
+  runWithoutDbContext,
+  enqueueAfterDbCommit,
+  drainAfterDbCommitCallbacks,
+} from "./context.js";
 export {
   runDatabaseBackup,
   formatDatabaseBackupResult,

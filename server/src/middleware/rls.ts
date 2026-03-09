@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import { sql } from "drizzle-orm";
-import { runWithDbContext, type Db } from "@squadrail/db";
+import { runWithDbContext, runWithoutDbContext, type Db } from "@squadrail/db";
+import { logger } from "./logger.js";
 
 class RlsRequestRollback extends Error {
   constructor(message: string) {
@@ -52,6 +53,7 @@ export function rlsRequestContextMiddleware(db: Db, opts: { enabled: boolean }):
   return (req, res, next) => {
     const companyIds = serializeCompanyIds(req.actor);
     const identity = resolveActorIdentity(req.actor);
+    const afterCommitCallbacks: Array<() => void | Promise<void>> = [];
 
     void db.transaction(async (tx) => {
       await tx.execute(sql`
@@ -92,6 +94,17 @@ export function rlsRequestContextMiddleware(db: Db, opts: { enabled: boolean }):
           res.once("close", onClose);
           next();
         });
+      }, { afterCommitCallbacks });
+    }).then(async () => {
+      if (afterCommitCallbacks.length === 0) return;
+      await runWithoutDbContext(async () => {
+        for (const callback of afterCommitCallbacks) {
+          try {
+            await callback();
+          } catch (error) {
+            logger.error({ err: error }, "after-commit callback failed");
+          }
+        }
       });
     }).catch((error) => {
       if (isExpectedRollback(error)) return;

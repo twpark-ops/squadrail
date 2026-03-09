@@ -170,6 +170,72 @@ function extractStructuredSignalsFromResultJson(resultJson: Record<string, unkno
   return signals;
 }
 
+function extractStructuredSignalsFromLiveLog(logContent: string | null | undefined) {
+  if (!logContent) return [];
+
+  const signals: RunVerificationSignal[] = [];
+  const outerLines = logContent
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const outerLine of outerLines) {
+    let outerRecord: Record<string, unknown>;
+    try {
+      outerRecord = asRecord(JSON.parse(outerLine));
+    } catch {
+      continue;
+    }
+
+    const chunk = readString(outerRecord.chunk);
+    if (!chunk) continue;
+
+    const innerLines = chunk
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (const innerLine of innerLines) {
+      if (!innerLine.startsWith("{")) continue;
+
+      let eventRecord: Record<string, unknown>;
+      try {
+        eventRecord = asRecord(JSON.parse(innerLine));
+      } catch {
+        continue;
+      }
+
+      const item = asRecord(eventRecord.item);
+      if (item.type !== "command_execution") continue;
+
+      const command = readString(item.command);
+      if (!command) continue;
+
+      const exitCode =
+        typeof item.exit_code === "number" && Number.isFinite(item.exit_code)
+          ? item.exit_code
+          : typeof item.exitCode === "number" && Number.isFinite(item.exitCode)
+            ? item.exitCode
+            : null;
+      const status = readString(item.status);
+      const normalizedStatus = normalizeStructuredStatus(status, exitCode);
+
+      for (const kind of detectSignalKinds(command)) {
+        signals.push({
+          kind,
+          command,
+          source: "command_execution",
+          confidence: "structured",
+          status: normalizedStatus,
+          exitCode,
+        });
+      }
+    }
+  }
+
+  return signals;
+}
+
 function extractTextsFromResultJson(resultJson: Record<string, unknown> | null | undefined) {
   const json = asRecord(resultJson);
   return [
@@ -184,9 +250,11 @@ export function extractRunVerificationSignals(input: {
   stdoutExcerpt?: string | null;
   stderrExcerpt?: string | null;
   resultJson?: Record<string, unknown> | null;
+  logContent?: string | null;
 }) {
   const signals = [
     ...extractStructuredSignalsFromResultJson(input.resultJson),
+    ...extractStructuredSignalsFromLiveLog(input.logContent),
     ...extractSignalsFromText(input.stdoutExcerpt, "stdout_excerpt"),
     ...extractSignalsFromText(input.stderrExcerpt, "stderr_excerpt"),
     ...extractTextsFromResultJson(input.resultJson).flatMap((text) => extractSignalsFromText(text, "result_json")),

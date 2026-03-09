@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
-import { runWithoutDbContext, type Db } from "@squadrail/db";
+import { enqueueAfterDbCommit, runWithoutDbContext, type Db } from "@squadrail/db";
 import {
   agents,
   agentRuntimeState,
@@ -66,6 +66,37 @@ function mergeRunResultJson(
 
 function isRepoBackedWorkspaceSource(source: ResolvedWorkspaceForRun["source"] | null | undefined) {
   return source === "project_shared" || source === "project_isolated";
+}
+
+export function attachResolvedWorkspaceContextToRunContext(input: {
+  contextSnapshot: Record<string, unknown>;
+  resolvedWorkspace: ResolvedWorkspaceForRun;
+}) {
+  const { contextSnapshot, resolvedWorkspace } = input;
+  const workspaceContext = {
+    cwd: resolvedWorkspace.cwd,
+    source: resolvedWorkspace.source,
+    projectId: resolvedWorkspace.projectId,
+    workspaceId: resolvedWorkspace.workspaceId,
+    repoUrl: resolvedWorkspace.repoUrl,
+    repoRef: resolvedWorkspace.repoRef,
+    executionPolicy: resolvedWorkspace.executionPolicy,
+    workspaceUsage: resolvedWorkspace.workspaceUsage,
+    branchName: resolvedWorkspace.branchName,
+    workspaceState: resolvedWorkspace.workspaceState,
+    hasLocalChanges: resolvedWorkspace.hasLocalChanges,
+  };
+
+  contextSnapshot[WORKSPACE_CONTEXT_KEY] = workspaceContext;
+  contextSnapshot.squadrailWorkspace = workspaceContext;
+  contextSnapshot[WORKSPACES_CONTEXT_KEY] = resolvedWorkspace.workspaceHints;
+  contextSnapshot.squadrailWorkspaces = resolvedWorkspace.workspaceHints;
+
+  if (resolvedWorkspace.projectId && !readNonEmptyString(contextSnapshot.projectId)) {
+    contextSnapshot.projectId = resolvedWorkspace.projectId;
+  }
+
+  return contextSnapshot;
 }
 
 function normalizeMaxConcurrentRuns(value: unknown) {
@@ -353,6 +384,10 @@ export function decideDispatchWatchdogAction(input: {
   }
   if (input.dispatchAttempts >= RUN_DISPATCH_RETRY_LIMIT) return "fail" as const;
   return "redispatch" as const;
+}
+
+export function scheduleDeferredRunDispatch(dispatch: () => void) {
+  setImmediate(dispatch);
 }
 
 function normalizeAgentNameKey(value: string | null | undefined) {
@@ -892,10 +927,12 @@ export function heartbeatService(db: Db) {
         },
       });
       scheduleDispatchWatchdog(run.id);
-      runWithoutDbContext(() => {
-        logger.warn({ runId: run.id, attempt }, "dispatch watchdog re-dispatching heartbeat execution");
-        void executeRun(run.id).catch((err) => {
-          logger.error({ err, runId: run.id, attempt }, "redispatched heartbeat execution failed");
+      scheduleDeferredRunDispatch(() => {
+        runWithoutDbContext(() => {
+          logger.warn({ runId: run.id, attempt }, "dispatch watchdog re-dispatching heartbeat execution");
+          void executeRun(run.id).catch((err) => {
+            logger.error({ err, runId: run.id, attempt }, "redispatched heartbeat execution failed");
+          });
         });
       });
       return;
@@ -946,7 +983,7 @@ export function heartbeatService(db: Db) {
       error,
     });
     await finalizeAgentStatus(run.agentId, "failed");
-    await startNextQueuedRunForAgent(run.agentId);
+    dispatchAgentQueueStart(run.agentId);
   }
 
   async function finalizeAgentStatus(
@@ -1068,7 +1105,7 @@ export function heartbeatService(db: Db) {
         });
       }
       await finalizeAgentStatus(run.agentId, "failed");
-      await startNextQueuedRunForAgent(run.agentId);
+      dispatchAgentQueueStart(run.agentId);
       runningProcesses.delete(run.id);
       clearDispatchWatchdog(run.id);
       reaped.push(run.id);
@@ -1166,21 +1203,36 @@ export function heartbeatService(db: Db) {
           },
           "scheduling heartbeat execution",
         );
-        runWithoutDbContext(() => {
-          logger.info(
-            {
-              runId: claimedRun.id,
-              agentId: claimedRun.agentId,
-            },
-            "dispatching heartbeat execution task",
-          );
-          void executeRun(claimedRun.id).catch((err) => {
-            logger.error({ err, runId: claimedRun.id }, "queued heartbeat execution failed");
+        scheduleDeferredRunDispatch(() => {
+          runWithoutDbContext(() => {
+            logger.info(
+              {
+                runId: claimedRun.id,
+                agentId: claimedRun.agentId,
+              },
+              "dispatching heartbeat execution task",
+            );
+            void executeRun(claimedRun.id).catch((err) => {
+              logger.error({ err, runId: claimedRun.id }, "queued heartbeat execution failed");
+            });
           });
         });
       }
       return claimedRuns;
     });
+  }
+
+  function dispatchAgentQueueStart(agentId: string) {
+    const start = () => {
+      runWithoutDbContext(() => {
+        void startNextQueuedRunForAgent(agentId).catch((err) => {
+          logger.error({ err, agentId }, "failed to start queued heartbeat run");
+        });
+      });
+    };
+
+    if (enqueueAfterDbCommit(start)) return;
+    start();
   }
 
   async function executeRun(runId: string) {
@@ -1331,26 +1383,10 @@ export function heartbeatService(db: Db) {
             ]
           : []),
       ];
-      const workspaceContext = {
-        cwd: resolvedWorkspace.cwd,
-        source: resolvedWorkspace.source,
-        projectId: resolvedWorkspace.projectId,
-        workspaceId: resolvedWorkspace.workspaceId,
-        repoUrl: resolvedWorkspace.repoUrl,
-        repoRef: resolvedWorkspace.repoRef,
-        executionPolicy: resolvedWorkspace.executionPolicy,
-        workspaceUsage: resolvedWorkspace.workspaceUsage,
-        branchName: resolvedWorkspace.branchName,
-        workspaceState: resolvedWorkspace.workspaceState,
-        hasLocalChanges: resolvedWorkspace.hasLocalChanges,
-      };
-      context[WORKSPACE_CONTEXT_KEY] = workspaceContext;
-      context.squadrailWorkspace = workspaceContext;
-      context[WORKSPACES_CONTEXT_KEY] = resolvedWorkspace.workspaceHints;
-      context.squadrailWorkspaces = resolvedWorkspace.workspaceHints;
-      if (resolvedWorkspace.projectId && !readNonEmptyString(context.projectId)) {
-        context.projectId = resolvedWorkspace.projectId;
-      }
+      attachResolvedWorkspaceContextToRunContext({
+        contextSnapshot: context,
+        resolvedWorkspace,
+      });
 
       const runtimeSessionFallback = taskKey || resetTaskSession ? null : runtime.sessionId;
       previousSessionDisplayId = truncateDisplayId(
@@ -1375,6 +1411,7 @@ export function heartbeatService(db: Db) {
         .update(heartbeatRuns)
         .set({
           startedAt,
+          contextSnapshot: context,
           sessionIdBefore: runtimeForAdapter.sessionDisplayId ?? runtimeForAdapter.sessionId,
           updatedAt: new Date(),
         })
@@ -1844,7 +1881,7 @@ export function heartbeatService(db: Db) {
       if (leaseHeartbeatTimer) {
         clearInterval(leaseHeartbeatTimer);
       }
-      await startNextQueuedRunForAgent(agent.id);
+      dispatchAgentQueueStart(agent.id);
     }
   }
 
@@ -2063,7 +2100,7 @@ export function heartbeatService(db: Db) {
       },
     });
 
-    await startNextQueuedRunForAgent(promotedRun.agentId);
+      dispatchAgentQueueStart(promotedRun.agentId);
   }
 
   async function enqueueWakeup(agentId: string, opts: WakeupOptions = {}) {
@@ -2411,7 +2448,7 @@ export function heartbeatService(db: Db) {
         },
       });
 
-      await startNextQueuedRunForAgent(agent.id);
+      dispatchAgentQueueStart(agent.id);
       return newRun;
     }
 
@@ -2521,7 +2558,7 @@ export function heartbeatService(db: Db) {
       },
     });
 
-    await startNextQueuedRunForAgent(agent.id);
+    dispatchAgentQueueStart(agent.id);
 
     return newRun;
   }
@@ -2748,7 +2785,7 @@ export function heartbeatService(db: Db) {
       runningProcesses.delete(run.id);
       clearDispatchWatchdog(run.id);
       await finalizeAgentStatus(run.agentId, "cancelled");
-      await startNextQueuedRunForAgent(run.agentId);
+      dispatchAgentQueueStart(run.agentId);
       return cancelled;
     },
 
