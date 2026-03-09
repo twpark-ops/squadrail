@@ -8,6 +8,16 @@ describe("codex_local parser", () => {
     const stdout = [
       JSON.stringify({ type: "thread.started", thread_id: "thread-123" }),
       JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "hello" } }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          type: "command_execution",
+          command: "pnpm test:run",
+          status: "completed",
+          exit_code: 0,
+          aggregated_output: "all green",
+        },
+      }),
       JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 4 } }),
       JSON.stringify({ type: "turn.failed", error: { message: "model access denied" } }),
     ].join("\n");
@@ -21,6 +31,14 @@ describe("codex_local parser", () => {
       outputTokens: 4,
     });
     expect(parsed.errorMessage).toBe("model access denied");
+    expect(parsed.commandExecutions).toEqual([
+      {
+        command: "pnpm test:run",
+        status: "completed",
+        exitCode: 0,
+        aggregatedOutput: "all green",
+      },
+    ]);
   });
 });
 

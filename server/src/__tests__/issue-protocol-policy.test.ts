@@ -244,10 +244,10 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     expect(violation).toMatchObject({
       violationCode: "missing_required_artifact",
     });
-    expect(violation?.message).toContain("corroborated test_run");
+    expect(violation?.message).toContain("diff or commit artifact");
   });
 
-  it("accepts corroborated auto-captured test_run artifacts", () => {
+  it("rejects strict review submissions that only provide corroborated test_run artifacts", () => {
     const violation = evaluateProtocolEvidenceRequirement({
       message: {
         messageType: "SUBMIT_FOR_REVIEW",
@@ -288,7 +288,10 @@ describe("evaluateProtocolEvidenceRequirement", () => {
       },
     });
 
-    expect(violation).toBeNull();
+    expect(violation).toMatchObject({
+      violationCode: "missing_required_artifact",
+    });
+    expect(violation?.message).toContain("diff or commit artifact");
   });
 
   it("rejects request changes without review summary and required evidence", () => {
@@ -501,7 +504,101 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     expect(violation).toMatchObject({
       violationCode: "close_without_verification",
     });
-    expect(violation?.message).toContain("corroborated verification artifacts");
+    expect(violation?.message).toContain("repo evidence, approval, and corroborated verification artifacts");
+  });
+
+  it("rejects merged close when approval is missing even if diff and test evidence exist", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "close",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Closed after merge.",
+          verificationSummary: "Reviewed protocol output.",
+          rollbackPlan: "Revert merge commit if needed.",
+          finalArtifacts: ["pr://123"],
+          finalTestStatus: "passed",
+          mergeStatus: "merged",
+        },
+        artifacts: [
+          { kind: "diff", uri: "run://run-1/workspace-diff" },
+          {
+            kind: "test_run",
+            uri: "run://run-1/test",
+            metadata: {
+              autoCaptured: true,
+              captureConfidence: "structured",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "close_without_verification",
+    });
+    expect(violation?.message).toContain("repo evidence, approval, and corroborated verification artifacts");
+  });
+
+  it("accepts merged close when repo, approval, and verification artifacts are all present", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "close",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Closed after merge.",
+          verificationSummary: "Reviewed protocol output.",
+          rollbackPlan: "Revert merge commit if needed.",
+          finalArtifacts: ["pr://123"],
+          finalTestStatus: "passed",
+          mergeStatus: "merged",
+        },
+        artifacts: [
+          { kind: "diff", uri: "run://run-1/workspace-diff" },
+          { kind: "approval", uri: "approval://issue-1/run-2" },
+          {
+            kind: "test_run",
+            uri: "run://run-1/test",
+            metadata: {
+              autoCaptured: true,
+              captureConfidence: "structured",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(violation).toBeNull();
   });
 
   it("rejects review submission without test results, diff summary, and residual risks", () => {

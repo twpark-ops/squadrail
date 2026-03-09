@@ -48,10 +48,16 @@ const HUMAN_BOARD_ACTIONS: HumanBoardAction[] = [
   "NOTE",
 ];
 
-const CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS = new Set([
+const CLOSE_TASK_REPO_ARTIFACT_KINDS = new Set([
   "diff",
   "commit",
+]);
+
+const CLOSE_TASK_APPROVAL_ARTIFACT_KINDS = new Set([
   "approval",
+]);
+
+const CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS = new Set([
   "test_run",
   "build_run",
   "doc",
@@ -602,9 +608,13 @@ export function ProtocolActionConsole({
         }
         if (
           mergeStatus === "merged"
-          && !artifacts.some((artifact) => CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS.has(artifact.kind))
+          && (
+            !artifacts.some((artifact) => CLOSE_TASK_REPO_ARTIFACT_KINDS.has(artifact.kind))
+            || !artifacts.some((artifact) => CLOSE_TASK_APPROVAL_ARTIFACT_KINDS.has(artifact.kind))
+            || !artifacts.some((artifact) => CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS.has(artifact.kind))
+          )
         ) {
-          setError("Close task with merged status requires verification artifacts.");
+          setError("Close task with merged status requires repo evidence, approval, and verification artifacts.");
           return;
         }
         message = {

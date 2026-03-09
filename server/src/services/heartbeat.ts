@@ -27,6 +27,7 @@ import {
   type ResolvedWorkspaceForRun,
   WorkspaceResolutionError,
 } from "./heartbeat-workspace.js";
+import { extractRunVerificationSignals } from "./run-verification-signals.js";
 import { inspectWorkspaceGitSnapshot } from "./workspace-git-snapshot.js";
 import {
   buildInternalWorkItemDispatchMetadata,
@@ -1426,6 +1427,8 @@ export function heartbeatService(db: Db) {
                 : "workspace snapshot captured (clean working tree)",
               payload: {
                 branchName: snapshot.branchName,
+                expectedBranchName: snapshot.expectedBranchName,
+                branchMismatch: snapshot.branchMismatch,
                 headSha: snapshot.headSha,
                 hasChanges: snapshot.hasChanges,
                 changedFiles: snapshot.changedFiles,
@@ -1451,6 +1454,26 @@ export function heartbeatService(db: Db) {
         adapterResult.resultJson ?? null,
         workspaceGitSnapshot ? { workspaceGitSnapshot } : null,
       );
+      const verificationSignals = extractRunVerificationSignals({
+        stdoutExcerpt,
+        stderrExcerpt,
+        resultJson,
+      });
+      const enrichedResultJson = mergeRunResultJson(
+        resultJson,
+        verificationSignals.length > 0 ? { verificationSignals } : null,
+      );
+      if (verificationSignals.length > 0) {
+        await appendRunEvent(eventRun, seq++, {
+          eventType: "verification.signals",
+          stream: "system",
+          level: "info",
+          message: `captured ${verificationSignals.length} verification signal(s)`,
+          payload: {
+            verificationSignals,
+          },
+        });
+      }
 
       await setRunStatus(run.id, status, {
         finishedAt: new Date(),
@@ -1469,7 +1492,7 @@ export function heartbeatService(db: Db) {
         exitCode: adapterResult.exitCode,
         signal: adapterResult.signal,
         usageJson,
-        resultJson,
+        resultJson: enrichedResultJson,
         sessionIdAfter: nextSessionState.displayId ?? nextSessionState.legacySessionId,
         stdoutExcerpt,
         stderrExcerpt,
