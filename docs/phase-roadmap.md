@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 4 (Slice 1 진행 중)`
+현재 활성 단계: `Phase Complete (Phase 4 완료)`
 
 ## 목표
 
@@ -142,13 +142,21 @@
   - cold-start `claim-only` run은 dispatch watchdog이 redispatch 후 timeout failover까지 담당
   - isolated workspace의 retry/resume 경로(`fresh`, `reused_clean`, `resumed_dirty`, `recreated_clean`, `recovered_existing`)를 execution context와 artifact에 노출
 - `Phase 3` 완료
-- `Phase 4 / Slice 1` 시작
+- `Phase 4 / Slice 1` 완료
   - dashboard summary에 execution reliability 집계 추가
   - `running`, `queued`, `dispatch watchdog redispatch`, `dispatch_timeout`, `process_lost`, `workspace_required`를 요약 수치로 노출
   - Dashboard 상단 metric에 execution risk surface 추가
+- `Phase 4 / Slice 2` 완료
+  - recovery queue에 `workspace_required`, `dispatch_timeout`, `process_lost` runtime case 추가
+  - `changes_requested`, `awaiting_human_decision`, `approved`를 handoff blocker bucket으로 분리
+  - optimized dashboard에서 recovery drill-down action UI 연결
+- `Phase 4 / Slice 3` 완료
+  - execution reliability / review backlog / handoff blocker / stale queue를 같은 dashboard surface에서 교차 판단 가능하게 정리
+  - 운영자가 DB 조회 없이 최근 delivery health를 숫자와 큐로 파악 가능
+- `Phase 4` 완료
 - 잔여 주의사항
-  - `Phase 4 / Slice 2` recovery queue + handoff blocker 표면은 아직 남아 있다
   - UI 번들 large chunk 경고는 기능 blocker는 아니지만 후속 최적화 대상이다
+  - 장기 SLA trend chart와 adapter별 deep analytics는 후속 개선 여지다
 
 ## Phase 1 세부 슬라이스
 

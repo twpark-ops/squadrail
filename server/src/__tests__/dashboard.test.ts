@@ -65,6 +65,11 @@ describe("dashboard helpers", () => {
           workflowState: "submitted_for_review",
         }),
         queueItem({
+          issueId: "issue-handoff",
+          title: "Changes requested issue",
+          workflowState: "changes_requested",
+        }),
+        queueItem({
           issueId: "issue-blocked",
           title: "Blocked issue",
           workflowState: "blocked",
@@ -97,7 +102,10 @@ describe("dashboard helpers", () => {
     });
 
     expect(buckets.executionQueue.map((item) => item.issueId)).toContain("issue-exec");
-    expect(buckets.reviewQueue[0]?.issueId).toBe("issue-review");
+    expect(buckets.reviewQueue.map((item) => item.issueId)).toContain("issue-review");
+    expect(buckets.handoffBlockerQueue.map((item) => item.issueId)).toEqual(
+      expect.arrayContaining(["issue-handoff", "issue-human", "issue-close"]),
+    );
     expect(buckets.blockedQueue[0]?.issueId).toBe("issue-blocked");
     expect(buckets.humanDecisionQueue[0]?.issueId).toBe("issue-human");
     expect(buckets.readyToCloseQueue[0]?.issueId).toBe("issue-close");

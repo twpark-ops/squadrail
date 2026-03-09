@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "../api/dashboard";
@@ -17,11 +17,10 @@ import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { HeroSection } from "../components/HeroSection";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { RecoveryDrilldownPanel } from "../components/RecoveryDrilldownPanel";
 import {
   AlertTriangle,
   Bot,
-  ChevronDown,
   CircleDot,
   Clock3,
   GitPullRequestArrow,
@@ -29,7 +28,6 @@ import {
   MessageSquareMore,
   ShieldAlert,
 } from "lucide-react";
-import { cn } from "../lib/utils";
 import type { Agent } from "@squadrail/shared";
 
 /**
@@ -45,7 +43,6 @@ export function DashboardOptimized() {
   const { selectedCompanyId, companies } = useCompany();
   const { openOnboarding } = useDialog();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const [recoveryOpen, setRecoveryOpen] = useState(true);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Operations" }]);
@@ -183,6 +180,17 @@ export function DashboardOptimized() {
                 description={<span>{data.protocol.readyToCloseCount} ready to close</span>}
               />
               <MetricCardV2
+                icon={MessageSquareMore}
+                value={data.protocol.handoffBlockerCount}
+                label="Handoff Blockers"
+                to="/issues"
+                description={
+                  <span>
+                    {data.protocol.awaitingHumanDecisionCount} human, {data.protocol.readyToCloseCount} ready to close
+                  </span>
+                }
+              />
+              <MetricCardV2
                 icon={AlertTriangle}
                 value={data.protocol.blockedQueueCount + data.protocol.awaitingHumanDecisionCount}
                 label="Blocked / Human"
@@ -267,6 +275,15 @@ export function DashboardOptimized() {
                 to="/issues"
               />
               <QueueCardV2
+                title="Handoff Blockers"
+                subtitle="Review, board, and close handoffs"
+                items={buckets?.handoffBlockerQueue ?? []}
+                emptyMessage="No handoff blockers"
+                icon={MessageSquareMore}
+                variant="approval"
+                to="/issues"
+              />
+              <QueueCardV2
                 title="Violation Queue"
                 subtitle="Protocol breakdowns"
                 items={buckets?.violationQueue ?? []}
@@ -296,32 +313,12 @@ export function DashboardOptimized() {
             </div>
           </section>
 
-          {/* Recovery Section - Collapsible */}
-          {recoveryQueue && recoveryQueue.items.length > 0 && (
-            <Collapsible open={recoveryOpen} onOpenChange={setRecoveryOpen}>
-              <section className="space-y-4">
-                <CollapsibleTrigger className="flex w-full items-center justify-between group">
-                  <h2 className="text-2xl font-bold tracking-tight">Recovery Drill-down</h2>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">{recoveryQueue.items.length} cases</span>
-                    <ChevronDown
-                      className={cn(
-                        "h-5 w-5 text-muted-foreground transition-transform",
-                        recoveryOpen && "rotate-180"
-                      )}
-                    />
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="rounded-xl border bg-card p-6">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Cross-issue violations, timeout escalations, and integrity backlog that need operator action.
-                    </p>
-                    {/* Recovery section content would go here */}
-                  </div>
-                </CollapsibleContent>
-              </section>
-            </Collapsible>
+          {/* Recovery Section */}
+          {recoveryQueue && (
+            <RecoveryDrilldownPanel
+              companyId={selectedCompanyId!}
+              items={recoveryQueue.items}
+            />
           )}
 
           {/* Recent Activity - Compact */}

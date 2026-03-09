@@ -101,6 +101,7 @@ export interface DashboardProtocolQueueItem {
 export interface DashboardProtocolBuckets {
   executionQueue: DashboardProtocolQueueItem[];
   reviewQueue: DashboardProtocolQueueItem[];
+  handoffBlockerQueue: DashboardProtocolQueueItem[];
   blockedQueue: DashboardProtocolQueueItem[];
   humanDecisionQueue: DashboardProtocolQueueItem[];
   readyToCloseQueue: DashboardProtocolQueueItem[];
@@ -113,7 +114,7 @@ export interface DashboardRecoveryCase {
   identifier: string | null;
   title: string;
   workflowState: string;
-  recoveryType: "violation" | "timeout" | "integrity";
+  recoveryType: "violation" | "timeout" | "integrity" | "runtime";
   severity: string;
   code: string | null;
   summary: string;
@@ -252,6 +253,10 @@ export function buildProtocolDashboardBuckets(input: {
     .filter((item) => ["submitted_for_review", "under_review", "changes_requested"].includes(item.workflowState))
     .sort(compareQueueItems)
     .slice(0, limit);
+  const handoffBlockerQueue = input.items
+    .filter((item) => ["changes_requested", "awaiting_human_decision", "approved"].includes(item.workflowState))
+    .sort(compareQueueItems)
+    .slice(0, limit);
   const blockedQueue = input.items
     .filter((item) => item.workflowState === "blocked")
     .sort(compareQueueItems)
@@ -276,12 +281,45 @@ export function buildProtocolDashboardBuckets(input: {
   return {
     executionQueue,
     reviewQueue,
+    handoffBlockerQueue,
     blockedQueue,
     humanDecisionQueue,
     readyToCloseQueue,
     staleQueue,
     violationQueue,
   } satisfies DashboardProtocolBuckets;
+}
+
+function deriveRunIssueId(contextSnapshot: unknown) {
+  const context = (contextSnapshot as Record<string, unknown> | null) ?? {};
+  const issueId = typeof context.issueId === "string" ? context.issueId.trim() : "";
+  const taskId = typeof context.taskId === "string" ? context.taskId.trim() : "";
+  return issueId || taskId || null;
+}
+
+function runtimeRecoveryDescriptor(errorCode: string | null | undefined, message: string | null | undefined) {
+  switch (errorCode) {
+    case "process_lost":
+      return {
+        severity: "critical" as const,
+        summary: compactText(message ?? "Heartbeat process disappeared before completion."),
+        nextAction: "Inspect run events and host health, then retry the run or escalate to the tech lead.",
+      };
+    case "dispatch_timeout":
+      return {
+        severity: "high" as const,
+        summary: compactText(message ?? "Dispatch watchdog timed out before execution started."),
+        nextAction: "Inspect adapter cold-start and watchdog events, then rerun once execution can start cleanly.",
+      };
+    case "workspace_required":
+      return {
+        severity: "warning" as const,
+        summary: compactText(message ?? "Implementation run was blocked because no safe isolated workspace was available."),
+        nextAction: "Repair or clean the isolated workspace before retrying implementation.",
+      };
+    default:
+      return null;
+  }
 }
 
 function emptyProtocolWorkflowCounts() {
@@ -499,6 +537,10 @@ export function dashboardService(db: Db) {
             workflowCounts.submitted_for_review
             + workflowCounts.under_review
             + workflowCounts.changes_requested,
+          handoffBlockerCount:
+            workflowCounts.changes_requested
+            + workflowCounts.awaiting_human_decision
+            + workflowCounts.approved,
           blockedQueueCount: workflowCounts.blocked,
           awaitingHumanDecisionCount: workflowCounts.awaiting_human_decision,
           readyToCloseCount: workflowCounts.approved,
@@ -769,7 +811,8 @@ export function dashboardService(db: Db) {
       await ensureCompany(input.companyId);
       const limit = input.limit ?? 20;
 
-      const [violationRows, timeoutRows, integrityRows] = await Promise.all([
+      const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const [violationRows, timeoutRows, integrityRows, runtimeRows] = await Promise.all([
         db
           .select({
             issueId: issueProtocolViolations.issueId,
@@ -815,12 +858,41 @@ export function dashboardService(db: Db) {
             ),
           )
           .groupBy(issueProtocolMessages.issueId),
+        db
+          .select({
+            id: heartbeatRuns.id,
+            contextSnapshot: heartbeatRuns.contextSnapshot,
+            errorCode: heartbeatRuns.errorCode,
+            error: heartbeatRuns.error,
+            finishedAt: heartbeatRuns.finishedAt,
+            updatedAt: heartbeatRuns.updatedAt,
+          })
+          .from(heartbeatRuns)
+          .where(
+            and(
+              eq(heartbeatRuns.companyId, input.companyId),
+              inArray(heartbeatRuns.errorCode, ["dispatch_timeout", "process_lost", "workspace_required"]),
+              gte(heartbeatRuns.updatedAt, last24h),
+            ),
+          )
+          .orderBy(desc(heartbeatRuns.updatedAt)),
       ]);
+
+      const dedupedRuntimeRows = new Map<string, (typeof runtimeRows)[number]>();
+      for (const row of runtimeRows) {
+        const issueId = deriveRunIssueId(row.contextSnapshot);
+        if (!issueId) continue;
+        const key = `${issueId}:${row.errorCode ?? "unknown"}`;
+        if (!dedupedRuntimeRows.has(key)) {
+          dedupedRuntimeRows.set(key, row);
+        }
+      }
 
       const referencedIssueIds = Array.from(new Set([
         ...violationRows.map((row) => row.issueId),
         ...timeoutRows.map((row) => row.issueId),
         ...integrityRows.map((row) => row.issueId),
+        ...Array.from(dedupedRuntimeRows.values()).map((row) => deriveRunIssueId(row.contextSnapshot)).filter((value): value is string => Boolean(value)),
       ]));
       if (referencedIssueIds.length === 0) {
         return {
@@ -898,6 +970,27 @@ export function dashboardService(db: Db) {
           summary: `${row.unsignedCount} protocol messages are missing integrity signatures.`,
           nextAction: "Inspect the issue timeline and re-run or archive legacy protocol messages before audit export.",
           createdAt: row.createdAt,
+        });
+      }
+
+      for (const row of dedupedRuntimeRows.values()) {
+        const issueId = deriveRunIssueId(row.contextSnapshot);
+        if (!issueId) continue;
+        const issue = issueMap.get(issueId);
+        if (!issue) continue;
+        const descriptor = runtimeRecoveryDescriptor(row.errorCode, row.error);
+        if (!descriptor) continue;
+        cases.push({
+          issueId,
+          identifier: issue.identifier,
+          title: issue.title,
+          workflowState: issue.workflowState,
+          recoveryType: "runtime",
+          severity: descriptor.severity,
+          code: row.errorCode,
+          summary: descriptor.summary,
+          nextAction: descriptor.nextAction,
+          createdAt: row.finishedAt ?? row.updatedAt,
         });
       }
 
