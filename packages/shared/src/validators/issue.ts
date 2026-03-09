@@ -44,6 +44,14 @@ export const createInternalWorkItemSchema = z.object({
   relatedIssueIds: z.array(z.string().uuid()).max(20).optional(),
   watchReviewer: z.boolean().optional().default(true),
   watchLead: z.boolean().optional().default(true),
+}).superRefine((input, ctx) => {
+  if (input.assigneeAgentId === input.reviewerAgentId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Reviewer must be different from assignee",
+      path: ["reviewerAgentId"],
+    });
+  }
 });
 
 export type CreateInternalWorkItem = z.infer<typeof createInternalWorkItemSchema>;

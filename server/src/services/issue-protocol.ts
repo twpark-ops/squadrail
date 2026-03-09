@@ -383,16 +383,21 @@ export function issueProtocolService(db: Db) {
     const payload = message.payload as Record<string, unknown>;
     if (message.messageType === "ASSIGN_TASK") {
       const assigneeAgentId = payload.assigneeAgentId as string;
+      const reviewerAgentId = payload.reviewerAgentId as string;
       const assigneeInRecipients = message.recipients.find(
         (r) => r.recipientType === "agent" && r.recipientId === assigneeAgentId,
       );
       if (!assigneeInRecipients) {
         throw unprocessable("assigneeAgentId must be in recipients list");
       }
+      if (reviewerAgentId === assigneeAgentId) {
+        throw unprocessable("Reviewer must be different from assignee");
+      }
     }
 
     if (message.messageType === "REASSIGN_TASK") {
       const newAssigneeAgentId = payload.newAssigneeAgentId as string;
+      const newReviewerAgentId = payload.newReviewerAgentId as string | null | undefined;
       const newAssigneeInRecipients = message.recipients.find(
         (r) => r.recipientType === "agent" && r.recipientId === newAssigneeAgentId,
       );
@@ -402,6 +407,9 @@ export function issueProtocolService(db: Db) {
       // Validate first recipient is the new assignee for transfer logic
       if (message.recipients.length > 0 && message.recipients[0].recipientId !== newAssigneeAgentId) {
         throw unprocessable("newAssignee must be first recipient for proper transfer logic");
+      }
+      if (newReviewerAgentId && newReviewerAgentId === newAssigneeAgentId) {
+        throw unprocessable("Reviewer must be different from assignee");
       }
     }
   }
