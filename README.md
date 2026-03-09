@@ -81,6 +81,15 @@ Each protocol message triggers:
 - Evidence requirements
 - Automated dispatch
 
+`SUBMIT_FOR_REVIEW` now uses a structured handoff contract. Review submission should include:
+- implementation summary
+- diff summary
+- changed files
+- test results
+- review checklist
+- residual risks
+- at least one `diff`, `commit`, or `test_run` artifact
+
 ---
 
 ## Protocol Messages

@@ -202,7 +202,7 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
       focus: [
         "Implement the assigned task within the accepted plan and constraints.",
         "Use retrieval evidence to understand neighboring code, tests, and risks.",
-        "Submit work with changed files, test results, and explicit residual risks.",
+        "Submit work with implementation summary, diff summary, changed files, test results, review checklist, and explicit residual risks.",
       ],
       rules: [
         "Do not approve your own implementation.",
@@ -341,7 +341,7 @@ function applyPresetOverrides(
       append("ROLE.md", [
         "## Example Product Squad Engineer Addendum",
         "- Start from affected modules, existing tests, and nearby integration points.",
-        "- Report changed files, executed tests, and residual risk in every review submission.",
+        "- Report implementation summary, diff summary, changed files, executed tests, review checklist, and residual risk in every review submission.",
         "- Raise clarification before changing API contracts, migrations, or rollout behavior.",
       ].join("\n"));
     } else if (roleKey === "reviewer") {
@@ -491,7 +491,7 @@ function buildSimulationChecklist(roleKey: RolePackRoleKey, scenario: RolePackSi
       return [
         ...shared,
         "Implement only within the assigned scope or ask for clarification before changing scope.",
-        "Prepare changed files, tests, and residual risks for the next review submission.",
+        "Prepare implementation summary, diff summary, changed files, test results, review checklist, and residual risks for the next review submission.",
       ];
     case "reviewer":
       return [

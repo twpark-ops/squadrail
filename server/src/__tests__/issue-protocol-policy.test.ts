@@ -81,6 +81,43 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     });
   });
 
+  it("accepts approval for legacy review submissions that satisfy the pre-contract evidence bar", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "approved",
+        summary: "approved",
+        payload: {
+          approvalSummary: "legacy evidence is sufficient",
+          approvalMode: "agent_review",
+        },
+        artifacts: [],
+      },
+      latestReviewArtifacts: [{ kind: "diff" }],
+      latestReviewPayload: {
+        implementationSummary: "done",
+        evidence: ["tests passed"],
+        reviewChecklist: ["review"],
+        changedFiles: ["src/app.ts"],
+      },
+    });
+
+    expect(violation).toBeNull();
+  });
+
   it("rejects close without verification artifacts when merge status is merged", () => {
     const violation = evaluateProtocolEvidenceRequirement({
       message: {
@@ -196,5 +233,48 @@ describe("evaluateProtocolEvidenceRequirement", () => {
       violationCode: "missing_required_artifact",
     });
     expect(violation?.message).toContain("testResults");
+  });
+
+  it("rejects review submission without implementation summary and evidence", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "submit",
+        payload: {
+          implementationSummary: "   ",
+          evidence: [],
+          reviewChecklist: ["review"],
+          changedFiles: ["src/app.ts"],
+          testResults: ["pnpm test:run"],
+          residualRisks: ["No known residual risk."],
+          diffSummary: "Updated retry flow",
+        },
+        artifacts: [
+          {
+            kind: "diff",
+            uri: "diff://123",
+          },
+        ],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "missing_required_artifact",
+    });
+    expect(violation?.message).toContain("implementationSummary");
   });
 });

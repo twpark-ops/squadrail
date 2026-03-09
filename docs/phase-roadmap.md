@@ -105,8 +105,10 @@
 - `Phase 1 / Slice 3` 완료
   - `SUBMIT_FOR_REVIEW`에 `changedFiles`, `testResults`, `diffSummary`, `reviewChecklist`, `residualRisks` 최소 handoff 계약 강제
   - `APPROVE_IMPLEMENTATION` 시 최신 review submission 계약 완전성 재검증
+  - legacy review submission은 기존 evidence bar를 유지한 채 승인 호환성 보장
   - reviewer brief retrieval query에 residual risk / test evidence 반영
   - Issue detail timeline에서 review handoff를 구조적으로 노출
+  - engineer role pack / skill docs를 새 handoff contract 기준으로 정렬
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
 
