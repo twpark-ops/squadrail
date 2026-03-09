@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 0`
+현재 활성 단계: `Phase 1 (design)`
 
 ## 목표
 
@@ -32,9 +32,10 @@
 
 범위:
 
+- hidden child issue 기반 internal work items
 - lead supervisor wake 규칙
-- minimal internal work items
 - reviewer watch mode
+- parent issue에 대한 child execution summary
 
 완료 기준:
 
@@ -85,6 +86,15 @@
 
 - 운영자가 stuck run과 blocked handoff를 UI에서 바로 파악한다
 
+## 상태 요약
+
+- `Phase 0` 핵심 산출물 완료
+  - preflight 예외 explicit failure 처리
+  - checkpoint event / run lease / orphan reaper 보강
+  - 실서버에서 `schedule -> dispatch -> entered -> checkpoint -> lease heartbeat -> success` 검증
+- 잔여 주의사항
+  - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
+
 ## 현재 진행 순서
 
 1. Phase 0
@@ -92,6 +102,14 @@
 3. Phase 2
 4. Phase 3
 5. Phase 4
+
+## Phase 1 설계 원칙
+
+1. 새 `team_runs/mailbox`를 바로 만들지 않는다.
+2. 기존 `issues.parentId + hiddenAt + protocol + retrieval + heartbeat`를 최대한 재사용한다.
+3. 내부 병렬 작업은 `hidden child issue`로 먼저 모델링한다.
+4. reviewer는 `notify_only` 대신 `watch` 성격의 wakeup으로 조기 참여시킨다.
+5. tech lead는 child issue의 주요 protocol event를 자동 감독한다.
 
 ## Phase 0 작업 순서
 

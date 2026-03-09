@@ -1,0 +1,57 @@
+@startuml
+title Phase 1 Team Supervisor MVP
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Root Delivery Issue" {
+  [Visible Root Issue]
+}
+
+package "Internal Work Items" {
+  [Hidden Child Issue A]
+  [Hidden Child Issue B]
+}
+
+package "Existing Backbone" {
+  [Issue Protocol]
+  [RAG / Brief]
+  [Heartbeat]
+  [Issue Detail Summary]
+}
+
+package "Actors" {
+  [Tech Lead]
+  [Engineer]
+  [Reviewer]
+}
+
+[Visible Root Issue] --> [Hidden Child Issue A] : parentId + hiddenAt
+[Visible Root Issue] --> [Hidden Child Issue B] : parentId + hiddenAt
+
+[Hidden Child Issue A] --> [Issue Protocol] : ASSIGN_TASK
+[Hidden Child Issue B] --> [Issue Protocol] : ASSIGN_TASK
+
+[Issue Protocol] --> [RAG / Brief]
+[Issue Protocol] --> [Heartbeat]
+
+[Heartbeat] --> [Engineer] : active work wakeup
+[Heartbeat] --> [Reviewer] : watch wakeup
+[Heartbeat] --> [Tech Lead] : supervisor wakeup
+
+[Hidden Child Issue A] --> [Issue Detail Summary]
+[Hidden Child Issue B] --> [Issue Detail Summary]
+[Issue Detail Summary] --> [Visible Root Issue]
+
+note right of [Reviewer]
+shared workspace only
+analysis / review mode
+end note
+
+note right of [Tech Lead]
+event-driven supervision:
+blocker, review request,
+timeout, run failure
+end note
+
+@enduml
