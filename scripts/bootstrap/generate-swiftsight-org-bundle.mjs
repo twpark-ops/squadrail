@@ -8,6 +8,7 @@ const DEFAULT_ROOT = "/home/taewoong/workspace/cloud-swiftsight";
 const DEFAULT_OUT = path.resolve(process.cwd(), "tmp/swiftsight-org-bundle");
 const MANIFEST_NAME = "squadrail.manifest.json";
 const COMPANY_COLOR = "#2563eb";
+const DEFAULT_ROLE_PACK_PRESET = "example_large_org_v1";
 
 const PROJECT_CATALOG = [
   {
@@ -153,7 +154,80 @@ function describeIsolationStrategy(strategy, repoState) {
   return "worktree is allowed because the shared source repo is clean enough for isolated implementation branches.";
 }
 
+function resolveBriefScope(agent) {
+  if (agent.title === "Tech Lead") return "tech_lead";
+  return agent.role;
+}
+
+function buildExecutionLoop(agent) {
+  if (agent.title === "Tech Lead" || agent.role === "cto" || agent.role === "pm" || agent.role === "qa") {
+    return [
+      "Restate the issue goal, ownership boundary, and acceptance criteria before assigning work or changing state.",
+      "Ground decisions in the latest brief, retrieval evidence, and nearby code or docs from the target repository.",
+      "Route implementation to the project engineer only after reviewer ownership, validation expectations, and rollback concerns are explicit.",
+    ];
+  }
+
+  return [
+    "Inspect the latest brief, retrieval evidence, and nearby tests before planning or editing code.",
+    "Use the shared workspace for analysis only; switch to the isolated implementation workspace before modifying files.",
+    "Close each work cycle with changed files, commands run, test results, residual risk, and follow-up notes.",
+  ];
+}
+
+function buildEscalationRules(agent) {
+  const shared = [
+    "Escalate when retrieval evidence is weak, stale, or missing for a repo-critical decision.",
+    "Escalate when acceptance criteria, reviewer ownership, or release boundaries are ambiguous.",
+  ];
+  if (agent.title === "Tech Lead" || agent.role === "cto") {
+    return [
+      ...shared,
+      "Escalate cross-repo schema, API, workflow, or rollout changes to CTO and QA before implementation starts.",
+    ];
+  }
+  if (agent.role === "pm") {
+    return [
+      ...shared,
+      "Escalate when product intent, scope, or documentation ownership conflicts with implementation pressure.",
+    ];
+  }
+  if (agent.role === "qa") {
+    return [
+      ...shared,
+      "Escalate when evidence is incomplete, reproduction is unstable, or system-level regression risk is under-described.",
+    ];
+  }
+  return [
+    ...shared,
+    "Escalate before changing API contracts, migrations, infrastructure behavior, or rollout-sensitive configuration.",
+  ];
+}
+
+function buildHandoffChecklist(agent) {
+  if (agent.title === "Tech Lead" || agent.role === "cto" || agent.role === "pm") {
+    return [
+      "Named owner, reviewer, and target repository or project",
+      "Acceptance criteria, explicit risks, and rollback or rollout notes when stateful behavior changes",
+      "What evidence was used from RAG, docs, tests, or prior issues",
+    ];
+  }
+  if (agent.role === "qa") {
+    return [
+      "Reproduction steps, commands or suites run, and pass or fail summary",
+      "System-level regression notes and missing evidence called out explicitly",
+      "Recommended next state transition with justification",
+    ];
+  }
+  return [
+    "Changed files and why each file changed",
+    "Commands run, tests executed, and exact validation outcome",
+    "Residual risk, follow-up items, and anything intentionally deferred",
+  ];
+}
+
 function agentMarkdown(input) {
+  const briefScope = resolveBriefScope(input);
   return `---
 kind: agent
 name: ${JSON.stringify(input.name)}
@@ -178,13 +252,23 @@ ${input.responsibilities.map((line) => `- ${line}`).join("\n")}
 ## Technical Focus
 ${input.focusAreas.map((line) => `- ${line}`).join("\n")}
 
+## Execution Loop
+${buildExecutionLoop(input).map((line) => `- ${line}`).join("\n")}
+
+## Escalation Gates
+${buildEscalationRules(input).map((line) => `- ${line}`).join("\n")}
+
+## Required Handoff Shape
+${buildHandoffChecklist(input).map((line) => `- ${line}`).join("\n")}
+
 ## Operating Rules
 - Use structured protocol messages, not casual chat.
 - Fetch the latest role brief before acting:
-  - \`GET /api/issues/{issueId}/protocol/briefs?latest=true&scope=${input.role}\`
+  - \`GET /api/issues/{issueId}/protocol/briefs?latest=true&scope=${briefScope}\`
   - If a \`retrievalRunId\` is present, inspect supporting evidence with \`GET /api/knowledge/retrieval-runs/{retrievalRunId}/hits\`
 - Use the latest brief and retrieval evidence before acting.
 - Respect workspace policy. Shared workspaces are for analysis/review; isolated workspaces are for implementation.
+- Never edit code in a shared workspace.
 - Include changed files, tests, risks, and follow-up items whenever work changes state.
 `;
 }
@@ -441,55 +525,37 @@ function topLevelAgents() {
   ];
 }
 
-function engineerPair(project) {
+function projectEngineer(project) {
   const reportsToSlug =
     project.slug === "swiftsight-report-server" || project.slug === "swiftsight-worker"
       ? "python-tl"
       : `${project.slug}-tl`;
-  const sharedFocus = [
-    ...project.stack,
-    ...project.reviewFocus,
-  ];
-  return [
-    {
-      slug: `${project.slug}-codex-engineer`,
-      name: `${project.slug} Codex Engineer`,
-      role: "engineer",
-      title: "Engineer",
-      reportsToSlug,
-      adapterType: "codex_local",
-      projectSlug: project.slug,
-      discipline: `${project.language.toLowerCase()} implementation`,
-      capabilities: `${project.language} implementation, ${project.stack.join(", ")}`,
-      responsibilities: [
-        `Implement assigned ${project.slug} work with explicit evidence, changed files, and test notes.`,
-        "Prefer the isolated implementation workspace whenever code changes are required.",
-      ],
-      focusAreas: sharedFocus,
-    },
-    {
-      slug: `${project.slug}-claude-engineer`,
-      name: `${project.slug} Claude Engineer`,
-      role: "engineer",
-      title: "Engineer",
-      reportsToSlug,
-      adapterType: "claude_local",
-      projectSlug: project.slug,
-      discipline: `${project.language.toLowerCase()} analysis-review`,
-      capabilities: `${project.language} analysis, review, ${project.stack.join(", ")}`,
-      responsibilities: [
-        `Support ${project.slug} planning, implementation, and review with protocol-first handoff discipline.`,
-        "Act as the secondary engineer for independent review or implementation coverage when TL requests it.",
-      ],
-      focusAreas: sharedFocus,
-    },
-  ];
+  return {
+    slug: `${project.slug}-engineer`,
+    name: `${project.slug} Engineer`,
+    role: "engineer",
+    title: "Engineer",
+    reportsToSlug,
+    adapterType: "codex_local",
+    projectSlug: project.slug,
+    discipline: `${project.language.toLowerCase()} implementation`,
+    capabilities: `${project.language} implementation, ${project.stack.join(", ")}`,
+    responsibilities: [
+      `Implement assigned ${project.slug} work with explicit evidence, changed files, and test notes.`,
+      "Use the TL for decomposition and reviewer routing; keep implementation loops tight and verifiable.",
+      "Prefer the isolated implementation workspace whenever code changes are required.",
+    ],
+    focusAreas: [
+      ...project.stack,
+      ...project.reviewFocus,
+    ],
+  };
 }
 
 function buildAgents() {
   const defs = [...topLevelAgents()];
   for (const project of PROJECT_CATALOG) {
-    defs.push(...engineerPair(project));
+    defs.push(projectEngineer(project));
   }
 
   return defs.map((agent) => ({
@@ -510,6 +576,7 @@ function buildAgents() {
       projectSlug: agent.projectSlug,
       discipline: agent.discipline,
       executionEngine: agent.adapterType,
+      briefScope: resolveBriefScope(agent),
     },
     markdown: agentMarkdown(agent),
   }));
@@ -532,10 +599,11 @@ function renderBundleReadme(input) {
     "",
     "## After Import",
     "",
-    "1. Open Company Settings and seed the `swiftsight_org_v1` role pack preset if the company is new.",
+    `1. Seed the \`${DEFAULT_ROLE_PACK_PRESET}\` role pack preset for the new company.`,
     "2. Verify Claude Code and Codex environment readiness in the Doctor panel.",
     "3. Run workspace imports for all five projects before assigning the first cross-project review issue.",
     "4. Keep same-repo implementation inside isolated workspaces only.",
+    "5. Assign implementation to the single project engineer unless the TL explicitly requests parallel staffing.",
     "",
     "## Repo Policy Snapshot",
     "",
@@ -629,7 +697,7 @@ function renderCompanyMarkdown(input) {
     "- PM",
     "- QA Lead / QA Engineer",
     "- Project Tech Leads",
-    "- Codex + Claude Engineers per project",
+    "- One implementation engineer per project",
   ].join("\n");
 }
 

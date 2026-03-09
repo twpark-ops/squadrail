@@ -1,5 +1,7 @@
 export {
+  canDispatchProtocolToAdapter,
   getServerAdapter,
+  getServerAdapterCapabilities,
   listAdapterModels,
   listServerAdapters,
   listProductVisibleServerAdapters,

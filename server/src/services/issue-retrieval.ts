@@ -133,6 +133,18 @@ interface RetrievalPolicyRerankConfig {
   };
 }
 
+interface BriefQualitySummary {
+  confidenceLevel: "high" | "medium" | "low";
+  evidenceCount: number;
+  denseEnabled: boolean;
+  denseHitCount: number;
+  sparseHitCount: number;
+  pathHitCount: number;
+  symbolHitCount: number;
+  sourceDiversity: number;
+  degradedReasons: string[];
+}
+
 const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   sourceTypeBaseBoost: 1.25,
   sourceTypeDecay: 0.15,
@@ -157,6 +169,53 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   futurePenalty: -0.4,
   supersededPenalty: -0.8,
 } as const satisfies RetrievalRerankWeights;
+
+function summarizeBriefQuality(input: {
+  finalHits: RetrievalHitView[];
+  queryEmbedding: number[] | null;
+  sparseHitCount: number;
+  pathHitCount: number;
+  symbolHitCount: number;
+  denseHitCount: number;
+}): BriefQualitySummary {
+  const evidenceCount = input.finalHits.length;
+  const sourceDiversity = new Set(
+    input.finalHits.map((hit) => hit.sourceType).filter((sourceType) => sourceType.trim().length > 0),
+  ).size;
+  const degradedReasons: string[] = [];
+  if (!input.queryEmbedding) {
+    degradedReasons.push("semantic_search_unavailable");
+  } else if (input.denseHitCount === 0) {
+    degradedReasons.push("semantic_search_empty");
+  }
+  if (evidenceCount === 0) {
+    degradedReasons.push("no_retrieval_hits");
+  } else if (evidenceCount < 3) {
+    degradedReasons.push("low_evidence_count");
+  }
+  if (evidenceCount > 0 && sourceDiversity < 2) {
+    degradedReasons.push("narrow_source_diversity");
+  }
+
+  let confidenceLevel: BriefQualitySummary["confidenceLevel"] = "low";
+  if (evidenceCount >= 5 && Boolean(input.queryEmbedding) && input.denseHitCount > 0 && sourceDiversity >= 2) {
+    confidenceLevel = "high";
+  } else if (evidenceCount >= 3) {
+    confidenceLevel = "medium";
+  }
+
+  return {
+    confidenceLevel,
+    evidenceCount,
+    denseEnabled: Boolean(input.queryEmbedding),
+    denseHitCount: input.denseHitCount,
+    sparseHitCount: input.sparseHitCount,
+    pathHitCount: input.pathHitCount,
+    symbolHitCount: input.symbolHitCount,
+    sourceDiversity,
+    degradedReasons,
+  };
+}
 
 function uniqueNonEmpty(values: Array<string | null | undefined>) {
   const seen = new Set<string>();
@@ -1488,6 +1547,14 @@ export function issueRetrievalService(db: Db) {
           recipientRole: recipient.role,
         });
         console.log("[RETRIEVAL] Brief scope:", briefScope);
+        const briefQuality = summarizeBriefQuality({
+          finalHits,
+          queryEmbedding,
+          sparseHitCount: sparseHits.length,
+          pathHitCount: pathHits.length,
+          symbolHitCount: symbolHits.length,
+          denseHitCount: denseHits.length,
+        });
 
         const latestBrief = await knowledge.getLatestTaskBrief(input.issueId, briefScope);
         const brief = await knowledge.createTaskBrief({
@@ -1509,6 +1576,7 @@ export function issueRetrievalService(db: Db) {
             triggeringMessageId: input.triggeringMessageId,
             queryText,
             dynamicSignals,
+            quality: briefQuality,
             hits: finalHits.map((hit, index) => ({
               rank: index + 1,
               chunkId: hit.chunkId,
@@ -1549,6 +1617,8 @@ export function issueRetrievalService(db: Db) {
             recipientRole: recipient.role,
             recipientId: recipient.recipientId,
             hitCount: finalHits.length,
+            briefQuality: briefQuality.confidenceLevel,
+            briefDenseEnabled: briefQuality.denseEnabled,
             briefId: brief.id,
             briefScope,
           },
@@ -1563,6 +1633,8 @@ export function issueRetrievalService(db: Db) {
             recipientRole: recipient.role,
             recipientId: recipient.recipientId,
             hitCount: finalHits.length,
+            briefQuality: briefQuality.confidenceLevel,
+            briefDenseEnabled: briefQuality.denseEnabled,
           },
         });
 

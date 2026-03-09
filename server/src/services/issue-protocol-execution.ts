@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { issues, type Db } from "@squadrail/db";
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
+import { canDispatchProtocolToAdapter } from "../adapters/index.js";
 import { logActivity } from "./activity-log.js";
 import { agentService } from "./agents.js";
 import { heartbeatService } from "./heartbeat.js";
@@ -293,7 +294,7 @@ export function issueProtocolExecutionService(db: Db) {
           continue;
         }
 
-        if (recipientAgent.adapterType !== "claude_local" && recipientAgent.adapterType !== "codex_local") {
+        if (!canDispatchProtocolToAdapter(recipientAgent.adapterType)) {
           skipped += 1;
           await logActivity(db, {
             companyId: input.companyId,

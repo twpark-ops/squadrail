@@ -234,14 +234,20 @@ export function doctorService(db: Db, opts: DoctorServiceOptions) {
         hint: !vectorInstalled || vectorIndexInstalled ? null : "Run the latest migrations to create knowledge_chunks_embedding_vector_hnsw_idx.",
       });
 
-      const rlsRows = await db.execute<{ enabled: boolean; forced: boolean; roleReady: boolean }>(
+      const rlsRows = await db.execute<Record<string, unknown>>(
         sql`select
             coalesce((select relrowsecurity from pg_class where relname = 'issues'), false) as enabled,
             coalesce((select relforcerowsecurity from pg_class where relname = 'issues'), false) as forced,
-            exists(select 1 from pg_roles where rolname = 'squadrail_app_rls') as roleReady`,
+            exists(select 1 from pg_roles where rolname = 'squadrail_app_rls') as role_ready`,
       );
-      const rlsEnabled = Boolean(rlsRows[0]?.enabled ?? false);
-      const rlsRoleReady = Boolean(rlsRows[0]?.roleReady ?? false);
+      const rlsRow = rlsRows[0] ?? {};
+      const rlsEnabled = Boolean(rlsRow.enabled ?? false);
+      const rlsRoleReady = Boolean(
+        rlsRow.role_ready
+          ?? rlsRow.roleReady
+          ?? rlsRow.roleready
+          ?? false,
+      );
       checks.push({
         code: "tenant_rls",
         category: "auth",

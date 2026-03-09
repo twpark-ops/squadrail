@@ -5,8 +5,11 @@ const DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small";
 const DEFAULT_OPENAI_EMBEDDINGS_ENDPOINT = "https://api.openai.com/v1/embeddings";
 const DEFAULT_EMBEDDING_TIMEOUT_MS = 15_000;
 const DEFAULT_EMBEDDING_BATCH_SIZE = 32;
-const DEFAULT_MAX_EMBEDDING_INPUT_WORDS = 4000;
-const DEFAULT_MAX_EMBEDDING_INPUT_CHARS = 20_000;
+const DEFAULT_MAX_EMBEDDING_BATCH_TOKENS = 6000;
+const DEFAULT_MAX_EMBEDDING_INPUT_WORDS = 2500;
+const DEFAULT_MAX_EMBEDDING_INPUT_CHARS = 12_000;
+const EMBEDDING_TRUNCATION_SUFFIX = " [truncated]";
+const MIN_RETRY_EMBEDDING_INPUT_CHARS = 1500;
 
 export interface KnowledgeEmbeddingProviderInfo {
   available: boolean;
@@ -49,7 +52,7 @@ function normalizeEmbeddingInput(text: string) {
   if (normalized.length === 0) return "[blank]";
 
   if (normalized.length > DEFAULT_MAX_EMBEDDING_INPUT_CHARS) {
-    return `${normalized.slice(0, DEFAULT_MAX_EMBEDDING_INPUT_CHARS).trimEnd()} [truncated]`;
+    return `${normalized.slice(0, DEFAULT_MAX_EMBEDDING_INPUT_CHARS).trimEnd()}${EMBEDDING_TRUNCATION_SUFFIX}`;
   }
 
   const tokens = normalized.split(" ").filter(Boolean);
@@ -57,7 +60,67 @@ function normalizeEmbeddingInput(text: string) {
     return normalized;
   }
 
-  return `${tokens.slice(0, DEFAULT_MAX_EMBEDDING_INPUT_WORDS).join(" ")} [truncated]`;
+  return `${tokens.slice(0, DEFAULT_MAX_EMBEDDING_INPUT_WORDS).join(" ")}${EMBEDDING_TRUNCATION_SUFFIX}`;
+}
+
+export function estimateEmbeddingTokenUsage(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) return 1;
+
+  const wordCount = normalized.split(" ").filter(Boolean).length;
+  return Math.max(wordCount, Math.ceil(normalized.length / 4));
+}
+
+export function createEmbeddingBatches(input: {
+  texts: string[];
+  maxBatchSize: number;
+  maxBatchTokens?: number;
+}) {
+  const maxBatchTokens = input.maxBatchTokens ?? DEFAULT_MAX_EMBEDDING_BATCH_TOKENS;
+  const batches: string[][] = [];
+  let currentBatch: string[] = [];
+  let currentBatchTokens = 0;
+
+  for (const text of input.texts) {
+    const estimatedTokens = Math.max(1, estimateEmbeddingTokenUsage(text));
+    const wouldOverflowBatch =
+      currentBatch.length >= input.maxBatchSize
+      || (currentBatch.length > 0 && currentBatchTokens + estimatedTokens > maxBatchTokens);
+
+    if (wouldOverflowBatch) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentBatchTokens = 0;
+    }
+
+    currentBatch.push(text);
+    currentBatchTokens += estimatedTokens;
+  }
+
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+
+  return batches;
+}
+
+function isEmbeddingContextLimitError(error: unknown) {
+  return error instanceof Error && /maximum context length/i.test(error.message);
+}
+
+export function shrinkEmbeddingInputForRetry(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) return "[blank]";
+
+  const base = normalized.endsWith(EMBEDDING_TRUNCATION_SUFFIX)
+    ? normalized.slice(0, -EMBEDDING_TRUNCATION_SUFFIX.length).trimEnd()
+    : normalized;
+  const targetChars = Math.max(
+    MIN_RETRY_EMBEDDING_INPUT_CHARS,
+    Math.floor(base.length * 0.7),
+  );
+  if (targetChars >= base.length) return normalized;
+  return `${base.slice(0, targetChars).trimEnd()}${EMBEDDING_TRUNCATION_SUFFIX}`;
 }
 
 function resolveOpenAiEmbeddingConfig(): OpenAiEmbeddingConfig | null {
@@ -175,6 +238,38 @@ async function fetchOpenAiEmbeddings(
   }
 }
 
+async function fetchOpenAiEmbeddingsWithFallback(
+  config: OpenAiEmbeddingConfig,
+  inputs: string[],
+): Promise<{ model: string; embeddings: number[][]; promptTokens: number; totalTokens: number }> {
+  try {
+    return await fetchOpenAiEmbeddings(config, inputs);
+  } catch (error) {
+    if (!isEmbeddingContextLimitError(error)) {
+      throw error;
+    }
+
+    if (inputs.length > 1) {
+      const midpoint = Math.ceil(inputs.length / 2);
+      const left = await fetchOpenAiEmbeddingsWithFallback(config, inputs.slice(0, midpoint));
+      const right = await fetchOpenAiEmbeddingsWithFallback(config, inputs.slice(midpoint));
+      return {
+        model: right.model || left.model,
+        embeddings: [...left.embeddings, ...right.embeddings],
+        promptTokens: left.promptTokens + right.promptTokens,
+        totalTokens: left.totalTokens + right.totalTokens,
+      };
+    }
+
+    const reduced = shrinkEmbeddingInputForRetry(inputs[0] ?? "");
+    if (reduced === inputs[0]) {
+      throw error;
+    }
+
+    return fetchOpenAiEmbeddingsWithFallback(config, [reduced]);
+  }
+}
+
 export function knowledgeEmbeddingService() {
   return {
     getProviderInfo(): KnowledgeEmbeddingProviderInfo {
@@ -222,9 +317,13 @@ export function knowledgeEmbeddingService() {
       let totalTokens = 0;
       let responseModel = config.model;
 
-      for (let start = 0; start < normalized.length; start += config.batchSize) {
-        const batch = normalized.slice(start, start + config.batchSize);
-        const result = await fetchOpenAiEmbeddings(config, batch);
+      const batches = createEmbeddingBatches({
+        texts: normalized,
+        maxBatchSize: config.batchSize,
+      });
+
+      for (const batch of batches) {
+        const result = await fetchOpenAiEmbeddingsWithFallback(config, batch);
         responseModel = result.model || responseModel;
         promptTokens += result.promptTokens;
         totalTokens += result.totalTokens;

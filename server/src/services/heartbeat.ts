@@ -20,9 +20,11 @@ import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { parseObject, asBoolean, asNumber, appendWithCap, MAX_EXCERPT_BYTES } from "../adapters/utils.js";
 import { secretService } from "./secrets.js";
 import {
+  assertResolvedWorkspaceReadyForExecution,
   resolveRuntimeSessionParamsForWorkspace,
   resolveWorkspaceForRun,
   type ResolvedWorkspaceForRun,
+  WorkspaceResolutionError,
 } from "./heartbeat-workspace.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
@@ -1022,6 +1024,9 @@ export function heartbeatService(db: Db) {
       for (const warning of runtimeWorkspaceWarnings) {
         await onLog("stderr", `[squadrail] ${warning}\n`);
       }
+      assertResolvedWorkspaceReadyForExecution({
+        resolvedWorkspace,
+      });
 
       const config = parseObject(agent.adapterConfig);
       const mergedConfig = issueAssigneeOverrides?.adapterConfig
@@ -1182,6 +1187,7 @@ export function heartbeatService(db: Db) {
       await finalizeAgentStatus(agent.id, outcome);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown adapter failure";
+      const errorCode = err instanceof WorkspaceResolutionError ? err.code : "adapter_failed";
       logger.error({ err, runId }, "heartbeat execution failed");
 
       let logSummary: { bytes: number; sha256?: string; compressed: boolean } | null = null;
@@ -1195,7 +1201,7 @@ export function heartbeatService(db: Db) {
 
       const failedRun = await setRunStatus(run.id, "failed", {
         error: message,
-        errorCode: "adapter_failed",
+        errorCode,
         finishedAt: new Date(),
         stdoutExcerpt,
         stderrExcerpt,

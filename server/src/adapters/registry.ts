@@ -36,7 +36,32 @@ import { listCursorModels } from "./cursor-models.js";
 import { processAdapter } from "./process/index.js";
 import { httpAdapter } from "./http/index.js";
 
-const claudeLocalAdapter: ServerAdapterModule = {
+export type ServerAdapterCapabilities = {
+  protocolDispatch: boolean;
+};
+
+type RegisteredServerAdapter = ServerAdapterModule & {
+  capabilities: ServerAdapterCapabilities;
+};
+
+const DEFAULT_CAPABILITIES: ServerAdapterCapabilities = {
+  protocolDispatch: false,
+};
+
+function withCapabilities(
+  adapter: ServerAdapterModule,
+  capabilities: Partial<ServerAdapterCapabilities> = {},
+): RegisteredServerAdapter {
+  return {
+    ...adapter,
+    capabilities: {
+      ...DEFAULT_CAPABILITIES,
+      ...capabilities,
+    },
+  };
+}
+
+const claudeLocalAdapter = withCapabilities({
   type: "claude_local",
   execute: claudeExecute,
   testEnvironment: claudeTestEnvironment,
@@ -44,9 +69,11 @@ const claudeLocalAdapter: ServerAdapterModule = {
   models: claudeModels,
   supportsLocalAgentJwt: true,
   agentConfigurationDoc: claudeAgentConfigurationDoc,
-};
+}, {
+  protocolDispatch: true,
+});
 
-const codexLocalAdapter: ServerAdapterModule = {
+const codexLocalAdapter = withCapabilities({
   type: "codex_local",
   execute: codexExecute,
   testEnvironment: codexTestEnvironment,
@@ -55,9 +82,11 @@ const codexLocalAdapter: ServerAdapterModule = {
   listModels: listCodexModels,
   supportsLocalAgentJwt: true,
   agentConfigurationDoc: codexAgentConfigurationDoc,
-};
+}, {
+  protocolDispatch: true,
+});
 
-const opencodeLocalAdapter: ServerAdapterModule = {
+const opencodeLocalAdapter = withCapabilities({
   type: "opencode_local",
   execute: opencodeExecute,
   testEnvironment: opencodeTestEnvironment,
@@ -65,9 +94,11 @@ const opencodeLocalAdapter: ServerAdapterModule = {
   models: opencodeModels,
   supportsLocalAgentJwt: true,
   agentConfigurationDoc: opencodeAgentConfigurationDoc,
-};
+}, {
+  protocolDispatch: true,
+});
 
-const cursorLocalAdapter: ServerAdapterModule = {
+const cursorLocalAdapter = withCapabilities({
   type: "cursor",
   execute: cursorExecute,
   testEnvironment: cursorTestEnvironment,
@@ -76,19 +107,29 @@ const cursorLocalAdapter: ServerAdapterModule = {
   listModels: listCursorModels,
   supportsLocalAgentJwt: true,
   agentConfigurationDoc: cursorAgentConfigurationDoc,
-};
+}, {
+  protocolDispatch: true,
+});
 
-const openclawAdapter: ServerAdapterModule = {
+const openclawAdapter = withCapabilities({
   type: "openclaw",
   execute: openclawExecute,
   testEnvironment: openclawTestEnvironment,
   models: openclawModels,
   supportsLocalAgentJwt: false,
   agentConfigurationDoc: openclawAgentConfigurationDoc,
-};
+});
 
-const adaptersByType = new Map<string, ServerAdapterModule>(
-  [claudeLocalAdapter, codexLocalAdapter, opencodeLocalAdapter, cursorLocalAdapter, openclawAdapter, processAdapter, httpAdapter].map((a) => [a.type, a]),
+const adaptersByType = new Map<string, RegisteredServerAdapter>(
+  [
+    claudeLocalAdapter,
+    codexLocalAdapter,
+    opencodeLocalAdapter,
+    cursorLocalAdapter,
+    openclawAdapter,
+    withCapabilities(processAdapter),
+    withCapabilities(httpAdapter),
+  ].map((a) => [a.type, a]),
 );
 const primaryAdapterTypes = new Set(["claude_local", "codex_local"]);
 
@@ -129,4 +170,12 @@ export function listPrimaryServerAdapters(): ServerAdapterModule[] {
 
 export function listProductVisibleServerAdapters(): ServerAdapterModule[] {
   return listPrimaryServerAdapters();
+}
+
+export function getServerAdapterCapabilities(type: string): ServerAdapterCapabilities {
+  return adaptersByType.get(type)?.capabilities ?? DEFAULT_CAPABILITIES;
+}
+
+export function canDispatchProtocolToAdapter(type: string): boolean {
+  return getServerAdapterCapabilities(type).protocolDispatch;
 }

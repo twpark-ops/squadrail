@@ -28,8 +28,8 @@ describe("agent local JWT", () => {
   beforeEach(() => {
     process.env[secretEnv] = "test-secret";
     process.env[ttlEnv] = "3600";
-    delete process.env[squadrailSecretEnv];
-    delete process.env[squadrailTtlEnv];
+    if (squadrailSecretEnv !== secretEnv) delete process.env[squadrailSecretEnv];
+    if (squadrailTtlEnv !== ttlEnv) delete process.env[squadrailTtlEnv];
     delete process.env[squadrailMasterKeyFileEnv];
     delete process.env[squadrailHomeEnv];
     delete process.env[issuerEnv];

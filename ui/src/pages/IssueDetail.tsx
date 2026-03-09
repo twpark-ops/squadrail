@@ -26,6 +26,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { Identity } from "../components/Identity";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -97,6 +98,56 @@ function humanizeValue(value: unknown): string {
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+type BriefQualitySnapshot = {
+  confidenceLevel: "high" | "medium" | "low";
+  evidenceCount: number;
+  denseEnabled: boolean;
+  degradedReasons: string[];
+};
+
+function readBriefQuality(brief: IssueTaskBrief): BriefQualitySnapshot | null {
+  const quality = asRecord(asRecord(brief.contentJson)?.quality);
+  if (!quality) return null;
+  const confidenceLevel = quality.confidenceLevel;
+  if (confidenceLevel !== "high" && confidenceLevel !== "medium" && confidenceLevel !== "low") return null;
+  return {
+    confidenceLevel,
+    evidenceCount: typeof quality.evidenceCount === "number" ? quality.evidenceCount : 0,
+    denseEnabled: quality.denseEnabled === true,
+    degradedReasons: Array.isArray(quality.degradedReasons)
+      ? quality.degradedReasons.filter((reason): reason is string => typeof reason === "string")
+      : [],
+  };
+}
+
+function briefQualityBadgeClass(confidenceLevel: BriefQualitySnapshot["confidenceLevel"]) {
+  switch (confidenceLevel) {
+    case "high":
+      return "border-emerald-300 bg-emerald-50 text-emerald-700";
+    case "medium":
+      return "border-amber-300 bg-amber-50 text-amber-700";
+    default:
+      return "border-rose-300 bg-rose-50 text-rose-700";
+  }
+}
+
+function formatBriefQualityReason(reason: string) {
+  switch (reason) {
+    case "semantic_search_unavailable":
+      return "semantic search unavailable";
+    case "semantic_search_empty":
+      return "semantic search returned no hits";
+    case "no_retrieval_hits":
+      return "no retrieval hits";
+    case "low_evidence_count":
+      return "low evidence count";
+    case "narrow_source_diversity":
+      return "narrow source diversity";
+    default:
+      return reason.replace(/_/g, " ");
+  }
 }
 
 function usageNumber(usage: Record<string, unknown> | null, ...keys: string[]) {
@@ -1202,22 +1253,41 @@ export function IssueDetail() {
                     </p>
                   ) : (
                     <div className="mt-3 space-y-3">
-                      {latestBriefs.map((brief) => (
-                        <div key={brief.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3">
-                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                            <span className="rounded-full border border-border px-2 py-0.5">
-                              {formatProtocolValue(brief.briefScope)}
-                            </span>
-                            <span>v{brief.briefVersion}</span>
-                            <span>{formatProtocolValue(brief.workflowState)}</span>
-                            {brief.retrievalRunId && <span className="font-mono">{brief.retrievalRunId.slice(0, 8)}</span>}
-                            <span className="ml-auto">{relativeTime(brief.createdAt)}</span>
+                      {latestBriefs.map((brief) => {
+                        const quality = readBriefQuality(brief);
+                        return (
+                          <div key={brief.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3">
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                              <span className="rounded-full border border-border px-2 py-0.5">
+                                {formatProtocolValue(brief.briefScope)}
+                              </span>
+                              <span>v{brief.briefVersion}</span>
+                              <span>{formatProtocolValue(brief.workflowState)}</span>
+                              {brief.retrievalRunId && <span className="font-mono">{brief.retrievalRunId.slice(0, 8)}</span>}
+                              <span className="ml-auto">{relativeTime(brief.createdAt)}</span>
+                            </div>
+                            {quality && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className={briefQualityBadgeClass(quality.confidenceLevel)}>
+                                  {quality.confidenceLevel} confidence
+                                </Badge>
+                                <Badge variant="outline">{quality.evidenceCount} evidence</Badge>
+                                <Badge variant="outline">
+                                  {quality.denseEnabled ? "semantic ready" : "semantic off"}
+                                </Badge>
+                              </div>
+                            )}
+                            {quality && quality.degradedReasons.length > 0 && (
+                              <p className="mt-2 text-xs text-amber-700">
+                                Limited context: {quality.degradedReasons.map(formatBriefQualityReason).join(", ")}
+                              </p>
+                            )}
+                            <pre className="mt-3 whitespace-pre-wrap text-sm text-foreground">
+                              {brief.contentMarkdown.split(/\r?\n/).slice(0, 12).join("\n")}
+                            </pre>
                           </div>
-                          <pre className="mt-3 whitespace-pre-wrap text-sm text-foreground">
-                            {brief.contentMarkdown.split(/\r?\n/).slice(0, 12).join("\n")}
-                          </pre>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </section>

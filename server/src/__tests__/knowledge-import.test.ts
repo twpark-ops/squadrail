@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   chunkWorkspaceFile,
@@ -5,15 +8,45 @@ import {
   detectWorkspaceSecret,
   extractSemanticTopLevelSymbols,
   extractTypeScriptTopLevelSymbols,
+  normalizeChunksForEmbedding,
+  prioritizeWorkspaceImportPaths,
   resolveWorkspaceImportRoot,
+  scoreWorkspaceImportPath,
   shouldIncludeWorkspacePath,
+  walkWorkspaceFiles,
 } from "../services/knowledge-import.js";
 
 describe("knowledge import helpers", () => {
   it("filters ignored directories and unsupported files", () => {
     expect(shouldIncludeWorkspacePath({ relativePath: "src/index.ts" })).toBe(true);
     expect(shouldIncludeWorkspacePath({ relativePath: "node_modules/react/index.js" })).toBe(false);
+    expect(shouldIncludeWorkspacePath({ relativePath: ".bmad/agents/dev.md" })).toBe(false);
+    expect(shouldIncludeWorkspacePath({ relativePath: ".claude/settings.local.json" })).toBe(false);
+    expect(shouldIncludeWorkspacePath({ relativePath: "gen/es/core/settings/v1/settings_pb.ts" })).toBe(false);
+    expect(shouldIncludeWorkspacePath({ relativePath: "internal/graphql/relay/generated.go" })).toBe(false);
     expect(shouldIncludeWorkspacePath({ relativePath: "assets/logo.png" })).toBe(false);
+  });
+
+  it("prioritizes source files ahead of docs and hidden tooling", () => {
+    expect(scoreWorkspaceImportPath({ relativePath: "src/server/main.go" })).toBeGreaterThan(
+      scoreWorkspaceImportPath({ relativePath: "docs/architecture.md" }),
+    );
+    expect(scoreWorkspaceImportPath({ relativePath: "src/server/main.go" })).toBeGreaterThan(
+      scoreWorkspaceImportPath({ relativePath: "src/server/main_test.go" }),
+    );
+    expect(
+      prioritizeWorkspaceImportPaths([
+        "docs/architecture.md",
+        "src/server/main.go",
+        "src/server/main_test.go",
+        "docker/docker-compose.yml",
+      ]),
+    ).toEqual([
+      "src/server/main.go",
+      "src/server/main_test.go",
+      "docs/architecture.md",
+      "docker/docker-compose.yml",
+    ]);
   });
 
   it("classifies workspace documents by path and file role", () => {
@@ -220,6 +253,34 @@ describe("knowledge import helpers", () => {
     expect(chunkIndexes).toEqual([...chunkIndexes].sort((left, right) => left - right));
   });
 
+  it("splits oversized chunks until each embedding input fits the provider budget", () => {
+    const oversizedChunk = {
+      chunkIndex: 0,
+      headingPath: "Design",
+      symbolName: "HugeSpec",
+      tokenCount: 12_000,
+      textContent: Array.from({ length: 240 }, (_, index) => `line ${index + 1} repeated words repeated words repeated words repeated words`).join("\n"),
+      searchText: "Design\nHugeSpec",
+      metadata: {
+        lineStart: 1,
+        lineEnd: 240,
+        chunkKind: "section",
+      },
+    };
+
+    const normalized = normalizeChunksForEmbedding({
+      relativePath: "docs/spec.md",
+      language: "markdown",
+      chunks: [oversizedChunk],
+    });
+
+    expect(normalized.length).toBeGreaterThan(1);
+    expect(normalized.every((chunk) => chunk.tokenCount <= 7000)).toBe(true);
+    expect(normalized.every((chunk) => chunk.metadata.oversizeSplit === true)).toBe(true);
+    expect(normalized[0]?.metadata.lineStart).toBe(1);
+    expect(Number(normalized.at(-1)?.metadata.lineEnd ?? 0)).toBe(240);
+  });
+
   it("chunks python files with semantic parser metadata", () => {
     const chunks = chunkWorkspaceFile({
       relativePath: "src/worker.py",
@@ -274,5 +335,38 @@ describe("knowledge import helpers", () => {
       cwd: "/tmp",
       allowedRoots: ["/var"],
     })).rejects.toThrow("outside allowed workspace roots");
+  });
+
+  it("walks past lexicographic docs noise and keeps source files in the top import set", async () => {
+    const fixtureRoot = await mkdtemp(path.join(tmpdir(), "knowledge-import-"));
+    try {
+      await mkdir(path.join(fixtureRoot, "docs"), { recursive: true });
+      await mkdir(path.join(fixtureRoot, "src"), { recursive: true });
+
+      await Promise.all([
+        ...Array.from({ length: 120 }, (_, index) => (
+          writeFile(
+            path.join(fixtureRoot, "docs", `guide-${String(index + 1).padStart(3, "0")}.md`),
+            `# Guide ${index + 1}\nDocumentation`,
+          )
+        )),
+        writeFile(
+          path.join(fixtureRoot, "src", "main.ts"),
+          "export function runService() { return true; }\n",
+        ),
+      ]);
+
+      const selected = await walkWorkspaceFiles({
+        cwd: fixtureRoot,
+        maxFiles: 50,
+      });
+      const relativeSelected = selected.map((entry) => path.relative(fixtureRoot, entry).split(path.sep).join("/"));
+
+      expect(relativeSelected).toContain("src/main.ts");
+      expect(relativeSelected[0]).toBe("src/main.ts");
+      expect(relativeSelected).toHaveLength(50);
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 });

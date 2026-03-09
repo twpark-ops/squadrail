@@ -39,6 +39,14 @@ const DEFAULT_ALLOWED_EXTENSIONS = new Set([
 
 const DEFAULT_IGNORED_DIRS = new Set([
   ".git",
+  ".bmad",
+  ".claude",
+  ".cursor",
+  ".idea",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".venv",
   "node_modules",
   "dist",
   "build",
@@ -47,13 +55,50 @@ const DEFAULT_IGNORED_DIRS = new Set([
   ".cache",
   "coverage",
   ".serena",
+  ".vscode",
+  "venv",
 ]);
 
 const DEFAULT_MAX_FILE_BYTES = 256 * 1024;
-const DEFAULT_MAX_FILES = 100;
+const DEFAULT_MAX_FILES = 400;
 const DEFAULT_CHUNK_LINE_COUNT = 120;
 const DEFAULT_CHUNK_OVERLAP = 20;
 const DEFAULT_MARKDOWN_CHUNK_LINE_COUNT = 80;
+const MAX_EMBEDDING_INPUT_TOKENS = 7000;
+const OVERSIZED_CHUNK_MAX_LINES = 40;
+const SOURCE_PRIORITY_DIRS = new Set([
+  "api",
+  "app",
+  "bin",
+  "cli",
+  "cmd",
+  "core",
+  "internal",
+  "lib",
+  "pkg",
+  "proto",
+  "scripts",
+  "server",
+  "service",
+  "services",
+  "src",
+  "worker",
+  "workers",
+]);
+const DEPRIORITIZED_DIRS = new Set([
+  "chart",
+  "charts",
+  "deploy",
+  "deployment",
+  "docker",
+  "docker-compose",
+  "docs",
+  "doc",
+  "example",
+  "examples",
+  "sample",
+  "samples",
+]);
 const DEFAULT_SECRET_FILE_PATTERNS = [
   /^\.env(\..+)?$/i,
   /^id_(rsa|dsa|ecdsa|ed25519)$/i,
@@ -174,6 +219,26 @@ function isTestFilePath(relativePath: string) {
   );
 }
 
+function isGeneratedWorkspacePath(relativePath: string) {
+  const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
+  const segments = normalized.split("/").filter(Boolean);
+  const fileName = path.posix.basename(normalized);
+
+  if (segments.some((segment) => segment === "gen" || segment === "generated")) {
+    return true;
+  }
+
+  return (
+    fileName.includes(".pb.")
+    || fileName.endsWith("_pb.ts")
+    || fileName.endsWith("_pb.go")
+    || fileName.endsWith(".openapi.json")
+    || fileName === "schema.graphql"
+    || /^generated\.[a-z0-9]+$/i.test(fileName)
+    || fileName === "generated.go"
+  );
+}
+
 function classifyMarkdownSourceType(relativePath: string) {
   const normalized = relativePath.replace(/\\/g, "/").toLowerCase();
   const base = path.posix.basename(normalized);
@@ -247,10 +312,80 @@ export function shouldIncludeWorkspacePath(input: {
   ignoredDirs?: Set<string>;
 }) {
   const normalized = input.relativePath.split(path.sep).join("/");
+  if (isGeneratedWorkspacePath(normalized)) return false;
   const segments = normalized.split("/").filter(Boolean);
-  if (segments.some((segment) => (input.ignoredDirs ?? DEFAULT_IGNORED_DIRS).has(segment))) return false;
+  const directorySegments = segments.slice(0, -1);
+  if (
+    directorySegments.some((segment) => {
+      const ignoredDirs = input.ignoredDirs ?? DEFAULT_IGNORED_DIRS;
+      return ignoredDirs.has(segment) || segment.startsWith(".");
+    })
+  ) {
+    return false;
+  }
   const ext = path.extname(normalized).toLowerCase();
   return (input.allowedExtensions ?? DEFAULT_ALLOWED_EXTENSIONS).has(ext);
+}
+
+export function scoreWorkspaceImportPath(input: {
+  relativePath: string;
+}) {
+  const normalized = input.relativePath.split(path.sep).join("/");
+  const segments = normalized.split("/").filter(Boolean);
+  const lowerSegments = segments.map((segment) => segment.toLowerCase());
+  const directorySegments = lowerSegments.slice(0, -1);
+  const fileName = lowerSegments[lowerSegments.length - 1] ?? "";
+  const ext = path.extname(fileName);
+
+  let score = 0;
+
+  if (directorySegments.some((segment) => SOURCE_PRIORITY_DIRS.has(segment))) score += 40;
+  if (directorySegments.some((segment) => DEPRIORITIZED_DIRS.has(segment))) score -= 20;
+  if (directorySegments.some((segment) => segment.startsWith("."))) score -= 100;
+
+  if ([
+    ".go",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".py",
+    ".rs",
+    ".java",
+    ".kt",
+    ".swift",
+    ".ts",
+    ".tsx",
+  ].includes(ext)) {
+    score += 30;
+  } else if (ext === ".sql") {
+    score += 20;
+  } else if (ext === ".md" || ext === ".mdx") {
+    score += 5;
+  } else if (ext === ".json" || ext === ".toml" || ext === ".yaml" || ext === ".yml") {
+    score -= 5;
+  }
+
+  if (isTestFilePath(normalized)) {
+    score -= 5;
+  } else if (isCodeLanguage(inferLanguageFromPath(normalized))) {
+    score += 10;
+  }
+  if (fileName === "readme.md" || fileName === "claude.md") score += 8;
+  if (normalized.startsWith("docs/") || normalized.startsWith("doc/")) score -= 10;
+  if (normalized.startsWith("docker/") || normalized.startsWith("docker-compose/")) score -= 15;
+  if (fileName.includes("settings.local")) score -= 20;
+
+  return score;
+}
+
+export function prioritizeWorkspaceImportPaths(paths: string[]) {
+  return [...paths].sort((left, right) => {
+    const scoreDelta = scoreWorkspaceImportPath({ relativePath: right })
+      - scoreWorkspaceImportPath({ relativePath: left });
+    if (scoreDelta !== 0) return scoreDelta;
+    return left.localeCompare(right, "en");
+  });
 }
 
 export function detectWorkspaceSecret(input: {
@@ -1237,37 +1372,100 @@ export function chunkWorkspaceFile(input: {
   return createLineWindowChunks(input);
 }
 
-async function walkWorkspaceFiles(input: {
+export function normalizeChunksForEmbedding(input: {
+  relativePath: string;
+  language: string;
+  chunks: WorkspaceChunkInput[];
+}) {
+  const splitChunk = (chunk: WorkspaceChunkInput): WorkspaceChunkInput[] => {
+    const tokenCount = Math.max(chunk.tokenCount, estimateTokenCount(chunk.textContent));
+    if (tokenCount <= MAX_EMBEDDING_INPUT_TOKENS) return [chunk];
+
+    const lines = chunk.textContent.split(/\r?\n/);
+    const estimatedWindows = Math.max(2, Math.ceil(tokenCount / MAX_EMBEDDING_INPUT_TOKENS));
+    const maxLines = Math.max(10, Math.min(
+      OVERSIZED_CHUNK_MAX_LINES,
+      Math.ceil(lines.length / estimatedWindows),
+    ));
+    const overlapLines = Math.max(0, Math.min(10, maxLines - 1));
+    const {
+      lineStart: chunkLineStart = 1,
+      lineEnd: _chunkLineEnd,
+      ...baseMetadata
+    } = chunk.metadata;
+
+    const nested = createLineWindowChunks({
+      relativePath: input.relativePath,
+      content: chunk.textContent,
+      language: input.language,
+      maxLines,
+      overlapLines,
+      baseMetadata: {
+        ...baseMetadata,
+        oversizeSplit: true,
+        parentChunkIndex: chunk.chunkIndex,
+      },
+    });
+
+    return nested.flatMap((nestedChunk) => {
+      const adjustedChunk = {
+        ...nestedChunk,
+        headingPath: chunk.headingPath ?? nestedChunk.headingPath,
+        symbolName: nestedChunk.symbolName ?? chunk.symbolName,
+        searchText: [
+          chunk.headingPath ?? input.relativePath,
+          nestedChunk.symbolName ?? chunk.symbolName ?? "",
+          nestedChunk.textContent,
+        ].filter(Boolean).join("\n"),
+        metadata: {
+          ...nestedChunk.metadata,
+          lineStart: Number(chunkLineStart) + Number(nestedChunk.metadata.lineStart ?? 1) - 1,
+          lineEnd: Number(chunkLineStart) + Number(nestedChunk.metadata.lineEnd ?? 1) - 1,
+        },
+      } satisfies WorkspaceChunkInput;
+      return splitChunk(adjustedChunk);
+    });
+  };
+
+  return input.chunks
+    .flatMap((chunk) => splitChunk(chunk))
+    .map((chunk, index) => ({
+      ...chunk,
+      chunkIndex: index,
+    }));
+}
+
+export async function walkWorkspaceFiles(input: {
   cwd: string;
   maxFiles: number;
 }) {
   const collected: string[] = [];
 
   async function visit(dir: string) {
-    if (collected.length >= input.maxFiles) return;
     const entries = (await readdir(dir, { withFileTypes: true }))
       .sort((left, right) => left.name.localeCompare(right.name, "en"));
     for (const entry of entries) {
-      if (collected.length >= input.maxFiles) break;
       if (entry.isSymbolicLink()) continue;
       const absolutePath = path.join(dir, entry.name);
       const relativePath = path.relative(input.cwd, absolutePath);
       if (entry.isDirectory()) {
         if (!shouldIncludeWorkspacePath({ relativePath: path.join(relativePath, "index.ts") })) {
           const segments = relativePath.split(path.sep).filter(Boolean);
-          if (segments.some((segment) => DEFAULT_IGNORED_DIRS.has(segment))) continue;
+          if (segments.some((segment) => DEFAULT_IGNORED_DIRS.has(segment) || segment.startsWith("."))) continue;
         }
         await visit(absolutePath);
         continue;
       }
       if (!entry.isFile()) continue;
       if (!shouldIncludeWorkspacePath({ relativePath })) continue;
-      collected.push(absolutePath);
+      collected.push(relativePath.split(path.sep).join("/"));
     }
   }
 
   await visit(input.cwd);
-  return collected;
+  return prioritizeWorkspaceImportPaths(collected)
+    .slice(0, input.maxFiles)
+    .map((relativePath) => path.join(input.cwd, relativePath));
 }
 
 async function readWorkspaceTextFile(filePath: string) {
@@ -1371,10 +1569,14 @@ export function knowledgeImportService(db: Db) {
           supersededByDocumentId: document.id,
         });
 
-        const chunkInputs = chunkWorkspaceFile({
+        const chunkInputs = normalizeChunksForEmbedding({
           relativePath,
-          content: rawContent,
           language: descriptor.language,
+          chunks: chunkWorkspaceFile({
+            relativePath,
+            content: rawContent,
+            language: descriptor.language,
+          }),
         });
         const embeddingResult = await embeddings.generateEmbeddings(
           chunkInputs.map((chunk) => chunk.textContent),
