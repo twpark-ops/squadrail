@@ -64,6 +64,7 @@ export {
 
 export {
   createIssueSchema,
+  createInternalWorkItemSchema,
   createIssueLabelSchema,
   updateIssueSchema,
   checkoutIssueSchema,
@@ -71,6 +72,7 @@ export {
   linkIssueApprovalSchema,
   createIssueAttachmentMetadataSchema,
   type CreateIssue,
+  type CreateInternalWorkItem,
   type CreateIssueLabel,
   type UpdateIssue,
   type CheckoutIssue,

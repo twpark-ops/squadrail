@@ -49,6 +49,20 @@ export interface IssueAssigneeAdapterOverrides {
   useProjectWorkspace?: boolean;
 }
 
+export interface IssueInternalWorkItemSummary {
+  total: number;
+  backlog: number;
+  todo: number;
+  inProgress: number;
+  inReview: number;
+  blocked: number;
+  done: number;
+  cancelled: number;
+  activeAssigneeAgentIds: string[];
+  blockerIssueId: string | null;
+  reviewRequestedIssueId: string | null;
+}
+
 export interface Issue {
   id: string;
   companyId: string;
@@ -79,6 +93,8 @@ export interface Issue {
   hiddenAt: Date | null;
   labelIds?: string[];
   labels?: IssueLabel[];
+  internalWorkItems?: Issue[];
+  internalWorkItemSummary?: IssueInternalWorkItemSummary;
   project?: Project | null;
   goal?: Goal | null;
   mentionedProjects?: Project[];

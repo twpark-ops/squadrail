@@ -9,6 +9,11 @@ const {
   mockIssueUpdate,
   mockIssueCheckout,
   mockIssueFindMentionedAgents,
+  mockIssueFindMentionedProjectIds,
+  mockIssueGetAncestors,
+  mockIssueListInternalWorkItems,
+  mockIssueGetInternalWorkItemSummary,
+  mockIssueCreateInternalWorkItem,
   mockHeartbeatWakeup,
   mockAgentGetById,
   mockProtocolAppendMessage,
@@ -24,6 +29,11 @@ const {
   mockIssueUpdate: vi.fn(),
   mockIssueCheckout: vi.fn(),
   mockIssueFindMentionedAgents: vi.fn(),
+  mockIssueFindMentionedProjectIds: vi.fn(),
+  mockIssueGetAncestors: vi.fn(),
+  mockIssueListInternalWorkItems: vi.fn(),
+  mockIssueGetInternalWorkItemSummary: vi.fn(),
+  mockIssueCreateInternalWorkItem: vi.fn(),
   mockHeartbeatWakeup: vi.fn(),
   mockAgentGetById: vi.fn(),
   mockProtocolAppendMessage: vi.fn(),
@@ -44,6 +54,7 @@ vi.mock("../services/index.js", () => ({
   }),
   goalService: () => ({
     listForIssue: vi.fn(),
+    getById: vi.fn(),
   }),
   heartbeatService: () => ({
     wakeup: mockHeartbeatWakeup,
@@ -79,6 +90,11 @@ vi.mock("../services/index.js", () => ({
     checkout: mockIssueCheckout,
     addComment: vi.fn(),
     findMentionedAgents: mockIssueFindMentionedAgents,
+    findMentionedProjectIds: mockIssueFindMentionedProjectIds,
+    getAncestors: mockIssueGetAncestors,
+    listInternalWorkItems: mockIssueListInternalWorkItems,
+    getInternalWorkItemSummary: mockIssueGetInternalWorkItemSummary,
+    createInternalWorkItem: mockIssueCreateInternalWorkItem,
     list: vi.fn(),
     listComments: vi.fn(),
     listAttachments: vi.fn(),
@@ -97,6 +113,8 @@ vi.mock("../services/index.js", () => ({
   }),
   projectService: () => ({
     list: vi.fn(),
+    getById: vi.fn(),
+    listByIds: vi.fn(),
   }),
   logActivity: mockLogActivity,
 }));
@@ -148,7 +166,7 @@ function createTestRouter() {
   } as never) as any;
 }
 
-function findRouteLayer(router: any, path: string, method: "post" | "patch") {
+function findRouteLayer(router: any, path: string, method: "get" | "post" | "patch") {
   const layer = router.stack.find(
     (entry: any) => entry.route?.path === path && entry.route?.methods?.[method] === true,
   );
@@ -160,7 +178,7 @@ function findRouteLayer(router: any, path: string, method: "post" | "patch") {
 
 async function invokeRoute(input: {
   path: string;
-  method: "post" | "patch";
+  method: "get" | "post" | "patch";
   params?: Record<string, string>;
   body?: unknown;
   actor?: BoardActor;
@@ -222,6 +240,22 @@ describe("issue routes wakeup handling", () => {
     mockAccessCanUser.mockResolvedValue(true);
     mockAccessHasPermission.mockResolvedValue(true);
     mockIssueFindMentionedAgents.mockResolvedValue([]);
+    mockIssueFindMentionedProjectIds.mockResolvedValue([]);
+    mockIssueGetAncestors.mockResolvedValue([]);
+    mockIssueListInternalWorkItems.mockResolvedValue([]);
+    mockIssueGetInternalWorkItemSummary.mockResolvedValue({
+      total: 0,
+      backlog: 0,
+      todo: 0,
+      inProgress: 0,
+      inReview: 0,
+      blocked: 0,
+      done: 0,
+      cancelled: 0,
+      activeAssigneeAgentIds: [],
+      blockerIssueId: null,
+      reviewRequestedIssueId: null,
+    });
     mockAgentGetById.mockResolvedValue(null);
     mockProtocolAppendMessage.mockResolvedValue({
       message: { id: "protocol-message-1", seq: 1 },
@@ -366,6 +400,161 @@ describe("issue routes wakeup handling", () => {
       }),
     );
     expect(wakeResolved).toBe(true);
+  });
+
+  it("returns internal work item summary on issue detail", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-150",
+      title: "Root issue",
+      description: "Parent delivery issue",
+      projectId: null,
+      goalId: null,
+      labels: [],
+    });
+    mockIssueListInternalWorkItems.mockResolvedValue([
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        companyId: "company-1",
+        identifier: "CLO-151",
+        title: "Internal implementation item",
+        status: "in_progress",
+        priority: "high",
+        assigneeAgentId: "engineer-1",
+        hiddenAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        labels: [],
+      },
+    ]);
+    mockIssueGetInternalWorkItemSummary.mockResolvedValue({
+      total: 1,
+      backlog: 0,
+      todo: 0,
+      inProgress: 1,
+      inReview: 0,
+      blocked: 0,
+      done: 0,
+      cancelled: 0,
+      activeAssigneeAgentIds: ["engineer-1"],
+      blockerIssueId: null,
+      reviewRequestedIssueId: null,
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id",
+      method: "get",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        internalWorkItems: expect.arrayContaining([
+          expect.objectContaining({
+            id: "22222222-2222-4222-8222-222222222222",
+            title: "Internal implementation item",
+          }),
+        ]),
+        internalWorkItemSummary: expect.objectContaining({
+          total: 1,
+          inProgress: 1,
+        }),
+      }),
+    );
+  });
+
+  it("creates an internal work item and dispatches assignment protocol flow", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-160",
+      title: "Root issue",
+      description: "Parent delivery issue",
+      projectId: null,
+      goalId: null,
+      labels: [],
+      hiddenAt: null,
+    });
+    mockIssueCreateInternalWorkItem.mockResolvedValue({
+      id: "33333333-3333-4333-8333-333333333333",
+      companyId: "company-1",
+      identifier: "CLO-161",
+      title: "Implement root fix",
+      description: "Wire the execution path",
+      projectId: null,
+      goalId: null,
+      status: "backlog",
+      priority: "high",
+      assigneeAgentId: "44444444-4444-4444-8444-444444444444",
+      hiddenAt: new Date().toISOString(),
+      labels: [],
+    });
+    mockAgentGetById.mockImplementation(async (agentId: string) => {
+      if (agentId === "55555555-5555-4555-8555-555555555555") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "reviewer",
+          status: "active",
+          title: "Reviewer",
+        };
+      }
+      if (agentId === "44444444-4444-4444-8444-444444444444") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "engineer",
+          status: "active",
+          title: "Engineer",
+        };
+      }
+      return null;
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-1", seq: 1 },
+      state: {},
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/internal-work-items",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        title: "Implement root fix",
+        description: "Wire the execution path",
+        kind: "implementation",
+        priority: "high",
+        assigneeAgentId: "44444444-4444-4444-8444-444444444444",
+        reviewerAgentId: "55555555-5555-4555-8555-555555555555",
+        goal: "Stabilize the execution path",
+        acceptanceCriteria: ["Assignment brief is generated"],
+        definitionOfDone: ["Engineer receives the child work item"],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockIssueCreateInternalWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentIssueId: "11111111-1111-4111-8111-111111111111",
+        kind: "implementation",
+        labelNames: expect.arrayContaining(["team:internal", "work:implementation", "watch:reviewer", "watch:lead"]),
+      }),
+    );
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "33333333-3333-4333-8333-333333333333",
+        message: expect.objectContaining({
+          messageType: "ASSIGN_TASK",
+          payload: expect.objectContaining({
+            assigneeAgentId: "44444444-4444-4444-8444-444444444444",
+            reviewerAgentId: "55555555-5555-4555-8555-555555555555",
+          }),
+        }),
+      }),
+    );
+    expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
   });
 
   it("allows cto agents to post task assignment protocol messages without explicit grants", async () => {

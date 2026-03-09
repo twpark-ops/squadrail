@@ -589,10 +589,18 @@ export function IssueDetail() {
   }, [agents, orderedProjects]);
 
   const childIssues = useMemo(() => {
-    if (!allIssues || !issue) return [];
-    return allIssues
+    if (!issue) return [];
+    const detailChildren = issue.internalWorkItems ?? [];
+    const visibleChildren = (allIssues ?? [])
       .filter((i) => i.parentId === issue.id)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const combined = [...detailChildren];
+    const seen = new Set(detailChildren.map((child) => child.id));
+    for (const child of visibleChildren) {
+      if (seen.has(child.id)) continue;
+      combined.push(child);
+    }
+    return combined.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [allIssues, issue]);
 
   const commentReassignOptions = useMemo(() => {
@@ -1527,29 +1535,60 @@ export function IssueDetail() {
           {childIssues.length === 0 ? (
             <p className="text-xs text-muted-foreground">No sub-issues.</p>
           ) : (
-            <div className="border border-border rounded-lg divide-y divide-border">
-              {childIssues.map((child) => (
-                <Link
-                  key={child.id}
-                  to={`/issues/${child.identifier ?? child.id}`}
-                  className="flex items-center justify-between px-3 py-2 text-sm hover:bg-accent/20 transition-colors"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <StatusIcon status={child.status} />
-                    <PriorityIcon priority={child.priority} />
-                    <span className="font-mono text-muted-foreground shrink-0">
-                      {child.identifier ?? child.id.slice(0, 8)}
-                    </span>
-                    <span className="truncate">{child.title}</span>
+            <div className="space-y-3">
+              {issue.internalWorkItemSummary && issue.internalWorkItemSummary.total > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                    <div className="font-medium text-foreground">Open</div>
+                    <div>
+                      {issue.internalWorkItemSummary.todo + issue.internalWorkItemSummary.inProgress + issue.internalWorkItemSummary.inReview + issue.internalWorkItemSummary.blocked}
+                      {" / "}
+                      {issue.internalWorkItemSummary.total}
+                    </div>
                   </div>
-                  {child.assigneeAgentId && (() => {
-                    const name = agentMap.get(child.assigneeAgentId)?.name;
-                    return name
-                      ? <Identity name={name} size="sm" />
-                      : <span className="text-muted-foreground font-mono">{child.assigneeAgentId.slice(0, 8)}</span>;
-                  })()}
-                </Link>
-              ))}
+                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                    <div className="font-medium text-foreground">Blocked</div>
+                    <div>{issue.internalWorkItemSummary.blocked}</div>
+                  </div>
+                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                    <div className="font-medium text-foreground">In Review</div>
+                    <div>{issue.internalWorkItemSummary.inReview}</div>
+                  </div>
+                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                    <div className="font-medium text-foreground">Done</div>
+                    <div>{issue.internalWorkItemSummary.done}</div>
+                  </div>
+                </div>
+              )}
+              <div className="border border-border rounded-lg divide-y divide-border">
+                {childIssues.map((child) => (
+                  <Link
+                    key={child.id}
+                    to={`/issues/${child.identifier ?? child.id}`}
+                    className="flex items-center justify-between px-3 py-2 text-sm hover:bg-accent/20 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <StatusIcon status={child.status} />
+                      <PriorityIcon priority={child.priority} />
+                      <span className="font-mono text-muted-foreground shrink-0">
+                        {child.identifier ?? child.id.slice(0, 8)}
+                      </span>
+                      <span className="truncate">{child.title}</span>
+                      {child.hiddenAt && (
+                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Internal
+                        </span>
+                      )}
+                    </div>
+                    {child.assigneeAgentId && (() => {
+                      const name = agentMap.get(child.assigneeAgentId)?.name;
+                      return name
+                        ? <Identity name={name} size="sm" />
+                        : <span className="text-muted-foreground font-mono">{child.assigneeAgentId.slice(0, 8)}</span>;
+                    })()}
+                  </Link>
+                ))}
+              </div>
             </div>
           )}
         </TabsContent>

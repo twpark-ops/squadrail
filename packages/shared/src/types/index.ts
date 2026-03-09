@@ -19,6 +19,7 @@ export type {
 export type {
   Issue,
   IssueAssigneeAdapterOverrides,
+  IssueInternalWorkItemSummary,
   IssueComment,
   IssueAncestor,
   IssueAncestorProject,
