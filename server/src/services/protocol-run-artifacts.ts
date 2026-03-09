@@ -1,4 +1,5 @@
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
+import { inspectWorkspaceGitSnapshot } from "./workspace-git-snapshot.js";
 
 type ProtocolRunLike = {
   id: string;
@@ -133,13 +134,20 @@ function autoArtifactMetadata(input: {
   };
 }
 
-export function enrichProtocolMessageArtifactsFromRun(input: {
+export async function enrichProtocolMessageArtifactsFromRun(input: {
   message: CreateIssueProtocolMessage;
   run: ProtocolRunLike;
   issueId: string;
 }) {
   const workspace = extractWorkspaceContext(input.run);
   const runEvidenceText = buildRunEvidenceText(input.run);
+  const workspaceGitSnapshot =
+    workspace?.cwd && workspace.workspaceUsage === "implementation"
+      ? await inspectWorkspaceGitSnapshot({
+          cwd: workspace.cwd,
+          branchName: workspace.branchName,
+        })
+      : null;
   const autoArtifacts: RequestProtocolArtifact[] = [
     {
       kind: "run",
@@ -167,9 +175,34 @@ export function enrichProtocolMessageArtifactsFromRun(input: {
         bindingType: "implementation_workspace",
         bindingStatus: "resolved",
         cwd: workspace.cwd,
-        branchName: workspace.branchName,
+        branchName: workspaceGitSnapshot?.branchName ?? workspace.branchName,
         repoUrl: workspace.repoUrl,
         repoRef: workspace.repoRef,
+        headSha: workspaceGitSnapshot?.headSha ?? null,
+      },
+    });
+  }
+
+  if (workspace?.workspaceUsage === "implementation" && workspaceGitSnapshot?.hasChanges) {
+    autoArtifacts.push({
+      kind: "diff",
+      uri: `run://${input.run.id}/workspace-diff`,
+      label: truncateLabel(
+        workspaceGitSnapshot.diffStat
+          ?? `Workspace diff (${workspaceGitSnapshot.changedFiles.length} file(s))`,
+      ),
+      metadata: {
+        ...autoArtifactMetadata({
+          run: input.run,
+          issueId: input.issueId,
+          workspace,
+        }),
+        captureConfidence: "workspace_snapshot",
+        branchName: workspaceGitSnapshot.branchName,
+        headSha: workspaceGitSnapshot.headSha,
+        changedFiles: workspaceGitSnapshot.changedFiles,
+        statusEntries: workspaceGitSnapshot.statusEntries,
+        diffStat: workspaceGitSnapshot.diffStat,
       },
     });
   }

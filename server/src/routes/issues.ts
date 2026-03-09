@@ -271,7 +271,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         && activeRun.agentId === input.actor.agentId
         && runMatchesIssueScope(activeRun, input.issue.id)
       ) {
-        effectiveMessage = enrichProtocolMessageArtifactsFromRun({
+        effectiveMessage = await enrichProtocolMessageArtifactsFromRun({
           message: input.message,
           run: activeRun,
           issueId: input.issue.id,

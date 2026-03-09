@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 2 (Slice 2 완료, Phase 3 준비)`
+현재 활성 단계: `Phase 3 (Slice 1 완료, Slice 2 준비)`
 
 ## 목표
 
@@ -120,9 +120,15 @@
   - agent protocol message에 현재 heartbeat run 기준 `run` artifact를 자동 첨부하고, implementation run에서만 resolved workspace binding을 기록
   - `test_run`/`build_run` auto artifact는 현재 run 출력으로 corroborate된 경우에만 첨부되도록 보강
   - route/dispatch/heartbeat 경계 테스트 추가로 self-followup implementation run과 auto artifact capture 회귀 고정
+- `Phase 3 / Slice 1` 완료
+  - implementation run 종료 시 resolved workspace git snapshot(`branchName`, `headSha`, `changedFiles`, `diffStat`) 캡처
+  - git snapshot을 heartbeat run event와 `resultJson.workspaceGitSnapshot`에 저장
+  - active implementation run의 실제 working tree를 기준으로 `diff` artifact 자동 첨부
+  - `START_IMPLEMENTATION` self-recipient 계약을 강제해 follow-up implementation run 보장
+  - run scope가 다른 이슈의 artifact가 섞이지 않도록 issue scope 검증 강화
 - 잔여 주의사항
   - 개발 서버 재기동 직후 간헐 `claim-only` 관찰이 있어 cold-start 구간은 계속 관찰 필요
-  - richer shell command 수준의 verification artifact 캡처와 실제 repo diff 검증은 `Phase 3`에서 계속 강화
+  - richer shell command 수준의 verification artifact 캡처와 merged close evidence 강화는 `Phase 3 / Slice 2`에서 계속 진행
 
 ## Phase 1 세부 슬라이스
 
