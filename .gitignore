@@ -37,4 +37,4 @@ tmp/
 .vscode/
 .claude/settings.local.json
 .squadrail-local/
-.serena/*
+.serena/

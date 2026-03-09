@@ -5,13 +5,13 @@
 <p align="center">
   <a href="#quickstart"><strong>Quickstart</strong></a> &middot;
   <a href="docs/"><strong>Docs</strong></a> &middot;
-  <a href="https://github.com/twpark-ops/squadall"><strong>GitHub</strong></a> &middot;
+  <a href="https://github.com/twpark-ops/squadrail"><strong>GitHub</strong></a> &middot;
   <a href=""><strong>Discord</strong></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/twpark-ops/squadall/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
-  <a href="https://github.com/twpark-ops/squadall/stargazers"><img src="https://img.shields.io/github/stars/twpark-ops/squadall?style=flat" alt="Stars" /></a>
+  <a href="https://github.com/twpark-ops/squadrail/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
+  <a href="https://github.com/twpark-ops/squadrail/stargazers"><img src="https://img.shields.io/github/stars/twpark-ops/squadrail?style=flat" alt="Stars" /></a>
   <a href=""><img src="https://img.shields.io/?label=discord" alt="Discord" /></a>
 </p>
 
@@ -82,8 +82,8 @@ npx squadrail onboard --yes
 Or from source:
 
 ```bash
-git clone https://github.com/twpark-ops/squadall.git squadall
-cd squadall
+git clone https://github.com/twpark-ops/squadrail.git squadrail
+cd squadrail
 pnpm install
 pnpm dev
 ```
@@ -143,8 +143,8 @@ Contributions are welcome. See the [contributing guide](CONTRIBUTING.md) for det
 ## Community
 
 - [Discord]()
-- [GitHub Issues](https://github.com/twpark-ops/squadall/issues)
-- [GitHub Discussions](https://github.com/twpark-ops/squadall/discussions)
+- [GitHub Issues](https://github.com/twpark-ops/squadrail/issues)
+- [GitHub Discussions](https://github.com/twpark-ops/squadrail/discussions)
 
 ## License
 
@@ -152,7 +152,7 @@ MIT &copy; 2026 Squadrail
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=twpark-ops/squadall&type=date&legend=top-left)](https://www.star-history.com/?repos=twpark-ops%2Fsquadall&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/image?repos=twpark-ops/squadrail&type=date&legend=top-left)](https://www.star-history.com/?repos=twpark-ops%2Fsquadrail&type=date&legend=top-left)
 
 <p align="center">
   <img src="doc/assets/footer.jpg" alt="" width="720" />
