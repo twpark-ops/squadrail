@@ -1,0 +1,729 @@
+#!/usr/bin/env node
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const DEFAULT_ROOT = "/home/taewoong/workspace/cloud-swiftsight";
+const DEFAULT_OUT = path.resolve(process.cwd(), "tmp/swiftsight-org-bundle");
+const MANIFEST_NAME = "squadrail.manifest.json";
+const COMPANY_COLOR = "#2563eb";
+
+const PROJECT_CATALOG = [
+  {
+    slug: "swiftsight-cloud",
+    name: "swiftsight-cloud",
+    leadAgentSlug: "swiftsight-cloud-tl",
+    description: "Primary cloud control plane covering ConnectRPC APIs, Hasura-facing orchestration, Temporal workflows, and release-safe backend delivery.",
+    language: "Go",
+    stack: ["ConnectRPC", "Hasura", "Temporal", "RabbitMQ", "PostgreSQL"],
+    knowledgePriority: "P0",
+    documentationSignal: "high",
+    baselineRepoState: "clean",
+    defaultIsolationStrategy: "worktree",
+    reviewFocus: [
+      "API contract changes",
+      "workflow orchestration safety",
+      "data model migrations",
+      "release rollback notes",
+    ],
+  },
+  {
+    slug: "swiftsight-agent",
+    name: "swiftsight-agent",
+    leadAgentSlug: "swiftsight-agent-tl",
+    description: "Edge/runtime agent repo covering gRPC coordination, DICOM-facing commands, and on-prem execution flows.",
+    language: "Go",
+    stack: ["gRPC", "DICOM", "RabbitMQ", "Command Execution"],
+    knowledgePriority: "P0",
+    documentationSignal: "high",
+    baselineRepoState: "clean",
+    defaultIsolationStrategy: "worktree",
+    reviewFocus: [
+      "DICOM protocol handling",
+      "stream stability",
+      "device compatibility",
+      "command safety",
+    ],
+  },
+  {
+    slug: "swiftcl",
+    name: "swiftcl",
+    leadAgentSlug: "swiftcl-tl",
+    description: "Compiler/CLI workspace for HCL workflows, Tree-sitter parsing, and developer tooling.",
+    language: "Go",
+    stack: ["HCL v2", "Tree-sitter", "LSP", "CLI Tooling"],
+    knowledgePriority: "P0",
+    documentationSignal: "high",
+    baselineRepoState: "clean",
+    defaultIsolationStrategy: "worktree",
+    reviewFocus: [
+      "compiler pipeline correctness",
+      "generated workflow fidelity",
+      "language tooling regressions",
+      "CLI UX stability",
+    ],
+  },
+  {
+    slug: "swiftsight-report-server",
+    name: "swiftsight-report-server",
+    leadAgentSlug: "python-tl",
+    description: "Python report generation service with RabbitMQ RPC, S3-backed artifacts, and validation-sensitive output formatting.",
+    language: "Python",
+    stack: ["Python", "RabbitMQ RPC", "S3", "Report Rendering"],
+    knowledgePriority: "P1",
+    documentationSignal: "medium",
+    baselineRepoState: "clean",
+    defaultIsolationStrategy: "worktree",
+    reviewFocus: [
+      "report correctness",
+      "RPC timeout handling",
+      "artifact persistence",
+      "missing test coverage",
+    ],
+  },
+  {
+    slug: "swiftsight-worker",
+    name: "swiftsight-worker",
+    leadAgentSlug: "python-tl",
+    description: "Python processing worker for Temporal-driven imaging pipelines, ML inference, and result materialization.",
+    language: "Python",
+    stack: ["Python", "Temporal SDK", "PyTorch", "S3", "Worker Pipelines"],
+    knowledgePriority: "P1",
+    documentationSignal: "medium",
+    baselineRepoState: "dirty",
+    defaultIsolationStrategy: "clone",
+    reviewFocus: [
+      "pipeline reproducibility",
+      "inference correctness",
+      "artifact consistency",
+      "dirty-working-tree risk",
+    ],
+  },
+];
+
+function parseArgs(argv) {
+  const args = [...argv];
+  const out = { root: DEFAULT_ROOT, out: DEFAULT_OUT, companyName: "cloud-swiftsight" };
+  while (args.length > 0) {
+    const token = args.shift();
+    if (token === "--root") out.root = path.resolve(args.shift() ?? DEFAULT_ROOT);
+    else if (token === "--out") out.out = path.resolve(args.shift() ?? DEFAULT_OUT);
+    else if (token === "--company-name") out.companyName = args.shift() ?? out.companyName;
+    else if (token === "--help" || token === "-h") out.help = true;
+  }
+  return out;
+}
+
+function normalizeRepoState(result) {
+  if (result === "clean" || result === "dirty" || result === "missing") return result;
+  return "unknown";
+}
+
+function detectRepoState(repoPath) {
+  try {
+    const result = spawnSync("git", ["-C", repoPath, "status", "--porcelain"], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    if (result.error) return "unknown";
+    if (result.status !== 0) return "missing";
+    return result.stdout.trim().length > 0 ? "dirty" : "clean";
+  } catch {
+    return "unknown";
+  }
+}
+
+function pickIsolationStrategy(project, repoState) {
+  if (repoState === "dirty") return "clone";
+  return project.defaultIsolationStrategy;
+}
+
+function resolveRepoState(project, repoState) {
+  if (repoState === "clean" || repoState === "dirty") return repoState;
+  return project.baselineRepoState;
+}
+
+function describeIsolationStrategy(strategy, repoState) {
+  if (strategy === "clone") {
+    return repoState === "dirty"
+      ? "clone is enforced because the source repo is dirty and must not receive shared implementation mutations."
+      : "clone is enforced to keep implementation work detached from the shared review workspace.";
+  }
+  return "worktree is allowed because the shared source repo is clean enough for isolated implementation branches.";
+}
+
+function agentMarkdown(input) {
+  return `---
+kind: agent
+name: ${JSON.stringify(input.name)}
+role: ${JSON.stringify(input.role)}
+title: ${JSON.stringify(input.title)}
+reportsToSlug: ${input.reportsToSlug ? JSON.stringify(input.reportsToSlug) : "null"}
+---
+
+# ${input.title}
+
+You operate inside the SwiftSight organization bootstrap for Squadrail.
+
+## Reporting Line
+- Report to: ${input.reportsToSlug ?? "board / none"}
+- Primary project: ${input.projectSlug ?? "cross-project"}
+- Discipline: ${input.discipline ?? "cross-functional"}
+- Execution engine: ${input.adapterType}
+
+## Responsibilities
+${input.responsibilities.map((line) => `- ${line}`).join("\n")}
+
+## Technical Focus
+${input.focusAreas.map((line) => `- ${line}`).join("\n")}
+
+## Operating Rules
+- Use structured protocol messages, not casual chat.
+- Fetch the latest role brief before acting:
+  - \`GET /api/issues/{issueId}/protocol/briefs?latest=true&scope=${input.role}\`
+  - If a \`retrievalRunId\` is present, inspect supporting evidence with \`GET /api/knowledge/retrieval-runs/{retrievalRunId}/hits\`
+- Use the latest brief and retrieval evidence before acting.
+- Respect workspace policy. Shared workspaces are for analysis/review; isolated workspaces are for implementation.
+- Include changed files, tests, risks, and follow-up items whenever work changes state.
+`;
+}
+
+function sharedWorkspace(root, project, repoState) {
+  return {
+    name: "shared",
+    cwd: path.join(root, project.slug),
+    repoUrl: null,
+    repoRef: "HEAD",
+    metadata: {
+      purpose: "shared-analysis-review",
+      projectSlug: project.slug,
+      language: project.language,
+      stack: project.stack,
+      repoState,
+      documentationSignal: project.documentationSignal,
+      knowledgePriority: project.knowledgePriority,
+    },
+    executionPolicy: {
+      mode: "shared",
+      applyFor: ["analysis", "review"],
+      writable: false,
+    },
+    isPrimary: true,
+  };
+}
+
+function implementationWorkspace(root, project, repoState) {
+  const strategy = pickIsolationStrategy(project, repoState);
+  const isolatedDirName = strategy === "clone" ? ".squadrail-clones" : ".squadrail-worktrees";
+  return {
+    name: "implementation",
+    cwd: path.join(root, project.slug),
+    repoUrl: null,
+    repoRef: "HEAD",
+    metadata: {
+      purpose: "isolated-implementation-template",
+      projectSlug: project.slug,
+      language: project.language,
+      stack: project.stack,
+      repoState,
+      isolationNote: describeIsolationStrategy(strategy, repoState),
+      cleanupPolicy: "manual-prune",
+    },
+    executionPolicy: {
+      mode: "isolated",
+      applyFor: ["implementation"],
+      isolationStrategy: strategy,
+      isolatedRoot: path.join(root, isolatedDirName, project.slug),
+      branchTemplate: "squadrail/{projectId}/{agentId}/{issueId}",
+      writable: true,
+    },
+    isPrimary: false,
+  };
+}
+
+function buildProjects(root) {
+  return PROJECT_CATALOG.map((project) => {
+    const repoState = resolveRepoState(
+      project,
+      normalizeRepoState(detectRepoState(path.join(root, project.slug))),
+    );
+    return {
+      slug: project.slug,
+      name: project.name,
+      description: project.description,
+      status: "backlog",
+      leadAgentSlug: project.leadAgentSlug,
+      targetDate: null,
+      color: null,
+      archivedAt: null,
+      workspaces: [
+        sharedWorkspace(root, project, repoState),
+        implementationWorkspace(root, project, repoState),
+      ],
+      repoState,
+    };
+  });
+}
+
+function topLevelAgents() {
+  return [
+    {
+      slug: "swiftsight-cto",
+      name: "SwiftSight CTO",
+      role: "cto",
+      title: "CTO",
+      reportsToSlug: null,
+      adapterType: "claude_local",
+      projectSlug: null,
+      discipline: "cross-project architecture",
+      capabilities: "cross-project orchestration, technical strategy, final review synthesis",
+      responsibilities: [
+        "Own cross-project orchestration and final technical synthesis.",
+        "Route company-wide work into TL-owned sub-issues and consolidate outcomes.",
+        "Approve company-level technical direction after TL and QA evidence lands.",
+      ],
+      focusAreas: [
+        "program-level architecture",
+        "cross-repo dependency management",
+        "release sequencing",
+        "technical risk prioritization",
+      ],
+    },
+    {
+      slug: "swiftsight-pm",
+      name: "SwiftSight PM",
+      role: "pm",
+      title: "PM",
+      reportsToSlug: "swiftsight-cto",
+      adapterType: "claude_local",
+      projectSlug: null,
+      discipline: "product requirements",
+      capabilities: "requirements clarification, documentation debt tracking, acceptance criteria",
+      responsibilities: [
+        "Clarify requirements, scope boundaries, and acceptance criteria.",
+        "Track documentation debt, especially in Python-heavy repos.",
+        "Convert cross-project requests into issue-ready requirements for TLs.",
+      ],
+      focusAreas: [
+        "PRD to issue decomposition",
+        "documentation freshness",
+        "cross-project dependency notes",
+        "release communication",
+      ],
+    },
+    {
+      slug: "swiftsight-qa-lead",
+      name: "SwiftSight QA Lead",
+      role: "qa",
+      title: "QA Lead",
+      reportsToSlug: "swiftsight-cto",
+      adapterType: "claude_local",
+      projectSlug: null,
+      discipline: "validation governance",
+      capabilities: "regression triage, release safety, evidence quality",
+      responsibilities: [
+        "Own cross-project validation and regression triage.",
+        "Escalate missing test evidence, reproducibility gaps, and release blockers.",
+        "Normalize severity and evidence quality across project outputs.",
+      ],
+      focusAreas: [
+        "integration risk",
+        "test evidence quality",
+        "release readiness",
+        "regression prioritization",
+      ],
+    },
+    {
+      slug: "swiftsight-qa-engineer",
+      name: "SwiftSight QA Engineer",
+      role: "qa",
+      title: "QA Engineer",
+      reportsToSlug: "swiftsight-qa-lead",
+      adapterType: "codex_local",
+      projectSlug: null,
+      discipline: "verification execution",
+      capabilities: "test reproduction, validation scripts, evidence capture",
+      responsibilities: [
+        "Execute validation tasks and collect reproduction evidence.",
+        "Run targeted verification across project boundaries as requested by QA Lead.",
+      ],
+      focusAreas: [
+        "reproducible test steps",
+        "evidence packaging",
+        "integration checks",
+      ],
+    },
+    {
+      slug: "swiftsight-cloud-tl",
+      name: "SwiftSight Cloud TL",
+      role: "engineer",
+      title: "Tech Lead",
+      reportsToSlug: "swiftsight-cto",
+      adapterType: "claude_local",
+      projectSlug: "swiftsight-cloud",
+      discipline: "go cloud",
+      capabilities: "ConnectRPC, Hasura, Temporal, PostgreSQL, RabbitMQ",
+      responsibilities: [
+        "Own swiftsight-cloud task decomposition, design review, and release-safe implementation guidance.",
+        "Coordinate API, workflow, and schema changes with QA and CTO when risk crosses repo boundaries.",
+      ],
+      focusAreas: [
+        "ConnectRPC contracts",
+        "workflow orchestration",
+        "schema migrations",
+        "rollback planning",
+      ],
+    },
+    {
+      slug: "swiftsight-agent-tl",
+      name: "SwiftSight Agent TL",
+      role: "engineer",
+      title: "Tech Lead",
+      reportsToSlug: "swiftsight-cto",
+      adapterType: "claude_local",
+      projectSlug: "swiftsight-agent",
+      discipline: "go edge agent",
+      capabilities: "gRPC, DICOM, command execution, RabbitMQ",
+      responsibilities: [
+        "Own swiftsight-agent task decomposition and review.",
+        "Protect DICOM protocol compatibility and operational safety for agent-side changes.",
+      ],
+      focusAreas: [
+        "DICOM parsing",
+        "gRPC streams",
+        "command safety",
+        "edge compatibility",
+      ],
+    },
+    {
+      slug: "swiftcl-tl",
+      name: "SwiftCL TL",
+      role: "engineer",
+      title: "Tech Lead",
+      reportsToSlug: "swiftsight-cto",
+      adapterType: "claude_local",
+      projectSlug: "swiftcl",
+      discipline: "go compiler tooling",
+      capabilities: "HCL v2, Tree-sitter, LSP, compiler pipeline",
+      responsibilities: [
+        "Own swiftcl decomposition, compiler correctness review, and tooling delivery.",
+        "Protect workflow generation fidelity and language-tooling stability.",
+      ],
+      focusAreas: [
+        "parser correctness",
+        "compiler stages",
+        "CLI ergonomics",
+        "language tooling regressions",
+      ],
+    },
+    {
+      slug: "python-tl",
+      name: "SwiftSight Python TL",
+      role: "engineer",
+      title: "Tech Lead",
+      reportsToSlug: "swiftsight-cto",
+      adapterType: "claude_local",
+      projectSlug: null,
+      discipline: "python platform",
+      capabilities: "Python, RabbitMQ, Temporal SDK, testing, ML-adjacent services",
+      responsibilities: [
+        "Own Python project delivery for swiftsight-report-server and swiftsight-worker.",
+        "Drive documentation recovery, test expectations, and implementation risk triage for Python repos.",
+      ],
+      focusAreas: [
+        "worker pipelines",
+        "report generation",
+        "test strategy",
+        "release-safe Python changes",
+      ],
+    },
+  ];
+}
+
+function engineerPair(project) {
+  const reportsToSlug =
+    project.slug === "swiftsight-report-server" || project.slug === "swiftsight-worker"
+      ? "python-tl"
+      : `${project.slug}-tl`;
+  const sharedFocus = [
+    ...project.stack,
+    ...project.reviewFocus,
+  ];
+  return [
+    {
+      slug: `${project.slug}-codex-engineer`,
+      name: `${project.slug} Codex Engineer`,
+      role: "engineer",
+      title: "Engineer",
+      reportsToSlug,
+      adapterType: "codex_local",
+      projectSlug: project.slug,
+      discipline: `${project.language.toLowerCase()} implementation`,
+      capabilities: `${project.language} implementation, ${project.stack.join(", ")}`,
+      responsibilities: [
+        `Implement assigned ${project.slug} work with explicit evidence, changed files, and test notes.`,
+        "Prefer the isolated implementation workspace whenever code changes are required.",
+      ],
+      focusAreas: sharedFocus,
+    },
+    {
+      slug: `${project.slug}-claude-engineer`,
+      name: `${project.slug} Claude Engineer`,
+      role: "engineer",
+      title: "Engineer",
+      reportsToSlug,
+      adapterType: "claude_local",
+      projectSlug: project.slug,
+      discipline: `${project.language.toLowerCase()} analysis-review`,
+      capabilities: `${project.language} analysis, review, ${project.stack.join(", ")}`,
+      responsibilities: [
+        `Support ${project.slug} planning, implementation, and review with protocol-first handoff discipline.`,
+        "Act as the secondary engineer for independent review or implementation coverage when TL requests it.",
+      ],
+      focusAreas: sharedFocus,
+    },
+  ];
+}
+
+function buildAgents() {
+  const defs = [...topLevelAgents()];
+  for (const project of PROJECT_CATALOG) {
+    defs.push(...engineerPair(project));
+  }
+
+  return defs.map((agent) => ({
+    slug: agent.slug,
+    name: agent.name,
+    path: `agents/${agent.slug}/AGENTS.md`,
+    role: agent.role,
+    title: agent.title,
+    icon: null,
+    capabilities: agent.capabilities,
+    reportsToSlug: agent.reportsToSlug,
+    adapterType: agent.adapterType,
+    adapterConfig: {},
+    runtimeConfig: {},
+    permissions: {},
+    budgetMonthlyCents: 0,
+    metadata: {
+      projectSlug: agent.projectSlug,
+      discipline: agent.discipline,
+      executionEngine: agent.adapterType,
+    },
+    markdown: agentMarkdown(agent),
+  }));
+}
+
+function renderBundleReadme(input) {
+  return [
+    "# SwiftSight Org Bundle",
+    "",
+    `Generated for \`${input.companyName}\` on \`${input.generatedAt}\`.`,
+    "",
+    "## Import",
+    "",
+    "```bash",
+    "pnpm squadrail company import \\",
+    `  --from ${input.bundleDir} \\`,
+    "  --target new \\",
+    `  --new-company-name ${input.companyName}`,
+    "```",
+    "",
+    "## After Import",
+    "",
+    "1. Open Company Settings and seed the `swiftsight_org_v1` role pack preset if the company is new.",
+    "2. Verify Claude Code and Codex environment readiness in the Doctor panel.",
+    "3. Run workspace imports for all five projects before assigning the first cross-project review issue.",
+    "4. Keep same-repo implementation inside isolated workspaces only.",
+    "",
+    "## Repo Policy Snapshot",
+    "",
+    ...input.projects.map((project) => {
+      const shared = project.workspaces.find((workspace) => workspace.name === "shared");
+      const implementation = project.workspaces.find((workspace) => workspace.name === "implementation");
+      const repoState = shared?.metadata?.repoState ?? "unknown";
+      const isolation = implementation?.executionPolicy?.isolationStrategy ?? "worktree";
+      return `- \`${project.slug}\`: repoState=\`${repoState}\`, implementation=\`${isolation}\``;
+    }),
+  ].join("\n");
+}
+
+function renderOperatingModel(projects) {
+  return [
+    "# Operating Model",
+    "",
+    "## Routing",
+    "",
+    "- Company-wide review or architecture request -> CTO",
+    "- Project-scoped implementation -> project TL",
+    "- Validation and regression escalation -> QA Lead",
+    "- Requirements clarification and documentation debt -> PM",
+    "",
+    "## Workspace Rules",
+    "",
+    "- Shared workspaces are for analysis and review.",
+    "- Isolated workspaces are required for implementation.",
+    "- Same-repo concurrent implementation is allowed only through isolated workspaces.",
+    "",
+    "## Project Summary",
+    "",
+    ...projects.flatMap((project) => {
+      const shared = project.workspaces.find((workspace) => workspace.name === "shared");
+      const implementation = project.workspaces.find((workspace) => workspace.name === "implementation");
+      return [
+        `### ${project.slug}`,
+        `- Lead: ${project.leadAgentSlug}`,
+        `- Shared path: ${shared?.cwd ?? "n/a"}`,
+        `- Implementation strategy: ${implementation?.executionPolicy?.isolationStrategy ?? "worktree"}`,
+        `- Review focus: ${(shared?.metadata?.stack ?? []).join(", ") || "n/a"}`,
+      ];
+    }),
+  ].join("\n");
+}
+
+function renderRagPlan(projects) {
+  return [
+    "# RAG Index Plan",
+    "",
+    "## P0 Import Order",
+    "",
+    "1. swiftsight-cloud",
+    "2. swiftsight-agent",
+    "3. swiftcl",
+    "4. swiftsight-report-server",
+    "5. swiftsight-worker",
+    "",
+    "## Focus",
+    "",
+    ...projects.map((project) => {
+      const shared = project.workspaces.find((workspace) => workspace.name === "shared");
+      const stack = Array.isArray(shared?.metadata?.stack) ? shared.metadata.stack : [];
+      const repoState = shared?.metadata?.repoState ?? "unknown";
+      return `- \`${project.slug}\`: priority=${shared?.metadata?.knowledgePriority ?? "P1"}, repoState=${repoState}, focus=${stack.join(", ")}`;
+    }),
+    "",
+    "## Special Notes",
+    "",
+    "- swiftsight-worker should start from read-heavy ingestion and isolated clone-based implementation.",
+    "- swiftsight-report-server should get QA attention early because test density is weak.",
+  ].join("\n");
+}
+
+function renderCompanyMarkdown(input) {
+  return [
+    "---",
+    "kind: company",
+    `name: ${JSON.stringify(input.companyName)}`,
+    "---",
+    "",
+    `# ${input.companyName}`,
+    "",
+    "SwiftSight organization bootstrap bundle for Squadrail.",
+    "",
+    "## Included Projects",
+    ...input.projects.map((project) => `- ${project.slug}`),
+    "",
+    "## Included Roles",
+    "- CTO",
+    "- PM",
+    "- QA Lead / QA Engineer",
+    "- Project Tech Leads",
+    "- Codex + Claude Engineers per project",
+  ].join("\n");
+}
+
+async function writeBundleFiles(input) {
+  await fs.mkdir(input.out, { recursive: true });
+
+  await fs.writeFile(
+    path.join(input.out, MANIFEST_NAME),
+    JSON.stringify(input.manifest, null, 2),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(input.out, "COMPANY.md"),
+    renderCompanyMarkdown(input),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(input.out, "README.md"),
+    renderBundleReadme({
+      companyName: input.companyName,
+      generatedAt: input.generatedAt,
+      bundleDir: input.out,
+      projects: input.projects,
+    }),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(input.out, "OPERATING_MODEL.md"),
+    renderOperatingModel(input.projects),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(input.out, "RAG_INDEX_PLAN.md"),
+    renderRagPlan(input.projects),
+    "utf8",
+  );
+
+  for (const agent of input.agents) {
+    const filePath = path.join(input.out, agent.path);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, agent.markdown, "utf8");
+  }
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  if (opts.help) {
+    console.log("Usage: node scripts/bootstrap/generate-swiftsight-org-bundle.mjs [--root <path>] [--out <path>] [--company-name <name>]");
+    process.exit(0);
+  }
+
+  const generatedAt = new Date().toISOString();
+  const projects = buildProjects(opts.root);
+  const agents = buildAgents();
+  const manifest = {
+    schemaVersion: 1,
+    generatedAt,
+    source: null,
+    includes: {
+      company: true,
+      projects: true,
+      agents: true,
+    },
+    company: {
+      path: "COMPANY.md",
+      name: opts.companyName,
+      description: "SwiftSight organization bootstrap bundle for Squadrail.",
+      brandColor: COMPANY_COLOR,
+      requireBoardApprovalForNewAgents: true,
+    },
+    projects: projects.map(({ repoState: _repoState, ...project }) => project),
+    agents: agents.map(({ markdown: _markdown, ...agent }) => agent),
+    requiredSecrets: [],
+  };
+
+  await writeBundleFiles({
+    out: opts.out,
+    companyName: opts.companyName,
+    generatedAt,
+    manifest,
+    projects,
+    agents,
+  });
+
+  console.log(JSON.stringify({
+    ok: true,
+    out: opts.out,
+    manifest: path.join(opts.out, MANIFEST_NAME),
+    projects: projects.length,
+    agents: agents.length,
+  }, null, 2));
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

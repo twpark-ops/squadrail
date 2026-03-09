@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="176" height="36" viewBox="0 0 176 36" fill="none">
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 8H28C32 8 35 9 38 12L47 21C49 23 52 24 56 24H64" stroke="#D97706" stroke-width="4.5"/>
+    <path d="M8 18H30C33 18 36 19 39 21L51 31" stroke="#111827" stroke-width="4.5"/>
+    <path d="M8 28H38" stroke="#0F766E" stroke-width="4.5"/>
+    <circle cx="56" cy="24" r="2.5" fill="#111827"/>
+  </g>
+  <text x="76" y="24" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="700" fill="#111827">Squadrail</text>
+</svg>

@@ -1,0 +1,421 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const {
+  mockEnsureMembership,
+  mockAccessCanUser,
+  mockAccessHasPermission,
+  mockIssueCreate,
+  mockIssueGetById,
+  mockIssueUpdate,
+  mockIssueCheckout,
+  mockIssueFindMentionedAgents,
+  mockHeartbeatWakeup,
+  mockAgentGetById,
+  mockProtocolAppendMessage,
+  mockProtocolDispatchMessage,
+  mockIssueRetrievalHandleProtocolMessage,
+  mockLogActivity,
+} = vi.hoisted(() => ({
+  mockEnsureMembership: vi.fn(),
+  mockAccessCanUser: vi.fn(),
+  mockAccessHasPermission: vi.fn(),
+  mockIssueCreate: vi.fn(),
+  mockIssueGetById: vi.fn(),
+  mockIssueUpdate: vi.fn(),
+  mockIssueCheckout: vi.fn(),
+  mockIssueFindMentionedAgents: vi.fn(),
+  mockHeartbeatWakeup: vi.fn(),
+  mockAgentGetById: vi.fn(),
+  mockProtocolAppendMessage: vi.fn(),
+  mockProtocolDispatchMessage: vi.fn(),
+  mockIssueRetrievalHandleProtocolMessage: vi.fn(),
+  mockLogActivity: vi.fn(),
+}));
+
+vi.mock("../services/index.js", () => ({
+  accessService: () => ({
+    ensureMembership: mockEnsureMembership,
+    canUser: mockAccessCanUser,
+    hasPermission: mockAccessHasPermission,
+  }),
+  agentService: () => ({
+    getById: mockAgentGetById,
+    list: vi.fn(),
+  }),
+  goalService: () => ({
+    listForIssue: vi.fn(),
+  }),
+  heartbeatService: () => ({
+    wakeup: mockHeartbeatWakeup,
+    getRun: vi.fn(),
+  }),
+  issueApprovalService: () => ({
+    listApprovalsForIssue: vi.fn(),
+    unlink: vi.fn(),
+    link: vi.fn(),
+    listIssuesForApproval: vi.fn(),
+    linkManyForApproval: vi.fn(),
+  }),
+  issueProtocolExecutionService: () => ({
+    onIssueCommentCreated: vi.fn(),
+    dispatchMessage: mockProtocolDispatchMessage,
+  }),
+  issueRetrievalService: () => ({
+    buildBrief: vi.fn(),
+    listBriefs: vi.fn(),
+    handleProtocolMessage: mockIssueRetrievalHandleProtocolMessage,
+  }),
+  issueProtocolService: () => ({
+    getState: vi.fn(),
+    listMessages: vi.fn(),
+    listViolations: vi.fn(),
+    listReviewCycles: vi.fn(),
+    appendMessage: mockProtocolAppendMessage,
+  }),
+  issueService: () => ({
+    create: mockIssueCreate,
+    getById: mockIssueGetById,
+    update: mockIssueUpdate,
+    checkout: mockIssueCheckout,
+    addComment: vi.fn(),
+    findMentionedAgents: mockIssueFindMentionedAgents,
+    list: vi.fn(),
+    listComments: vi.fn(),
+    listAttachments: vi.fn(),
+    createAttachmentMetadata: vi.fn(),
+    removeAttachment: vi.fn(),
+    getAttachmentById: vi.fn(),
+    linkLabels: vi.fn(),
+    unlinkLabel: vi.fn(),
+    listLabels: vi.fn(),
+    remove: vi.fn(),
+    release: vi.fn(),
+    getProtocolState: vi.fn(),
+  }),
+  knowledgeService: () => ({
+    upsertDocument: vi.fn(),
+  }),
+  projectService: () => ({
+    list: vi.fn(),
+  }),
+  logActivity: mockLogActivity,
+}));
+
+import { issueRoutes } from "../routes/issues.js";
+
+type BoardActor = {
+  type: "board";
+  source: "local_implicit" | "session";
+  isInstanceAdmin: boolean;
+  userId: string;
+  companyIds: string[];
+  runId: string | null;
+};
+
+type AgentActor = {
+  type: "agent";
+  source: "agent_jwt" | "agent_key";
+  agentId: string;
+  companyId: string;
+  runId?: string;
+};
+
+function buildBoardActor(companyIds: string[] = ["company-1"]): BoardActor {
+  return {
+    type: "board",
+    source: "local_implicit",
+    isInstanceAdmin: true,
+    userId: "user-1",
+    companyIds,
+    runId: null,
+  };
+}
+
+function buildAgentActor(agentId = "agent-1", companyId = "company-1"): AgentActor {
+  return {
+    type: "agent",
+    source: "agent_jwt",
+    agentId,
+    companyId,
+  };
+}
+
+function createTestRouter() {
+  return issueRoutes({} as never, {
+    putObject: vi.fn(),
+    deleteObject: vi.fn(),
+    getObjectStream: vi.fn(),
+  } as never) as any;
+}
+
+function findRouteLayer(router: any, path: string, method: "post" | "patch") {
+  const layer = router.stack.find(
+    (entry: any) => entry.route?.path === path && entry.route?.methods?.[method] === true,
+  );
+  if (!layer?.route?.stack) {
+    throw new Error(`Route ${method.toUpperCase()} ${path} not found`);
+  }
+  return layer.route.stack.map((entry: any) => entry.handle as Function);
+}
+
+async function invokeRoute(input: {
+  path: string;
+  method: "post" | "patch";
+  params?: Record<string, string>;
+  body?: unknown;
+  actor?: BoardActor;
+}) {
+  const router = createTestRouter();
+  const handlers = findRouteLayer(router, input.path, input.method);
+  const req = {
+    params: input.params ?? {},
+    body: input.body ?? {},
+    query: {},
+    actor: input.actor ?? buildBoardActor(),
+  } as any;
+  const state: { statusCode: number; body: unknown } = { statusCode: 200, body: undefined };
+  const res = {
+    status(code: number) {
+      state.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      state.body = payload;
+      return this;
+    },
+  };
+
+  try {
+    for (const handler of handlers) {
+      await new Promise<void>((resolve, reject) => {
+        try {
+          const result = handler(req, res, (error?: unknown) => {
+            if (error) reject(error);
+            else resolve();
+          });
+
+          if (result && typeof result.then === "function") {
+            result.then(() => resolve(), reject);
+            return;
+          }
+
+          if (handler.length < 3) resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }
+
+    return state;
+  } catch (error: any) {
+    return {
+      statusCode: error?.status ?? 500,
+      body: { error: error?.message ?? "Unhandled error" },
+    };
+  }
+}
+
+describe("issue routes wakeup handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEnsureMembership.mockResolvedValue(true);
+    mockAccessCanUser.mockResolvedValue(true);
+    mockAccessHasPermission.mockResolvedValue(true);
+    mockIssueFindMentionedAgents.mockResolvedValue([]);
+    mockAgentGetById.mockResolvedValue(null);
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-1", seq: 1 },
+      state: {},
+    });
+    mockProtocolDispatchMessage.mockResolvedValue(undefined);
+    mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({ recipientHints: [] });
+  });
+
+  it("awaits assignee wakeup on issue create", async () => {
+    let wakeResolved = false;
+    mockIssueCreate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-101",
+      title: "Create test issue",
+      status: "todo",
+      assigneeAgentId: "22222222-2222-4222-8222-222222222222",
+    });
+    mockHeartbeatWakeup.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            wakeResolved = true;
+            resolve({ id: "run-1" });
+          }, 0);
+        }),
+    );
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/issues",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        title: "Create test issue",
+        assigneeAgentId: "22222222-2222-4222-8222-222222222222",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatWakeup).toHaveBeenCalledWith(
+      "22222222-2222-4222-8222-222222222222",
+      expect.objectContaining({
+        reason: "issue_assigned",
+        payload: { issueId: "11111111-1111-4111-8111-111111111111", mutation: "create" },
+      }),
+    );
+    expect(wakeResolved).toBe(true);
+  });
+
+  it("awaits assignee wakeup on issue reassignment", async () => {
+    let wakeResolved = false;
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-102",
+      title: "Existing issue",
+      status: "todo",
+      assigneeAgentId: null,
+      assigneeUserId: null,
+      createdByUserId: "user-1",
+    });
+    mockIssueUpdate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-102",
+      title: "Existing issue",
+      status: "todo",
+      assigneeAgentId: "33333333-3333-4333-8333-333333333333",
+      assigneeUserId: null,
+    });
+    mockHeartbeatWakeup.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            wakeResolved = true;
+            resolve({ id: "run-2" });
+          }, 0);
+        }),
+    );
+
+    const response = await invokeRoute({
+      path: "/issues/:id",
+      method: "patch",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: { assigneeAgentId: "33333333-3333-4333-8333-333333333333" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockHeartbeatWakeup).toHaveBeenCalledWith(
+      "33333333-3333-4333-8333-333333333333",
+      expect.objectContaining({
+        reason: "issue_assigned",
+        payload: { issueId: "11111111-1111-4111-8111-111111111111", mutation: "update" },
+      }),
+    );
+    expect(wakeResolved).toBe(true);
+  });
+
+  it("awaits wakeup on checkout", async () => {
+    let wakeResolved = false;
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-103",
+      title: "Checkout issue",
+      status: "todo",
+    });
+    mockIssueCheckout.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-103",
+      title: "Checkout issue",
+      status: "in_progress",
+    });
+    mockHeartbeatWakeup.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            wakeResolved = true;
+            resolve({ id: "run-3" });
+          }, 0);
+        }),
+    );
+
+    const response = await invokeRoute({
+      path: "/issues/:id/checkout",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        agentId: "44444444-4444-4444-8444-444444444444",
+        expectedStatuses: ["todo", "backlog", "blocked"],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockHeartbeatWakeup).toHaveBeenCalledWith(
+      "44444444-4444-4444-8444-444444444444",
+      expect.objectContaining({
+        reason: "issue_checked_out",
+        payload: { issueId: "11111111-1111-4111-8111-111111111111", mutation: "checkout" },
+      }),
+    );
+    expect(wakeResolved).toBe(true);
+  });
+
+  it("allows cto agents to post task assignment protocol messages without explicit grants", async () => {
+    mockAccessHasPermission.mockResolvedValue(false);
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-200",
+      title: "Protocol issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "cto-1",
+      companyId: "company-1",
+      role: "cto",
+      title: "CTO",
+      permissions: {},
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("cto-1"),
+      body: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "cto-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "22222222-2222-4222-8222-222222222222", role: "tech_lead" },
+          { recipientType: "agent", recipientId: "33333333-3333-4333-8333-333333333333", role: "reviewer" },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "Delegate to cloud TL",
+        payload: {
+          reason: "Project-level ownership belongs to cloud TL",
+          newAssigneeAgentId: "22222222-2222-4222-8222-222222222222",
+          newReviewerAgentId: "33333333-3333-4333-8333-333333333333",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledTimes(1);
+  });
+});

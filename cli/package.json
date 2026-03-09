@@ -1,0 +1,56 @@
+{
+  "name": "squadrail",
+  "version": "0.2.7",
+  "description": "Squadrail CLI — orchestrate AI agent squads to run software delivery",
+  "type": "module",
+  "bin": {
+    "squadrail": "./dist/index.js"
+  },
+  "keywords": [
+    "squadrail",
+    "ai",
+    "agents",
+    "orchestration",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/twpark-ops/squadall.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/twpark-ops/squadall",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "node --input-type=module -e \"import esbuild from 'esbuild'; import config from './esbuild.config.mjs'; await esbuild.build(config);\" && chmod +x dist/index.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.10.0",
+    "@squadrail/adapter-claude-local": "workspace:*",
+    "@squadrail/adapter-codex-local": "workspace:*",
+    "@squadrail/adapter-cursor-local": "workspace:*",
+    "@squadrail/adapter-opencode-local": "workspace:*",
+    "@squadrail/adapter-openclaw": "workspace:*",
+    "@squadrail/adapter-utils": "workspace:*",
+    "@squadrail/db": "workspace:*",
+    "@squadrail/server": "workspace:*",
+    "@squadrail/shared": "workspace:*",
+    "drizzle-orm": "0.38.4",
+    "dotenv": "^17.0.1",
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

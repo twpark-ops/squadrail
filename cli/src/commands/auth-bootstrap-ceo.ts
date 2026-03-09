@@ -1,0 +1,117 @@
+import { createHash, randomBytes } from "node:crypto";
+import * as p from "@clack/prompts";
+import pc from "picocolors";
+import { and, eq, gt, isNull } from "drizzle-orm";
+import { createDb, instanceUserRoles, invites } from "@squadrail/db";
+import { readConfig, resolveConfigPath } from "../config/store.js";
+import { PRODUCT_NAME, formatCliCommand } from "../utils/branding.js";
+
+function hashToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function createInviteToken() {
+  return `pcp_bootstrap_${randomBytes(24).toString("hex")}`;
+}
+
+function resolveDbUrl(configPath?: string) {
+  const config = readConfig(configPath);
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (config?.database.mode === "postgres" && config.database.connectionString) {
+    return config.database.connectionString;
+  }
+  if (config?.database.mode === "embedded-postgres") {
+    const port = config.database.embeddedPostgresPort ?? 54329;
+    return `postgres://squadrail:squadrail@127.0.0.1:${port}/squadrail`;
+  }
+  return null;
+}
+
+function resolveBaseUrl(configPath?: string, explicitBaseUrl?: string) {
+  if (explicitBaseUrl) return explicitBaseUrl.replace(/\/+$/, "");
+  const config = readConfig(configPath);
+  if (config?.auth.baseUrlMode === "explicit" && config.auth.publicBaseUrl) {
+    return config.auth.publicBaseUrl.replace(/\/+$/, "");
+  }
+  const host = config?.server.host ?? "localhost";
+  const port = config?.server.port ?? 3100;
+  const publicHost = host === "0.0.0.0" ? "localhost" : host;
+  return `http://${publicHost}:${port}`;
+}
+
+export async function bootstrapCeoInvite(opts: {
+  config?: string;
+  force?: boolean;
+  expiresHours?: number;
+  baseUrl?: string;
+}) {
+  const configPath = resolveConfigPath(opts.config);
+  const config = readConfig(configPath);
+  if (!config) {
+    p.log.error(`No config found at ${configPath}. Run ${pc.cyan(formatCliCommand("onboard"))} first.`);
+    return;
+  }
+
+  if (config.server.deploymentMode !== "authenticated") {
+    p.log.info("Deployment mode is local_trusted. Bootstrap CEO invite is only required for authenticated mode.");
+    return;
+  }
+
+  const dbUrl = resolveDbUrl(configPath);
+  if (!dbUrl) {
+    p.log.error(
+      "Could not resolve database connection for bootstrap.",
+    );
+    return;
+  }
+
+  const db = createDb(dbUrl);
+  try {
+    const existingAdminCount = await db
+      .select()
+      .from(instanceUserRoles)
+      .where(eq(instanceUserRoles.role, "instance_admin"))
+      .then((rows) => rows.length);
+
+    if (existingAdminCount > 0 && !opts.force) {
+      p.log.info("Instance already has an admin user. Use --force to generate a new bootstrap invite.");
+      return;
+    }
+
+    const now = new Date();
+    await db
+      .update(invites)
+      .set({ revokedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(invites.inviteType, "bootstrap_ceo"),
+          isNull(invites.revokedAt),
+          isNull(invites.acceptedAt),
+          gt(invites.expiresAt, now),
+        ),
+      );
+
+    const token = createInviteToken();
+    const expiresHours = Math.max(1, Math.min(24 * 30, opts.expiresHours ?? 72));
+    const created = await db
+      .insert(invites)
+      .values({
+        inviteType: "bootstrap_ceo",
+        tokenHash: hashToken(token),
+        allowedJoinTypes: "human",
+        expiresAt: new Date(Date.now() + expiresHours * 60 * 60 * 1000),
+        invitedByUserId: "system",
+      })
+      .returning()
+      .then((rows) => rows[0]);
+
+    const baseUrl = resolveBaseUrl(configPath, opts.baseUrl);
+    const inviteUrl = `${baseUrl}/invite/${token}`;
+    p.log.success("Created bootstrap CEO invite.");
+    p.log.message(`Invite URL: ${pc.cyan(inviteUrl)}`);
+    p.log.message(`Expires: ${pc.dim(created.expiresAt.toISOString())}`);
+  } catch (err) {
+    p.log.error(`Could not create bootstrap invite: ${err instanceof Error ? err.message : String(err)}`);
+    p.log.info(`If using embedded-postgres, start the ${PRODUCT_NAME} server and run this command again.`);
+  }
+}

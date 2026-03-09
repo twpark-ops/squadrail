@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1440" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#08111F"/>
+      <stop offset="0.55" stop-color="#12243A"/>
+      <stop offset="1" stop-color="#1C3550"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="242" y1="134" x2="778" y2="648" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F4A261"/>
+      <stop offset="1" stop-color="#2A9D8F"/>
+    </linearGradient>
+    <radialGradient id="orb" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1160 170) rotate(132) scale(420 420)">
+      <stop stop-color="#F4A261" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#F4A261" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1440" height="900" rx="44" fill="url(#bg)"/>
+  <rect x="52" y="52" width="1336" height="796" rx="36" stroke="rgba(231,236,242,0.14)" stroke-width="2"/>
+  <circle cx="1160" cy="170" r="420" fill="url(#orb)"/>
+  <g opacity="0.16">
+    <path d="M104 716H404C450 716 488 729 520 760L624 864" stroke="#E7ECF2" stroke-width="18" stroke-linecap="round"/>
+    <path d="M104 572H540C590 572 632 590 664 626L824 806" stroke="#E7ECF2" stroke-width="18" stroke-linecap="round"/>
+    <path d="M104 428H660C728 428 784 450 826 492L1018 684" stroke="#E7ECF2" stroke-width="18" stroke-linecap="round"/>
+  </g>
+  <g>
+    <path d="M176 206H470C526 206 573 224 611 262L740 391C775 426 816 444 872 444H970" stroke="url(#glow)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M176 338H518C562 338 602 352 634 378L818 526" stroke="#E7ECF2" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M176 470H586" stroke="#2A9D8F" stroke-width="26" stroke-linecap="round"/>
+    <circle cx="872" cy="444" r="18" fill="#E7ECF2"/>
+  </g>
+  <text x="176" y="630" fill="#F8FAFC" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="118" font-weight="760">Squadrail</text>
+  <text x="176" y="720" fill="#D5DCE5" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="48" font-weight="560">Protocol-first control plane for software squads.</text>
+  <text x="176" y="784" fill="#9FB0C5" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="32">Route work through CTO, tech leads, engineers, reviewers, and knowledge-backed execution.</text>
+</svg>
