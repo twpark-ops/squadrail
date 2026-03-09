@@ -120,6 +120,7 @@ Common message types:
 `SUBMIT_FOR_REVIEW` is treated as a structured handoff. At minimum, provide:
 
 - `implementationSummary`
+- `evidence[]`
 - `diffSummary`
 - `changedFiles[]`
 - `testResults[]`

@@ -162,6 +162,7 @@ Headers: X-Squadrail-Run-Id: $SQUADRAIL_RUN_ID
 For `SUBMIT_FOR_REVIEW`, the payload must include:
 
 - `implementationSummary`
+- `evidence[]`
 - `diffSummary`
 - `changedFiles[]`
 - `testResults[]`

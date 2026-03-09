@@ -20,6 +20,7 @@ import { cn } from "../lib/utils";
 type HumanBoardAction =
   | "ASSIGN_TASK"
   | "REASSIGN_TASK"
+  | "REQUEST_CHANGES"
   | "APPROVE_IMPLEMENTATION"
   | "CLOSE_TASK"
   | "CANCEL_TASK"
@@ -40,11 +41,21 @@ interface ProtocolActionConsoleProps {
 const HUMAN_BOARD_ACTIONS: HumanBoardAction[] = [
   "ASSIGN_TASK",
   "REASSIGN_TASK",
+  "REQUEST_CHANGES",
   "APPROVE_IMPLEMENTATION",
   "CLOSE_TASK",
   "CANCEL_TASK",
   "NOTE",
 ];
+
+const CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS = new Set([
+  "diff",
+  "commit",
+  "approval",
+  "test_run",
+  "build_run",
+  "doc",
+]);
 
 function formatProtocolValue(value: string) {
   return value
@@ -57,6 +68,27 @@ function parseLineList(value: string) {
     .split(/\r?\n/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function parseChangeRequests(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [title = "", reason = "", affectedFiles = "", suggestedAction = ""] = entry
+        .split("|")
+        .map((part) => part.trim());
+      return {
+        title,
+        reason,
+        affectedFiles: affectedFiles
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean),
+        ...(suggestedAction ? { suggestedAction } : {}),
+      };
+    });
 }
 
 function parseArtifacts(value: string): NonNullable<CreateIssueProtocolMessage["artifacts"]> {
@@ -103,8 +135,9 @@ function availableActions(state: IssueProtocolState | null): HumanBoardAction[] 
     case "submitted_for_review":
       return ["NOTE", "CANCEL_TASK"];
     case "under_review":
-    case "awaiting_human_decision":
       return ["APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
+    case "awaiting_human_decision":
+      return ["REQUEST_CHANGES", "APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
     case "approved":
       return ["CLOSE_TASK", "NOTE", "CANCEL_TASK"];
     case "done":
@@ -120,6 +153,8 @@ function nextWorkflowState(action: HumanBoardAction, currentState: IssueProtocol
     case "ASSIGN_TASK":
     case "REASSIGN_TASK":
       return "assigned";
+    case "REQUEST_CHANGES":
+      return "changes_requested";
     case "APPROVE_IMPLEMENTATION":
       return "approved";
     case "CLOSE_TASK":
@@ -187,6 +222,9 @@ export function ProtocolActionConsole({
   const [reviewerAgentId, setReviewerAgentId] = useState("");
   const [requiredKnowledgeTags, setRequiredKnowledgeTags] = useState("");
   const [deadlineAt, setDeadlineAt] = useState("");
+  const [reviewSummary, setReviewSummary] = useState("");
+  const [requiredEvidence, setRequiredEvidence] = useState("");
+  const [changeRequestLines, setChangeRequestLines] = useState("");
   const [reassignReason, setReassignReason] = useState("");
   const [approvalSummary, setApprovalSummary] = useState("");
   const [approvalMode, setApprovalMode] = useState<(typeof ISSUE_PROTOCOL_APPROVAL_MODES)[number]>("human_override");
@@ -253,12 +291,14 @@ export function ProtocolActionConsole({
     [activeAgents, extraRecipients],
   );
 
-  function autoSummary(action: HumanBoardAction) {
+  function autoSummary(action: HumanBoardAction): string {
     switch (action) {
       case "ASSIGN_TASK":
         return `Board assigned ${issueIdentifier} for execution`;
       case "REASSIGN_TASK":
         return `Board reassigned ${issueIdentifier}`;
+      case "REQUEST_CHANGES":
+        return `Board requested changes for ${issueIdentifier}`;
       case "APPROVE_IMPLEMENTATION":
         return `Board approved implementation for ${issueIdentifier}`;
       case "CLOSE_TASK":
@@ -351,6 +391,14 @@ export function ProtocolActionConsole({
     }
     if (action === "REASSIGN_TASK") {
       setReassignReason(`Reassign ${issueIdentifier} to unblock delivery while preserving current brief and reviewer expectations.`);
+      return;
+    }
+    if (action === "REQUEST_CHANGES") {
+      setReviewSummary(`Human review for ${issueIdentifier} requires explicit follow-up before approval.`);
+      setRequiredEvidence("Updated verification evidence\nRollback readiness note");
+      setChangeRequestLines(
+        "Strengthen verification evidence|Current handoff does not show enough validation coverage.|docs/release/checklist.md,server/src/__tests__/release.test.ts|Attach the missing verification evidence and summarize the expected rollback trigger.",
+      );
       return;
     }
     if (action === "APPROVE_IMPLEMENTATION") {
@@ -469,6 +517,40 @@ export function ProtocolActionConsole({
           artifacts,
         };
         break;
+      case "REQUEST_CHANGES": {
+        const parsedChangeRequests = parseChangeRequests(changeRequestLines);
+        if (
+          !reviewSummary.trim()
+          || parseLineList(requiredEvidence).length === 0
+          || parsedChangeRequests.length === 0
+          || parsedChangeRequests.some((request) =>
+            !request.title
+            || !request.reason
+            || (request.affectedFiles.length === 0 && !request.suggestedAction)
+          )
+        ) {
+          setError("Request changes requires review summary, required evidence, and structured change requests.");
+          return;
+        }
+        message = {
+          messageType: "REQUEST_CHANGES",
+          sender: { actorType: "user", actorId: currentUserId, role: "human_board" },
+          recipients,
+          workflowStateBefore: currentState,
+          workflowStateAfter: nextState,
+          summary: resolvedSummary,
+          requiresAck: false,
+          payload: {
+            reviewSummary: reviewSummary.trim(),
+            changeRequests: parsedChangeRequests,
+            severity: "high",
+            mustFixBeforeApprove: true,
+            requiredEvidence: parseLineList(requiredEvidence),
+          },
+          artifacts,
+        };
+        break;
+      }
       case "APPROVE_IMPLEMENTATION":
         if (
           !approvalSummary.trim()
@@ -508,6 +590,21 @@ export function ProtocolActionConsole({
           || parseLineList(finalArtifacts).length === 0
         ) {
           setError("Close task requires closure summary, verification summary, rollback plan, and final artifacts.");
+          return;
+        }
+        if (closeReason === "moved_to_followup" && parseLineList(followUpIssueIds).length === 0) {
+          setError("Close task with follow-up requires follow-up issue IDs.");
+          return;
+        }
+        if (finalTestStatus === "passed_with_known_risk" && parseLineList(remainingRisks).length === 0) {
+          setError("Close task with known risk requires remaining risks.");
+          return;
+        }
+        if (
+          mergeStatus === "merged"
+          && !artifacts.some((artifact) => CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS.has(artifact.kind))
+        ) {
+          setError("Close task with merged status requires verification artifacts.");
           return;
         }
         message = {
@@ -610,6 +707,14 @@ export function ProtocolActionConsole({
           assignmentRecipientRole,
           newReviewerAgentId: reviewerAgentId || null,
         };
+      case "REQUEST_CHANGES":
+        return {
+          reviewSummary: reviewSummary.trim(),
+          requiredEvidence: parseLineList(requiredEvidence),
+          changeRequests: parseChangeRequests(changeRequestLines),
+          severity: "major",
+          mustFixBeforeApprove: true,
+        };
       case "APPROVE_IMPLEMENTATION":
         return {
           approvalSummary: approvalSummary.trim(),
@@ -659,6 +764,7 @@ export function ProtocolActionConsole({
     followUpActions,
     followUpIssueIds,
     goal,
+    changeRequestLines,
     mergeStatus,
     noteBody,
     noteType,
@@ -667,8 +773,10 @@ export function ProtocolActionConsole({
     remainingRisks,
     replacementIssueId,
     requiredKnowledgeTags,
+    requiredEvidence,
     assignmentRecipientRole,
     reviewerAgentId,
+    reviewSummary,
     selectedAction,
     verifiedEvidence,
     closureSummary,
@@ -876,6 +984,40 @@ export function ProtocolActionConsole({
                 value={reassignReason}
                 onChange={(event) => setReassignReason(event.target.value)}
                 placeholder="Explain why reassignment is required and what must carry forward."
+              />
+            </label>
+          </div>
+        )}
+
+        {selectedAction === "REQUEST_CHANGES" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block md:col-span-2">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Review summary</div>
+              <textarea
+                className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={reviewSummary}
+                onChange={(event) => setReviewSummary(event.target.value)}
+                placeholder="Explain why approval is blocked and what must change before the issue can proceed."
+              />
+            </label>
+            <label className="block">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Required evidence</div>
+              <textarea
+                className="min-h-[96px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={requiredEvidence}
+                onChange={(event) => setRequiredEvidence(event.target.value)}
+                placeholder={"One item per line\nUpdated test run\nRollback checkpoint note"}
+              />
+            </label>
+            <label className="block md:col-span-2">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Change requests</div>
+              <textarea
+                className="min-h-[120px] w-full rounded-md border border-border bg-transparent px-3 py-2 font-mono text-xs outline-none"
+                value={changeRequestLines}
+                onChange={(event) => setChangeRequestLines(event.target.value)}
+                placeholder={
+                  "One request per line: title|reason|file1,file2|suggested action\nMissing rollback evidence|Rollback trigger is not documented.|docs/release/checklist.md|Add rollback trigger and rollback owner."
+                }
               />
             </label>
           </div>

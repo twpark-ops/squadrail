@@ -480,24 +480,22 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
   function inferProtocolViolationFromError(err: unknown) {
     if (!(err instanceof HttpError)) return null;
+    const messageText = err.message.toLowerCase();
 
     if (err.status === 409) {
-      if (err.message.includes("active review cycle already exists")) {
+      if (messageText.includes("active review cycle already exists")) {
         return { violationCode: "duplicate_active_review", severity: "high" } as const;
       }
-      if (err.message.includes("No active review cycle found")) {
+      if (messageText.includes("no active review cycle found")) {
         return { violationCode: "stale_review_cycle_action", severity: "medium" } as const;
       }
-       if (
-        err.message.includes("without SUBMIT_FOR_REVIEW")
-        || err.message.includes("without SUBMIT_FOR_REVIEW")
-      ) {
+      if (messageText.includes("without submit_for_review")) {
         return { violationCode: "invalid_predecessor_message", severity: "high" } as const;
       }
-      if (err.message.includes("Cannot close task before approval")) {
+      if (messageText.includes("cannot close task before approval")) {
         return { violationCode: "close_without_approval", severity: "high" } as const;
       }
-      if (err.message.includes("Close task requires")) {
+      if (messageText.includes("close task requires") || messageText.includes("close_task requires")) {
         return { violationCode: "close_without_verification", severity: "high" } as const;
       }
       return { violationCode: "invalid_state_transition", severity: "high" } as const;
@@ -508,13 +506,13 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
 
     if (err.status === 422) {
-      if (err.message.includes("Missing required artifact")) {
+      if (messageText.includes("missing required artifact")) {
         return { violationCode: "missing_required_artifact", severity: "medium" } as const;
       }
-      if (err.message.includes("Only the assigned") || err.message.includes("Sender role")) {
+      if (messageText.includes("only the assigned") || messageText.includes("sender role")) {
         return { violationCode: "unauthorized_sender", severity: "high" } as const;
       }
-      if (err.message.includes("Close task requires")) {
+      if (messageText.includes("close task requires") || messageText.includes("close_task requires")) {
         return { violationCode: "close_without_verification", severity: "high" } as const;
       }
       return { violationCode: "recipient_role_mismatch", severity: "medium" } as const;

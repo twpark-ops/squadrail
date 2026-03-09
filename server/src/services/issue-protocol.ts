@@ -66,9 +66,9 @@ const MESSAGE_RULES: Record<
     stateChanging: true,
   },
   REQUEST_CHANGES: {
-    from: ["under_review"],
+    from: ["under_review", "awaiting_human_decision"],
     to: "changes_requested",
-    roles: ["reviewer", "tech_lead", "qa"],
+    roles: ["reviewer", "tech_lead", "qa", "human_board"],
     stateChanging: true,
   },
   ACK_CHANGE_REQUEST: {
@@ -222,6 +222,21 @@ function firstRecipientIdForRole(
   return match?.recipientId ?? null;
 }
 
+export function validateHumanBoardProtocolIntervention(input: {
+  messageType: IssueProtocolMessageType;
+  senderRole: IssueProtocolRole;
+  workflowStateBefore: IssueProtocolWorkflowState;
+}) {
+  if (
+    input.messageType === "REQUEST_CHANGES"
+    && input.senderRole === "human_board"
+    && input.workflowStateBefore !== "awaiting_human_decision"
+  ) {
+    return "Human board can request changes only after REQUEST_HUMAN_DECISION";
+  }
+  return null;
+}
+
 type ProtocolOwnershipState = {
   techLeadAgentId: string | null;
   primaryEngineerAgentId: string | null;
@@ -359,6 +374,15 @@ export function issueProtocolService(db: Db) {
 
     if (rule.stateChanging === false && message.workflowStateBefore !== message.workflowStateAfter) {
       throw conflict(`Message ${message.messageType} cannot change state`);
+    }
+
+    const humanBoardOverrideViolation = validateHumanBoardProtocolIntervention({
+      messageType: message.messageType,
+      senderRole: message.sender.role,
+      workflowStateBefore: before,
+    });
+    if (humanBoardOverrideViolation) {
+      throw unprocessable(humanBoardOverrideViolation);
     }
 
     if (message.sender.role === "engineer" && currentState?.primaryEngineerAgentId) {
