@@ -9,6 +9,8 @@ const DEFAULT_OUT = path.resolve(process.cwd(), "tmp/swiftsight-org-bundle");
 const MANIFEST_NAME = "squadrail.manifest.json";
 const COMPANY_COLOR = "#2563eb";
 const DEFAULT_ROLE_PACK_PRESET = "example_large_org_v1";
+const DEFAULT_CLAUDE_TIMEOUT_SEC = 900;
+const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
 
 const PROJECT_CATALOG = [
   {
@@ -164,7 +166,7 @@ function buildExecutionLoop(agent) {
     return [
       "Restate the issue goal, ownership boundary, and acceptance criteria before assigning work or changing state.",
       "Ground decisions in the latest brief, retrieval evidence, and nearby code or docs from the target repository.",
-      "Route implementation to the project engineer only after reviewer ownership, validation expectations, and rollback concerns are explicit.",
+      "Route implementation to the correct project engineer lane only after reviewer ownership, validation expectations, and rollback concerns are explicit.",
     ];
   }
 
@@ -245,6 +247,7 @@ You operate inside the SwiftSight organization bootstrap for Squadrail.
 - Primary project: ${input.projectSlug ?? "cross-project"}
 - Discipline: ${input.discipline ?? "cross-functional"}
 - Execution engine: ${input.adapterType}
+- Delivery lane: ${input.deliveryLane ?? "general"}
 
 ## Responsibilities
 ${input.responsibilities.map((line) => `- ${line}`).join("\n")}
@@ -269,6 +272,7 @@ ${buildHandoffChecklist(input).map((line) => `- ${line}`).join("\n")}
 - Use the latest brief and retrieval evidence before acting.
 - Respect workspace policy. Shared workspaces are for analysis/review; isolated workspaces are for implementation.
 - Never edit code in a shared workspace.
+- During review, treat submitted diff/test artifacts and implementation workspace binding as the source of truth. The shared workspace may still reflect base HEAD and not the isolated implementation branch.
 - Include changed files, tests, risks, and follow-up items whenever work changes state.
 `;
 }
@@ -525,38 +529,88 @@ function topLevelAgents() {
   ];
 }
 
-function projectEngineer(project) {
+function projectEngineerReportsTo(project) {
   const reportsToSlug =
     project.slug === "swiftsight-report-server" || project.slug === "swiftsight-worker"
       ? "python-tl"
       : `${project.slug}-tl`;
-  return {
-    slug: `${project.slug}-engineer`,
-    name: `${project.slug} Engineer`,
-    role: "engineer",
-    title: "Engineer",
-    reportsToSlug,
-    adapterType: "codex_local",
-    projectSlug: project.slug,
-    discipline: `${project.language.toLowerCase()} implementation`,
-    capabilities: `${project.language} implementation, ${project.stack.join(", ")}`,
-    responsibilities: [
-      `Implement assigned ${project.slug} work with explicit evidence, changed files, and test notes.`,
-      "Use the TL for decomposition and reviewer routing; keep implementation loops tight and verifiable.",
-      "Prefer the isolated implementation workspace whenever code changes are required.",
-    ],
-    focusAreas: [
-      ...project.stack,
-      ...project.reviewFocus,
-    ],
-  };
+  return reportsToSlug;
+}
+
+function projectEngineers(project) {
+  const reportsToSlug = projectEngineerReportsTo(project);
+  return [
+    {
+      slug: `${project.slug}-engineer-codex`,
+      name: `${project.slug} Codex Engineer`,
+      role: "engineer",
+      title: "Engineer",
+      reportsToSlug,
+      adapterType: "codex_local",
+      projectSlug: project.slug,
+      discipline: `${project.language.toLowerCase()} implementation`,
+      deliveryLane: "implementation",
+      capabilities: `${project.language} implementation, ${project.stack.join(", ")}`,
+      responsibilities: [
+        `Implement assigned ${project.slug} work with explicit evidence, changed files, and test notes.`,
+        "Own isolated-workspace edits, focused validation runs, and review-ready delivery artifacts.",
+        "Escalate to the paired Claude engineer or TL when retrieval is weak, scope is unclear, or the patch needs broader design synthesis.",
+      ],
+      focusAreas: [
+        ...project.stack,
+        ...project.reviewFocus,
+        "isolated workspace execution",
+        "test/build verification",
+      ],
+    },
+    {
+      slug: `${project.slug}-engineer-claude`,
+      name: `${project.slug} Claude Engineer`,
+      role: "engineer",
+      title: "Engineer",
+      reportsToSlug,
+      adapterType: "claude_local",
+      projectSlug: project.slug,
+      discipline: `${project.language.toLowerCase()} analysis`,
+      deliveryLane: "analysis",
+      capabilities: `${project.language} analysis, design decomposition, ${project.stack.join(", ")}`,
+      responsibilities: [
+        `Own planning, retrieval-grounded analysis, and implementation design for ${project.slug}.`,
+        "Prepare file targets, acceptance criteria, and rollout notes before deep implementation begins.",
+        "Support the paired Codex engineer with design clarification, edge-case review, and evidence synthesis.",
+      ],
+      focusAreas: [
+        ...project.stack,
+        ...project.reviewFocus,
+        "brief synthesis",
+        "design decomposition",
+        "evidence packaging",
+      ],
+    },
+  ];
 }
 
 function buildAgents() {
   const defs = [...topLevelAgents()];
   for (const project of PROJECT_CATALOG) {
-    defs.push(projectEngineer(project));
+    defs.push(...projectEngineers(project));
   }
+
+  const buildAdapterConfig = (adapterType) => {
+    if (adapterType === "claude_local") {
+      return {
+        dangerouslySkipPermissions: true,
+        timeoutSec: DEFAULT_CLAUDE_TIMEOUT_SEC,
+      };
+    }
+    if (adapterType === "codex_local") {
+      return {
+        model: DEFAULT_CODEX_MODEL,
+        dangerouslyBypassApprovalsAndSandbox: true,
+      };
+    }
+    return {};
+  };
 
   return defs.map((agent) => ({
     slug: agent.slug,
@@ -568,7 +622,7 @@ function buildAgents() {
     capabilities: agent.capabilities,
     reportsToSlug: agent.reportsToSlug,
     adapterType: agent.adapterType,
-    adapterConfig: {},
+    adapterConfig: buildAdapterConfig(agent.adapterType),
     runtimeConfig: {},
     permissions: {},
     budgetMonthlyCents: 0,
@@ -577,6 +631,7 @@ function buildAgents() {
       discipline: agent.discipline,
       executionEngine: agent.adapterType,
       briefScope: resolveBriefScope(agent),
+      deliveryLane: agent.deliveryLane ?? null,
     },
     markdown: agentMarkdown(agent),
   }));
@@ -603,7 +658,7 @@ function renderBundleReadme(input) {
     "2. Verify Claude Code and Codex environment readiness in the Doctor panel.",
     "3. Run workspace imports for all five projects before assigning the first cross-project review issue.",
     "4. Keep same-repo implementation inside isolated workspaces only.",
-    "5. Assign implementation to the single project engineer unless the TL explicitly requests parallel staffing.",
+    "5. Use the paired engineer model: Claude engineer for analysis/design, Codex engineer for code changes and verification unless the TL intentionally overrides it.",
     "",
     "## Repo Policy Snapshot",
     "",
@@ -634,6 +689,13 @@ function renderOperatingModel(projects) {
     "- Isolated workspaces are required for implementation.",
     "- Same-repo concurrent implementation is allowed only through isolated workspaces.",
     "",
+    "## Engineer Pairing",
+    "",
+    "- Each project has a Claude engineer and a Codex engineer.",
+    "- Claude engineer owns analysis, design synthesis, and retrieval-grounded planning.",
+    "- Codex engineer owns isolated implementation, command execution, and review-ready artifacts.",
+    "- Tech Leads may override the default split only when the issue explicitly requires it.",
+    "",
     "## Project Summary",
     "",
     ...projects.flatMap((project) => {
@@ -661,6 +723,12 @@ function renderRagPlan(projects) {
     "3. swiftcl",
     "4. swiftsight-report-server",
     "5. swiftsight-worker",
+    "",
+    "## Agent Consumption Model",
+    "",
+    "- Claude engineers read broad architectural and documentation context first.",
+    "- Codex engineers consume narrowed implementation context and validation evidence.",
+    "- Tech Leads and QA watch degraded brief quality before allowing implementation to continue.",
     "",
     "## Focus",
     "",
@@ -697,7 +765,7 @@ function renderCompanyMarkdown(input) {
     "- PM",
     "- QA Lead / QA Engineer",
     "- Project Tech Leads",
-    "- One implementation engineer per project",
+    "- Two engineers per project (Claude + Codex)",
   ].join("\n");
 }
 

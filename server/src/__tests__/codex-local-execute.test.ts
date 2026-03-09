@@ -141,6 +141,11 @@ describe("codex execute", () => {
       expect(capture.prompt).toContain("protocolSummary: Assignment created");
       expect(capture.prompt).toContain("workspaceSource: project_shared");
       expect(capture.prompt).toContain("workspaceUsage: analysis");
+      expect(capture.prompt).toContain("Mandatory protocol gate:");
+      expect(capture.prompt).toContain("REQUIRED WORKFLOW GATE: this wake expects assignment acceptance or escalation.");
+      expect(capture.prompt).toContain("The first protocol action before repository work must be one of: ACK_ASSIGNMENT, ASK_CLARIFICATION, ESCALATE_BLOCKER.");
+      expect(capture.prompt).toContain("If this run ends without the required protocol message, Squadrail will mark the run failed.");
+      expect(capture.prompt).toContain("Do not start file reads, design notes, or implementation planning before the first protocol action is sent.");
       expect(capture.prompt).toContain("Task brief (auto-generated from Squadrail knowledge):");
       expect(capture.prompt).toContain("# engineer brief");
       expect(capture.prompt).toContain("docs/adr/retry-policy.md");
@@ -201,6 +206,177 @@ describe("codex execute", () => {
 
       const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
       expect(capture.argv).toEqual(expect.arrayContaining(["--skip-git-repo-check"]));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("injects artifact-first review guidance for reviewer wakes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-review-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const capturePath = path.join(root, "capture.json");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      const result = await execute({
+        runId: "run-review",
+        agent: {
+          id: "agent-reviewer",
+          companyId: "company-1",
+          name: "Codex Reviewer",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Review the submitted implementation.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-review",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "review",
+          },
+          issueId: "issue-review",
+          wakeReason: "protocol_review_requested",
+          protocolMessageType: "SUBMIT_FOR_REVIEW",
+          protocolWorkflowStateBefore: "implementing",
+          protocolWorkflowStateAfter: "submitted_for_review",
+          protocolRecipientRole: "reviewer",
+          protocolSenderRole: "engineer",
+          protocolSummary: "Implementation ready for review",
+          protocolPayload: {
+            implementationSummary: "Removed the hard-coded version.",
+            diffSummary: "2 files changed, 52 insertions(+), 5 deletions(-)",
+            changedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
+            testResults: ["go test ./internal/observability -count=1: PASS"],
+            evidence: ["createResource now calls resolveServiceVersion()."],
+            reviewChecklist: ["Version is no longer hard-coded."],
+            residualRisks: ["Fallback remains necessary without build stamping."],
+          },
+          reviewSubmission: {
+            implementationSummary: "Removed the hard-coded version.",
+            diffSummary: "2 files changed, 52 insertions(+), 5 deletions(-)",
+            changedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
+            testResults: ["go test ./internal/observability -count=1: PASS"],
+            evidence: ["createResource now calls resolveServiceVersion()."],
+            reviewChecklist: ["Version is no longer hard-coded."],
+            residualRisks: ["Fallback remains necessary without build stamping."],
+            implementationWorkspace: {
+              bindingType: "implementation_workspace",
+              cwd: "/tmp/.squadrail-worktrees/swiftsight-cloud/review-run",
+            },
+            diffArtifact: {
+              kind: "diff",
+              label: "2 files changed, 52 insertions(+), 5 deletions(-)",
+            },
+            verificationArtifacts: [
+              {
+                kind: "test_run",
+                label: "go test ./internal/observability -count=1",
+                observedStatus: "passed",
+              },
+            ],
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.prompt).toContain("Review artifacts first.");
+      expect(capture.prompt).toContain("shared review workspace may still reflect base HEAD");
+      expect(capture.prompt).toContain("Review submission context:");
+      expect(capture.prompt).toContain("implementationWorkspace: /tmp/.squadrail-worktrees/swiftsight-cloud/review-run");
+      expect(capture.prompt).toContain("changedFiles: internal/observability/tracing.go, internal/observability/tracing_test.go");
+      expect(capture.prompt).toContain("submittedTestResults:");
+      expect(capture.prompt).toContain("go test ./internal/observability -count=1: PASS");
+      expect(capture.prompt).toContain("verificationArtifacts:");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("injects explicit mergeStatus guidance for tech lead approval wakes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-close-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const capturePath = path.join(root, "capture.json");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      const result = await execute({
+        runId: "run-close",
+        agent: {
+          id: "agent-tech-lead",
+          companyId: "company-1",
+          name: "Tech Lead",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Close the approved task.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-close",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "review",
+          },
+          issueId: "issue-close",
+          wakeReason: "issue_ready_for_closure",
+          protocolMessageType: "APPROVE_IMPLEMENTATION",
+          protocolWorkflowStateBefore: "under_review",
+          protocolWorkflowStateAfter: "approved",
+          protocolRecipientRole: "tech_lead",
+          protocolSenderRole: "reviewer",
+          protocolSummary: "Implementation approved and ready for closure",
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.prompt).toContain("Minimal CLOSE_TASK example");
+      expect(capture.prompt).toContain("For `CLOSE_TASK.payload.mergeStatus`, use exactly one of: `merged`, `merge_not_required`, `pending_external_merge`.");
+      expect(capture.prompt).toContain("Never invent aliases such as `merge_pending`, `merge_required`, or free-form merge labels.");
+      expect(capture.prompt).toContain('"mergeStatus": "merge_not_required"');
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

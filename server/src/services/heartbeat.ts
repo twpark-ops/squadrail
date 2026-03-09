@@ -9,8 +9,10 @@ import {
   heartbeatRunLeases,
   heartbeatRuns,
   costEvents,
+  issueProtocolMessages,
   issues,
 } from "@squadrail/db";
+import { resolveProtocolRunRequirement, type ProtocolRunRequirement } from "@squadrail/shared";
 import { conflict, notFound } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import { publishLiveEvent } from "./live-events.js";
@@ -43,6 +45,7 @@ const RUN_LEASE_TTL_MS = 45_000;
 const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
+const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
 const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 const WORKSPACE_CONTEXT_KEY = "squadrailWorkspace";
 const WORKSPACES_CONTEXT_KEY = "squadrailWorkspaces";
@@ -58,10 +61,12 @@ function mergeRunResultJson(
 ) {
   if (!additions || Object.keys(additions).length === 0) return base ?? null;
   if (!base) return additions;
-  return {
+  const service = {
     ...base,
     ...additions,
   };
+
+  return service;
 }
 
 function isRepoBackedWorkspaceSource(source: ResolvedWorkspaceForRun["source"] | null | undefined) {
@@ -183,7 +188,14 @@ export function shouldResetTaskSessionForWake(
     wakeReason === "issue_assigned" ||
     wakeReason === "issue_reassigned" ||
     wakeReason === "issue_watch_assigned" ||
-    wakeReason === "issue_watch_reassigned"
+    wakeReason === "issue_watch_reassigned" ||
+    wakeReason === "protocol_required_retry"
+  ) return true;
+
+  if (
+    typeof contextSnapshot?.protocolRequiredRetryCount === "number"
+    && Number.isFinite(contextSnapshot.protocolRequiredRetryCount)
+    && contextSnapshot.protocolRequiredRetryCount > 0
   ) return true;
 
   const wakeSource = readNonEmptyString(contextSnapshot?.wakeSource);
@@ -201,9 +213,18 @@ function describeSessionResetReason(
     wakeReason === "issue_assigned" ||
     wakeReason === "issue_reassigned" ||
     wakeReason === "issue_watch_assigned" ||
-    wakeReason === "issue_watch_reassigned"
+    wakeReason === "issue_watch_reassigned" ||
+    wakeReason === "protocol_required_retry"
   ) {
     return `wake reason is ${wakeReason}`;
+  }
+
+  if (
+    typeof contextSnapshot?.protocolRequiredRetryCount === "number"
+    && Number.isFinite(contextSnapshot.protocolRequiredRetryCount)
+    && contextSnapshot.protocolRequiredRetryCount > 0
+  ) {
+    return "a protocol-required retry is forcing a fresh session";
   }
 
   const wakeSource = readNonEmptyString(contextSnapshot?.wakeSource);
@@ -341,6 +362,38 @@ export function buildProcessLostError(lease?: RunLeaseLike | null) {
     return `Process lost during ${phase} -- server may have restarted`;
   }
   return "Process lost -- server may have restarted";
+}
+
+type ObservedProtocolProgressMessage = {
+  messageType: string;
+};
+
+export function hasRequiredProtocolProgress(input: {
+  requirement: ProtocolRunRequirement | null;
+  messages: ObservedProtocolProgressMessage[];
+}) {
+  const requirement = input.requirement;
+  if (!requirement) return true;
+  return input.messages.some((message) => requirement.requiredMessageTypes.includes(
+    message.messageType as ProtocolRunRequirement["requiredMessageTypes"][number],
+  ));
+}
+
+export function buildRequiredProtocolProgressError(input: {
+  requirement: ProtocolRunRequirement;
+  observedMessageTypes: string[];
+  retryEnqueued: boolean;
+}) {
+  const expected = input.requirement.requiredMessageTypes.join(", ");
+  const observed = input.observedMessageTypes.length > 0 ? input.observedMessageTypes.join(", ") : "none";
+  const retrySuffix = input.retryEnqueued
+    ? " A protocol-retry wake was queued automatically."
+    : "";
+  return [
+    `Run ended without required protocol progress for ${input.requirement.protocolMessageType}/${input.requirement.recipientRole}.`,
+    `Expected one of: ${expected}.`,
+    `Observed: ${observed}.`,
+  ].join(" ") + retrySuffix;
 }
 
 export function shouldReapHeartbeatRun(input: {
@@ -1575,6 +1628,129 @@ export function heartbeatService(db: Db) {
         previousDisplayId: runtimeForAdapter.sessionDisplayId,
         previousLegacySessionId: runtimeForAdapter.sessionId,
       });
+      const protocolRequirement = resolveProtocolRunRequirement({
+        protocolMessageType: readNonEmptyString(context.protocolMessageType),
+        protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
+      });
+      const protocolRetryCount =
+        typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
+          ? context.protocolRequiredRetryCount
+          : 0;
+      let protocolProgressResult: Record<string, unknown> | null = null;
+      let protocolProgressFailure:
+        | {
+            error: string;
+            errorCode: "protocol_required";
+          }
+        | null = null;
+
+      if (
+        issueId
+        && protocolRequirement
+        && (adapterResult.exitCode ?? 0) === 0
+        && !adapterResult.errorMessage
+      ) {
+        currentPhase = "finalize.protocol_progress_check";
+        await appendCheckpoint("finalize.protocol_progress_check", "validating protocol progress", {
+          protocolMessageType: protocolRequirement.protocolMessageType,
+          recipientRole: protocolRequirement.recipientRole,
+          requiredMessageTypes: protocolRequirement.requiredMessageTypes,
+        });
+
+        const protocolMessages = await db
+          .select({
+            id: issueProtocolMessages.id,
+            messageType: issueProtocolMessages.messageType,
+            createdAt: issueProtocolMessages.createdAt,
+          })
+          .from(issueProtocolMessages)
+          .where(
+            and(
+              eq(issueProtocolMessages.companyId, run.companyId),
+              eq(issueProtocolMessages.issueId, issueId),
+              eq(issueProtocolMessages.senderActorType, "agent"),
+              eq(issueProtocolMessages.senderActorId, agent.id),
+              gt(
+                issueProtocolMessages.createdAt,
+                new Date(startedAt.getTime() - 1_000),
+              ),
+            ),
+          )
+          .orderBy(asc(issueProtocolMessages.createdAt));
+
+        const observedMessageTypes = Array.from(
+          new Set(
+            protocolMessages
+              .map((message) => readNonEmptyString(message.messageType))
+              .filter((messageType): messageType is string => Boolean(messageType)),
+          ),
+        );
+        const satisfied = hasRequiredProtocolProgress({
+          requirement: protocolRequirement,
+          messages: protocolMessages,
+        });
+
+        protocolProgressResult = {
+          required: true,
+          protocolMessageType: protocolRequirement.protocolMessageType,
+          recipientRole: protocolRequirement.recipientRole,
+          requiredMessageTypes: protocolRequirement.requiredMessageTypes,
+          observedMessageTypes,
+          retryCount: protocolRetryCount,
+          satisfied,
+        };
+
+        if (!satisfied) {
+          const retryEnqueued = protocolRetryCount < PROTOCOL_REQUIRED_RETRY_LIMIT;
+          if (retryEnqueued) {
+            const retryContextSnapshot: Record<string, unknown> = {
+              ...context,
+              issueId,
+              taskId: issueId,
+              wakeReason: "protocol_required_retry",
+              protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+              protocolRequiredRetryCount: protocolRetryCount + 1,
+              protocolRequiredPreviousRunId: run.id,
+              forceFollowupRun: true,
+            };
+            await enqueueWakeup(agent.id, {
+              source: "automation",
+              triggerDetail: "system",
+              reason: "protocol_required_retry",
+              payload: {
+                issueId,
+                protocolRequiredPreviousRunId: run.id,
+              },
+              contextSnapshot: retryContextSnapshot,
+            });
+          }
+
+          const error = buildRequiredProtocolProgressError({
+            requirement: protocolRequirement,
+            observedMessageTypes,
+            retryEnqueued,
+          });
+          protocolProgressFailure = {
+            error,
+            errorCode: "protocol_required",
+          };
+
+          await appendRunEvent(eventRun, seq++, {
+            eventType: "protocol.required",
+            stream: "system",
+            level: "error",
+            message: error,
+            payload: {
+              protocolMessageType: protocolRequirement.protocolMessageType,
+              recipientRole: protocolRequirement.recipientRole,
+              requiredMessageTypes: protocolRequirement.requiredMessageTypes,
+              observedMessageTypes,
+              retryEnqueued,
+              retryCount: protocolRetryCount,
+            },
+          });
+        }
+      }
 
       let outcome: "succeeded" | "failed" | "cancelled" | "timed_out";
       const latestRun = await getRun(run.id);
@@ -1582,7 +1758,7 @@ export function heartbeatService(db: Db) {
         outcome = "cancelled";
       } else if (adapterResult.timedOut) {
         outcome = "timed_out";
-      } else if ((adapterResult.exitCode ?? 0) === 0 && !adapterResult.errorMessage) {
+      } else if ((adapterResult.exitCode ?? 0) === 0 && !adapterResult.errorMessage && !protocolProgressFailure) {
         outcome = "succeeded";
       } else {
         outcome = "failed";
@@ -1667,7 +1843,10 @@ export function heartbeatService(db: Db) {
       }
       const resultJson = mergeRunResultJson(
         adapterResult.resultJson ?? null,
-        workspaceGitSnapshot ? { workspaceGitSnapshot } : null,
+        {
+          ...(workspaceGitSnapshot ? { workspaceGitSnapshot } : {}),
+          ...(protocolProgressResult ? { protocolProgress: protocolProgressResult } : {}),
+        },
       );
       const verificationSignals = extractRunVerificationSignals({
         stdoutExcerpt,
@@ -1695,14 +1874,16 @@ export function heartbeatService(db: Db) {
         error:
           outcome === "succeeded"
             ? null
-            : adapterResult.errorMessage ?? (outcome === "timed_out" ? "Timed out" : "Adapter failed"),
+            : protocolProgressFailure?.error ??
+              adapterResult.errorMessage ??
+              (outcome === "timed_out" ? "Timed out" : "Adapter failed"),
         errorCode:
           outcome === "timed_out"
             ? "timeout"
             : outcome === "cancelled"
               ? "cancelled"
               : outcome === "failed"
-                ? (adapterResult.errorCode ?? "adapter_failed")
+                ? (protocolProgressFailure?.errorCode ?? adapterResult.errorCode ?? "adapter_failed")
                 : null,
         exitCode: adapterResult.exitCode,
         signal: adapterResult.signal,
@@ -1718,7 +1899,7 @@ export function heartbeatService(db: Db) {
 
       await setWakeupStatus(run.wakeupRequestId, outcome === "succeeded" ? "completed" : status, {
         finishedAt: new Date(),
-        error: adapterResult.errorMessage ?? null,
+        error: protocolProgressFailure?.error ?? adapterResult.errorMessage ?? null,
       });
 
       const finalizedRun = await getRun(run.id);
@@ -1747,7 +1928,9 @@ export function heartbeatService(db: Db) {
             error:
               outcome === "succeeded"
                 ? null
-                : adapterResult.errorMessage ?? (outcome === "timed_out" ? "Timed out" : "Adapter failed"),
+                : protocolProgressFailure?.error ??
+                  adapterResult.errorMessage ??
+                  (outcome === "timed_out" ? "Timed out" : "Adapter failed"),
           });
         }
         await upsertRunLease({
@@ -1761,7 +1944,10 @@ export function heartbeatService(db: Db) {
           heartbeatAt: new Date(),
           leaseExpiresAt: new Date(),
           releasedAt: new Date(),
-          lastError: outcome === "succeeded" ? null : (adapterResult.errorMessage ?? "run_failed"),
+          lastError:
+            outcome === "succeeded"
+              ? null
+              : (protocolProgressFailure?.error ?? adapterResult.errorMessage ?? "run_failed"),
         });
       }
 
@@ -1784,7 +1970,10 @@ export function heartbeatService(db: Db) {
               sessionParamsJson: nextSessionState.params,
               sessionDisplayId: nextSessionState.displayId,
               lastRunId: finalizedRun.id,
-              lastError: outcome === "succeeded" ? null : (adapterResult.errorMessage ?? "run_failed"),
+              lastError:
+                outcome === "succeeded"
+                  ? null
+                  : (protocolProgressFailure?.error ?? adapterResult.errorMessage ?? "run_failed"),
             });
           }
         }
@@ -2563,7 +2752,65 @@ export function heartbeatService(db: Db) {
     return newRun;
   }
 
-  return {
+  async function cancelRunInternal(runId: string) {
+    const run = await getRun(runId);
+    if (!run) throw notFound("Heartbeat run not found");
+    if (run.status !== "running" && run.status !== "queued") return run;
+    const cancelledAt = new Date();
+
+    const running = runningProcesses.get(run.id);
+    if (running) {
+      running.child.kill("SIGTERM");
+      const graceMs = Math.max(1, running.graceSec) * 1000;
+      setTimeout(() => {
+        if (!running.child.killed) {
+          running.child.kill("SIGKILL");
+        }
+      }, graceMs);
+    }
+
+    const cancelled = await setRunStatus(run.id, "cancelled", {
+      finishedAt: cancelledAt,
+      error: "Cancelled by control plane",
+      errorCode: "cancelled",
+    });
+
+    await setWakeupStatus(run.wakeupRequestId, "cancelled", {
+      finishedAt: cancelledAt,
+      error: "Cancelled by control plane",
+    });
+
+    await upsertRunLease({
+      run: cancelled ?? run,
+      status: "cancelled",
+      checkpointJson: {
+        phase: "finalize.cancelled",
+        message: "run cancelled by control plane",
+      },
+      heartbeatAt: cancelledAt,
+      leaseExpiresAt: cancelledAt,
+      releasedAt: cancelledAt,
+      lastError: "Cancelled by control plane",
+    });
+
+    if (cancelled) {
+      await appendRunEvent(cancelled, 1, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "warn",
+        message: "run cancelled",
+      });
+      await releaseIssueExecutionAndPromote(cancelled);
+    }
+
+    runningProcesses.delete(run.id);
+    clearDispatchWatchdog(run.id);
+    await finalizeAgentStatus(run.agentId, "cancelled");
+    dispatchAgentQueueStart(run.agentId);
+    return cancelled;
+  }
+
+  const service = {
     list: (companyId: string, agentId?: string, limit?: number) => {
       const query = db
         .select()
@@ -2731,62 +2978,66 @@ export function heartbeatService(db: Db) {
       return { checked, enqueued, skipped };
     },
 
-    cancelRun: async (runId: string) => {
-      const run = await getRun(runId);
-      if (!run) throw notFound("Heartbeat run not found");
-      if (run.status !== "running" && run.status !== "queued") return run;
+    cancelRun: cancelRunInternal,
+
+    cancelIssueScope: async (input: {
+      companyId: string;
+      issueId: string;
+      reason?: string | null;
+    }) => {
       const cancelledAt = new Date();
+      const reason = readNonEmptyString(input.reason) ?? "Cancelled by control plane";
 
-      const running = runningProcesses.get(run.id);
-      if (running) {
-        running.child.kill("SIGTERM");
-        const graceMs = Math.max(1, running.graceSec) * 1000;
-        setTimeout(() => {
-          if (!running.child.killed) {
-            running.child.kill("SIGKILL");
-          }
-        }, graceMs);
+      const wakeupRows = await db
+        .select({ id: agentWakeupRequests.id })
+        .from(agentWakeupRequests)
+        .where(
+          and(
+            eq(agentWakeupRequests.companyId, input.companyId),
+            inArray(agentWakeupRequests.status, ["queued", "claimed", "deferred_issue_execution"]),
+            sql`${agentWakeupRequests.payload} ->> 'issueId' = ${input.issueId}`,
+          ),
+        );
+
+      if (wakeupRows.length > 0) {
+        await db
+          .update(agentWakeupRequests)
+          .set({
+            status: "cancelled",
+            finishedAt: cancelledAt,
+            error: reason,
+            updatedAt: cancelledAt,
+          })
+          .where(inArray(agentWakeupRequests.id, wakeupRows.map((row) => row.id)));
       }
 
-      const cancelled = await setRunStatus(run.id, "cancelled", {
-        finishedAt: cancelledAt,
-        error: "Cancelled by control plane",
-        errorCode: "cancelled",
-      });
+      const runs = await db
+        .select({ id: heartbeatRuns.id })
+        .from(heartbeatRuns)
+        .where(
+          and(
+            eq(heartbeatRuns.companyId, input.companyId),
+            inArray(heartbeatRuns.status, ["queued", "running"]),
+            sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
+          ),
+        )
+        .orderBy(
+          sql`case when ${heartbeatRuns.status} = 'running' then 0 else 1 end`,
+          asc(heartbeatRuns.createdAt),
+        );
 
-      await setWakeupStatus(run.wakeupRequestId, "cancelled", {
-        finishedAt: cancelledAt,
-        error: "Cancelled by control plane",
-      });
-
-      await upsertRunLease({
-        run: cancelled ?? run,
-        status: "cancelled",
-        checkpointJson: {
-          phase: "finalize.cancelled",
-          message: "run cancelled by control plane",
-        },
-        heartbeatAt: cancelledAt,
-        leaseExpiresAt: cancelledAt,
-        releasedAt: cancelledAt,
-        lastError: "Cancelled by control plane",
-      });
-
-      if (cancelled) {
-        await appendRunEvent(cancelled, 1, {
-          eventType: "lifecycle",
-          stream: "system",
-          level: "warn",
-          message: "run cancelled",
-        });
-        await releaseIssueExecutionAndPromote(cancelled);
+      let cancelledRunCount = 0;
+      for (const run of runs) {
+        const current = await getRun(run.id);
+        if (!current || (current.status !== "queued" && current.status !== "running")) continue;
+        await cancelRunInternal(run.id);
+        cancelledRunCount += 1;
       }
 
-      runningProcesses.delete(run.id);
-      clearDispatchWatchdog(run.id);
-      await finalizeAgentStatus(run.agentId, "cancelled");
-      dispatchAgentQueueStart(run.agentId);
-      return cancelled;
+      return {
+        cancelledWakeupCount: wakeupRows.length,
+        cancelledRunCount,
+      };
     },
 
     cancelActiveForAgent: async (agentId: string) => {
@@ -2847,4 +3098,6 @@ export function heartbeatService(db: Db) {
       return run ?? null;
     },
   };
+
+  return service;
 }

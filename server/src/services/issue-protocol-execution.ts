@@ -17,7 +17,12 @@ import {
 
 type ProtocolWakeSource = "assignment" | "automation";
 type ProtocolDispatchKind = "wakeup" | "notify_only" | "skip_sender" | "skip_unsupported_adapter";
-type ProtocolDispatchMode = "default" | "reviewer_watch" | "lead_supervisor" | "implementation_followup";
+type ProtocolDispatchMode =
+  | "default"
+  | "reviewer_watch"
+  | "lead_supervisor"
+  | "implementation_followup"
+  | "approval_close_followup";
 
 export interface ProtocolExecutionRecipientHint {
   recipientId: string;
@@ -63,6 +68,84 @@ function protocolWakeHints(payload: Record<string, unknown>) {
   return hints;
 }
 
+function summarizeProtocolArtifact(artifact: CreateIssueProtocolMessage["artifacts"][number]) {
+  const metadata = asRecord(artifact.metadata);
+  const summary: Record<string, unknown> = {
+    kind: artifact.kind,
+    label: artifact.label ?? null,
+    uri: artifact.uri,
+  };
+
+  for (const key of [
+    "bindingType",
+    "cwd",
+    "branchName",
+    "headSha",
+    "diffStat",
+    "runId",
+    "runStatus",
+    "captureConfidence",
+    "workspaceState",
+    "hasLocalChanges",
+    "observedStatus",
+    "confidence",
+  ] as const) {
+    if (metadata[key] !== undefined) {
+      summary[key] = metadata[key];
+    }
+  }
+
+  if (Array.isArray(metadata.changedFiles)) {
+    summary.changedFiles = metadata.changedFiles.filter((value): value is string => typeof value === "string");
+  }
+
+  return summary;
+}
+
+function buildReviewSubmissionSnapshot(
+  message: CreateIssueProtocolMessage,
+  protocolPayload: Record<string, unknown>,
+) {
+  if (message.messageType !== "SUBMIT_FOR_REVIEW") {
+    return null;
+  }
+
+  const artifacts = message.artifacts.map((artifact) => summarizeProtocolArtifact(artifact));
+  const implementationWorkspace =
+    artifacts.find(
+      (artifact) => artifact.kind === "doc" && artifact.bindingType === "implementation_workspace",
+    ) ?? null;
+  const diffArtifact = artifacts.find((artifact) => artifact.kind === "diff") ?? null;
+  const verificationArtifacts = artifacts.filter(
+    (artifact) => artifact.kind === "test_run" || artifact.kind === "build_run",
+  );
+
+  return {
+    summary: message.summary,
+    implementationSummary: protocolPayload.implementationSummary ?? null,
+    diffSummary: protocolPayload.diffSummary ?? null,
+    changedFiles: Array.isArray(protocolPayload.changedFiles)
+      ? protocolPayload.changedFiles.filter((value): value is string => typeof value === "string")
+      : [],
+    reviewChecklist: Array.isArray(protocolPayload.reviewChecklist)
+      ? protocolPayload.reviewChecklist.filter((value): value is string => typeof value === "string")
+      : [],
+    testResults: Array.isArray(protocolPayload.testResults)
+      ? protocolPayload.testResults.filter((value): value is string => typeof value === "string")
+      : [],
+    evidence: Array.isArray(protocolPayload.evidence)
+      ? protocolPayload.evidence.filter((value): value is string => typeof value === "string")
+      : [],
+    residualRisks: Array.isArray(protocolPayload.residualRisks)
+      ? protocolPayload.residualRisks.filter((value): value is string => typeof value === "string")
+      : [],
+    implementationWorkspace,
+    diffArtifact,
+    verificationArtifacts,
+    artifacts,
+  };
+}
+
 function protocolExecutionReason(messageType: string) {
   switch (messageType) {
     case "ASSIGN_TASK":
@@ -102,6 +185,9 @@ function protocolExecutionSource(messageType: string): ProtocolWakeSource {
 }
 
 function shouldWakeRecipientForMessage(messageType: string, recipientRole: string) {
+  if (messageType === "CANCEL_TASK") {
+    return false;
+  }
   if ((messageType === "ASSIGN_TASK" || messageType === "REASSIGN_TASK") && recipientRole === "reviewer") {
     return false;
   }
@@ -123,6 +209,7 @@ function buildDispatchPlanBase(input: {
   forceFollowupRun?: boolean;
 }) {
   const internalMetadata = buildInternalWorkItemDispatchMetadata(input.issueContext);
+  const reviewSubmission = buildReviewSubmissionSnapshot(input.message, input.protocolPayload);
   const dispatchMetadata =
     {
       ...(input.dispatchMode && input.dispatchMode !== "default"
@@ -148,6 +235,7 @@ function buildDispatchPlanBase(input: {
       protocolPayload: input.protocolPayload,
       ...internalMetadata,
       ...dispatchMetadata,
+      ...(reviewSubmission ? { reviewSubmission } : {}),
       ...(input.recipientHint?.briefId ? { latestBriefId: input.recipientHint.briefId } : {}),
       ...(input.recipientHint?.briefScope ? { latestBriefScope: input.recipientHint.briefScope } : {}),
       ...(input.recipientHint?.retrievalRunId ? { retrievalRunId: input.recipientHint.retrievalRunId } : {}),
@@ -179,6 +267,7 @@ function buildDispatchPlanBase(input: {
       protocolPayload: input.protocolPayload,
       ...internalMetadata,
       ...dispatchMetadata,
+      ...(reviewSubmission ? { reviewSubmission } : {}),
       ...(input.recipientHint?.briefId ? { latestBriefId: input.recipientHint.briefId } : {}),
       ...(input.recipientHint?.briefScope ? { latestBriefScope: input.recipientHint.briefScope } : {}),
       ...(input.recipientHint?.retrievalRunId ? { retrievalRunId: input.recipientHint.retrievalRunId } : {}),
@@ -277,6 +366,42 @@ export function buildProtocolExecutionDispatchPlan(input: {
     leadSupervisorReason && isLeadWatchEnabled(input.issueContext)
       ? input.issueContext?.techLeadAgentId ?? null
       : null;
+
+  const approvalCloseFollowupAgentId =
+    input.message.messageType === "APPROVE_IMPLEMENTATION"
+      ? input.issueContext?.techLeadAgentId ?? null
+      : null;
+
+  if (
+    approvalCloseFollowupAgentId
+    && !input.message.recipients.some(
+      (recipient) =>
+        recipient.recipientType === "agent"
+        && recipient.recipientId === approvalCloseFollowupAgentId
+        && recipient.role === "tech_lead",
+    )
+  ) {
+    plan.push({
+      kind: "wakeup",
+      ...buildDispatchPlanBase({
+        issueId: input.issueId,
+        protocolMessageId: input.protocolMessageId,
+        message: input.message,
+        protocolPayload,
+        wakeHints,
+        source,
+        reason: "issue_ready_for_closure",
+        recipient: {
+          recipientType: "agent",
+          recipientId: approvalCloseFollowupAgentId,
+          role: "tech_lead",
+        },
+        issueContext: input.issueContext,
+        dispatchMode: "approval_close_followup",
+        forceFollowupRun: true,
+      }),
+    });
+  }
 
   if (
     leadSupervisorAgentId &&

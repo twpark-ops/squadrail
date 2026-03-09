@@ -32,6 +32,7 @@ import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { findServerAdapter, listAdapterModels } from "../adapters/index.js";
 import { redactEventPayload } from "../redaction.js";
 import { runClaudeLogin } from "@squadrail/adapter-claude-local/server";
+import { DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS } from "@squadrail/adapter-claude-local";
 import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
   DEFAULT_CODEX_LOCAL_MODEL,
@@ -184,6 +185,15 @@ export function agentRoutes(db: Db) {
     adapterConfig: Record<string, unknown>,
   ): Record<string, unknown> {
     const next = { ...adapterConfig };
+    if (adapterType === "claude_local") {
+      if (typeof next.dangerouslySkipPermissions !== "boolean") {
+        next.dangerouslySkipPermissions = DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS;
+      }
+      if (typeof next.timeoutSec !== "number") {
+        next.timeoutSec = 900;
+      }
+      return next;
+    }
     if (adapterType === "codex_local") {
       if (!asNonEmptyString(next.model)) {
         next.model = DEFAULT_CODEX_LOCAL_MODEL;

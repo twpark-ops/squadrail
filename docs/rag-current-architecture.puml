@@ -1,0 +1,88 @@
+@startuml Current RAG Architecture
+title Squadrail Current RAG Architecture
+
+actor "Board / Agent Protocol" as actor
+
+package "Workspace Import" {
+  rectangle "Workspace Scanner" as scanner
+  rectangle "Path Filter\nignore generated / hidden / cache" as filter
+  rectangle "Path Prioritizer\nsource dirs > docs/deploy" as prioritizer
+  rectangle "Chunker\nAST / semantic / heuristic / markdown" as chunker
+  rectangle "Embedding Service\nOpenAI optional at runtime" as embed
+}
+
+database "PostgreSQL" as db {
+  rectangle "knowledge_documents" as documents
+  rectangle "knowledge_chunks" as chunks
+  rectangle "knowledge_chunk_links" as links
+  rectangle "retrieval_policies" as policies
+  rectangle "retrieval_runs" as runs
+  rectangle "retrieval_run_hits" as hits
+}
+
+package "Retrieval Pipeline" {
+  rectangle "Dense Search\npgvector if available\nfallback cosine otherwise" as dense
+  rectangle "Sparse Search\nPostgreSQL FTS" as sparse
+  rectangle "Path Match" as path
+  rectangle "Symbol Match" as symbol
+  rectangle "Fusion + Signal Rerank\nsource / authority / freshness / links" as rerank
+  rectangle "Optional Model Rerank\nOpenAI Responses API" as model
+  rectangle "Brief Builder\nquality + degraded reasons" as brief
+}
+
+scanner --> filter
+filter --> prioritizer
+prioritizer --> chunker
+chunker --> embed
+chunker --> documents
+chunker --> chunks
+chunker --> links
+embed --> chunks
+
+actor --> policies
+actor --> dense
+actor --> sparse
+actor --> path
+actor --> symbol
+
+documents --> dense
+chunks --> dense
+documents --> sparse
+chunks --> sparse
+documents --> path
+chunks --> path
+documents --> symbol
+chunks --> symbol
+links --> rerank
+policies --> rerank
+
+dense --> rerank
+sparse --> rerank
+path --> rerank
+symbol --> rerank
+rerank --> model
+rerank --> brief
+model --> brief
+
+brief --> runs
+brief --> hits
+
+note right of chunker
+Current symbol awareness lives in chunk metadata.
+There is no separate code_symbols table yet.
+end note
+
+note right of model
+Optional stage.
+Current provider implementation is OpenAI-centric.
+end note
+
+note bottom of db
+Future-only items, not implemented today:
+- code graph tables
+- temporal code versions
+- personalization feedback tables
+- retrieval cache layers
+end note
+
+@enduml

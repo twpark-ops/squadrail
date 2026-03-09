@@ -263,6 +263,35 @@ export function issueRoutes(db: Db, storage: StorageService) {
     actor: ReturnType<typeof getActorInfo>;
   }) {
     let effectiveMessage = input.message;
+    if (effectiveMessage.messageType === "SUBMIT_FOR_REVIEW") {
+      const currentState = await protocolSvc.getState(input.issue.id);
+      const reviewerAgentId = currentState?.reviewerAgentId ?? null;
+      const hasCorrectReviewerRecipient = effectiveMessage.recipients.some(
+        (recipient) =>
+          recipient.recipientType === "agent"
+          && recipient.role === "reviewer"
+          && typeof reviewerAgentId === "string"
+          && recipient.recipientId === reviewerAgentId,
+      );
+
+      if (reviewerAgentId && !hasCorrectReviewerRecipient) {
+        const normalizedRecipients = effectiveMessage.recipients.filter(
+          (recipient) => !(recipient.recipientType === "agent" && recipient.role === "reviewer"),
+        );
+        effectiveMessage = {
+          ...effectiveMessage,
+          recipients: [
+            ...normalizedRecipients,
+            {
+              recipientType: "agent",
+              recipientId: reviewerAgentId,
+              role: "reviewer",
+            },
+          ],
+        };
+      }
+    }
+
     if (input.actor.actorType === "agent" && input.actor.agentId && input.actor.runId) {
       const activeRun = await heartbeat.getRun(input.actor.runId);
       if (
@@ -290,7 +319,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         }
 
         effectiveMessage = await enrichProtocolMessageArtifactsFromRun({
-          message: input.message,
+          message: effectiveMessage,
           run: activeRun,
           issueId: input.issue.id,
           liveLogContent,
@@ -331,6 +360,24 @@ export function issueRoutes(db: Db, storage: StorageService) {
         summary: effectiveMessage.summary,
       },
     });
+
+    if (effectiveMessage.messageType === "CANCEL_TASK") {
+      try {
+        await heartbeat.cancelIssueScope({
+          companyId: input.issue.companyId,
+          issueId: input.issue.id,
+          reason: "Issue cancelled via protocol",
+        });
+      } catch (err) {
+        logger.error({ err, issueId: input.issue.id }, "Issue cancellation cleanup failed");
+        return {
+          result,
+          warnings: ["Issue execution cleanup failed - existing runs may continue"],
+        };
+      }
+
+      return { result, warnings: [] as string[] };
+    }
 
     let recipientHints: Array<{
       recipientId: string;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveProtocolOwnershipForMessage,
   validateHumanBoardProtocolIntervention,
   validateProtocolRecipientContract,
 } from "../services/issue-protocol.js";
@@ -100,5 +101,52 @@ describe("validateProtocolRecipientContract", () => {
         artifacts: [],
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveProtocolOwnershipForMessage", () => {
+  it("falls back to the project lead for root issue assignment when the board assigns directly to an engineer", () => {
+    expect(
+      resolveProtocolOwnershipForMessage({
+        currentState: null,
+        fallbackTechLeadAgentId: "lead-1",
+        message: {
+          messageType: "ASSIGN_TASK",
+          sender: {
+            actorType: "user",
+            actorId: "board-1",
+            role: "human_board",
+          },
+          recipients: [
+            {
+              recipientType: "agent",
+              recipientId: "eng-1",
+              role: "engineer",
+            },
+            {
+              recipientType: "agent",
+              recipientId: "reviewer-1",
+              role: "reviewer",
+            },
+          ],
+          workflowStateBefore: "backlog",
+          workflowStateAfter: "assigned",
+          summary: "Assign root issue",
+          payload: {
+            goal: "goal",
+            acceptanceCriteria: ["a"],
+            definitionOfDone: ["d"],
+            priority: "high",
+            assigneeAgentId: "eng-1",
+            reviewerAgentId: "reviewer-1",
+          },
+          artifacts: [],
+        },
+      }),
+    ).toMatchObject({
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "reviewer-1",
+    });
   });
 });
