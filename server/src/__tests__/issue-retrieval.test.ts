@@ -264,6 +264,100 @@ describe("issue retrieval helpers", () => {
     expect(signals.preferredSourceTypes).toContain("adr");
   });
 
+  it("builds retrieval query text from review decision and closure contracts", () => {
+    const reviewQuery = buildRetrievalQueryText({
+      issue: {
+        identifier: "SW-102",
+        title: "Stabilize rollout close loop",
+        description: "Tighten review and closure evidence",
+        labels: [{ name: "review" }],
+      },
+      recipientRole: "engineer",
+      message: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "Need stronger verification evidence",
+        payload: {
+          reviewSummary: "Approval is blocked until verification evidence is complete.",
+          changeRequests: [
+            {
+              title: "Attach rollout evidence",
+              reason: "Verification summary does not mention staged rollout metrics.",
+              affectedFiles: ["docs/release/checklist.md"],
+              suggestedAction: "Add staged rollout metrics and rollback checkpoints.",
+            },
+          ],
+          severity: "major",
+          mustFixBeforeApprove: true,
+          requiredEvidence: ["Staged rollout dashboard link", "Rollback checkpoint note"],
+        },
+        artifacts: [],
+      },
+    });
+
+    const closeQuery = buildRetrievalQueryText({
+      issue: {
+        identifier: "SW-103",
+        title: "Close release issue",
+        description: "Document close loop",
+        labels: [{ name: "release" }],
+      },
+      recipientRole: "tech_lead",
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "Close issue with delivery summary",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Release completed after final verification and approval.",
+          verificationSummary: "Reviewed test evidence, merged commit, and rollout checklist.",
+          rollbackPlan: "Revert the merge commit and reopen the follow-up issue if regression appears.",
+          finalArtifacts: ["release note", "monitoring link"],
+          finalTestStatus: "passed",
+          mergeStatus: "merged",
+          remainingRisks: ["No unresolved delivery blocker remains."],
+        },
+        artifacts: [
+          {
+            kind: "commit",
+            uri: "commit://abc123",
+          },
+        ],
+      },
+    });
+
+    expect(reviewQuery).toContain("Staged rollout dashboard link");
+    expect(reviewQuery).toContain("docs/release/checklist.md");
+    expect(closeQuery).toContain("Release completed after final verification");
+    expect(closeQuery).toContain("Revert the merge commit");
+  });
+
   it("reranks exact path matches above generic hits", () => {
     const reranked = rerankRetrievalHits({
       issueId: "issue-1",

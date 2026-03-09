@@ -178,7 +178,17 @@ function collectProtocolEvidence(message: IssueProtocolMessage) {
     .map((artifact) => artifact.label ?? artifact.uri)
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 
-  for (const key of ["evidence", "reviewChecklist", "testResults", "residualRisks", "finalArtifacts", "followUpActions"]) {
+  for (const key of [
+    "evidence",
+    "reviewChecklist",
+    "testResults",
+    "residualRisks",
+    "requiredEvidence",
+    "approvalChecklist",
+    "verifiedEvidence",
+    "finalArtifacts",
+    "followUpActions",
+  ]) {
     const value = payload[key];
     if (!Array.isArray(value)) continue;
     for (const entry of value) {
@@ -224,6 +234,75 @@ function readProtocolReviewHandoff(message: IssueProtocolMessage): ProtocolRevie
     testResults: readProtocolStringArray(payload, "testResults"),
     reviewChecklist: readProtocolStringArray(payload, "reviewChecklist"),
     residualRisks: readProtocolStringArray(payload, "residualRisks"),
+  };
+}
+
+type ProtocolChangeRequestSnapshot = {
+  reviewSummary: string | null;
+  requiredEvidence: string[];
+  changeRequests: Array<{
+    title: string | null;
+    reason: string | null;
+    affectedFiles: string[];
+    suggestedAction: string | null;
+  }>;
+};
+
+function readProtocolChangeRequest(message: IssueProtocolMessage): ProtocolChangeRequestSnapshot | null {
+  if (message.messageType !== "REQUEST_CHANGES") return null;
+  const payload = asRecord(message.payload) ?? {};
+  const rawRequests = Array.isArray(payload.changeRequests) ? payload.changeRequests : [];
+  return {
+    reviewSummary: readProtocolString(payload, "reviewSummary"),
+    requiredEvidence: readProtocolStringArray(payload, "requiredEvidence"),
+    changeRequests: rawRequests
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      .map((entry) => ({
+        title: readProtocolString(entry, "title"),
+        reason: readProtocolString(entry, "reason"),
+        affectedFiles: readProtocolStringArray(entry, "affectedFiles"),
+        suggestedAction: readProtocolString(entry, "suggestedAction"),
+      })),
+  };
+}
+
+type ProtocolApprovalSnapshot = {
+  approvalSummary: string | null;
+  approvalChecklist: string[];
+  verifiedEvidence: string[];
+  residualRisks: string[];
+  followUpActions: string[];
+};
+
+function readProtocolApproval(message: IssueProtocolMessage): ProtocolApprovalSnapshot | null {
+  if (message.messageType !== "APPROVE_IMPLEMENTATION") return null;
+  const payload = asRecord(message.payload) ?? {};
+  return {
+    approvalSummary: readProtocolString(payload, "approvalSummary"),
+    approvalChecklist: readProtocolStringArray(payload, "approvalChecklist"),
+    verifiedEvidence: readProtocolStringArray(payload, "verifiedEvidence"),
+    residualRisks: readProtocolStringArray(payload, "residualRisks"),
+    followUpActions: readProtocolStringArray(payload, "followUpActions"),
+  };
+}
+
+type ProtocolCloseSnapshot = {
+  closureSummary: string | null;
+  verificationSummary: string | null;
+  rollbackPlan: string | null;
+  finalArtifacts: string[];
+  remainingRisks: string[];
+};
+
+function readProtocolClose(message: IssueProtocolMessage): ProtocolCloseSnapshot | null {
+  if (message.messageType !== "CLOSE_TASK") return null;
+  const payload = asRecord(message.payload) ?? {};
+  return {
+    closureSummary: readProtocolString(payload, "closureSummary"),
+    verificationSummary: readProtocolString(payload, "verificationSummary"),
+    rollbackPlan: readProtocolString(payload, "rollbackPlan"),
+    finalArtifacts: readProtocolStringArray(payload, "finalArtifacts"),
+    remainingRisks: readProtocolStringArray(payload, "remainingRisks"),
   };
 }
 
@@ -1352,6 +1431,9 @@ export function IssueDetail() {
                       {protocolTimeline.map((message) => {
                         const evidence = collectProtocolEvidence(message);
                         const reviewHandoff = readProtocolReviewHandoff(message);
+                        const changeRequest = readProtocolChangeRequest(message);
+                        const approvalSnapshot = readProtocolApproval(message);
+                        const closeSnapshot = readProtocolClose(message);
                         return (
                           <div key={message.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3">
                             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
@@ -1426,6 +1508,137 @@ export function IssueDetail() {
                                   ["Test Results", reviewHandoff.testResults],
                                   ["Review Checklist", reviewHandoff.reviewChecklist],
                                   ["Residual Risks", reviewHandoff.residualRisks],
+                                ].map(([title, items]) =>
+                                  Array.isArray(items) && items.length > 0 ? (
+                                    <div key={`${message.id}:${title}`} className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        {title}
+                                      </div>
+                                      <ul className="mt-2 space-y-1 text-sm text-foreground">
+                                        {items.map((item) => (
+                                          <li key={`${message.id}:${title}:${item}`} className="flex gap-2">
+                                            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
+                                            <span>{item}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null
+                                )}
+                              </div>
+                            )}
+                            {changeRequest && (
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                {changeRequest.reviewSummary && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Review Summary
+                                    </div>
+                                    <p className="mt-2 text-sm text-foreground">{changeRequest.reviewSummary}</p>
+                                  </div>
+                                )}
+                                {changeRequest.requiredEvidence.length > 0 && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Required Evidence
+                                    </div>
+                                    <ul className="mt-2 space-y-1 text-sm text-foreground">
+                                      {changeRequest.requiredEvidence.map((item) => (
+                                        <li key={`${message.id}:requiredEvidence:${item}`} className="flex gap-2">
+                                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
+                                          <span>{item}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {changeRequest.changeRequests.map((request, index) => (
+                                  <div key={`${message.id}:changeRequest:${index}`} className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Change Request {index + 1}
+                                    </div>
+                                    {request.title && <p className="mt-2 text-sm font-medium text-foreground">{request.title}</p>}
+                                    {request.reason && <p className="mt-1 text-sm text-foreground">{request.reason}</p>}
+                                    {request.suggestedAction && (
+                                      <p className="mt-2 text-sm text-muted-foreground">Suggested action: {request.suggestedAction}</p>
+                                    )}
+                                    {request.affectedFiles.length > 0 && (
+                                      <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                                        {request.affectedFiles.map((item) => (
+                                          <li key={`${message.id}:affected:${index}:${item}`} className="flex gap-2">
+                                            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
+                                            <span>{item}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {approvalSnapshot && (
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                {approvalSnapshot.approvalSummary && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Approval Summary
+                                    </div>
+                                    <p className="mt-2 text-sm text-foreground">{approvalSnapshot.approvalSummary}</p>
+                                  </div>
+                                )}
+                                {[
+                                  ["Approval Checklist", approvalSnapshot.approvalChecklist],
+                                  ["Verified Evidence", approvalSnapshot.verifiedEvidence],
+                                  ["Residual Risks", approvalSnapshot.residualRisks],
+                                  ["Follow-up Actions", approvalSnapshot.followUpActions],
+                                ].map(([title, items]) =>
+                                  Array.isArray(items) && items.length > 0 ? (
+                                    <div key={`${message.id}:${title}`} className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        {title}
+                                      </div>
+                                      <ul className="mt-2 space-y-1 text-sm text-foreground">
+                                        {items.map((item) => (
+                                          <li key={`${message.id}:${title}:${item}`} className="flex gap-2">
+                                            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
+                                            <span>{item}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null
+                                )}
+                              </div>
+                            )}
+                            {closeSnapshot && (
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                {closeSnapshot.closureSummary && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Closure Summary
+                                    </div>
+                                    <p className="mt-2 text-sm text-foreground">{closeSnapshot.closureSummary}</p>
+                                  </div>
+                                )}
+                                {closeSnapshot.verificationSummary && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Verification Summary
+                                    </div>
+                                    <p className="mt-2 text-sm text-foreground">{closeSnapshot.verificationSummary}</p>
+                                  </div>
+                                )}
+                                {closeSnapshot.rollbackPlan && (
+                                  <div className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Rollback Plan
+                                    </div>
+                                    <p className="mt-2 text-sm text-foreground">{closeSnapshot.rollbackPlan}</p>
+                                  </div>
+                                )}
+                                {[
+                                  ["Final Artifacts", closeSnapshot.finalArtifacts],
+                                  ["Remaining Risks", closeSnapshot.remainingRisks],
                                 ].map(([title, items]) =>
                                   Array.isArray(items) && items.length > 0 ? (
                                     <div key={`${message.id}:${title}`} className="rounded-md border border-border/70 bg-card px-3 py-3">

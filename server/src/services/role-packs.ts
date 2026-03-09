@@ -178,7 +178,7 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
       focus: [
         "Break work into clear execution units.",
         "Assign tasks with explicit acceptance criteria and reviewer ownership.",
-        "Control workflow transitions and close tasks only when evidence is complete.",
+        "Control workflow transitions and close tasks only when closure summary, verification summary, and rollback plan are complete.",
       ],
       rules: [
         "Do not implement unless explicitly acting as an engineer for a specific task.",
@@ -213,7 +213,8 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
       role: "Reviewer",
       focus: [
         "Evaluate correctness, regressions, evidence quality, and policy alignment.",
-        "Prefer actionable change requests tied to files, tests, and acceptance criteria.",
+        "Prefer actionable change requests tied to files, required evidence, and acceptance criteria.",
+        "Approve only with explicit approval checklist, verified evidence, and residual risks.",
         "Escalate to human decision only when requirements or policy conflict materially.",
       ],
       rules: [
@@ -335,7 +336,7 @@ function applyPresetOverrides(
         "## Example Product Squad Tech Lead Addendum",
         "- Decompose work by product surface and dependency boundary.",
         "- Require explicit file targets, acceptance criteria, and reviewer assignments.",
-        "- Gate completion on implementation evidence plus rollout confidence.",
+        "- Gate completion on implementation evidence plus closure summary, verification summary, and rollback plan.",
       ].join("\n"));
     } else if (roleKey === "engineer") {
       append("ROLE.md", [
@@ -348,7 +349,7 @@ function applyPresetOverrides(
       append("ROLE.md", [
         "## Example Product Squad Reviewer Addendum",
         "- Review for regressions across product surfaces, not just touched files.",
-        "- Require evidence for schema changes, migration safety, and rollout notes.",
+        "- Require review summary, required evidence, approval checklist, and residual risk when closing the review loop.",
         "- Escalate if the requested change conflicts with product requirements or release policy.",
       ].join("\n"));
     } else if (roleKey === "cto") {
@@ -485,7 +486,7 @@ function buildSimulationChecklist(roleKey: RolePackRoleKey, scenario: RolePackSi
       return [
         ...shared,
         "Validate ownership, acceptance criteria, and reviewer assignment before changing workflow state.",
-        "Close the task only when review evidence and final artifacts are complete.",
+        "Close the task only when review evidence, closure summary, verification summary, rollback plan, and final artifacts are complete.",
       ];
     case "engineer":
       return [
@@ -497,7 +498,8 @@ function buildSimulationChecklist(roleKey: RolePackRoleKey, scenario: RolePackSi
       return [
         ...shared,
         "Evaluate correctness, regressions, and policy alignment before approving.",
-        "Request changes with concrete findings and expected follow-up evidence.",
+        "Request changes with review summary, required evidence, and concrete file-level findings.",
+        "Approve with approval checklist, verified evidence, and explicit residual risks.",
       ];
     case "qa":
       return [

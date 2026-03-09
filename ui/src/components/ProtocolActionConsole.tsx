@@ -190,9 +190,15 @@ export function ProtocolActionConsole({
   const [reassignReason, setReassignReason] = useState("");
   const [approvalSummary, setApprovalSummary] = useState("");
   const [approvalMode, setApprovalMode] = useState<(typeof ISSUE_PROTOCOL_APPROVAL_MODES)[number]>("human_override");
+  const [approvalChecklist, setApprovalChecklist] = useState("");
+  const [verifiedEvidence, setVerifiedEvidence] = useState("");
+  const [approvalResidualRisks, setApprovalResidualRisks] = useState("");
   const [followUpActions, setFollowUpActions] = useState("");
   const [artifactLines, setArtifactLines] = useState("");
   const [closeReason, setCloseReason] = useState<(typeof ISSUE_PROTOCOL_CLOSE_REASONS)[number]>("completed");
+  const [closureSummary, setClosureSummary] = useState("");
+  const [verificationSummary, setVerificationSummary] = useState("");
+  const [rollbackPlan, setRollbackPlan] = useState("");
   const [finalArtifacts, setFinalArtifacts] = useState("");
   const [finalTestStatus, setFinalTestStatus] = useState<(typeof ISSUE_PROTOCOL_FINAL_TEST_STATUSES)[number]>("passed");
   const [mergeStatus, setMergeStatus] = useState<(typeof ISSUE_PROTOCOL_MERGE_STATUSES)[number]>("merged");
@@ -349,10 +355,16 @@ export function ProtocolActionConsole({
     }
     if (action === "APPROVE_IMPLEMENTATION") {
       setApprovalSummary(`Approval for ${issueIdentifier} is based on attached evidence, review outcomes, and rollout readiness.`);
+      setApprovalChecklist("Acceptance criteria covered\nVerification evidence reviewed\nResidual risks recorded");
+      setVerifiedEvidence("Reviewed diff and retrieval brief\nValidated test evidence");
+      setApprovalResidualRisks("No known residual risk.");
       setFollowUpActions("Monitor rollout metrics\nTrack follow-up issue if residual risk remains");
       return;
     }
     if (action === "CLOSE_TASK") {
+      setClosureSummary(`Close ${issueIdentifier} with explicit delivery and verification context.`);
+      setVerificationSummary("Reviewed merged artifacts, verification evidence, and follow-up state.");
+      setRollbackPlan("Revert the merge commit or reopen a follow-up issue if production regressions appear.");
       setFinalArtifacts("Implementation merged\nVerification evidence recorded\nOperational follow-up linked");
       setRemainingRisks("No unresolved delivery blocker remains");
       return;
@@ -458,8 +470,13 @@ export function ProtocolActionConsole({
         };
         break;
       case "APPROVE_IMPLEMENTATION":
-        if (!approvalSummary.trim()) {
-          setError("Approval summary is required.");
+        if (
+          !approvalSummary.trim()
+          || parseLineList(approvalChecklist).length === 0
+          || parseLineList(verifiedEvidence).length === 0
+          || parseLineList(approvalResidualRisks).length === 0
+        ) {
+          setError("Approval requires summary, checklist, verified evidence, and residual risks.");
           return;
         }
         message = {
@@ -473,6 +490,9 @@ export function ProtocolActionConsole({
           payload: {
             approvalSummary: approvalSummary.trim(),
             approvalMode,
+            approvalChecklist: parseLineList(approvalChecklist),
+            verifiedEvidence: parseLineList(verifiedEvidence),
+            residualRisks: parseLineList(approvalResidualRisks),
             ...(parseLineList(followUpActions).length > 0
               ? { followUpActions: parseLineList(followUpActions) }
               : {}),
@@ -481,8 +501,13 @@ export function ProtocolActionConsole({
         };
         break;
       case "CLOSE_TASK":
-        if (parseLineList(finalArtifacts).length === 0) {
-          setError("Close task requires final artifacts.");
+        if (
+          !closureSummary.trim()
+          || !verificationSummary.trim()
+          || !rollbackPlan.trim()
+          || parseLineList(finalArtifacts).length === 0
+        ) {
+          setError("Close task requires closure summary, verification summary, rollback plan, and final artifacts.");
           return;
         }
         message = {
@@ -495,6 +520,9 @@ export function ProtocolActionConsole({
           requiresAck: false,
           payload: {
             closeReason,
+            closureSummary: closureSummary.trim(),
+            verificationSummary: verificationSummary.trim(),
+            rollbackPlan: rollbackPlan.trim(),
             finalArtifacts: parseLineList(finalArtifacts),
             finalTestStatus,
             mergeStatus,
@@ -586,11 +614,17 @@ export function ProtocolActionConsole({
         return {
           approvalSummary: approvalSummary.trim(),
           approvalMode,
+          approvalChecklist: parseLineList(approvalChecklist),
+          verifiedEvidence: parseLineList(verifiedEvidence),
+          residualRisks: parseLineList(approvalResidualRisks),
           followUpActions: parseLineList(followUpActions),
         };
       case "CLOSE_TASK":
         return {
           closeReason,
+          closureSummary: closureSummary.trim(),
+          verificationSummary: verificationSummary.trim(),
+          rollbackPlan: rollbackPlan.trim(),
           finalArtifacts: parseLineList(finalArtifacts),
           finalTestStatus,
           mergeStatus,
@@ -612,6 +646,8 @@ export function ProtocolActionConsole({
   }, [
     acceptanceCriteria,
     approvalMode,
+    approvalChecklist,
+    approvalResidualRisks,
     approvalSummary,
     assigneeAgentId,
     cancelReason,
@@ -634,6 +670,10 @@ export function ProtocolActionConsole({
     assignmentRecipientRole,
     reviewerAgentId,
     selectedAction,
+    verifiedEvidence,
+    closureSummary,
+    verificationSummary,
+    rollbackPlan,
   ]);
 
   return (
@@ -853,6 +893,24 @@ export function ProtocolActionConsole({
               />
             </label>
             <label className="block">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Approval checklist</div>
+              <textarea
+                className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={approvalChecklist}
+                onChange={(event) => setApprovalChecklist(event.target.value)}
+                placeholder={"One item per line\nAcceptance criteria covered\nRegression risks reviewed"}
+              />
+            </label>
+            <label className="block">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Verified evidence</div>
+              <textarea
+                className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={verifiedEvidence}
+                onChange={(event) => setVerifiedEvidence(event.target.value)}
+                placeholder={"One item per line\nTest run reviewed\nDiff inspected"}
+              />
+            </label>
+            <label className="block">
               <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Approval mode</div>
               <select
                 className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
@@ -865,6 +923,15 @@ export function ProtocolActionConsole({
               </select>
             </label>
             <label className="block">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Residual risks</div>
+              <textarea
+                className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={approvalResidualRisks}
+                onChange={(event) => setApprovalResidualRisks(event.target.value)}
+                placeholder={"One item per line\nNo known residual risk."}
+              />
+            </label>
+            <label className="block md:col-span-2">
               <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Follow-up actions</div>
               <textarea
                 className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
@@ -913,6 +980,33 @@ export function ProtocolActionConsole({
                   <option key={value} value={value}>{formatProtocolValue(value)}</option>
                 ))}
               </select>
+            </label>
+            <label className="block md:col-span-2">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Closure summary</div>
+              <textarea
+                className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={closureSummary}
+                onChange={(event) => setClosureSummary(event.target.value)}
+                placeholder="Summarize what is complete, what was verified, and why this issue can close."
+              />
+            </label>
+            <label className="block">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Verification summary</div>
+              <textarea
+                className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={verificationSummary}
+                onChange={(event) => setVerificationSummary(event.target.value)}
+                placeholder="Summarize validation, review, and release readiness."
+              />
+            </label>
+            <label className="block">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Rollback plan</div>
+              <textarea
+                className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={rollbackPlan}
+                onChange={(event) => setRollbackPlan(event.target.value)}
+                placeholder="Describe the first rollback step if production validation fails."
+              />
             </label>
             <label className="block">
               <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Follow-up issue IDs</div>

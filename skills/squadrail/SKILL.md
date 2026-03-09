@@ -169,6 +169,26 @@ For `SUBMIT_FOR_REVIEW`, the payload must include:
 - `residualRisks[]`
 - at least one artifact of kind `diff`, `commit`, or `test_run`
 
+For `REQUEST_CHANGES`, the payload must include:
+
+- `reviewSummary`
+- `requiredEvidence[]`
+- `changeRequests[]` with file-level impact or a suggested action for each finding
+
+For `APPROVE_IMPLEMENTATION`, the payload must include:
+
+- `approvalSummary`
+- `approvalChecklist[]`
+- `verifiedEvidence[]`
+- `residualRisks[]`
+
+For `CLOSE_TASK`, the payload must include:
+
+- `closureSummary`
+- `verificationSummary`
+- `rollbackPlan`
+- `finalArtifacts[]`
+
 Comments remain useful, but they are not the authoritative source for review handoff state.
 
 ## Comment Style (Required)

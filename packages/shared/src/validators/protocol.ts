@@ -145,14 +145,16 @@ export const issueProtocolStartReviewPayloadSchema = z.object({
 export const issueProtocolChangeRequestItemSchema = z.object({
   title: z.string().min(1),
   reason: z.string().min(1),
-  affectedFiles: stringArraySchema.optional(),
-  suggestedAction: z.string().nullable().optional(),
+  affectedFiles: nonEmptyStringArraySchema.optional(),
+  suggestedAction: z.string().trim().nullable().optional(),
 }).strict();
 
 export const issueProtocolRequestChangesPayloadSchema = z.object({
+  reviewSummary: z.string().trim().min(1),
   changeRequests: z.array(issueProtocolChangeRequestItemSchema).min(1),
   severity: z.enum(ISSUE_PROTOCOL_REVIEW_SEVERITIES),
   mustFixBeforeApprove: z.boolean(),
+  requiredEvidence: nonEmptyStringArraySchema.min(1),
 }).strict();
 
 export const issueProtocolAckChangeRequestPayloadSchema = z.object({
@@ -169,18 +171,24 @@ export const issueProtocolRequestHumanDecisionPayloadSchema = z.object({
 }).strict();
 
 export const issueProtocolApproveImplementationPayloadSchema = z.object({
-  approvalSummary: z.string().min(1),
+  approvalSummary: z.string().trim().min(1),
   approvalMode: z.enum(ISSUE_PROTOCOL_APPROVAL_MODES),
-  followUpActions: stringArraySchema.optional(),
+  approvalChecklist: nonEmptyStringArraySchema.min(1),
+  verifiedEvidence: nonEmptyStringArraySchema.min(1),
+  residualRisks: nonEmptyStringArraySchema.min(1),
+  followUpActions: nonEmptyStringArraySchema.optional(),
 }).strict();
 
 export const issueProtocolCloseTaskPayloadSchema = z.object({
   closeReason: z.enum(ISSUE_PROTOCOL_CLOSE_REASONS),
-  finalArtifacts: stringArraySchema.min(1),
+  closureSummary: z.string().trim().min(1),
+  verificationSummary: z.string().trim().min(1),
+  rollbackPlan: z.string().trim().min(1),
+  finalArtifacts: nonEmptyStringArraySchema.min(1),
   finalTestStatus: z.enum(ISSUE_PROTOCOL_FINAL_TEST_STATUSES),
   mergeStatus: z.enum(ISSUE_PROTOCOL_MERGE_STATUSES),
   followUpIssueIds: z.array(uuidSchema).optional(),
-  remainingRisks: stringArraySchema.optional(),
+  remainingRisks: nonEmptyStringArraySchema.optional(),
 }).strict();
 
 export const issueProtocolReassignTaskPayloadSchema = z.object({

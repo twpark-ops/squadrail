@@ -132,9 +132,11 @@ export interface IssueProtocolChangeRequestItem {
 }
 
 export interface IssueProtocolRequestChangesPayload {
+  reviewSummary: string;
   changeRequests: IssueProtocolChangeRequestItem[];
   severity: IssueProtocolReviewSeverity;
   mustFixBeforeApprove: boolean;
+  requiredEvidence: string[];
 }
 
 export interface IssueProtocolAckChangeRequestPayload {
@@ -153,11 +155,17 @@ export interface IssueProtocolRequestHumanDecisionPayload {
 export interface IssueProtocolApproveImplementationPayload {
   approvalSummary: string;
   approvalMode: IssueProtocolApprovalMode;
+  approvalChecklist: string[];
+  verifiedEvidence: string[];
+  residualRisks: string[];
   followUpActions?: string[];
 }
 
 export interface IssueProtocolCloseTaskPayload {
   closeReason: IssueProtocolCloseReason;
+  closureSummary: string;
+  verificationSummary: string;
+  rollbackPlan: string;
   finalArtifacts: string[];
   finalTestStatus: IssueProtocolFinalTestStatus;
   mergeStatus: IssueProtocolMergeStatus;

@@ -25,8 +25,8 @@ For real squad execution, prefer protocol messages over free-form comments:
 
 - Tech Lead sends `ASSIGN_TASK`
 - Engineer sends `REPORT_PROGRESS` and `SUBMIT_FOR_REVIEW`
-- Reviewer sends `REQUEST_CHANGES` or `APPROVE_IMPLEMENTATION`
-- Tech Lead or human board sends `CLOSE_TASK`
+- Reviewer sends `REQUEST_CHANGES` with review summary and required evidence, or `APPROVE_IMPLEMENTATION` with approval checklist and verified evidence
+- Tech Lead or human board sends `CLOSE_TASK` with closure summary, verification summary, rollback plan, and final artifacts
 
 ## Status Lifecycle
 

@@ -423,20 +423,29 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
       ]);
     case "REQUEST_CHANGES":
       return uniqueNonEmpty([
+        String(payload.reviewSummary ?? ""),
+        ...((payload.requiredEvidence as string[] | undefined) ?? []),
         ...(((payload.changeRequests as Array<Record<string, unknown>> | undefined) ?? []).flatMap((request) => [
           String(request.title ?? ""),
           String(request.reason ?? ""),
           ...(((request.affectedFiles as string[] | undefined) ?? [])),
+          String(request.suggestedAction ?? ""),
         ])),
       ]);
     case "APPROVE_IMPLEMENTATION":
       return uniqueNonEmpty([
         String(payload.approvalSummary ?? ""),
+        ...((payload.approvalChecklist as string[] | undefined) ?? []),
+        ...((payload.verifiedEvidence as string[] | undefined) ?? []),
+        ...((payload.residualRisks as string[] | undefined) ?? []),
         ...((payload.followUpActions as string[] | undefined) ?? []),
       ]);
     case "CLOSE_TASK":
       return uniqueNonEmpty([
         String(payload.closeReason ?? ""),
+        String(payload.closureSummary ?? ""),
+        String(payload.verificationSummary ?? ""),
+        String(payload.rollbackPlan ?? ""),
         ...((payload.finalArtifacts as string[] | undefined) ?? []),
         ...((payload.remainingRisks as string[] | undefined) ?? []),
       ]);
@@ -518,6 +527,9 @@ export function deriveDynamicRetrievalSignals(input: {
     ...((payload.requiredKnowledgeTags as string[] | undefined) ?? []),
     ...((payload.reviewChecklist as string[] | undefined) ?? []),
     ...((payload.reviewFocus as string[] | undefined) ?? []),
+    ...((payload.requiredEvidence as string[] | undefined) ?? []),
+    ...((payload.approvalChecklist as string[] | undefined) ?? []),
+    ...((payload.verifiedEvidence as string[] | undefined) ?? []),
   ]);
   const identifierHints = extractIdentifierHints([
     ...knowledgeTags,
@@ -526,6 +538,10 @@ export function deriveDynamicRetrievalSignals(input: {
     String(payload.blockerCode ?? ""),
     String(payload.implementationSummary ?? ""),
     String(payload.diffSummary ?? ""),
+    String(payload.reviewSummary ?? ""),
+    String(payload.approvalSummary ?? ""),
+    String(payload.closureSummary ?? ""),
+    String(payload.verificationSummary ?? ""),
   ]);
 
   const preferredSourceTypes = uniqueNonEmpty([
