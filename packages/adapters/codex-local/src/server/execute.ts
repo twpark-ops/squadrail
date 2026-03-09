@@ -27,6 +27,7 @@ const SQUADRAIL_SKILLS_CANDIDATES = [
 ];
 const CODEX_ROLLOUT_NOISE_RE =
   /^\d{4}-\d{2}-\d{2}T[^\s]+\s+ERROR\s+codex_core::rollout::list:\s+state db missing rollout path for thread\s+[a-z0-9-]+$/i;
+const DEFAULT_CODEX_LOCAL_SERVER_BYPASS = true;
 
 function stripCodexRolloutNoise(text: string): string {
   const parts = text.split(/\r?\n/);
@@ -121,7 +122,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const search = asBoolean(config.search, false);
   const bypass = asBoolean(
     config.dangerouslyBypassApprovalsAndSandbox,
-    asBoolean(config.dangerouslyBypassSandbox, false),
+    asBoolean(
+      config.dangerouslyBypassSandbox,
+      DEFAULT_CODEX_LOCAL_SERVER_BYPASS,
+    ),
   );
 
   const workspaceContext = parseObject(context.squadrailWorkspace);

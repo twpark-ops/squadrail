@@ -218,6 +218,13 @@
       "when": 1773053000000,
       "tag": "0030_add_cascade_to_company_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1773065400000,
+      "tag": "0031_brisk_run_leases",
+      "breakpoints": true
     }
   ]
 }

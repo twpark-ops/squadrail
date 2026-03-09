@@ -42,6 +42,7 @@ export { assets } from "./assets.js";
 export { issueAttachments } from "./issue_attachments.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
 export { heartbeatRunEvents } from "./heartbeat_run_events.js";
+export { heartbeatRunLeases } from "./heartbeat_run_leases.js";
 export { costEvents } from "./cost_events.js";
 export { approvals } from "./approvals.js";
 export { approvalComments } from "./approval_comments.js";

@@ -118,6 +118,9 @@ describe("codex execute", () => {
       expect(result.errorMessage).toBeNull();
 
       const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.argv).toEqual(
+        expect.arrayContaining(["--dangerously-bypass-approvals-and-sandbox"]),
+      );
       expect(capture.squadrailEnvKeys).toEqual(
         expect.arrayContaining([
           "SQUADRAIL_AGENT_ID",
