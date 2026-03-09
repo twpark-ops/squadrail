@@ -268,6 +268,7 @@ POST /api/issues/{issueId}/protocol/messages
 For `SUBMIT_FOR_REVIEW`, always include:
 
 - `implementationSummary`
+- `evidence[]`
 - `diffSummary`
 - `changedFiles[]`
 - `testResults[]`

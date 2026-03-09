@@ -34,7 +34,7 @@ describe("role pack defaults", () => {
 
     expect(agents?.content).toContain("Example Product Squad Delivery Context");
     expect(role?.content).toContain("Example Product Squad Engineer Addendum");
-    expect(role?.content).toContain("Report implementation summary, diff summary, changed files, executed tests, review checklist, and residual risk");
+    expect(role?.content).toContain("Report implementation summary, evidence, diff summary, changed files, executed tests, review checklist, and residual risk");
   });
 
   it("teaches the default engineer pack the full review handoff contract", () => {
@@ -42,6 +42,7 @@ describe("role pack defaults", () => {
     const role = files.find((file) => file.filename === "ROLE.md");
 
     expect(role?.content).toContain("implementation summary");
+    expect(role?.content).toContain("evidence");
     expect(role?.content).toContain("diff summary");
     expect(role?.content).toContain("review checklist");
     expect(role?.content).toContain("residual risks");
