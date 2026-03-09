@@ -29,6 +29,6 @@
     <circle cx="872" cy="444" r="18" fill="#E7ECF2"/>
   </g>
   <text x="176" y="630" fill="#F8FAFC" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="118" font-weight="760">Squadrail</text>
-  <text x="176" y="720" fill="#D5DCE5" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="48" font-weight="560">Protocol-first control plane for software squads.</text>
-  <text x="176" y="784" fill="#9FB0C5" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="32">Route work through CTO, tech leads, engineers, reviewers, and knowledge-backed execution.</text>
+  <text x="176" y="720" fill="#D5DCE5" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="42" font-weight="560">AI Squads on Rails</text>
+  <text x="176" y="784" fill="#9FB0C5" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="28">Protocol-driven orchestration for autonomous agent teams</text>
 </svg>
