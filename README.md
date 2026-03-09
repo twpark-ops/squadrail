@@ -1,9 +1,15 @@
-# Squadrail
+<p align="center">
+  <img src="doc/assets/header.svg" alt="Squadrail — AI Squads on Rails" width="720" />
+</p>
 
-**AI Squads on Rails** — Protocol-first orchestration for autonomous AI agent teams.
+<p align="center">
+  <strong>Protocol-first orchestration for autonomous AI agent teams</strong>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/twpark-ops/squadrail/blob/master/LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/twpark-ops/squadrail?style=flat)](https://github.com/twpark-ops/squadrail/stargazers)
+<p align="center">
+  <a href="https://github.com/twpark-ops/squadrail/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
+  <a href="https://github.com/twpark-ops/squadrail/stargazers"><img src="https://img.shields.io/github/stars/twpark-ops/squadrail?style=flat" alt="Stars" /></a>
+</p>
 
 ---
 
@@ -243,6 +249,10 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 MIT © 2026 Squadrail
 
 ---
+
+<p align="center">
+  <img src="doc/assets/footer.jpg" alt="" width="720" />
+</p>
 
 <p align="center">
   <sub>Built for teams that want AI agents to work like a real squad.</sub>
