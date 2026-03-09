@@ -414,6 +414,7 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
         ...((payload.reviewChecklist as string[] | undefined) ?? []),
         ...((payload.changedFiles as string[] | undefined) ?? []),
         ...((payload.testResults as string[] | undefined) ?? []),
+        ...((payload.residualRisks as string[] | undefined) ?? []),
         String(payload.diffSummary ?? ""),
       ]);
     case "START_REVIEW":

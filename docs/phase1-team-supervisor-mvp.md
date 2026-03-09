@@ -216,6 +216,25 @@ summary 예시:
 - 숨은 coupling이 커진다
 - rollback과 설명 가능성이 떨어진다
 
+### 7. minimal review handoff contract
+
+Phase 1 마지막 슬라이스에서는 `SUBMIT_FOR_REVIEW`를 메모가 아니라 구조화된 handoff 계약으로 다룬다.
+
+최소 필수 항목:
+
+- `implementationSummary`
+- `diffSummary`
+- `changedFiles[]`
+- `testResults[]`
+- `reviewChecklist[]`
+- `residualRisks[]`
+
+추가 규칙:
+
+- `APPROVE_IMPLEMENTATION`은 최신 `SUBMIT_FOR_REVIEW`가 위 계약을 모두 만족할 때만 허용한다
+- reviewer brief / retrieval query는 `testResults`와 `residualRisks`를 포함해 handoff 근거를 읽는다
+- issue detail timeline은 위 handoff 항목을 별도 섹션으로 노출한다
+
 ## 코드 경계 기준 구현 포인트
 
 ### API / Service

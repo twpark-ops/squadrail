@@ -26,6 +26,9 @@ describe("evaluateProtocolEvidenceRequirement", () => {
           evidence: ["tests passed"],
           reviewChecklist: ["review"],
           changedFiles: ["src/app.ts"],
+          testResults: [],
+          residualRisks: ["none"],
+          diffSummary: "Updated retry flow",
         },
         artifacts: [],
       },
@@ -62,6 +65,15 @@ describe("evaluateProtocolEvidenceRequirement", () => {
         artifacts: [],
       },
       latestReviewArtifacts: [{ kind: "file" }],
+      latestReviewPayload: {
+        implementationSummary: "done",
+        evidence: ["tests passed"],
+        reviewChecklist: ["review"],
+        changedFiles: ["src/app.ts"],
+        testResults: ["pnpm test:run"],
+        residualRisks: ["No known residual risk."],
+        diffSummary: "Updated retry flow",
+      },
     });
 
     expect(violation).toMatchObject({
@@ -127,6 +139,9 @@ describe("evaluateProtocolEvidenceRequirement", () => {
           evidence: ["tests passed"],
           reviewChecklist: ["review"],
           changedFiles: ["src/app.ts"],
+          testResults: ["pnpm test:run"],
+          residualRisks: ["No known residual risk."],
+          diffSummary: "Updated retry flow",
         },
         artifacts: [
           {
@@ -138,5 +153,48 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     });
 
     expect(violation).toBeNull();
+  });
+
+  it("rejects review submission without test results, diff summary, and residual risks", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "submit",
+        payload: {
+          implementationSummary: "done",
+          evidence: ["tests passed"],
+          reviewChecklist: ["review"],
+          changedFiles: ["src/app.ts"],
+          testResults: [],
+          residualRisks: [],
+          diffSummary: "",
+        },
+        artifacts: [
+          {
+            kind: "diff",
+            uri: "diff://123",
+          },
+        ],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "missing_required_artifact",
+    });
+    expect(violation?.message).toContain("testResults");
   });
 });

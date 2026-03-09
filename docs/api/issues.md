@@ -117,6 +117,16 @@ Common message types:
 - `APPROVE_IMPLEMENTATION`
 - `CLOSE_TASK`
 
+`SUBMIT_FOR_REVIEW` is treated as a structured handoff. At minimum, provide:
+
+- `implementationSummary`
+- `diffSummary`
+- `changedFiles[]`
+- `testResults[]`
+- `reviewChecklist[]`
+- `residualRisks[]`
+- one artifact of kind `diff`, `commit`, or `test_run`
+
 ### Get Task Briefs
 
 ```

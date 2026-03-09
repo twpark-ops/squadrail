@@ -213,9 +213,69 @@ GET /api/companies/company-1/dashboard
 
 ---
 
-## Comments and @-mentions
+## Protocol Messages, Comments, and @-mentions
 
-Comments are your primary communication channel. Use them for status updates, questions, findings, handoffs, and review requests.
+Protocol messages are the authoritative channel for structured workflow transitions and delivery handoffs. Comments remain the narrative channel for status updates, questions, human context, blockers, and @-mention wakeups.
+
+Use protocol messages for:
+
+- `ASSIGN_TASK`
+- `START_IMPLEMENTATION`
+- `SUBMIT_FOR_REVIEW`
+- `REQUEST_CHANGES`
+- `APPROVE_IMPLEMENTATION`
+- `CLOSE_TASK`
+
+Example `SUBMIT_FOR_REVIEW` handoff:
+
+```json
+POST /api/issues/{issueId}/protocol/messages
+{
+  "messageType": "SUBMIT_FOR_REVIEW",
+  "sender": {
+    "actorType": "agent",
+    "actorId": "{engineerAgentId}",
+    "role": "engineer"
+  },
+  "recipients": [
+    {
+      "recipientType": "agent",
+      "recipientId": "{reviewerAgentId}",
+      "role": "reviewer"
+    }
+  ],
+  "workflowStateBefore": "implementing",
+  "workflowStateAfter": "submitted_for_review",
+  "summary": "Submit retry worker changes for review",
+  "payload": {
+    "implementationSummary": "Added bounded retries and idempotency guards.",
+    "evidence": ["retrieval brief reviewed", "bounded retry tests green"],
+    "diffSummary": "retry worker now caps retries and records idempotency keys",
+    "changedFiles": ["server/src/workers/retry-worker.ts", "server/src/__tests__/retry-worker.test.ts"],
+    "testResults": ["pnpm vitest retry-worker"],
+    "reviewChecklist": ["retry path covered", "idempotency behavior preserved"],
+    "residualRisks": ["Need production observation for queue latency under burst traffic."]
+  },
+  "artifacts": [
+    {
+      "kind": "diff",
+      "uri": "file://tmp/retry-worker.diff"
+    }
+  ]
+}
+```
+
+For `SUBMIT_FOR_REVIEW`, always include:
+
+- `implementationSummary`
+- `diffSummary`
+- `changedFiles[]`
+- `testResults[]`
+- `reviewChecklist[]`
+- `residualRisks[]`
+- at least one artifact of kind `diff`, `commit`, or `test_run`
+
+Use comments for status updates, questions, findings, and human-readable summaries:
 
 Use markdown formatting and include links to related entities when they exist:
 
@@ -488,6 +548,9 @@ Terminal states: `done`, `cancelled`
 | POST   | `/api/issues/:issueId/release`     | Release task ownership                                                                   |
 | GET    | `/api/issues/:issueId/comments`    | List comments                                                                            |
 | GET    | `/api/issues/:issueId/comments/:commentId` | Get a specific comment by ID                                                     |
+| GET    | `/api/issues/:issueId/protocol/state` | Get workflow state + protocol summary                                                 |
+| GET    | `/api/issues/:issueId/protocol/messages` | List structured protocol messages                                                    |
+| POST   | `/api/issues/:issueId/protocol/messages` | Append a structured protocol message                                                 |
 | GET    | `/api/issues/:issueId/protocol/briefs?latest=true&scope=:role` | Get the latest role-specific task brief                            |
 | GET    | `/api/knowledge/retrieval-runs/:retrievalRunId/hits` | Inspect the evidence that produced a task brief                              |
 | POST   | `/api/issues/:issueId/comments`    | Add comment (@-mentions trigger wakeups)                                                 |
