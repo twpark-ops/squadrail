@@ -27,6 +27,7 @@ import {
   type ResolvedWorkspaceForRun,
   WorkspaceResolutionError,
 } from "./heartbeat-workspace.js";
+import { inspectWorkspaceGitSnapshot } from "./workspace-git-snapshot.js";
 import {
   buildInternalWorkItemDispatchMetadata,
   isLeadWatchEnabled,
@@ -46,6 +47,22 @@ const startLocksByAgent = new Map<string, Promise<void>>();
 
 function appendExcerpt(prev: string, chunk: string) {
   return appendWithCap(prev, chunk, MAX_EXCERPT_BYTES);
+}
+
+function mergeRunResultJson(
+  base: Record<string, unknown> | null | undefined,
+  additions: Record<string, unknown> | null,
+) {
+  if (!additions || Object.keys(additions).length === 0) return base ?? null;
+  if (!base) return additions;
+  return {
+    ...base,
+    ...additions,
+  };
+}
+
+function isRepoBackedWorkspaceSource(source: ResolvedWorkspaceForRun["source"] | null | undefined) {
+  return source === "project_shared" || source === "project_isolated";
 }
 
 function normalizeMaxConcurrentRuns(value: unknown) {
@@ -1381,6 +1398,59 @@ export function heartbeatService(db: Db) {
               ...(adapterResult.billingType ? { billingType: adapterResult.billingType } : {}),
             } as Record<string, unknown>)
           : null;
+      let workspaceGitSnapshot: Record<string, unknown> | null = null;
+      if (
+        resolvedWorkspace
+        && isRepoBackedWorkspaceSource(resolvedWorkspace.source)
+        && resolvedWorkspace.workspaceUsage === "implementation"
+      ) {
+        currentPhase = "finalize.workspace_snapshot";
+        await appendCheckpoint("finalize.workspace_snapshot", "capturing workspace git snapshot", {
+          source: resolvedWorkspace.source,
+          workspaceId: resolvedWorkspace.workspaceId ?? null,
+          branchName: resolvedWorkspace.branchName ?? null,
+        });
+        try {
+          const snapshot = await inspectWorkspaceGitSnapshot({
+            cwd: resolvedWorkspace.cwd,
+            branchName: resolvedWorkspace.branchName,
+          });
+          if (snapshot) {
+            workspaceGitSnapshot = snapshot as Record<string, unknown>;
+            await appendRunEvent(eventRun, seq++, {
+              eventType: "workspace.snapshot",
+              stream: "system",
+              level: "info",
+              message: snapshot.hasChanges
+                ? `workspace snapshot captured (${snapshot.changedFiles.length} changed file(s))`
+                : "workspace snapshot captured (clean working tree)",
+              payload: {
+                branchName: snapshot.branchName,
+                headSha: snapshot.headSha,
+                hasChanges: snapshot.hasChanges,
+                changedFiles: snapshot.changedFiles,
+                diffStat: snapshot.diffStat,
+              },
+            });
+          }
+        } catch (snapshotErr) {
+          logger.warn({ err: snapshotErr, runId: run.id }, "failed to capture workspace git snapshot");
+          await appendRunEvent(eventRun, seq++, {
+            eventType: "workspace.snapshot",
+            stream: "system",
+            level: "warn",
+            message: "failed to capture workspace git snapshot",
+            payload: {
+              source: resolvedWorkspace.source,
+              workspaceId: resolvedWorkspace.workspaceId ?? null,
+            },
+          });
+        }
+      }
+      const resultJson = mergeRunResultJson(
+        adapterResult.resultJson ?? null,
+        workspaceGitSnapshot ? { workspaceGitSnapshot } : null,
+      );
 
       await setRunStatus(run.id, status, {
         finishedAt: new Date(),
@@ -1399,7 +1469,7 @@ export function heartbeatService(db: Db) {
         exitCode: adapterResult.exitCode,
         signal: adapterResult.signal,
         usageJson,
-        resultJson: adapterResult.resultJson ?? null,
+        resultJson,
         sessionIdAfter: nextSessionState.displayId ?? nextSessionState.legacySessionId,
         stdoutExcerpt,
         stderrExcerpt,

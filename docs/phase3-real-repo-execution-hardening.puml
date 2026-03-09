@@ -1,0 +1,32 @@
+@startuml
+title Phase 3 Slice 1 - Run-bound Repo Evidence
+
+actor Engineer
+participant "Protocol Route" as Route
+participant "Heartbeat" as HB
+participant "Workspace Resolver" as WR
+participant "Git Snapshot" as GS
+database "heartbeat_runs" as HR
+database "heartbeat_run_events" as HRE
+database "issue_protocol_artifacts" as IPA
+
+Engineer -> Route : POST SUBMIT_FOR_REVIEW
+Route -> HB : getRun(runId)
+Route -> GS : inspectWorkspaceGitSnapshot(cwd)
+GS --> Route : branch/head/changedFiles/diffStat
+Route -> IPA : append run + diff + corroborated artifacts
+
+HB -> WR : resolveWorkspaceForRun()
+WR --> HB : isolated workspace + branch
+HB -> GS : inspectWorkspaceGitSnapshot(cwd)
+GS --> HB : workspace snapshot
+HB -> HRE : append workspace.snapshot event
+HB -> HR : persist resultJson.workspaceGitSnapshot
+
+note right of IPA
+Review artifact now references
+actual workspace diff metadata,
+not only payload text.
+end note
+
+@enduml
