@@ -1,163 +1,249 @@
-<p align="center">
-  <img src="doc/assets/header.svg" alt="Squadrail — protocol-first squad orchestration" width="720" />
-</p>
+# Squadrail
 
-<p align="center">
-  <a href="#quickstart"><strong>Quickstart</strong></a> &middot;
-  <a href="docs/"><strong>Docs</strong></a> &middot;
-  <a href="https://github.com/twpark-ops/squadrail"><strong>GitHub</strong></a> &middot;
-  <a href=""><strong>Discord</strong></a>
-</p>
+**AI Squads on Rails** — Protocol-first orchestration for autonomous AI agent teams.
 
-<p align="center">
-  <a href="https://github.com/twpark-ops/squadrail/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
-  <a href="https://github.com/twpark-ops/squadrail/stargazers"><img src="https://img.shields.io/github/stars/twpark-ops/squadrail?style=flat" alt="Stars" /></a>
-  <a href=""><img src="https://img.shields.io/?label=discord" alt="Discord" /></a>
-</p>
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/twpark-ops/squadrail/blob/master/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/twpark-ops/squadrail?style=flat)](https://github.com/twpark-ops/squadrail/stargazers)
+
+---
 
 ## What is Squadrail?
 
-# Open-source orchestration for AI software squads
+Squadrail is an open-source platform for orchestrating AI agent squads that execute software delivery tasks with structure and precision.
 
-Squadrail is a Node.js server and React UI for running software-delivery squads made of AI agents. It provides:
+**Core capabilities:**
+- 🎯 **Protocol-driven workflows** — State machines and typed messages instead of free-form chat
+- 🤖 **Role-based agent teams** — Tech Lead, Engineer, Reviewer with clear responsibilities
+- 📚 **RAG-powered context** — Hybrid retrieval with task briefs from your codebase
+- 🔒 **Multi-tenant isolation** — PostgreSQL RLS for secure company data separation
+- 📊 **Operational visibility** — Execution logs, approvals, budgets, live events
 
-- protocol-driven task handoff instead of free-form agent chatter
-- role packs for Tech Lead, Engineer, Reviewer, and custom roles
-- role-aware retrieval and task briefs for codebase/document context
-- audit trails, governance, approvals, budgets, and live execution events
-- Claude Code and Codex as the primary local execution engines
+---
 
-It looks like a dashboard, but the core is an orchestration kernel:
+## Architecture
 
-- org chart and ownership
-- typed workflow state transitions
-- execution routing
-- retrieval and evidence gates
-- review loops and escalation
+```
+Issue Creation
+    ↓
+Protocol Message (ASSIGN_TASK)
+    ↓
+RAG Retrieval (semantic + keyword search)
+    ↓
+Task Brief Generation (context + evidence)
+    ↓
+Agent Execution (Claude Code / Codex)
+    ↓
+Review Cycle (Reviewer approval)
+    ↓
+Completion
+```
 
-## Why Squadrail exists
+**Key components:**
+- **Express.js API** — REST endpoints with Zod validation
+- **PostgreSQL + Drizzle ORM** — Type-safe database layer
+- **React UI** — Dashboard for monitoring and control
+- **WebSocket** — Real-time event streaming
+- **Embedded PostgreSQL** — Zero-config local development
 
-Most multi-agent setups fail because coordination degrades before model quality does. Squadrail focuses on:
+---
 
-- **deterministic workflow**: state machine, structured messages, review cycles
-- **reliable execution**: explicit dispatch to Claude Code / Codex
-- **context discipline**: task briefs and role-aware retrieval instead of dumping whole histories
-- **operational visibility**: queue, blocker, evidence, violation, and cost projections
+## Quick Start
 
-## Primary workflow
-
-| Step | Action | Result |
-| --- | --- | --- |
-| 1 | Define the issue | Requirements and acceptance criteria become the protocol source of truth |
-| 2 | Assign the work | Tech Lead hands off to Engineer with a typed message |
-| 3 | Execute | Claude Code or Codex runs with Squadrail context and workspace hints |
-| 4 | Review | Reviewer approves or requests changes with evidence |
-| 5 | Close | Lead closes the issue only after review and evidence gates pass |
-
-## Key features
-
-- **Structured protocol messages**: `ASSIGN_TASK`, `SUBMIT_FOR_REVIEW`, `REQUEST_CHANGES`, `APPROVE_IMPLEMENTATION`, `CLOSE_TASK`
-- **Role packs**: versioned markdown-based persona bundles for each role
-- **Knowledge foundation**: workspace import, semantic chunking, hybrid retrieval, task briefs
-- **Setup console**: doctor checks, setup progress, role pack seeding, workspace import
-- **Ops console**: protocol queue, blocker queue, review backlog, live events
-- **Squadrail-first runtime**: CLI, env vars, home paths, skills, and API headers use Squadrail names
-
-## What Squadrail is not
-
-- not a chatbot shell
-- not a drag-and-drop workflow builder
-- not a prompt textarea manager
-- not a single-agent tool
-- not a pull-request bot
-
-## Quickstart
-
-Open source. Self-hosted. No hosted Squadrail account required.
+### One-command setup
 
 ```bash
 npx squadrail onboard --yes
 ```
 
-Or from source:
+### From source
 
 ```bash
-git clone https://github.com/twpark-ops/squadrail.git squadrail
+git clone https://github.com/twpark-ops/squadrail.git
 cd squadrail
 pnpm install
 pnpm dev
 ```
 
-This starts the API server at `http://localhost:3100`.
+Open `http://localhost:3100` in your browser.
 
-Requirements:
-
+**Requirements:**
 - Node.js 20+
 - pnpm 9.15+
 
-## Recommended local stack
+---
 
-- execution engines: Claude Code, Codex
-- database:
-  - embedded PostgreSQL for local bootstrap
-  - external PostgreSQL for team or production deployments
-- knowledge:
-  - workspace import
-  - hybrid retrieval
-  - task briefs
+## Core Concepts
 
-## FAQ
+### Protocol Messages
 
-**Which command and env names should I use?**  
-Use `squadrail` and `SQUADRAIL_*` only.
+Structured communication instead of unstructured chat:
 
-**Does Squadrail require a hosted service?**  
-No. Local embedded PostgreSQL mode still works for one-command bootstrap.
+```typescript
+ASSIGN_TASK → ACK_ASSIGNMENT → PROPOSE_PLAN →
+START_IMPLEMENTATION → SUBMIT_FOR_REVIEW →
+START_REVIEW → APPROVE_IMPLEMENTATION → CLOSE_TASK
+```
 
-**Can I run multiple companies?**  
-Yes. The control plane remains company-scoped with isolated state.
+Each message triggers:
+- State validation
+- Role authorization
+- RAG retrieval
+- Evidence requirements
+- Automated dispatch
 
-**Do I need all adapters?**  
-No. The product surface is now optimized for Claude Code and Codex. Legacy adapters remain only for compatibility.
+### Agent Roles
+
+- **Tech Lead** — Assigns work, resolves blockers, closes tasks
+- **Engineer** — Implements features, submits for review
+- **Reviewer** — Reviews code, approves or requests changes
+- **QA** — Tests implementations, validates requirements
+- **CTO/PM** — Strategic oversight, budget approval
+
+### RAG System
+
+**Hybrid retrieval pipeline:**
+1. Dense search (vector embeddings via OpenAI)
+2. Sparse search (PostgreSQL full-text search)
+3. Fusion ranking (scores combined)
+4. Reranking (signal-based boost: paths, symbols, tags)
+5. Model reranking (optional LLM-based)
+6. Task brief generation (markdown summary + evidence)
+
+**Result:** Agents receive only relevant context, not entire codebase dumps.
+
+---
+
+## Key Features
+
+### Multi-Tenancy
+- Row-Level Security (RLS) for data isolation
+- Company-scoped agents, issues, knowledge
+- Embedded PostgreSQL for local dev
+
+### Execution Control
+- Concurrent execution limits per agent
+- Queue management with automatic retry
+- Timeout handling and orphan cleanup
+- Execution logs and cost tracking
+
+### Knowledge Management
+- Document import from repositories
+- Automatic chunking and embedding
+- Version control for retrieval policies
+- Authority levels (canonical, working, draft, deprecated)
+
+### Governance
+- Approval workflows for budget/agent changes
+- Protocol violation tracking
+- Evidence requirements for task completion
+- Audit trail for all operations
+
+---
 
 ## Development
 
 ```bash
-pnpm dev              # Full dev (API + UI)
-pnpm dev:server       # Server only
+# Development
+pnpm dev              # Full stack (API + UI)
+pnpm dev:server       # API only
 pnpm dev:ui           # UI only
-pnpm build            # Build all
+
+# Building
+pnpm build            # Build all packages
 pnpm typecheck        # Type checking
-pnpm test:run         # Run tests
-pnpm db:generate      # Generate DB migration
+
+# Testing
+pnpm test:run         # Run all tests
+
+# Database
+pnpm db:generate      # Generate migration
 pnpm db:migrate       # Apply migrations
-pnpm squadrail doctor # Environment / setup diagnostics
+
+# Diagnostics
+pnpm squadrail doctor # System checks
 ```
 
-See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
+---
 
-## Contributing
+## Deployment Modes
 
-Contributions are welcome. See the [contributing guide](CONTRIBUTING.md) for details.
+### Local Trusted
+```bash
+# No authentication required
+# Loopback binding only
+SQUADRAIL_DEPLOYMENT_MODE=local_trusted
+```
+
+### Authenticated Private
+```bash
+# Better-auth authentication
+# Internal network only
+SQUADRAIL_DEPLOYMENT_MODE=authenticated
+SQUADRAIL_DEPLOYMENT_EXPOSURE=private
+BETTER_AUTH_SECRET=your-secret
+```
+
+### Authenticated Public
+```bash
+# Full authentication
+# Internet-exposed
+SQUADRAIL_DEPLOYMENT_MODE=authenticated
+SQUADRAIL_DEPLOYMENT_EXPOSURE=public
+SQUADRAIL_AUTH_PUBLIC_BASE_URL=https://your-domain.com
+```
+
+---
+
+## Tech Stack
+
+**Backend:**
+- Express 5.1, TypeScript 5.7
+- Drizzle ORM 0.38, PostgreSQL
+- Better-auth 1.4 (authentication)
+- ws 8.19 (WebSocket)
+
+**Frontend:**
+- React 19, TypeScript
+- Tailwind CSS v4
+- shadcn/ui, Radix UI
+- Vite 6.1
+
+**AI/ML:**
+- Anthropic Claude SDK
+- OpenAI (embeddings)
+- LangChain (optional)
+
+---
+
+## Documentation
+
+- [Architecture Overview](docs/start/architecture.md)
+- [API Reference](docs/api/overview.md)
+- [CLI Commands](docs/cli/overview.md)
+- [Development Guide](doc/DEVELOPING.md)
+
+---
 
 ## Community
 
-- [Discord]()
-- [GitHub Issues](https://github.com/twpark-ops/squadrail/issues)
-- [GitHub Discussions](https://github.com/twpark-ops/squadrail/discussions)
+- [GitHub Issues](https://github.com/twpark-ops/squadrail/issues) — Bug reports and feature requests
+- [GitHub Discussions](https://github.com/twpark-ops/squadrail/discussions) — Questions and ideas
+- [Discord]() — Community chat
+
+---
+
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
 
 ## License
 
-MIT &copy; 2026 Squadrail
+MIT © 2026 Squadrail
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/image?repos=twpark-ops/squadrail&type=date&legend=top-left)](https://www.star-history.com/?repos=twpark-ops%2Fsquadrail&type=date&legend=top-left)
+---
 
 <p align="center">
-  <img src="doc/assets/footer.jpg" alt="" width="720" />
-</p>
-
-<p align="center">
-  <sub>🚀 AI Squads on Rails — Open source under MIT. Built for teams that want agents to work like a real squad.</sub>
+  <sub>Built for teams that want AI agents to work like a real squad.</sub>
 </p>
