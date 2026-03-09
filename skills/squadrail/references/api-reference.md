@@ -274,7 +274,8 @@ For `SUBMIT_FOR_REVIEW`, always include:
 - `testResults[]`
 - `reviewChecklist[]`
 - `residualRisks[]`
-- at least one artifact of kind `diff`, `commit`, or `test_run`
+- at least one artifact of kind `diff` or `commit`
+- auto-captured `run`, `test_run`, and `build_run` artifacts are supplemental context, not a replacement for diff/commit evidence
 
 For `REQUEST_CHANGES`, always include:
 

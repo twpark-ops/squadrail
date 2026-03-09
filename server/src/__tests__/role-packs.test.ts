@@ -34,7 +34,7 @@ describe("role pack defaults", () => {
 
     expect(agents?.content).toContain("Example Product Squad Delivery Context");
     expect(role?.content).toContain("Example Product Squad Engineer Addendum");
-    expect(role?.content).toContain("Report implementation summary, evidence, diff summary, changed files, executed tests, review checklist, and residual risk");
+    expect(role?.content).toContain("Report implementation summary, evidence, diff summary, changed files, executed tests, review checklist, residual risk, and a diff or commit artifact");
   });
 
   it("teaches the default engineer pack the full review handoff contract", () => {

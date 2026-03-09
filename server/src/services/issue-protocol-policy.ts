@@ -10,7 +10,7 @@ export const CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS = [
   "doc",
 ] as const;
 
-type ProtocolArtifactLike = Pick<IssueProtocolArtifact, "kind">;
+type ProtocolArtifactLike = Pick<IssueProtocolArtifact, "kind" | "metadata">;
 type ReviewSubmissionPayloadLike = Record<string, unknown> | null | undefined;
 type ReviewSubmissionContractMode = "legacy" | "strict";
 
@@ -24,6 +24,32 @@ export function hasProtocolArtifactKind(
   kinds: readonly string[],
 ) {
   return (artifacts ?? []).some((artifact) => kinds.includes(artifact.kind));
+}
+
+function isCorroboratedAutoArtifact(artifact: ProtocolArtifactLike) {
+  if (artifact.metadata?.autoCaptured !== true) return false;
+  return artifact.metadata?.captureConfidence === "corroborated";
+}
+
+function hasReviewSubmissionEvidenceArtifact(artifacts: ProtocolArtifactLike[] | undefined) {
+  return (artifacts ?? []).some((artifact) => {
+    if (artifact.kind === "diff" || artifact.kind === "commit") return true;
+    if (artifact.kind === "test_run") return isCorroboratedAutoArtifact(artifact) || artifact.metadata?.autoCaptured !== true;
+    return false;
+  });
+}
+
+function hasCloseVerificationArtifact(artifacts: ProtocolArtifactLike[] | undefined) {
+  return (artifacts ?? []).some((artifact) => {
+    if (artifact.kind === "diff" || artifact.kind === "commit" || artifact.kind === "approval") return true;
+    if (artifact.kind === "test_run" || artifact.kind === "build_run") {
+      return isCorroboratedAutoArtifact(artifact) || artifact.metadata?.autoCaptured !== true;
+    }
+    if (artifact.kind === "doc") {
+      return artifact.metadata?.autoCaptured !== true;
+    }
+    return false;
+  });
 }
 
 function readStringArray(value: unknown) {
@@ -119,8 +145,8 @@ function validateReviewSubmissionContract(input: {
     }
   }
 
-  if (!hasProtocolArtifactKind(input.artifacts, REVIEW_SUBMISSION_REQUIRED_ARTIFACT_KINDS)) {
-    return "SUBMIT_FOR_REVIEW requires diff, commit, or test_run artifact";
+  if (!hasReviewSubmissionEvidenceArtifact(input.artifacts)) {
+    return "SUBMIT_FOR_REVIEW requires diff, commit, or corroborated test_run artifact";
   }
 
   return null;
@@ -246,11 +272,11 @@ export function evaluateProtocolEvidenceRequirement(input: {
     }
     if (
       message.payload.mergeStatus === "merged"
-      && !hasProtocolArtifactKind(message.artifacts, CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS)
+      && !hasCloseVerificationArtifact(message.artifacts)
     ) {
       return {
         violationCode: "close_without_verification",
-        message: "Close task requires verification artifacts when merge status is merged",
+        message: "Close task requires diff, commit, approval, or corroborated verification artifacts when merge status is merged",
       };
     }
     return null;
