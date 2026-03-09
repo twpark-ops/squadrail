@@ -1341,6 +1341,8 @@ export function heartbeatService(db: Db) {
         executionPolicy: resolvedWorkspace.executionPolicy,
         workspaceUsage: resolvedWorkspace.workspaceUsage,
         branchName: resolvedWorkspace.branchName,
+        workspaceState: resolvedWorkspace.workspaceState,
+        hasLocalChanges: resolvedWorkspace.hasLocalChanges,
       };
       context[WORKSPACE_CONTEXT_KEY] = workspaceContext;
       context.squadrailWorkspace = workspaceContext;

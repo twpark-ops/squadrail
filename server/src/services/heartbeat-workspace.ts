@@ -31,6 +31,8 @@ export type ResolvedWorkspaceForRun = {
   executionPolicy: ProjectWorkspaceExecutionPolicy | null;
   workspaceUsage: ProjectWorkspaceUsageProfile | null;
   branchName: string | null;
+  workspaceState: "fresh" | "reused_clean" | "resumed_dirty" | "recreated_clean" | "recovered_existing" | null;
+  hasLocalChanges: boolean | null;
   workspaceHints: Array<{
     workspaceId: string;
     cwd: string | null;
@@ -143,6 +145,8 @@ export async function resolveWorkspaceForRun(input: {
         executionPolicy: resolvedProjectWorkspace.executionPolicy,
         workspaceUsage: resolvedProjectWorkspace.workspaceUsage,
         branchName: resolvedProjectWorkspace.branchName,
+        workspaceState: resolvedProjectWorkspace.workspaceState,
+        hasLocalChanges: resolvedProjectWorkspace.hasLocalChanges,
         workspaceHints,
         warnings: resolvedProjectWorkspace.warnings,
       };
@@ -166,6 +170,8 @@ export async function resolveWorkspaceForRun(input: {
         executionPolicy: null,
         workspaceUsage,
         branchName: null,
+        workspaceState: null,
+        hasLocalChanges: null,
         workspaceHints,
         warnings: [
           `Implementation requires an isolated project workspace, but a safe isolated workspace could not be prepared. Using blocked fallback workspace "${fallbackCwd}" so the run fails explicitly instead of mutating a shared checkout.`,
@@ -194,6 +200,8 @@ export async function resolveWorkspaceForRun(input: {
           executionPolicy: null,
           workspaceUsage,
           branchName: null,
+          workspaceState: null,
+          hasLocalChanges: null,
           workspaceHints,
           warnings: [],
         };
@@ -224,12 +232,14 @@ export async function resolveWorkspaceForRun(input: {
       workspaceId: projectWorkspaceRows[0]?.id ?? null,
       repoUrl: projectWorkspaceRows[0]?.repoUrl ?? null,
       repoRef: projectWorkspaceRows[0]?.repoRef ?? null,
-      executionPolicy: null,
-      workspaceUsage,
-      branchName: null,
-      workspaceHints,
-      warnings,
-    };
+        executionPolicy: null,
+        workspaceUsage,
+        branchName: null,
+        workspaceState: null,
+        hasLocalChanges: null,
+        workspaceHints,
+        warnings,
+      };
   }
 
   const sessionCwd = readNonEmptyString(input.previousSessionParams?.cwd);
@@ -257,6 +267,8 @@ export async function resolveWorkspaceForRun(input: {
         executionPolicy: null,
         workspaceUsage,
         branchName: readNonEmptyString(input.previousSessionParams?.branchName),
+        workspaceState: null,
+        hasLocalChanges: null,
         workspaceHints,
         warnings: sessionWarnings,
       };
@@ -289,6 +301,8 @@ export async function resolveWorkspaceForRun(input: {
     executionPolicy: null,
     workspaceUsage,
     branchName: null,
+    workspaceState: null,
+    hasLocalChanges: null,
     workspaceHints,
     warnings,
   };

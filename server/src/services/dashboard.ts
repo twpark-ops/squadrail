@@ -6,6 +6,8 @@ import {
   approvals,
   companies,
   costEvents,
+  heartbeatRunEvents,
+  heartbeatRuns,
   issueProtocolMessages,
   issueProtocolState,
   issueProtocolViolations,
@@ -203,6 +205,24 @@ function deriveNextOwnerRole(workflowState: string) {
   }
 }
 
+export function buildExecutionReliabilitySummary(input: {
+  runningRuns: number;
+  queuedRuns: number;
+  dispatchRedispatchesLast24h: number;
+  dispatchTimeoutsLast24h: number;
+  processLostLast24h: number;
+  workspaceBlockedLast24h: number;
+}) {
+  return {
+    runningRuns: input.runningRuns,
+    queuedRuns: input.queuedRuns,
+    dispatchRedispatchesLast24h: input.dispatchRedispatchesLast24h,
+    dispatchTimeoutsLast24h: input.dispatchTimeoutsLast24h,
+    processLostLast24h: input.processLostLast24h,
+    workspaceBlockedLast24h: input.workspaceBlockedLast24h,
+  };
+}
+
 export function isProtocolDashboardStale(input: {
   workflowState: string;
   lastTransitionAt: Date;
@@ -396,6 +416,49 @@ export function dashboardService(db: Db) {
         workflowCounts[row.workflowState] = Number(row.count);
       }
 
+      const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const [runningRunsRow, queuedRunsRow, redispatchesRow] = await Promise.all([
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(heartbeatRuns)
+          .where(and(eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.status, "running")))
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(heartbeatRuns)
+          .where(and(eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.status, "queued")))
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(heartbeatRunEvents)
+          .where(
+            and(
+              eq(heartbeatRunEvents.companyId, companyId),
+              eq(heartbeatRunEvents.eventType, "dispatch.watchdog"),
+              eq(heartbeatRunEvents.level, "warn"),
+              gte(heartbeatRunEvents.createdAt, last24h),
+            ),
+          )
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+      ]);
+      const failureRows = await db
+        .select({
+          errorCode: heartbeatRuns.errorCode,
+          count: sql<number>`count(*)`,
+        })
+        .from(heartbeatRuns)
+        .where(
+          and(
+            eq(heartbeatRuns.companyId, companyId),
+            gte(heartbeatRuns.createdAt, last24h),
+            inArray(heartbeatRuns.errorCode, ["dispatch_timeout", "process_lost", "workspace_required"]),
+          ),
+        )
+        .groupBy(heartbeatRuns.errorCode);
+      const failureCounts = new Map(
+        failureRows.map((row) => [row.errorCode ?? "", Number(row.count ?? 0)]),
+      );
+
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const [{ monthSpend }] = await db
@@ -443,6 +506,14 @@ export function dashboardService(db: Db) {
           openViolationCount: protocolOpenViolations,
           protocolMessagesLast24h: protocolMessagesLastDay,
         },
+        executionReliability: buildExecutionReliabilitySummary({
+          runningRuns: runningRunsRow,
+          queuedRuns: queuedRunsRow,
+          dispatchRedispatchesLast24h: redispatchesRow,
+          dispatchTimeoutsLast24h: failureCounts.get("dispatch_timeout") ?? 0,
+          processLostLast24h: failureCounts.get("process_lost") ?? 0,
+          workspaceBlockedLast24h: failureCounts.get("workspace_required") ?? 0,
+        }),
         costs: {
           monthSpendCents,
           monthBudgetCents: company.budgetMonthlyCents,

@@ -1,7 +1,7 @@
 # Execution Phase Roadmap
 
 작성일: 2026-03-09  
-현재 활성 단계: `Phase 3 (Slice 2 진행 중)`
+현재 활성 단계: `Phase 4 (Slice 1 진행 중)`
 
 ## 목표
 
@@ -126,22 +126,29 @@
   - active implementation run의 실제 working tree를 기준으로 `diff` artifact 자동 첨부
   - `START_IMPLEMENTATION` self-recipient 계약을 강제해 follow-up implementation run 보장
   - run scope가 다른 이슈의 artifact가 섞이지 않도록 issue scope 검증 강화
-- `Phase 3 / Slice 2` 진행 중
+- `Phase 3 / Slice 2` 완료
   - run output / resultJson에서 `verificationSignals`를 구조적으로 추출해 `resultJson.verificationSignals`와 run event에 저장
   - protocol artifact가 `verificationSignals`를 우선 사용해 `test_run` / `build_run` metadata를 강화
   - `APPROVE_IMPLEMENTATION` 메시지에 `approval` artifact 자동 첨부
   - `codex_local`, `cursor_local`, `opencode_local`, `claude_local` result에 structured command execution 기록을 남겨 verification signal의 신뢰도를 높임
   - `merged` close는 `repo evidence + approval + verification evidence` 조합을 요구하도록 강화
-- `Phase 3 / Slice 3` 시작
+  - Claude tool_result에서도 `exitCode`를 추론해 adapter별 structured verification 깊이 차이를 축소
+- `Phase 3 / Slice 3` 완료
   - existing worktree branch collision 시 기존 attached path 재사용
   - clean stale isolated worktree는 branch mismatch 감지 후 제거/재생성
   - empty stale isolated directory는 recreation 전에 safe cleanup
   - dirty stale isolated workspace는 manual cleanup required 상태로 승격하고 unsafe shared fallback을 차단
   - isolated workspace 준비가 실패한 implementation run은 blocked fallback warning과 함께 명시적으로 실패
   - cold-start `claim-only` run은 dispatch watchdog이 redispatch 후 timeout failover까지 담당
+  - isolated workspace의 retry/resume 경로(`fresh`, `reused_clean`, `resumed_dirty`, `recreated_clean`, `recovered_existing`)를 execution context와 artifact에 노출
+- `Phase 3` 완료
+- `Phase 4 / Slice 1` 시작
+  - dashboard summary에 execution reliability 집계 추가
+  - `running`, `queued`, `dispatch watchdog redispatch`, `dispatch_timeout`, `process_lost`, `workspace_required`를 요약 수치로 노출
+  - Dashboard 상단 metric에 execution risk surface 추가
 - 잔여 주의사항
-  - adapter별 structured verification metadata 깊이 차이는 여전히 존재하며, 특히 `claude_local`은 `exitCode`가 비어 있는 경우가 많다
-  - implementation retry/resume 정책과 clone strategy 운영 표면은 `Phase 3 / Slice 3`에서 계속 정리
+  - `Phase 4 / Slice 2` recovery queue + handoff blocker 표면은 아직 남아 있다
+  - UI 번들 large chunk 경고는 기능 blocker는 아니지만 후속 최적화 대상이다
 
 ## Phase 1 세부 슬라이스
 

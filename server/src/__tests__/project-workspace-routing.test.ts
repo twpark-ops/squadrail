@@ -155,6 +155,8 @@ describe("resolveProjectWorkspaceByPolicy", () => {
     expect(result?.cwd.startsWith(isolatedRoot)).toBe(true);
     expect(gitWorktrees.has(result!.cwd)).toBe(true);
     expect(result?.branchName).toContain("squadrail/");
+    expect(result?.workspaceState).toBe("fresh");
+    expect(result?.hasLocalChanges).toBe(false);
   });
 
   it("reuses an existing worktree when the implementation branch is already attached elsewhere", async () => {
@@ -183,6 +185,9 @@ describe("resolveProjectWorkspaceByPolicy", () => {
             "",
           ].join("\n"),
         };
+      }
+      if (args[0] === "status" && args[1] === "--porcelain") {
+        return { stdout: "" };
       }
       if (args[0] === "rev-parse" && args[1] === "--verify") {
         return { stdout: `refs/heads/${expectedBranchName}\n` };
@@ -223,6 +228,8 @@ describe("resolveProjectWorkspaceByPolicy", () => {
 
     expect(result?.source).toBe("project_isolated");
     expect(result?.cwd).toBe(existingWorktree);
+    expect(result?.workspaceState).toBe("recovered_existing");
+    expect(result?.hasLocalChanges).toBe(false);
     expect(result?.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("already attached to existing worktree"),
@@ -313,6 +320,8 @@ describe("resolveProjectWorkspaceByPolicy", () => {
     expect(result?.source).toBe("project_isolated");
     expect(result?.cwd).toBe(staleTarget);
     expect(result?.branchName).toContain("squadrail/");
+    expect(result?.workspaceState).toBe("recreated_clean");
+    expect(result?.hasLocalChanges).toBe(false);
     expect(result?.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Removed stale isolated workspace"),
@@ -375,6 +384,72 @@ describe("resolveProjectWorkspaceByPolicy", () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  it("reuses a dirty same-branch isolated clone as an explicit resume", async () => {
+    const repo = await createTempWorkspace();
+    const isolatedRoot = path.join(repo, ".clones");
+    const staleTarget = path.join(isolatedRoot, "issue-42-agent-implementer-workspace-im");
+    await fs.mkdir(staleTarget, { recursive: true });
+    const gitWorktrees = new Set([repo, staleTarget]);
+    const expectedBranchName = "squadrail/project-1/agent-implemente/issue-42";
+
+    setProjectWorkspaceGitExecutorForTests(async ({ cwd, args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") {
+        if (cwd && gitWorktrees.has(cwd)) return { stdout: "true\n" };
+        throw new Error("not a git worktree");
+      }
+      if (args[0] === "branch" && args[1] === "--show-current") {
+        if (cwd === staleTarget) return { stdout: `${expectedBranchName}\n` };
+        return { stdout: "main\n" };
+      }
+      if (args[0] === "status" && args[1] === "--porcelain") {
+        if (cwd === staleTarget) return { stdout: " M src/app.ts\n" };
+        return { stdout: "" };
+      }
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const result = await resolveProjectWorkspaceByPolicy({
+      agentId: "agent-implementer",
+      issueId: "issue-42",
+      projectId: "project-1",
+      taskKey: "issue-42",
+      context: {
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      },
+      workspaces: [
+        {
+          id: "workspace-impl",
+          name: "impl",
+          cwd: repo,
+          repoUrl: null,
+          repoRef: "HEAD",
+          metadata: {
+            executionPolicy: {
+              mode: "isolated",
+              applyFor: ["implementation"],
+              isolationStrategy: "clone",
+              isolatedRoot,
+              branchTemplate: "squadrail/{projectId}/{agentId}/{issueId}",
+            },
+          },
+          isPrimary: true,
+        },
+      ],
+    });
+
+    expect(result?.source).toBe("project_isolated");
+    expect(result?.cwd).toBe(staleTarget);
+    expect(result?.workspaceState).toBe("resumed_dirty");
+    expect(result?.hasLocalChanges).toBe(true);
+    expect(result?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("local changes from a prior implementation attempt"),
+      ]),
+    );
   });
 
   it("recreates a stale clone when the branch binding no longer matches", async () => {
@@ -442,6 +517,8 @@ describe("resolveProjectWorkspaceByPolicy", () => {
 
     expect(result?.source).toBe("project_isolated");
     expect(result?.cwd).toBe(staleTarget);
+    expect(result?.workspaceState).toBe("recreated_clean");
+    expect(result?.hasLocalChanges).toBe(false);
     expect(result?.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Removed stale isolated workspace"),

@@ -40,6 +40,8 @@ export type ResolvedProjectWorkspace = {
   workspaceUsage: ProjectWorkspaceUsageProfile;
   warnings: string[];
   branchName: string | null;
+  workspaceState: "fresh" | "reused_clean" | "resumed_dirty" | "recreated_clean" | "recovered_existing" | null;
+  hasLocalChanges: boolean | null;
 };
 
 function readNonEmptyString(value: unknown): string | null {
@@ -279,7 +281,13 @@ async function ensureIsolatedWorkspace(input: {
   projectId: string | null;
   taskKey: string | null;
   repoRef: string | null;
-}): Promise<{ cwd: string; warnings: string[]; branchName: string | null } | null> {
+}): Promise<{
+  cwd: string;
+  warnings: string[];
+  branchName: string | null;
+  workspaceState: ResolvedProjectWorkspace["workspaceState"];
+  hasLocalChanges: boolean;
+} | null> {
   const strategy = input.policy.isolationStrategy ?? "worktree";
   const targetDir = deriveIsolatedWorkspaceDir({
     baseCwd: input.baseCwd,
@@ -297,6 +305,8 @@ async function ensureIsolatedWorkspace(input: {
     workspaceId: input.workspace.id,
   });
   const warnings: string[] = [];
+  let workspaceState: ResolvedProjectWorkspace["workspaceState"] = "fresh";
+  let hasLocalChanges = false;
 
   await fs.mkdir(path.dirname(targetDir), { recursive: true });
 
@@ -316,17 +326,26 @@ async function ensureIsolatedWorkspace(input: {
           targetDir,
           strategy,
         });
+        workspaceState = "recreated_clean";
         warnings.push(
           `Removed stale isolated workspace "${targetDir}" because it was bound to branch "${existingBranchName}" instead of "${branchName}".`,
         );
       } else {
         const clean = await isGitWorkTreeClean(targetDir);
+        hasLocalChanges = !clean;
+        workspaceState = clean ? "reused_clean" : "resumed_dirty";
         if (!clean) {
           warnings.push(
             `Reusing existing isolated workspace "${targetDir}" with local changes from a prior implementation attempt.`,
           );
         }
-        return { cwd: targetDir, warnings, branchName: existingBranchName ?? branchName };
+        return {
+          cwd: targetDir,
+          warnings,
+          branchName: existingBranchName ?? branchName,
+          workspaceState,
+          hasLocalChanges,
+        };
       }
     } else if (await isDirectoryEmpty(targetDir)) {
       await fs.rm(targetDir, { recursive: true, force: true });
@@ -356,7 +375,13 @@ async function ensureIsolatedWorkspace(input: {
     } else if (targetRef !== "HEAD") {
       await runGit(["checkout", "--detach", targetRef], targetDir);
     }
-    return { cwd: targetDir, warnings, branchName };
+    return {
+      cwd: targetDir,
+      warnings,
+      branchName,
+      workspaceState,
+      hasLocalChanges,
+    };
   }
 
   if (branchName) {
@@ -367,12 +392,19 @@ async function ensureIsolatedWorkspace(input: {
       const existingWorktreeValid = existingWorktreeAvailable && await isGitWorkTree(existingWorktree.path);
       if (existingWorktreeValid) {
         const clean = await isGitWorkTreeClean(existingWorktree.path);
+        hasLocalChanges = !clean;
         warnings.push(
           clean
             ? `Branch "${branchName}" is already attached to existing worktree "${existingWorktree.path}". Reusing that isolated workspace.`
             : `Branch "${branchName}" is already attached to existing worktree "${existingWorktree.path}" with local changes from a prior attempt. Reusing that isolated workspace.`,
         );
-        return { cwd: existingWorktree.path, warnings, branchName };
+        return {
+          cwd: existingWorktree.path,
+          warnings,
+          branchName,
+          workspaceState: "recovered_existing",
+          hasLocalChanges,
+        };
       }
       await runGit(["worktree", "prune"], input.baseCwd).catch(() => undefined);
       warnings.push(
@@ -397,7 +429,13 @@ async function ensureIsolatedWorkspace(input: {
         warnings.push(
           `Recovered existing worktree "${recoveredWorktree.path}" for branch "${branchName}" after retrying stale worktree metadata cleanup.`,
         );
-        return { cwd: recoveredWorktree.path, warnings, branchName };
+        return {
+          cwd: recoveredWorktree.path,
+          warnings,
+          branchName,
+          workspaceState: "recovered_existing",
+          hasLocalChanges: false,
+        };
       }
       throw err;
     }
@@ -405,7 +443,13 @@ async function ensureIsolatedWorkspace(input: {
     await runGit(["worktree", "add", "--detach", targetDir, targetRef], input.baseCwd);
   }
 
-  return { cwd: targetDir, warnings, branchName };
+  return {
+    cwd: targetDir,
+    warnings,
+    branchName,
+    workspaceState,
+    hasLocalChanges,
+  };
 }
 
 export async function resolveProjectWorkspaceByPolicy(input: {
@@ -468,6 +512,8 @@ export async function resolveProjectWorkspaceByPolicy(input: {
           workspaceUsage,
           warnings: [...warnings, ...isolated.warnings],
           branchName: isolated.branchName,
+          workspaceState: isolated.workspaceState,
+          hasLocalChanges: isolated.hasLocalChanges,
         };
       }
       continue;
@@ -483,6 +529,8 @@ export async function resolveProjectWorkspaceByPolicy(input: {
       workspaceUsage,
       warnings,
       branchName: null,
+      workspaceState: null,
+      hasLocalChanges: null,
     };
   }
 

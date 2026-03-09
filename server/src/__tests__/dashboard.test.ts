@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildExecutionReliabilitySummary,
   buildProtocolDashboardBuckets,
   isProtocolDashboardStale,
   type DashboardProtocolQueueItem,
@@ -102,5 +103,25 @@ describe("dashboard helpers", () => {
     expect(buckets.readyToCloseQueue[0]?.issueId).toBe("issue-close");
     expect(buckets.staleQueue.map((item) => item.issueId)).toContain("issue-stale");
     expect(buckets.violationQueue[0]?.issueId).toBe("issue-violation");
+  });
+
+  it("builds execution reliability rollups for dashboard summaries", () => {
+    expect(
+      buildExecutionReliabilitySummary({
+        runningRuns: 2,
+        queuedRuns: 1,
+        dispatchRedispatchesLast24h: 3,
+        dispatchTimeoutsLast24h: 1,
+        processLostLast24h: 0,
+        workspaceBlockedLast24h: 2,
+      }),
+    ).toEqual({
+      runningRuns: 2,
+      queuedRuns: 1,
+      dispatchRedispatchesLast24h: 3,
+      dispatchTimeoutsLast24h: 1,
+      processLostLast24h: 0,
+      workspaceBlockedLast24h: 2,
+    });
   });
 });

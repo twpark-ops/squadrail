@@ -38,6 +38,14 @@ export interface DashboardSummary {
     openViolationCount: number;
     protocolMessagesLast24h: number;
   };
+  executionReliability: {
+    runningRuns: number;
+    queuedRuns: number;
+    dispatchRedispatchesLast24h: number;
+    dispatchTimeoutsLast24h: number;
+    processLostLast24h: number;
+    workspaceBlockedLast24h: number;
+  };
   pendingApprovals: number;
   staleTasks: number;
 }

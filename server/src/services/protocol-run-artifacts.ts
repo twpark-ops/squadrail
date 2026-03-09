@@ -25,6 +25,8 @@ type WorkspaceContext = {
   repoRef: string | null;
   workspaceUsage: string | null;
   branchName: string | null;
+  workspaceState: string | null;
+  hasLocalChanges: boolean | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -71,6 +73,9 @@ function extractWorkspaceContext(run: ProtocolRunLike): WorkspaceContext | null 
     repoRef: readString(workspace.repoRef),
     workspaceUsage: readString(workspace.workspaceUsage),
     branchName: readString(workspace.branchName),
+    workspaceState: readString(workspace.workspaceState),
+    hasLocalChanges:
+      typeof workspace.hasLocalChanges === "boolean" ? workspace.hasLocalChanges : null,
   };
 }
 
@@ -225,6 +230,8 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
         branchName: workspaceGitSnapshot?.branchName ?? workspace.branchName,
         expectedBranchName: workspaceGitSnapshot?.expectedBranchName ?? workspace.branchName,
         branchMismatch: workspaceGitSnapshot?.branchMismatch ?? false,
+        workspaceState: workspace.workspaceState,
+        hasLocalChanges: workspace.hasLocalChanges,
         repoUrl: workspace.repoUrl,
         repoRef: workspace.repoRef,
         headSha: workspaceGitSnapshot?.headSha ?? null,
@@ -250,6 +257,8 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
         branchName: workspaceGitSnapshot.branchName,
         expectedBranchName: workspaceGitSnapshot.expectedBranchName,
         branchMismatch: workspaceGitSnapshot.branchMismatch,
+        workspaceState: workspace.workspaceState,
+        hasLocalChanges: workspace.hasLocalChanges,
         headSha: workspaceGitSnapshot.headSha,
         changedFiles: workspaceGitSnapshot.changedFiles,
         statusEntries: workspaceGitSnapshot.statusEntries,

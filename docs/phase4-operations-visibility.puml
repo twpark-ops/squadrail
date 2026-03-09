@@ -1,0 +1,58 @@
+@startuml
+title Phase 4 Operations & Visibility
+
+actor Operator
+
+rectangle "Dashboard UI" {
+  [System Status]
+  [Execution Reliability]
+  [Protocol Queues]
+  [Recovery Queue]
+  [Handoff Blockers]
+}
+
+rectangle "Dashboard Service" {
+  [summary()]
+  [protocolQueue()]
+  [recoveryQueue()]
+}
+
+database "heartbeat_runs" as heartbeat_runs
+database "heartbeat_run_events" as heartbeat_run_events
+database "issue_protocol_state" as issue_protocol_state
+database "issue_protocol_violations" as issue_protocol_violations
+database "issues" as issues
+
+Operator --> [System Status]
+Operator --> [Execution Reliability]
+Operator --> [Protocol Queues]
+Operator --> [Recovery Queue]
+Operator --> [Handoff Blockers]
+
+[System Status] --> [summary()]
+[Execution Reliability] --> [summary()]
+[Protocol Queues] --> [protocolQueue()]
+[Recovery Queue] --> [recoveryQueue()]
+[Handoff Blockers] --> [protocolQueue()]
+
+[summary()] --> heartbeat_runs
+[summary()] --> heartbeat_run_events
+[summary()] --> issue_protocol_state
+[summary()] --> issues
+
+[protocolQueue()] --> issue_protocol_state
+[protocolQueue()] --> issue_protocol_violations
+[protocolQueue()] --> issues
+
+[recoveryQueue()] --> issue_protocol_violations
+[recoveryQueue()] --> issue_protocol_state
+[recoveryQueue()] --> issues
+
+note right of [Execution Reliability]
+  Surface dispatch_timeout,
+  process_lost,
+  workspace_required,
+  watchdog redispatches
+end note
+
+@enduml

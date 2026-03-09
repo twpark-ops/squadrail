@@ -48,8 +48,61 @@ describe("claude_local parser", () => {
           {
             command: "pnpm test:run",
             status: "completed",
-            exitCode: null,
+            exitCode: 0,
             aggregatedOutput: "PASS",
+          },
+        ],
+      }),
+    );
+  });
+
+  it("extracts failing bash tool exit codes from tool_result output", () => {
+    const stdout = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "claude-456", model: "claude-sonnet" }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_2",
+              name: "bash",
+              input: { command: "pnpm build" },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_2",
+              content: "Command failed with exit code 2",
+              is_error: true,
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        session_id: "claude-456",
+        result: "done",
+        usage: { input_tokens: 12, cache_read_input_tokens: 2, output_tokens: 4 },
+      }),
+    ].join("\n");
+
+    const parsed = parseClaudeStreamJson(stdout);
+    expect(parsed.resultJson).toEqual(
+      expect.objectContaining({
+        commandExecutions: [
+          {
+            command: "pnpm build",
+            status: "failed",
+            exitCode: 2,
+            aggregatedOutput: "Command failed with exit code 2",
           },
         ],
       }),
