@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideDispatchWatchdogAction } from "../services/heartbeat.js";
+import { decideDispatchWatchdogAction, scheduleDeferredRunDispatch } from "../services/heartbeat.js";
 
 describe("decideDispatchWatchdogAction", () => {
   it("returns noop when the run is no longer running", () => {
@@ -48,5 +48,19 @@ describe("decideDispatchWatchdogAction", () => {
         hasRunningProcess: false,
       }),
     ).toBe("fail");
+  });
+
+  it("defers run dispatch until the next turn", async () => {
+    const calls: string[] = [];
+
+    scheduleDeferredRunDispatch(() => {
+      calls.push("dispatched");
+    });
+
+    calls.push("scheduled");
+    expect(calls).toEqual(["scheduled"]);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(calls).toEqual(["scheduled", "dispatched"]);
   });
 });

@@ -271,10 +271,29 @@ export function issueRoutes(db: Db, storage: StorageService) {
         && activeRun.agentId === input.actor.agentId
         && runMatchesIssueScope(activeRun, input.issue.id)
       ) {
+        let liveLogContent: string | null = null;
+        if (activeRun.status === "running" && activeRun.logStore && activeRun.logRef) {
+          try {
+            const liveLog = await heartbeat.readLog(activeRun.id, { limitBytes: 256 * 1024 });
+            liveLogContent = liveLog.content;
+          } catch (err) {
+            logger.warn(
+              {
+                err,
+                runId: activeRun.id,
+                issueId: input.issue.id,
+                agentId: input.actor.agentId,
+              },
+              "failed to load active run log for protocol artifact enrichment",
+            );
+          }
+        }
+
         effectiveMessage = await enrichProtocolMessageArtifactsFromRun({
           message: input.message,
           run: activeRun,
           issueId: input.issue.id,
+          liveLogContent,
         });
       } else {
         logger.warn(

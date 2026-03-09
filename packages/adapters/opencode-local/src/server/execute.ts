@@ -166,6 +166,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const workspaceContext = parseObject(context.squadrailWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
   const workspaceSource = asString(workspaceContext.source, "");
+  const workspaceUsage = asString(workspaceContext.workspaceUsage, "");
   const workspaceId = asString(workspaceContext.workspaceId, "");
   const workspaceRepoUrl = asString(workspaceContext.repoUrl, "");
   const workspaceRepoRef = asString(workspaceContext.repoRef, "");
@@ -233,6 +234,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
   if (workspaceSource) {
     env.SQUADRAIL_WORKSPACE_SOURCE = workspaceSource;
+  }
+  if (workspaceUsage) {
+    env.SQUADRAIL_WORKSPACE_USAGE = workspaceUsage;
   }
   if (workspaceId) {
     env.SQUADRAIL_WORKSPACE_ID = workspaceId;

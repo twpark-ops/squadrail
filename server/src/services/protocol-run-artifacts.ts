@@ -1,5 +1,6 @@
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
 import type { RunVerificationSignal } from "./run-verification-signals.js";
+import { extractRunVerificationSignals } from "./run-verification-signals.js";
 import { inspectWorkspaceGitSnapshot } from "./workspace-git-snapshot.js";
 
 type ProtocolRunLike = {
@@ -117,35 +118,6 @@ function buildRunEvidenceText(run: ProtocolRunLike) {
   ].filter(Boolean).join("\n");
 }
 
-function readVerificationSignals(run: ProtocolRunLike): RunVerificationSignal[] {
-  const resultJson = asRecord(run.resultJson);
-  const rawSignals = Array.isArray(resultJson.verificationSignals) ? resultJson.verificationSignals : [];
-  return rawSignals
-    .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value))
-    .map((signal): RunVerificationSignal => {
-      const source =
-        signal.source === "command_execution"
-        || signal.source === "stderr_excerpt"
-        || signal.source === "result_json"
-          ? signal.source
-          : "stdout_excerpt";
-      const confidence = signal.confidence === "structured" ? "structured" : "heuristic";
-      const status =
-        signal.status === "passed" || signal.status === "failed"
-          ? signal.status
-          : "unknown";
-      return {
-        kind: signal.kind === "build" ? "build" : "test",
-        command: readString(signal.command) ?? "",
-        source,
-        confidence,
-        status,
-        exitCode: typeof signal.exitCode === "number" && Number.isFinite(signal.exitCode) ? signal.exitCode : null,
-      };
-    })
-    .filter((signal) => signal.command.length > 0);
-}
-
 function autoArtifactMetadata(input: {
   run: ProtocolRunLike;
   issueId: string;
@@ -173,10 +145,16 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
   message: CreateIssueProtocolMessage;
   run: ProtocolRunLike;
   issueId: string;
+  liveLogContent?: string | null;
 }) {
   const workspace = extractWorkspaceContext(input.run);
   const runEvidenceText = buildRunEvidenceText(input.run);
-  const verificationSignals = readVerificationSignals(input.run);
+  const verificationSignals = extractRunVerificationSignals({
+    stdoutExcerpt: input.run.stdoutExcerpt,
+    stderrExcerpt: input.run.stderrExcerpt,
+    resultJson: input.run.resultJson ?? null,
+    logContent: input.liveLogContent ?? null,
+  }) as RunVerificationSignal[];
   const workspaceGitSnapshot =
     workspace?.cwd && workspace.workspaceUsage === "implementation"
       ? await inspectWorkspaceGitSnapshot({

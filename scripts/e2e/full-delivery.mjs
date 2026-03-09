@@ -1,0 +1,1023 @@
+#!/usr/bin/env node
+
+import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
+import { access, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, "../..");
+const HOST = process.env.HOST ?? "127.0.0.1";
+const PREFERRED_PORT = Number(process.env.PORT ?? "3312");
+let runtimePort = PREFERRED_PORT;
+let runtimeBaseUrl = `http://${HOST}:${runtimePort}`;
+const E2E_TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 8 * 60 * 1000);
+const POLL_INTERVAL_MS = Number(process.env.E2E_POLL_INTERVAL_MS ?? 4000);
+
+function note(message) {
+  process.stdout.write(`${message}\n`);
+}
+
+function section(title) {
+  note("");
+  note("=".repeat(88));
+  note(title);
+  note("=".repeat(88));
+}
+
+async function runCommand(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd ?? REPO_ROOT,
+      env: { ...process.env, ...(options.env ?? {}) },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0 || options.allowFailure) {
+        resolve({ code: code ?? 0, stdout, stderr });
+        return;
+      }
+      reject(
+        new Error(
+          `${command} ${args.join(" ")} failed with exit code ${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        ),
+      );
+    });
+  });
+}
+
+async function api(pathname, options = {}) {
+  const response = await fetch(`${runtimeBaseUrl}${pathname}`, {
+    method: options.method ?? "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers ?? {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const body =
+    contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `API ${options.method ?? "GET"} ${pathname} failed with ${response.status}: ${
+        typeof body === "string" ? body : JSON.stringify(body)
+      }`,
+    );
+  }
+  return body;
+}
+
+async function waitForHealth() {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 60_000) {
+    try {
+      await api("/health");
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+  throw new Error(`Timed out waiting for ${runtimeBaseUrl}/health`);
+}
+
+async function resolveAvailablePort(host, preferredPort) {
+  const attempt = (port) =>
+    new Promise((resolve, reject) => {
+      const server = createServer();
+      server.once("error", reject);
+      server.listen(port, host, () => {
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          server.close(() => reject(new Error("Could not resolve a listening port")));
+          return;
+        }
+        server.close((closeError) => {
+          if (closeError) {
+            reject(closeError);
+            return;
+          }
+          resolve(address.port);
+        });
+      });
+    });
+
+  try {
+    return await attempt(preferredPort);
+  } catch {
+    return attempt(0);
+  }
+}
+
+function fixturePackageJson() {
+  return JSON.stringify(
+    {
+      name: "squadrail-delivery-e2e-fixture",
+      private: true,
+      type: "module",
+      scripts: {
+        test: "node --test",
+        build: "node --input-type=module -e \"import('./src/release-label.js').then(m => console.log(m.normalizeReleaseLabel(' Build / Candidate ')))\"",
+      },
+    },
+    null,
+    2,
+  );
+}
+
+function fixtureHelperScript() {
+  return String.raw`#!/usr/bin/env node
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const issueId = process.env.SQUADRAIL_TASK_ID ?? process.env.SQUADRAIL_ISSUE_ID;
+const runId = process.env.SQUADRAIL_RUN_ID ?? "";
+const apiUrl = process.env.SQUADRAIL_API_URL;
+const apiKey = process.env.SQUADRAIL_API_KEY;
+const agentId = process.env.SQUADRAIL_AGENT_ID;
+
+if (!issueId || !apiUrl || !apiKey || !agentId) {
+  throw new Error("Missing required Squadrail runtime env: issueId/apiUrl/apiKey/agentId");
+}
+
+function assertState(state, allowed, action) {
+  if (!allowed.includes(state.workflowState)) {
+    throw new Error(action + " requires protocol state in " + allowed.join(", ") + ", got " + state.workflowState);
+  }
+}
+
+async function request(pathname, options = {}) {
+  const response = await fetch(apiUrl + pathname, {
+    method: options.method ?? "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + apiKey,
+      "X-Squadrail-Run-Id": runId,
+      ...(options.headers ?? {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const body =
+    contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+  if (!response.ok) {
+    throw new Error(
+      (options.method ?? "GET") +
+        " " +
+        pathname +
+        " failed with " +
+        response.status +
+        ": " +
+        (typeof body === "string" ? body : JSON.stringify(body)),
+    );
+  }
+  return body;
+}
+
+async function getState() {
+  return request("/api/issues/" + issueId + "/protocol/state");
+}
+
+async function getMessages() {
+  return request("/api/issues/" + issueId + "/protocol/messages");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForWorkflowState(allowedStates, timeoutMs = 15000) {
+  const startedAt = Date.now();
+  let latestState = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    const state = await getState();
+    latestState = state;
+    if (allowedStates.includes(state.workflowState)) {
+      return state;
+    }
+    await sleep(500);
+  }
+  throw new Error(
+    "Timed out waiting for protocol state in " +
+      allowedStates.join(", ") +
+      ", got " +
+      (latestState?.workflowState ?? "unknown"),
+  );
+}
+
+async function changedFiles() {
+  const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD"]);
+  return stdout
+    .split(/\r?\n/u)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function sendMessage(message) {
+  return request("/api/issues/" + issueId + "/protocol/messages", {
+    method: "POST",
+    body: message,
+  });
+}
+
+async function engineerPrime() {
+  const state = await getState();
+  if (state.workflowState === "assigned") {
+    await sendMessage({
+      messageType: "ACK_ASSIGNMENT",
+      sender: { actorType: "agent", actorId: agentId, role: "engineer" },
+      recipients: [{ recipientType: "agent", recipientId: agentId, role: "engineer" }],
+      workflowStateBefore: "assigned",
+      workflowStateAfter: "accepted",
+      summary: "Accepted the delivery fixture assignment.",
+      payload: {
+        accepted: true,
+        understoodScope: "Fix normalizeReleaseLabel in the isolated implementation workspace.",
+        initialRisks: ["Base workspace must remain unchanged while implementation happens in an isolated worktree."],
+      },
+      artifacts: [],
+    });
+  }
+
+  const refreshed = await waitForWorkflowState(["accepted", "planning", "changes_requested"]);
+  assertState(refreshed, ["accepted", "planning", "changes_requested"], "START_IMPLEMENTATION");
+  await sendMessage({
+    messageType: "START_IMPLEMENTATION",
+    sender: { actorType: "agent", actorId: agentId, role: "engineer" },
+    recipients: [{ recipientType: "agent", recipientId: agentId, role: "engineer" }],
+    workflowStateBefore: refreshed.workflowState,
+    workflowStateAfter: "implementing",
+    summary: "Starting isolated implementation for the delivery fixture issue.",
+    payload: {
+      implementationMode: "direct",
+      activeHypotheses: [
+        "normalizeReleaseLabel should collapse separators into single hyphens",
+        "only the isolated implementation worktree should change",
+      ],
+    },
+    artifacts: [],
+  });
+}
+
+async function engineerSubmitReview() {
+  const state = await getState();
+  assertState(state, ["implementing"], "SUBMIT_FOR_REVIEW");
+  if (!state.reviewerAgentId) {
+    throw new Error("Reviewer agent is missing from protocol state");
+  }
+  const files = await changedFiles();
+  if (files.length === 0) {
+    throw new Error("No changed files detected in the implementation workspace");
+  }
+  await sendMessage({
+    messageType: "SUBMIT_FOR_REVIEW",
+    sender: { actorType: "agent", actorId: agentId, role: "engineer" },
+    recipients: [{ recipientType: "agent", recipientId: state.reviewerAgentId, role: "reviewer" }],
+    workflowStateBefore: "implementing",
+    workflowStateAfter: "submitted_for_review",
+    summary: "Implementation is ready for review with green test and build output.",
+    payload: {
+      implementationSummary: "Updated normalizeReleaseLabel to normalize separators and collapse duplicates.",
+      evidence: [
+        "Inspected the failing node:test cases first",
+        "Validated the fix with pnpm test",
+        "Validated module import with pnpm build",
+      ],
+      reviewChecklist: [
+        "Normalization logic only changed in src/release-label.js",
+        "No test files or package metadata changed",
+        "Fixture still relies on isolated implementation worktree",
+      ],
+      changedFiles: files,
+      testResults: ["pnpm test", "pnpm build"],
+      residualRisks: ["Base workspace has not been merged yet; change remains in the isolated implementation workspace."],
+      diffSummary: "normalizeReleaseLabel now converts separators to single hyphens and trims duplicate punctuation.",
+    },
+    artifacts: [],
+  });
+}
+
+function latestMessage(messages, messageType) {
+  return [...messages].reverse().find((message) => message.messageType === messageType) ?? null;
+}
+
+async function reviewerApprove() {
+  let state = await getState();
+  if (state.workflowState === "submitted_for_review") {
+    await sendMessage({
+      messageType: "START_REVIEW",
+      sender: { actorType: "agent", actorId: agentId, role: "reviewer" },
+      recipients: [{ recipientType: "agent", recipientId: agentId, role: "reviewer" }],
+      workflowStateBefore: "submitted_for_review",
+      workflowStateAfter: "under_review",
+      summary: "Review started for the delivery fixture implementation.",
+      payload: {
+        reviewCycle: Math.max(1, Number(state.currentReviewCycle ?? 0) + 1),
+        reviewFocus: ["correctness", "evidence quality", "delivery contract completeness"],
+        blockingReview: false,
+      },
+      artifacts: [],
+    });
+    state = await waitForWorkflowState(["under_review", "awaiting_human_decision"]);
+  }
+
+  assertState(state, ["under_review", "awaiting_human_decision"], "APPROVE_IMPLEMENTATION");
+  const messages = await getMessages();
+  const latestSubmit = latestMessage(messages, "SUBMIT_FOR_REVIEW");
+  if (!latestSubmit) {
+    throw new Error("Cannot approve without a SUBMIT_FOR_REVIEW message");
+  }
+
+  const changedFiles = Array.isArray(latestSubmit.payload?.changedFiles)
+    ? latestSubmit.payload.changedFiles
+    : [];
+  const testResults = Array.isArray(latestSubmit.payload?.testResults)
+    ? latestSubmit.payload.testResults
+    : [];
+  const recipients = state.techLeadAgentId
+    ? [{ recipientType: "agent", recipientId: state.techLeadAgentId, role: "tech_lead" }]
+    : [];
+
+  await sendMessage({
+    messageType: "APPROVE_IMPLEMENTATION",
+    sender: { actorType: "agent", actorId: agentId, role: "reviewer" },
+    recipients,
+    workflowStateBefore: state.workflowState,
+    workflowStateAfter: "approved",
+    summary: "Review complete: the fixture change and evidence satisfy the delivery contract.",
+    payload: {
+      approvalSummary: "The implementation is scoped correctly and the provided evidence is complete for the fixture task.",
+      approvalMode: "agent_review",
+      approvalChecklist: [
+        "Changed files stay within the expected implementation surface",
+        "Test and build evidence were provided",
+        "Residual risk is limited to external merge follow-up",
+      ],
+      verifiedEvidence: [
+        ...testResults,
+        ...(changedFiles.length > 0 ? ["Changed files: " + changedFiles.join(", ")] : []),
+      ],
+      residualRisks: ["The isolated implementation workspace still needs external merge handling after closure."],
+      followUpActions: ["Record pending external merge in the close message."],
+    },
+    artifacts: [],
+  });
+}
+
+async function techLeadClose() {
+  const state = await getState();
+  assertState(state, ["approved"], "CLOSE_TASK");
+  const messages = await getMessages();
+  const latestApproval = latestMessage(messages, "APPROVE_IMPLEMENTATION");
+  const latestSubmit = latestMessage(messages, "SUBMIT_FOR_REVIEW");
+  const changedFiles = Array.isArray(latestSubmit?.payload?.changedFiles)
+    ? latestSubmit.payload.changedFiles
+    : [];
+  await sendMessage({
+    messageType: "CLOSE_TASK",
+    sender: { actorType: "agent", actorId: agentId, role: "tech_lead" },
+    recipients: [{ recipientType: "agent", recipientId: agentId, role: "tech_lead" }],
+    workflowStateBefore: "approved",
+    workflowStateAfter: "done",
+    summary: "Delivery fixture issue closed after review approval.",
+    payload: {
+      closeReason: "completed",
+      closureSummary: "Engineer completed the isolated fix and reviewer approved the handoff.",
+      verificationSummary: latestApproval?.payload?.approvalSummary ?? "Reviewer approval recorded with structured evidence.",
+      rollbackPlan: "Drop the isolated implementation branch or worktree if a later external merge is rejected.",
+      finalArtifacts: [
+        "pending_external_merge",
+        ...(changedFiles.length > 0 ? ["changed_files:" + changedFiles.join(",")] : []),
+      ],
+      finalTestStatus: "passed",
+      mergeStatus: "pending_external_merge",
+      remainingRisks: ["Base workspace remains unchanged until an external merge is performed."],
+    },
+    artifacts: [],
+  });
+}
+
+const command = process.argv[2];
+if (!command) {
+  throw new Error("Usage: node tools/protocol-helper.mjs <engineer-prime|engineer-submit-review|reviewer-approve|techlead-close>");
+}
+
+switch (command) {
+  case "engineer-prime":
+    await engineerPrime();
+    break;
+  case "engineer-submit-review":
+    await engineerSubmitReview();
+    break;
+  case "reviewer-approve":
+    await reviewerApprove();
+    break;
+  case "techlead-close":
+    await techLeadClose();
+    break;
+  default:
+    throw new Error("Unknown command: " + command);
+}
+`;
+}
+
+function engineerInstructions() {
+  return [
+    "# Delivery Fixture Engineer",
+    "",
+    "- You are validating Squadrail full delivery automation on a tiny fixture repository.",
+    "- Do not edit tests, package.json, or protocol helper scripts.",
+    "- The only intended code change is in `src/release-label.js`.",
+    "- If `SQUADRAIL_WORKSPACE_USAGE` is not `implementation`, do not change code. Run `node tools/protocol-helper.mjs engineer-prime` and stop.",
+    "- In `implementation` workspace usage:",
+    "  1. Run `pnpm test` to observe the current failure.",
+    "  2. Fix `normalizeReleaseLabel` in `src/release-label.js`.",
+    "  3. Run `pnpm test` until it passes.",
+    "  4. Run `pnpm build` and keep it green.",
+    "  5. Run `node tools/protocol-helper.mjs engineer-submit-review`.",
+    "- Keep the change minimal and reversible.",
+    "- Never move to review without green `pnpm test` and `pnpm build` output in the current run.",
+  ].join("\n");
+}
+
+function reviewerInstructions() {
+  return [
+    "# Delivery Fixture Reviewer",
+    "",
+    "- You are validating the review handoff loop for Squadrail.",
+    "- Do not edit code.",
+    "- Ignore wakes unless the current workflow state is `submitted_for_review`, `under_review`, or `awaiting_human_decision`.",
+    "- When the implementation is ready, review the latest `SUBMIT_FOR_REVIEW` message and confirm:",
+    "  - changed files stay within the expected implementation surface",
+    "  - test and build evidence are present",
+    "  - residual risk is limited to pending external merge",
+    "- Then run `node tools/protocol-helper.mjs reviewer-approve`.",
+    "- Do not escalate to human decision for this fixture unless the protocol state is inconsistent.",
+  ].join("\n");
+}
+
+function techLeadInstructions() {
+  return [
+    "# Delivery Fixture Tech Lead",
+    "",
+    "- You are closing the delivery loop after reviewer approval.",
+    "- Do not edit code.",
+    "- Ignore wakes unless the current workflow state is `approved`.",
+    "- When approved, run `node tools/protocol-helper.mjs techlead-close`.",
+    "- Use close semantics that preserve the fact that merge is still pending outside the isolated worktree.",
+  ].join("\n");
+}
+
+async function createFixtureRepo(rootDir) {
+  await mkdir(path.join(rootDir, "src"), { recursive: true });
+  await mkdir(path.join(rootDir, "test"), { recursive: true });
+  await mkdir(path.join(rootDir, "tools"), { recursive: true });
+
+  await writeFile(path.join(rootDir, "package.json"), fixturePackageJson());
+  await writeFile(
+    path.join(rootDir, "README.md"),
+    [
+      "# Squadrail Delivery Fixture",
+      "",
+      "This repository exists only for the full delivery E2E harness.",
+      "The target bug lives in `src/release-label.js` and should be fixed in an isolated implementation workspace.",
+    ].join("\n"),
+  );
+  await writeFile(
+    path.join(rootDir, "src/release-label.js"),
+    [
+      "export function normalizeReleaseLabel(label) {",
+      "  return String(label ?? \"\").trim().toLowerCase();",
+      "}",
+      "",
+      "export function buildReleaseRecord(label) {",
+      "  return {",
+      "    label: normalizeReleaseLabel(label),",
+      "    generatedAt: new Date(0).toISOString(),",
+      "  };",
+      "}",
+    ].join("\n"),
+  );
+  await writeFile(
+    path.join(rootDir, "test/release-label.test.js"),
+    [
+      "import test from \"node:test\";",
+      "import assert from \"node:assert/strict\";",
+      "import { buildReleaseRecord, normalizeReleaseLabel } from \"../src/release-label.js\";",
+      "",
+      "test(\"normalizes whitespace and separators into a single hyphen\", () => {",
+      "  assert.equal(normalizeReleaseLabel(\"  Release / Candidate  \"), \"release-candidate\");",
+      "});",
+      "",
+      "test(\"collapses repeated punctuation and preserves lowercase output\", () => {",
+      "  assert.equal(normalizeReleaseLabel(\"hotfix___PATCH---1\"), \"hotfix-patch-1\");",
+      "});",
+      "",
+      "test(\"buildReleaseRecord uses the normalized label\", () => {",
+      "  assert.deepEqual(buildReleaseRecord(\" Beta / Build \"), {",
+      "    label: \"beta-build\",",
+      "    generatedAt: new Date(0).toISOString(),",
+      "  });",
+      "});",
+    ].join("\n"),
+  );
+  await writeFile(path.join(rootDir, "tools/protocol-helper.mjs"), fixtureHelperScript(), { mode: 0o755 });
+
+  await runCommand("git", ["init"], { cwd: rootDir });
+  await runCommand("git", ["config", "user.name", "Squadrail E2E"], { cwd: rootDir });
+  await runCommand("git", ["config", "user.email", "squadrail-e2e@example.com"], { cwd: rootDir });
+  await runCommand("git", ["add", "."], { cwd: rootDir });
+  await runCommand("git", ["commit", "-m", "chore(fixture): seed delivery e2e repo"], { cwd: rootDir });
+}
+
+function createServerProcess(logPath, env) {
+  const logStream = createWriteStream(logPath, { flags: "a" });
+  const child = spawn("pnpm", ["exec", "tsx", "src/index.ts"], {
+    cwd: path.join(REPO_ROOT, "server"),
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.pipe(logStream);
+  child.stderr.pipe(logStream);
+  return { child, logStream };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function ensureUiBuilt() {
+  try {
+    await access(path.join(REPO_ROOT, "ui/dist/index.html"));
+  } catch {
+    section("UI build missing; building once for embedded server");
+    await runCommand("pnpm", ["--filter", "@squadrail/ui", "build"], { cwd: REPO_ROOT });
+  }
+}
+
+async function probeCodexBinary() {
+  const result = await runCommand("bash", ["-lc", "command -v codex"], {
+    cwd: REPO_ROOT,
+    allowFailure: true,
+  });
+  if (result.code !== 0 || result.stdout.trim().length === 0) {
+    throw new Error("codex binary is not available on PATH");
+  }
+  return result.stdout.trim();
+}
+
+async function createAgentInstructions(rootDir) {
+  await mkdir(rootDir, { recursive: true });
+  const engineerPath = path.join(rootDir, "engineer.md");
+  const reviewerPath = path.join(rootDir, "reviewer.md");
+  const techLeadPath = path.join(rootDir, "tech-lead.md");
+  await writeFile(engineerPath, engineerInstructions());
+  await writeFile(reviewerPath, reviewerInstructions());
+  await writeFile(techLeadPath, techLeadInstructions());
+  return { engineerPath, reviewerPath, techLeadPath };
+}
+
+async function fetchIssueSnapshot(issueId) {
+  const [issue, protocolState, protocolMessages, runs, briefs] = await Promise.all([
+    api(`/api/issues/${issueId}`),
+    api(`/api/issues/${issueId}/protocol/state`),
+    api(`/api/issues/${issueId}/protocol/messages`),
+    api(`/api/issues/${issueId}/runs`),
+    api(`/api/issues/${issueId}/protocol/briefs`),
+  ]);
+  return { issue, protocolState, protocolMessages, runs, briefs };
+}
+
+function summarizeMessage(message) {
+  return `${message.seq}. ${message.messageType} (${message.workflowStateBefore} -> ${message.workflowStateAfter}) :: ${message.summary}`;
+}
+
+function summarizeRun(run) {
+  const workspace = run?.resultJson?.workspaceGitSnapshot;
+  const changedCount = Array.isArray(workspace?.changedFiles) ? workspace.changedFiles.length : 0;
+  return `${run.runId} :: ${run.status} :: ${run.invocationSource ?? "unknown"} :: changedFiles=${changedCount}`;
+}
+
+function findLatestMessage(messages, messageType) {
+  return [...messages].reverse().find((message) => message.messageType === messageType) ?? null;
+}
+
+function extractIsolatedWorkspacePath(latestReviewMessage) {
+  if (!latestReviewMessage || !Array.isArray(latestReviewMessage.artifacts)) return null;
+  for (const artifact of latestReviewMessage.artifacts) {
+    const workspaceCwd = artifact?.metadata?.workspace?.cwd;
+    if (typeof workspaceCwd === "string" && workspaceCwd.length > 0) {
+      return workspaceCwd;
+    }
+    if (typeof artifact?.metadata?.cwd === "string" && artifact.metadata.cwd.length > 0) {
+      return artifact.metadata.cwd;
+    }
+  }
+  return null;
+}
+
+function findImplementationRun(runs) {
+  return runs.find((run) => {
+    const snapshot = run?.resultJson?.workspaceGitSnapshot;
+    const changedFiles = Array.isArray(snapshot?.changedFiles) ? snapshot.changedFiles : [];
+    return changedFiles.length > 0;
+  }) ?? null;
+}
+
+async function maybeImportKnowledge(projectId, workspaceId) {
+  try {
+    const result = await api(`/api/knowledge/projects/${projectId}/import-workspace`, {
+      method: "POST",
+      body: { workspaceId, maxFiles: 25 },
+    });
+    note(`Knowledge import completed: ${result.importedFiles} files, ${result.chunkCount} chunks`);
+    return { imported: true, result };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Knowledge embedding provider is not configured")) {
+      note(`Knowledge import skipped: ${message}`);
+      return { imported: false, skipped: true };
+    }
+    throw error;
+  }
+}
+
+async function main() {
+  section("Full Delivery E2E");
+  note(`Repo root: ${REPO_ROOT}`);
+  runtimePort = await resolveAvailablePort(HOST, PREFERRED_PORT);
+  runtimeBaseUrl = `http://${HOST}:${runtimePort}`;
+  note(`Base URL: ${runtimeBaseUrl}`);
+
+  const codexPath = await probeCodexBinary();
+  note(`Codex binary: ${codexPath}`);
+  await ensureUiBuilt();
+
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "squadrail-full-delivery-"));
+  const squadrailHome = path.join(tempRoot, "home");
+  const fixtureRepo = path.join(tempRoot, "delivery-fixture");
+  const agentInstructions = path.join(tempRoot, "agent-instructions");
+  const serverLog = path.join(tempRoot, "server.log");
+
+  await createFixtureRepo(fixtureRepo);
+  const instructionPaths = await createAgentInstructions(agentInstructions);
+
+  section("Fixture Preflight");
+  const fixtureBefore = await runCommand("pnpm", ["test"], {
+    cwd: fixtureRepo,
+    allowFailure: true,
+  });
+  if (fixtureBefore.code === 0) {
+    throw new Error("Fixture repo unexpectedly passes before agent implementation");
+  }
+  note("Fixture repo starts in a failing state as expected.");
+
+  section("Server Boot");
+  const { child: serverProcess, logStream } = createServerProcess(serverLog, {
+    HOST,
+    PORT: String(runtimePort),
+    SQUADRAIL_HOME: squadrailHome,
+    SQUADRAIL_MIGRATION_AUTO_APPLY: "true",
+    SQUADRAIL_KNOWLEDGE_BACKFILL_ENABLED: "false",
+  });
+
+  let serverExited = false;
+  serverProcess.on("exit", () => {
+    serverExited = true;
+  });
+
+  try {
+    await waitForHealth();
+    note("Server is healthy.");
+
+    section("Company / Project / Agents");
+    const company = await api("/api/companies", {
+      method: "POST",
+      body: {
+        name: "Delivery E2E Co",
+        description: "Temporary company for full delivery E2E",
+        budgetMonthlyCents: 100000,
+      },
+    });
+
+    const project = await api(`/api/companies/${company.id}/projects`, {
+      method: "POST",
+      body: {
+        name: "Delivery Fixture",
+        description: "Temporary git repo for golden full delivery verification",
+        status: "in_progress",
+        workspace: {
+          name: "Delivery Fixture Workspace",
+          cwd: fixtureRepo,
+          isPrimary: true,
+          executionPolicy: {
+            mode: "isolated",
+            applyFor: ["implementation"],
+            isolationStrategy: "worktree",
+            branchTemplate: "squadrail/e2e/{issueId}/{agentId}",
+          },
+        },
+      },
+    });
+
+    const primaryWorkspace = Array.isArray(project.workspaces)
+      ? project.workspaces.find((workspace) => workspace.isPrimary) ?? project.workspaces[0]
+      : null;
+    if (!primaryWorkspace?.id) {
+      throw new Error("Primary project workspace was not created");
+    }
+
+    const adapterProbe = await api(`/api/companies/${company.id}/adapters/codex_local/test-environment`, {
+      method: "POST",
+      body: { adapterConfig: { cwd: fixtureRepo } },
+    });
+    note(`Adapter environment probe: ${JSON.stringify(adapterProbe)}`);
+
+    const techLead = await api(`/api/companies/${company.id}/agents`, {
+      method: "POST",
+      body: {
+        name: "Delivery Lead",
+        role: "general",
+        title: "Tech Lead",
+        adapterType: "codex_local",
+        adapterConfig: {
+          cwd: fixtureRepo,
+          instructionsFilePath: instructionPaths.techLeadPath,
+          dangerouslyBypassApprovalsAndSandbox: true,
+          search: false,
+        },
+        runtimeConfig: {},
+        budgetMonthlyCents: 0,
+      },
+    });
+
+    const engineer = await api(`/api/companies/${company.id}/agents`, {
+      method: "POST",
+      body: {
+        name: "Delivery Engineer",
+        role: "engineer",
+        title: "Implementation Engineer",
+        adapterType: "codex_local",
+        adapterConfig: {
+          cwd: fixtureRepo,
+          instructionsFilePath: instructionPaths.engineerPath,
+          dangerouslyBypassApprovalsAndSandbox: true,
+          search: false,
+        },
+        runtimeConfig: {},
+        budgetMonthlyCents: 0,
+      },
+    });
+
+    const reviewer = await api(`/api/companies/${company.id}/agents`, {
+      method: "POST",
+      body: {
+        name: "Delivery Reviewer",
+        role: "qa",
+        title: "Reviewer",
+        adapterType: "codex_local",
+        adapterConfig: {
+          cwd: fixtureRepo,
+          instructionsFilePath: instructionPaths.reviewerPath,
+          dangerouslyBypassApprovalsAndSandbox: true,
+          search: false,
+        },
+        runtimeConfig: {},
+        budgetMonthlyCents: 0,
+      },
+    });
+
+    section("Optional Knowledge Import");
+    await maybeImportKnowledge(project.id, primaryWorkspace.id);
+
+    section("Issue Creation");
+    const issue = await api(`/api/companies/${company.id}/issues`, {
+      method: "POST",
+      body: {
+        projectId: project.id,
+        title: "Normalize release label separators in the delivery fixture",
+        description: [
+          "Fix `normalizeReleaseLabel` in `src/release-label.js`.",
+          "",
+          "Expected behavior:",
+          "- trim surrounding whitespace",
+          "- lowercase the final label",
+          "- convert spaces, `/`, `_`, and repeated punctuation into single `-` separators",
+          "- keep the base workspace unchanged and do implementation work in an isolated workspace",
+          "",
+          "Success conditions:",
+          "- `pnpm test` passes",
+          "- `pnpm build` passes",
+          "- submit structured review handoff and close the issue",
+        ].join("\n"),
+        status: "backlog",
+        priority: "high",
+      },
+    });
+
+    section("Assignment");
+    await api(`/api/issues/${issue.id}/protocol/messages`, {
+      method: "POST",
+      body: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "local-board",
+          role: "human_board",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: engineer.id, role: "engineer" },
+          { recipientType: "agent", recipientId: reviewer.id, role: "reviewer" },
+          { recipientType: "agent", recipientId: techLead.id, role: "tech_lead" },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "Run the full delivery fixture through implementation, review, and closure.",
+        requiresAck: false,
+        payload: {
+          goal: "Fix the delivery fixture without mutating the base workspace checkout.",
+          acceptanceCriteria: [
+            "normalizeReleaseLabel collapses separators into single hyphens",
+            "pnpm test passes in the isolated implementation workspace",
+            "pnpm build passes in the isolated implementation workspace",
+          ],
+          definitionOfDone: [
+            "Engineer posts SUBMIT_FOR_REVIEW with structured handoff",
+            "Reviewer posts APPROVE_IMPLEMENTATION",
+            "Tech Lead posts CLOSE_TASK",
+          ],
+          priority: "high",
+          assigneeAgentId: engineer.id,
+          reviewerAgentId: reviewer.id,
+          requiredKnowledgeTags: ["delivery-fixture", "release-label"],
+        },
+        artifacts: [],
+      },
+    });
+
+    section("Polling Delivery Loop");
+    const seenMessages = new Set();
+    const seenRuns = new Set();
+    const startedAt = Date.now();
+    let lastState = null;
+
+    while (Date.now() - startedAt < E2E_TIMEOUT_MS) {
+      if (serverExited) {
+        throw new Error(`Server exited early. Inspect log: ${serverLog}`);
+      }
+
+      const snapshot = await fetchIssueSnapshot(issue.id);
+
+      if (snapshot.protocolState?.workflowState !== lastState) {
+        lastState = snapshot.protocolState?.workflowState ?? null;
+        note(`State -> ${lastState ?? "unknown"}`);
+      }
+
+      for (const message of snapshot.protocolMessages) {
+        if (seenMessages.has(message.id)) continue;
+        seenMessages.add(message.id);
+        note(`Message: ${summarizeMessage(message)}`);
+      }
+
+      for (const run of snapshot.runs) {
+        if (seenRuns.has(run.runId)) continue;
+        seenRuns.add(run.runId);
+        note(`Run: ${summarizeRun(run)}`);
+      }
+
+      if (snapshot.protocolState?.workflowState === "done") {
+        section("Post-Completion Verification");
+        const messageTypes = new Set(snapshot.protocolMessages.map((message) => message.messageType));
+        const requiredTypes = [
+          "ASSIGN_TASK",
+          "ACK_ASSIGNMENT",
+          "START_IMPLEMENTATION",
+          "SUBMIT_FOR_REVIEW",
+          "START_REVIEW",
+          "APPROVE_IMPLEMENTATION",
+          "CLOSE_TASK",
+        ];
+        for (const messageType of requiredTypes) {
+          if (!messageTypes.has(messageType)) {
+            throw new Error(`Missing required protocol message type: ${messageType}`);
+          }
+        }
+
+        if (snapshot.briefs.length < 2) {
+          throw new Error(`Expected at least 2 briefs, found ${snapshot.briefs.length}`);
+        }
+
+        const implementationRun = findImplementationRun(snapshot.runs);
+        if (!implementationRun) {
+          throw new Error("Could not find an implementation run with changed files");
+        }
+
+        const latestReviewMessage = findLatestMessage(snapshot.protocolMessages, "SUBMIT_FOR_REVIEW");
+        if (!latestReviewMessage) {
+          throw new Error("Missing SUBMIT_FOR_REVIEW message");
+        }
+
+        const artifactKinds = Array.isArray(latestReviewMessage.artifacts)
+          ? latestReviewMessage.artifacts.map((artifact) => artifact.kind)
+          : [];
+        if (!artifactKinds.includes("diff")) {
+          throw new Error("SUBMIT_FOR_REVIEW did not capture a diff artifact");
+        }
+        if (!artifactKinds.includes("test_run") || !artifactKinds.includes("build_run")) {
+          throw new Error(`Expected test_run and build_run artifacts, found: ${artifactKinds.join(", ")}`);
+        }
+
+        const isolatedWorkspacePath = extractIsolatedWorkspacePath(latestReviewMessage);
+        if (!isolatedWorkspacePath) {
+          throw new Error("Could not resolve the isolated workspace path from review artifacts");
+        }
+
+        const workspaceStat = await stat(isolatedWorkspacePath).catch(() => null);
+        if (!workspaceStat?.isDirectory()) {
+          throw new Error(`Isolated workspace path does not exist: ${isolatedWorkspacePath}`);
+        }
+
+        const isolatedTest = await runCommand("pnpm", ["test"], {
+          cwd: isolatedWorkspacePath,
+          allowFailure: true,
+        });
+        if (isolatedTest.code !== 0) {
+          throw new Error(`Isolated workspace tests failed:\n${isolatedTest.stdout}\n${isolatedTest.stderr}`);
+        }
+
+        const baseWorkspaceTest = await runCommand("pnpm", ["test"], {
+          cwd: fixtureRepo,
+          allowFailure: true,
+        });
+        if (baseWorkspaceTest.code === 0) {
+          throw new Error("Base workspace unexpectedly passed after isolated implementation");
+        }
+
+        note(`Issue identifier: ${snapshot.issue.identifier}`);
+        note(`Isolated workspace: ${isolatedWorkspacePath}`);
+        note(`Server log: ${serverLog}`);
+        note(`Temp root: ${tempRoot}`);
+        note("Full delivery E2E succeeded.");
+        return;
+      }
+
+      if (snapshot.protocolState?.workflowState === "blocked" || snapshot.protocolState?.workflowState === "cancelled") {
+        throw new Error(`Protocol state entered terminal failure state: ${snapshot.protocolState.workflowState}`);
+      }
+
+      await sleep(POLL_INTERVAL_MS);
+    }
+
+    const timedOutSnapshot = await fetchIssueSnapshot(issue.id);
+    throw new Error(
+      [
+        `Full delivery E2E timed out after ${E2E_TIMEOUT_MS}ms.`,
+        `Latest state: ${timedOutSnapshot.protocolState?.workflowState ?? "unknown"}`,
+        `Messages:`,
+        ...timedOutSnapshot.protocolMessages.map((message) => `  - ${summarizeMessage(message)}`),
+        `Runs:`,
+        ...timedOutSnapshot.runs.map((run) => `  - ${summarizeRun(run)}`),
+        `Server log: ${serverLog}`,
+        `Temp root: ${tempRoot}`,
+      ].join("\n"),
+    );
+  } finally {
+    if (!serverExited) {
+      serverProcess.kill("SIGTERM");
+      await sleep(1500);
+      if (!serverExited) {
+        serverProcess.kill("SIGKILL");
+      }
+    }
+    logStream.end();
+  }
+}
+
+main().catch(async (error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  section("E2E FAILED");
+  note(message);
+  process.exitCode = 1;
+});

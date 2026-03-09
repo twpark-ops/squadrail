@@ -25,6 +25,7 @@
     "smoke:openclaw-join": "./scripts/smoke/openclaw-join.sh",
     "smoke:openclaw-docker-ui": "./scripts/smoke/openclaw-docker-ui.sh",
     "smoke:local-ui-flow": "./scripts/smoke/local-ui-flow.sh",
+    "e2e:full-delivery": "node scripts/e2e/full-delivery.mjs",
     "test:browser-smoke": "./scripts/smoke/local-ui-flow.sh",
     "audit:tenant-rls": "node scripts/audit/tenant-rls.mjs",
     "bench:retrieval-vector": "node scripts/bench/retrieval-vector.mjs",

@@ -130,6 +130,7 @@ describe("codex execute", () => {
           "SQUADRAIL_RUN_ID",
           "SQUADRAIL_TASK_ID",
           "SQUADRAIL_WAKE_REASON",
+          "SQUADRAIL_WORKSPACE_USAGE",
         ]),
       );
       expect(capture.squadrailApiKey).toBe("run-jwt-token");

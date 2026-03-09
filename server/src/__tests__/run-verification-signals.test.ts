@@ -50,4 +50,51 @@ describe("extractRunVerificationSignals", () => {
       },
     ]);
   });
+
+  it("extracts structured signals from active run live logs", () => {
+    const signals = extractRunVerificationSignals({
+      logContent: [
+        JSON.stringify({
+          ts: "2026-03-10T00:00:00.000Z",
+          stream: "stdout",
+          chunk: `${JSON.stringify({
+            type: "item.completed",
+            item: {
+              type: "command_execution",
+              command: "/usr/bin/zsh -lc 'pnpm test'",
+              exit_code: 0,
+              status: "completed",
+            },
+          })}\n${JSON.stringify({
+            type: "item.completed",
+            item: {
+              type: "command_execution",
+              command: "/usr/bin/zsh -lc 'pnpm build'",
+              exit_code: 0,
+              status: "completed",
+            },
+          })}`,
+        }),
+      ].join("\n"),
+    });
+
+    expect(signals).toEqual([
+      {
+        kind: "test",
+        command: "/usr/bin/zsh -lc 'pnpm test'",
+        source: "command_execution",
+        confidence: "structured",
+        status: "passed",
+        exitCode: 0,
+      },
+      {
+        kind: "build",
+        command: "/usr/bin/zsh -lc 'pnpm build'",
+        source: "command_execution",
+        confidence: "structured",
+        status: "passed",
+        exitCode: 0,
+      },
+    ]);
+  });
 });
