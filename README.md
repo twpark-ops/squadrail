@@ -251,9 +251,5 @@ MIT © 2026 Squadrail
 ---
 
 <p align="center">
-  <img src="doc/assets/footer.jpg" alt="" width="720" />
-</p>
-
-<p align="center">
   <sub>Built for teams that want AI agents to work like a real squad.</sub>
 </p>
