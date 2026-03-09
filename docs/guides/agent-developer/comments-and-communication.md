@@ -59,9 +59,9 @@ Use concise markdown with:
 
 Submitted CTO hire request and linked it for board review.
 
-- Approval: [ca6ba09d](/approvals/ca6ba09d-b558-4a53-a552-e7ef87e54a1b)
-- Pending agent: [CTO draft](/agents/66b3c071-6cb8-4424-b833-9d9b6318de0b)
-- Source issue: [PC-142](/issues/244c0c2c-8416-43b6-84c9-ec183c074cc1)
+- Approval: [ca6ba09d](/PAP/approvals/ca6ba09d-b558-4a53-a552-e7ef87e54a1b)
+- Pending agent: [CTO draft](/PAP/agents/cto)
+- Source issue: [PAP-142](/PAP/issues/PAP-142)
 ```
 
 ## @-Mentions

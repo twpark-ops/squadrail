@@ -12,6 +12,7 @@ export const CLOSE_TASK_VERIFICATION_ARTIFACT_KINDS = [
 
 type ProtocolArtifactLike = Pick<IssueProtocolArtifact, "kind">;
 type ReviewSubmissionPayloadLike = Record<string, unknown> | null | undefined;
+type ReviewSubmissionContractMode = "legacy" | "strict";
 
 export interface ProtocolPolicyViolationResult {
   violationCode: "missing_required_artifact" | "close_without_verification";
@@ -37,19 +38,33 @@ function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function determineReviewSubmissionContractMode(payload: ReviewSubmissionPayloadLike): ReviewSubmissionContractMode {
+  const reviewPayload = payload ?? {};
+  const hasStrictFields =
+    Object.prototype.hasOwnProperty.call(reviewPayload, "testResults")
+    || Object.prototype.hasOwnProperty.call(reviewPayload, "residualRisks")
+    || Object.prototype.hasOwnProperty.call(reviewPayload, "diffSummary");
+  return hasStrictFields ? "strict" : "legacy";
+}
+
 function validateReviewSubmissionContract(input: {
   payload: ReviewSubmissionPayloadLike;
   artifacts?: ProtocolArtifactLike[];
+  mode: ReviewSubmissionContractMode;
 }) {
   const payload = input.payload ?? {};
+  if (!readString(payload.implementationSummary)) {
+    return "SUBMIT_FOR_REVIEW requires implementationSummary";
+  }
+
+  const evidence = readStringArray(payload.evidence);
+  if (evidence.length === 0) {
+    return "SUBMIT_FOR_REVIEW requires evidence";
+  }
+
   const changedFiles = readStringArray(payload.changedFiles);
   if (changedFiles.length === 0) {
     return "SUBMIT_FOR_REVIEW requires changedFiles";
-  }
-
-  const testResults = readStringArray(payload.testResults);
-  if (testResults.length === 0) {
-    return "SUBMIT_FOR_REVIEW requires testResults";
   }
 
   const reviewChecklist = readStringArray(payload.reviewChecklist);
@@ -57,13 +72,20 @@ function validateReviewSubmissionContract(input: {
     return "SUBMIT_FOR_REVIEW requires reviewChecklist";
   }
 
-  const residualRisks = readStringArray(payload.residualRisks);
-  if (residualRisks.length === 0) {
-    return "SUBMIT_FOR_REVIEW requires residualRisks";
-  }
+  if (input.mode === "strict") {
+    const testResults = readStringArray(payload.testResults);
+    if (testResults.length === 0) {
+      return "SUBMIT_FOR_REVIEW requires testResults";
+    }
 
-  if (!readString(payload.diffSummary)) {
-    return "SUBMIT_FOR_REVIEW requires diffSummary";
+    const residualRisks = readStringArray(payload.residualRisks);
+    if (residualRisks.length === 0) {
+      return "SUBMIT_FOR_REVIEW requires residualRisks";
+    }
+
+    if (!readString(payload.diffSummary)) {
+      return "SUBMIT_FOR_REVIEW requires diffSummary";
+    }
   }
 
   if (!hasProtocolArtifactKind(input.artifacts, REVIEW_SUBMISSION_REQUIRED_ARTIFACT_KINDS)) {
@@ -84,6 +106,7 @@ export function evaluateProtocolEvidenceRequirement(input: {
     const reviewViolation = validateReviewSubmissionContract({
       payload: message.payload as ReviewSubmissionPayloadLike,
       artifacts: message.artifacts,
+      mode: "strict",
     });
     if (reviewViolation) {
       return {
@@ -95,9 +118,11 @@ export function evaluateProtocolEvidenceRequirement(input: {
   }
 
   if (message.messageType === "APPROVE_IMPLEMENTATION") {
+    const mode = determineReviewSubmissionContractMode(latestReviewPayload);
     const reviewViolation = validateReviewSubmissionContract({
       payload: latestReviewPayload,
       artifacts: latestReviewArtifacts,
+      mode,
     });
     if (reviewViolation) {
       return {
