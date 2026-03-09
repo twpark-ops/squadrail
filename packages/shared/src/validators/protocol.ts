@@ -242,7 +242,7 @@ function createTypedProtocolMessageSchema<
   });
 }
 
-export const createIssueProtocolMessageSchema = z.discriminatedUnion("messageType", [
+const createIssueProtocolMessageSchemaUnion = z.discriminatedUnion("messageType", [
   createTypedProtocolMessageSchema("ASSIGN_TASK", issueProtocolAssignTaskPayloadSchema),
   createTypedProtocolMessageSchema("ACK_ASSIGNMENT", issueProtocolAckAssignmentPayloadSchema),
   createTypedProtocolMessageSchema("ASK_CLARIFICATION", issueProtocolAskClarificationPayloadSchema),
@@ -264,6 +264,28 @@ export const createIssueProtocolMessageSchema = z.discriminatedUnion("messageTyp
   createTypedProtocolMessageSchema("TIMEOUT_ESCALATION", issueProtocolTimeoutEscalationPayloadSchema),
   createTypedProtocolMessageSchema("RECORD_PROTOCOL_VIOLATION", issueProtocolRecordViolationPayloadSchema),
 ]);
+
+export const createIssueProtocolMessageSchema = createIssueProtocolMessageSchemaUnion.superRefine((message, ctx) => {
+  if (message.messageType === "ASSIGN_TASK") {
+    if (message.payload.assigneeAgentId === message.payload.reviewerAgentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reviewer must be different from assignee",
+        path: ["payload", "reviewerAgentId"],
+      });
+    }
+  }
+
+  if (message.messageType === "REASSIGN_TASK" && message.payload.newReviewerAgentId) {
+    if (message.payload.newAssigneeAgentId === message.payload.newReviewerAgentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reviewer must be different from assignee",
+        path: ["payload", "newReviewerAgentId"],
+      });
+    }
+  }
+});
 
 export type CreateIssueProtocolMessage = z.infer<typeof createIssueProtocolMessageSchema>;
 

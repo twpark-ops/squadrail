@@ -766,6 +766,9 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     const actor = getActorInfo(req);
     const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
+    if (req.body.assigneeAgentId === req.body.reviewerAgentId) {
+      throw unprocessable("Reviewer must be different from assignee");
+    }
     const assignee = await assertInternalWorkItemAssignee(rootIssue.companyId, req.body.assigneeAgentId);
     await assertInternalWorkItemReviewer(rootIssue.companyId, req.body.reviewerAgentId);
 

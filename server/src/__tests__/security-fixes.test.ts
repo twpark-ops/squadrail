@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
+import { createIssueProtocolMessageSchema } from "@squadrail/shared";
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
 
 /**
@@ -154,6 +155,43 @@ describe("Security Fixes", () => {
       expect(assigneeInRecipients?.recipientId).toBe("agent-1");
     });
 
+    it("should reject ASSIGN_TASK when reviewer matches assignee", () => {
+      const parsed = createIssueProtocolMessageSchema.safeParse({
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "agent-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "agent-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "invalid self review",
+        payload: {
+          assigneeAgentId: "agent-1",
+          reviewerAgentId: "agent-1",
+          goal: "test",
+          acceptanceCriteria: ["a"],
+          definitionOfDone: ["b"],
+          priority: "medium",
+        },
+        artifacts: [],
+      });
+
+      expect(parsed.success).toBe(false);
+    });
+
     it("should reject REASSIGN_TASK when new assignee not in recipients", () => {
       const message = {
         messageType: "REASSIGN_TASK" as const,
@@ -231,6 +269,40 @@ describe("Security Fixes", () => {
         message.recipients[0].recipientId === message.payload.newAssigneeAgentId;
 
       expect(isFirstRecipientNewAssignee).toBe(true);
+    });
+
+    it("should reject REASSIGN_TASK when new reviewer matches new assignee", () => {
+      const parsed = createIssueProtocolMessageSchema.safeParse({
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "agent-3",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "agent-3",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "invalid self review reassignment",
+        payload: {
+          reason: "reassignment",
+          newAssigneeAgentId: "agent-3",
+          newReviewerAgentId: "agent-3",
+        },
+        artifacts: [],
+      });
+
+      expect(parsed.success).toBe(false);
     });
   });
 

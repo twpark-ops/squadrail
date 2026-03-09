@@ -228,6 +228,12 @@ async function invokeRoute(input: {
 
     return state;
   } catch (error: any) {
+    if (error?.name === "ZodError") {
+      return {
+        statusCode: 400,
+        body: { error: "Validation error", details: error.errors ?? error.issues ?? [] },
+      };
+    }
     return {
       statusCode: error?.status ?? 500,
       body: { error: error?.message ?? "Unhandled error" },
@@ -685,6 +691,38 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(422);
+    expect(mockIssueCreateInternalWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("rejects internal work items when reviewer matches assignee", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-163A",
+      title: "Root issue",
+      description: "Parent delivery issue",
+      projectId: null,
+      goalId: null,
+      labels: [],
+      hiddenAt: null,
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/internal-work-items",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        title: "Self review",
+        kind: "implementation",
+        priority: "high",
+        assigneeAgentId: "44444444-4444-4444-8444-444444444444",
+        reviewerAgentId: "44444444-4444-4444-8444-444444444444",
+        acceptanceCriteria: ["Assignment brief is generated"],
+        definitionOfDone: ["Engineer receives the child work item"],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
     expect(mockIssueCreateInternalWorkItem).not.toHaveBeenCalled();
   });
 
