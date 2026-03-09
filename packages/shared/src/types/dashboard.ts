@@ -31,6 +31,7 @@ export interface DashboardSummary {
     workflowCounts: Record<string, number>;
     executionQueueCount: number;
     reviewQueueCount: number;
+    handoffBlockerCount: number;
     blockedQueueCount: number;
     awaitingHumanDecisionCount: number;
     readyToCloseCount: number;
@@ -107,6 +108,7 @@ export interface DashboardProtocolQueueItem {
 export interface DashboardProtocolBuckets {
   executionQueue: DashboardProtocolQueueItem[];
   reviewQueue: DashboardProtocolQueueItem[];
+  handoffBlockerQueue: DashboardProtocolQueueItem[];
   blockedQueue: DashboardProtocolQueueItem[];
   humanDecisionQueue: DashboardProtocolQueueItem[];
   readyToCloseQueue: DashboardProtocolQueueItem[];
@@ -125,7 +127,7 @@ export interface DashboardRecoveryCase {
   identifier: string | null;
   title: string;
   workflowState: IssueProtocolWorkflowState;
-  recoveryType: "violation" | "timeout" | "integrity";
+  recoveryType: "violation" | "timeout" | "integrity" | "runtime";
   severity: IssueProtocolViolationSeverity | "warning";
   code: string | null;
   summary: string;

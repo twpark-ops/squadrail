@@ -261,7 +261,7 @@ function RecoverySection({ companyId, items }: { companyId: string; items: Dashb
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Recovery Drill-down</h3>
           <p className="text-xs text-muted-foreground">
-            Cross-issue violations, timeout escalations, and integrity backlog that need operator action.
+            Runtime failures, cross-issue violations, timeout escalations, and integrity backlog that need operator action.
           </p>
         </div>
         <div className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card">
@@ -271,7 +271,7 @@ function RecoverySection({ companyId, items }: { companyId: string; items: Dashb
 
       <div className="rounded-lg border border-border bg-muted/20 px-4 py-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          {(["all", "violation", "timeout", "integrity"] as const).map((value) => (
+          {(["all", "runtime", "violation", "timeout", "integrity"] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -350,7 +350,11 @@ function RecoverySection({ companyId, items }: { companyId: string; items: Dashb
               to={`/issues/${item.identifier ?? item.issueId}`}
               className={cn(
                 "block rounded-lg border p-4 transition-colors hover:border-foreground/20 hover:bg-accent/20",
-                item.recoveryType === "violation" ? "border-red-300/70 bg-red-50/70" : "border-amber-300/70 bg-amber-50/70",
+                item.recoveryType === "violation"
+                  ? "border-red-300/70 bg-red-50/70"
+                  : item.recoveryType === "runtime"
+                    ? "border-orange-300/70 bg-orange-50/70"
+                    : "border-amber-300/70 bg-amber-50/70",
               )}
             >
               <div className="flex items-start justify-between gap-3">
