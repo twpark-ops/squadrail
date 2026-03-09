@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="doc/assets/header.svg" alt="Squadrail — AI Squads on Rails" width="720" />
+  <img src="doc/assets/header.svg" alt="Squadrail" width="720" />
 </p>
 
 <p align="center">
@@ -7,49 +7,27 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/twpark-ops/squadrail/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
-  <a href="https://github.com/twpark-ops/squadrail/stargazers"><img src="https://img.shields.io/github/stars/twpark-ops/squadrail?style=flat" alt="Stars" /></a>
+  <a href="https://github.com/twpark-ops/squadrail/blob/master/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
+  </a>
+  <a href="https://github.com/twpark-ops/squadrail/stargazers">
+    <img src="https://img.shields.io/github/stars/twpark-ops/squadrail?style=flat" alt="Stars" />
+  </a>
 </p>
 
 ---
 
-## What is Squadrail?
+## Overview
 
-Squadrail is an open-source platform for orchestrating AI agent squads that execute software delivery tasks with structure and precision.
+Squadrail orchestrates AI agent squads that execute software delivery tasks with structure and precision. Built on protocol-driven workflows, role-based teams, and RAG-powered context retrieval.
 
-**Core capabilities:**
-- 🎯 **Protocol-driven workflows** — State machines and typed messages instead of free-form chat
-- 🤖 **Role-based agent teams** — Tech Lead, Engineer, Reviewer with clear responsibilities
-- 📚 **RAG-powered context** — Hybrid retrieval with task briefs from your codebase
-- 🔒 **Multi-tenant isolation** — PostgreSQL RLS for secure company data separation
-- 📊 **Operational visibility** — Execution logs, approvals, budgets, live events
+**Core capabilities**
 
----
-
-## Architecture
-
-```
-Issue Creation
-    ↓
-Protocol Message (ASSIGN_TASK)
-    ↓
-RAG Retrieval (semantic + keyword search)
-    ↓
-Task Brief Generation (context + evidence)
-    ↓
-Agent Execution (Claude Code / Codex)
-    ↓
-Review Cycle (Reviewer approval)
-    ↓
-Completion
-```
-
-**Key components:**
-- **Express.js API** — REST endpoints with Zod validation
-- **PostgreSQL + Drizzle ORM** — Type-safe database layer
-- **React UI** — Dashboard for monitoring and control
-- **WebSocket** — Real-time event streaming
-- **Embedded PostgreSQL** — Zero-config local development
+- Protocol-driven workflows with state machines and typed messages
+- Role-based agent teams (Tech Lead, Engineer, Reviewer, QA)
+- RAG-powered context with hybrid retrieval and task briefs
+- Multi-tenant isolation using PostgreSQL Row-Level Security
+- Real-time execution monitoring with WebSocket events
 
 ---
 
@@ -70,160 +48,173 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3100` in your browser.
+Open `http://localhost:3100`
 
-**Requirements:**
-- Node.js 20+
-- pnpm 9.15+
+**Requirements:** Node.js 20+, pnpm 9.15+
 
 ---
 
-## Core Concepts
+## How It Works
 
-### Protocol Messages
-
-Structured communication instead of unstructured chat:
-
-```typescript
-ASSIGN_TASK → ACK_ASSIGNMENT → PROPOSE_PLAN →
-START_IMPLEMENTATION → SUBMIT_FOR_REVIEW →
-START_REVIEW → APPROVE_IMPLEMENTATION → CLOSE_TASK
+```
+Issue Creation
+    ↓
+ASSIGN_TASK (protocol message)
+    ↓
+RAG Retrieval (semantic + keyword)
+    ↓
+Task Brief Generation
+    ↓
+Agent Execution (Claude Code / Codex)
+    ↓
+SUBMIT_FOR_REVIEW
+    ↓
+Reviewer Approval
+    ↓
+CLOSE_TASK
 ```
 
-Each message triggers:
+Each protocol message triggers:
 - State validation
 - Role authorization
-- RAG retrieval
+- Context retrieval
 - Evidence requirements
 - Automated dispatch
 
-### Agent Roles
+---
 
-- **Tech Lead** — Assigns work, resolves blockers, closes tasks
-- **Engineer** — Implements features, submits for review
-- **Reviewer** — Reviews code, approves or requests changes
-- **QA** — Tests implementations, validates requirements
-- **CTO/PM** — Strategic oversight, budget approval
+## Protocol Messages
 
-### RAG System
+Structured communication replaces unstructured chat:
+
+```typescript
+ASSIGN_TASK
+ACK_ASSIGNMENT
+PROPOSE_PLAN
+START_IMPLEMENTATION
+REPORT_PROGRESS
+SUBMIT_FOR_REVIEW
+START_REVIEW
+REQUEST_CHANGES
+APPROVE_IMPLEMENTATION
+CLOSE_TASK
+```
+
+---
+
+## Agent Roles
+
+**Tech Lead** — Task assignment, blocker resolution, completion
+**Engineer** — Implementation, testing, review submission
+**Reviewer** — Code review, approval, change requests
+**QA** — Quality validation, test execution
+**CTO/PM** — Strategic oversight, budget approval
+
+---
+
+## RAG System
 
 **Hybrid retrieval pipeline:**
-1. Dense search (vector embeddings via OpenAI)
-2. Sparse search (PostgreSQL full-text search)
-3. Fusion ranking (scores combined)
-4. Reranking (signal-based boost: paths, symbols, tags)
-5. Model reranking (optional LLM-based)
-6. Task brief generation (markdown summary + evidence)
 
-**Result:** Agents receive only relevant context, not entire codebase dumps.
+1. Dense search (vector embeddings via OpenAI)
+2. Sparse search (PostgreSQL full-text)
+3. Fusion ranking
+4. Signal-based reranking (paths, symbols, tags)
+5. Optional LLM reranking
+6. Task brief generation
+
+**Result:** Agents receive relevant context, not entire codebases.
+
+---
+
+## Architecture
+
+**Backend**
+- Express 5.1, TypeScript 5.7
+- Drizzle ORM 0.38, PostgreSQL
+- Better-auth 1.4
+- WebSocket (ws 8.19)
+
+**Frontend**
+- React 19, TypeScript
+- Tailwind CSS v4
+- shadcn/ui, Radix UI
+- Vite 6.1
+
+**AI/ML**
+- Anthropic Claude SDK
+- OpenAI embeddings
+- LangChain (optional)
 
 ---
 
 ## Key Features
 
-### Multi-Tenancy
-- Row-Level Security (RLS) for data isolation
-- Company-scoped agents, issues, knowledge
-- Embedded PostgreSQL for local dev
+**Multi-Tenancy**
+Row-Level Security for data isolation, company-scoped resources, embedded PostgreSQL for local development
 
-### Execution Control
-- Concurrent execution limits per agent
-- Queue management with automatic retry
-- Timeout handling and orphan cleanup
-- Execution logs and cost tracking
+**Execution Control**
+Concurrent limits per agent, queue management, timeout handling, execution logs, cost tracking
 
-### Knowledge Management
-- Document import from repositories
-- Automatic chunking and embedding
-- Version control for retrieval policies
-- Authority levels (canonical, working, draft, deprecated)
+**Knowledge Management**
+Repository import, automatic chunking and embedding, retrieval policy versioning, authority levels
 
-### Governance
-- Approval workflows for budget/agent changes
-- Protocol violation tracking
-- Evidence requirements for task completion
-- Audit trail for all operations
+**Governance**
+Approval workflows, protocol violation tracking, evidence requirements, complete audit trails
 
 ---
 
 ## Development
 
 ```bash
-# Development
 pnpm dev              # Full stack (API + UI)
 pnpm dev:server       # API only
 pnpm dev:ui           # UI only
-
-# Building
 pnpm build            # Build all packages
 pnpm typecheck        # Type checking
-
-# Testing
-pnpm test:run         # Run all tests
-
-# Database
+pnpm test:run         # Run tests
 pnpm db:generate      # Generate migration
 pnpm db:migrate       # Apply migrations
-
-# Diagnostics
-pnpm squadrail doctor # System checks
+pnpm squadrail doctor # System diagnostics
 ```
 
 ---
 
-## Deployment Modes
+## Deployment
 
 ### Local Trusted
+
 ```bash
-# No authentication required
-# Loopback binding only
 SQUADRAIL_DEPLOYMENT_MODE=local_trusted
 ```
 
+No authentication, loopback binding only.
+
 ### Authenticated Private
+
 ```bash
-# Better-auth authentication
-# Internal network only
 SQUADRAIL_DEPLOYMENT_MODE=authenticated
 SQUADRAIL_DEPLOYMENT_EXPOSURE=private
 BETTER_AUTH_SECRET=your-secret
 ```
 
+Better-auth authentication, internal network only.
+
 ### Authenticated Public
+
 ```bash
-# Full authentication
-# Internet-exposed
 SQUADRAIL_DEPLOYMENT_MODE=authenticated
 SQUADRAIL_DEPLOYMENT_EXPOSURE=public
 SQUADRAIL_AUTH_PUBLIC_BASE_URL=https://your-domain.com
 ```
 
----
-
-## Tech Stack
-
-**Backend:**
-- Express 5.1, TypeScript 5.7
-- Drizzle ORM 0.38, PostgreSQL
-- Better-auth 1.4 (authentication)
-- ws 8.19 (WebSocket)
-
-**Frontend:**
-- React 19, TypeScript
-- Tailwind CSS v4
-- shadcn/ui, Radix UI
-- Vite 6.1
-
-**AI/ML:**
-- Anthropic Claude SDK
-- OpenAI (embeddings)
-- LangChain (optional)
+Full authentication, internet-exposed.
 
 ---
 
 ## Documentation
 
-- [Architecture Overview](docs/start/architecture.md)
+- [Architecture](docs/start/architecture.md)
 - [API Reference](docs/api/overview.md)
 - [CLI Commands](docs/cli/overview.md)
 - [Development Guide](doc/DEVELOPING.md)
@@ -232,15 +223,15 @@ SQUADRAIL_AUTH_PUBLIC_BASE_URL=https://your-domain.com
 
 ## Community
 
-- [GitHub Issues](https://github.com/twpark-ops/squadrail/issues) — Bug reports and feature requests
-- [GitHub Discussions](https://github.com/twpark-ops/squadrail/discussions) — Questions and ideas
-- [Discord]() — Community chat
+- [GitHub Issues](https://github.com/twpark-ops/squadrail/issues)
+- [GitHub Discussions](https://github.com/twpark-ops/squadrail/discussions)
+- [Discord]()
 
 ---
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
