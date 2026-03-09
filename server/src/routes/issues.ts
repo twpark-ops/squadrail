@@ -32,6 +32,7 @@ import {
 import { logger } from "../middleware/logger.js";
 import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { enrichProtocolMessageArtifactsFromRun } from "../services/protocol-run-artifacts.js";
 
 const MAX_ATTACHMENT_BYTES = Number(process.env.SQUADRAIL_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_CONTENT_TYPES = new Set([
@@ -258,9 +259,34 @@ export function issueRoutes(db: Db, storage: StorageService) {
     message: CreateIssueProtocolMessage;
     actor: ReturnType<typeof getActorInfo>;
   }) {
+    let effectiveMessage = input.message;
+    if (input.actor.actorType === "agent" && input.actor.agentId && input.actor.runId) {
+      const activeRun = await heartbeat.getRun(input.actor.runId);
+      if (
+        activeRun
+        && activeRun.companyId === input.issue.companyId
+        && activeRun.agentId === input.actor.agentId
+      ) {
+        effectiveMessage = enrichProtocolMessageArtifactsFromRun({
+          message: input.message,
+          run: activeRun,
+          issueId: input.issue.id,
+        });
+      } else {
+        logger.warn(
+          {
+            runId: input.actor.runId,
+            issueId: input.issue.id,
+            agentId: input.actor.agentId,
+          },
+          "skipping protocol run artifact enrichment because the active run could not be verified",
+        );
+      }
+    }
+
     const result = await protocolSvc.appendMessage({
       issueId: input.issue.id,
-      message: input.message,
+      message: effectiveMessage,
       mirrorToComments: true,
       authorAgentId: input.actor.agentId,
       authorUserId: input.actor.actorType === "user" ? input.actor.actorId : null,
@@ -276,10 +302,10 @@ export function issueRoutes(db: Db, storage: StorageService) {
       entityType: "issue",
       entityId: input.issue.id,
       details: {
-        messageType: input.message.messageType,
-        workflowStateBefore: input.message.workflowStateBefore,
-        workflowStateAfter: input.message.workflowStateAfter,
-        summary: input.message.summary,
+        messageType: effectiveMessage.messageType,
+        workflowStateBefore: effectiveMessage.workflowStateBefore,
+        workflowStateAfter: effectiveMessage.workflowStateAfter,
+        summary: effectiveMessage.summary,
       },
     });
 
@@ -304,7 +330,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         },
         triggeringMessageId: result.message.id,
         triggeringMessageSeq: result.message.seq,
-        message: input.message,
+        message: effectiveMessage,
         actor: {
           actorType: input.actor.actorType,
           actorId: input.actor.actorId,
@@ -316,7 +342,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         logger.info(
           {
             issueId: input.issue.id,
-            messageType: input.message.messageType,
+            messageType: effectiveMessage.messageType,
             retrievalRunCount: retrieval.retrievalRuns.length,
             retrievalRunIds: retrieval.retrievalRuns.map((run) => run.retrievalRunId),
           },
@@ -328,7 +354,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         {
           err,
           issueId: input.issue.id,
-          messageType: input.message.messageType,
+          messageType: effectiveMessage.messageType,
           errorMessage: err instanceof Error ? err.message : String(err),
         },
         "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
@@ -340,7 +366,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         issueId: input.issue.id,
         companyId: input.issue.companyId,
         protocolMessageId: result.message.id,
-        message: input.message,
+        message: effectiveMessage,
         recipientHints,
         actor: input.actor,
       });

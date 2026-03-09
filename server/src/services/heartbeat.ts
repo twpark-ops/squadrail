@@ -241,6 +241,17 @@ function mergeCoalescedContextSnapshot(
   return merged;
 }
 
+export function shouldQueueFollowupIssueExecution(input: {
+  sameExecutionAgent: boolean;
+  activeExecutionRunStatus: string | null | undefined;
+  wakeCommentId: string | null;
+  contextSnapshot: Record<string, unknown>;
+}) {
+  if (!input.sameExecutionAgent) return false;
+  if (input.wakeCommentId && input.activeExecutionRunStatus === "running") return true;
+  return asBoolean(input.contextSnapshot.forceFollowupRun, false);
+}
+
 function runTaskKey(run: typeof heartbeatRuns.$inferSelect) {
   return deriveTaskKey(run.contextSnapshot as Record<string, unknown> | null, null);
 }
@@ -1953,12 +1964,14 @@ export function heartbeatService(db: Db) {
             normalizeAgentNameKey(executionAgent?.name);
           const isSameExecutionAgent =
             Boolean(executionAgentNameKey) && executionAgentNameKey === agentNameKey;
-          const shouldQueueFollowupForCommentWake =
-            Boolean(wakeCommentId) &&
-            activeExecutionRun.status === "running" &&
-            isSameExecutionAgent;
+          const shouldQueueFollowupForSameAgent = shouldQueueFollowupIssueExecution({
+            sameExecutionAgent: isSameExecutionAgent,
+            activeExecutionRunStatus: activeExecutionRun.status,
+            wakeCommentId,
+            contextSnapshot: enrichedContextSnapshot,
+          });
 
-          if (isSameExecutionAgent && !shouldQueueFollowupForCommentWake) {
+          if (isSameExecutionAgent && !shouldQueueFollowupForSameAgent) {
             const mergedContextSnapshot = mergeCoalescedContextSnapshot(
               activeExecutionRun.contextSnapshot,
               enrichedContextSnapshot,

@@ -187,6 +187,50 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     expect(plan[0]?.kind).toBe("skip_sender");
   });
 
+  it("requeues the sender for START_IMPLEMENTATION follow-up execution", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-1",
+      protocolMessageId: "msg-2b",
+      senderAgentId: "eng-1",
+      message: {
+        messageType: "START_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "planning",
+        workflowStateAfter: "implementing",
+        summary: "start implementation",
+        payload: {
+          implementationMode: "code_change",
+          activeHypotheses: ["worktree should be isolated"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      reason: "protocol_implementation_started",
+      payload: {
+        forceFollowupRun: true,
+        protocolDispatchMode: "implementation_followup",
+      },
+      contextSnapshot: {
+        forceFollowupRun: true,
+        protocolDispatchMode: "implementation_followup",
+      },
+    });
+  });
+
   it("keeps board recipients as notify_only", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-1",
