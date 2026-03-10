@@ -17,9 +17,9 @@ const SidebarContext = createContext<SidebarContextValue | null>(null);
 const MOBILE_BREAKPOINT = 768;
 const SIDEBAR_WIDTH_KEY = "squadrail.sidebarWidth";
 const LEGACY_SIDEBAR_WIDTH_KEY = "squadrail.sidebar.width";
-const DEFAULT_SIDEBAR_WIDTH = 304;
-const MIN_SIDEBAR_WIDTH = 272;
-const MAX_SIDEBAR_WIDTH = 420;
+const DEFAULT_SIDEBAR_WIDTH = 280;
+const MIN_SIDEBAR_WIDTH = 248;
+const MAX_SIDEBAR_WIDTH = 380;
 
 function clampSidebarWidth(width: number) {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));

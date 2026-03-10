@@ -1,35 +1,11 @@
-import { useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
-import { OnboardingWizard } from "./components/OnboardingWizard";
 import { authApi } from "./api/auth";
 import { healthApi } from "./api/health";
 import { companiesApi } from "./api/companies";
-import { DashboardOptimized as Overview } from "./pages/DashboardOptimized";
-import { Companies } from "./pages/Companies";
-import { Agents } from "./pages/Agents";
-import { AgentDetail } from "./pages/AgentDetail";
-import { Projects } from "./pages/Projects";
-import { ProjectDetail } from "./pages/ProjectDetail";
-import { Issues } from "./pages/Issues";
-import { IssueDetail } from "./pages/IssueDetail";
-import { Changes } from "./pages/Changes";
-import { Runs } from "./pages/Runs";
-import { Team } from "./pages/Team";
-import { Goals } from "./pages/Goals";
-import { GoalDetail } from "./pages/GoalDetail";
-import { Approvals } from "./pages/Approvals";
-import { ApprovalDetail } from "./pages/ApprovalDetail";
-import { Costs } from "./pages/Costs";
-import { Activity } from "./pages/Activity";
-import { Inbox } from "./pages/Inbox";
-import { CompanySettings } from "./pages/CompanySettings";
-import { DesignGuide } from "./pages/DesignGuide";
-import { OrgChart } from "./pages/OrgChart";
-import { Knowledge } from "./pages/Knowledge";
-import { Analytics } from "./pages/Analytics";
 import { AuthPage } from "./pages/Auth";
 import { BoardClaimPage } from "./pages/BoardClaim";
 import { InviteLandingPage } from "./pages/InviteLanding";
@@ -37,6 +13,53 @@ import { queryKeys } from "./lib/queryKeys";
 import { useCompany } from "./context/CompanyContext";
 import { useDialog } from "./context/DialogContext";
 import { appRoutes, workIssuePath } from "./lib/appRoutes";
+
+function lazyPage<T extends Record<string, unknown>, K extends keyof T>(
+  loader: () => Promise<T>,
+  key: K,
+) {
+  return lazy(async () => {
+    const module = await loader();
+    return { default: module[key] as ComponentType };
+  });
+}
+
+const Overview = lazyPage(() => import("./pages/DashboardOptimized"), "DashboardOptimized");
+const Companies = lazyPage(() => import("./pages/Companies"), "Companies");
+const Agents = lazyPage(() => import("./pages/Agents"), "Agents");
+const AgentDetail = lazyPage(() => import("./pages/AgentDetail"), "AgentDetail");
+const Projects = lazyPage(() => import("./pages/Projects"), "Projects");
+const ProjectDetail = lazyPage(() => import("./pages/ProjectDetail"), "ProjectDetail");
+const Issues = lazyPage(() => import("./pages/Issues"), "Issues");
+const IssueDetail = lazyPage(() => import("./pages/IssueDetail"), "IssueDetail");
+const Changes = lazyPage(() => import("./pages/Changes"), "Changes");
+const Runs = lazyPage(() => import("./pages/Runs"), "Runs");
+const Team = lazyPage(() => import("./pages/Team"), "Team");
+const Goals = lazyPage(() => import("./pages/Goals"), "Goals");
+const GoalDetail = lazyPage(() => import("./pages/GoalDetail"), "GoalDetail");
+const Approvals = lazyPage(() => import("./pages/Approvals"), "Approvals");
+const ApprovalDetail = lazyPage(() => import("./pages/ApprovalDetail"), "ApprovalDetail");
+const Costs = lazyPage(() => import("./pages/Costs"), "Costs");
+const Activity = lazyPage(() => import("./pages/Activity"), "Activity");
+const Inbox = lazyPage(() => import("./pages/Inbox"), "Inbox");
+const CompanySettings = lazyPage(() => import("./pages/CompanySettings"), "CompanySettings");
+const DesignGuide = lazyPage(() => import("./pages/DesignGuide"), "DesignGuide");
+const OrgChart = lazyPage(() => import("./pages/OrgChart"), "OrgChart");
+const Knowledge = lazyPage(() => import("./pages/Knowledge"), "Knowledge");
+const Analytics = lazyPage(() => import("./pages/Analytics"), "Analytics");
+const OnboardingWizard = lazyPage(() => import("./components/OnboardingWizard"), "OnboardingWizard");
+
+function RoutePendingPage() {
+  return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading...</div>;
+}
+
+function SuspendedRoute({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<RoutePendingPage />}>{children}</Suspense>;
+}
+
+function routeElement(element: ReactNode) {
+  return <SuspendedRoute>{element}</SuspendedRoute>;
+}
 
 function BootstrapPendingPage() {
   return (
@@ -104,28 +127,28 @@ function boardRoutes() {
   return (
     <>
       <Route index element={<Navigate to="overview" replace />} />
-      <Route path="overview" element={<Overview />} />
+      <Route path="overview" element={routeElement(<Overview />)} />
       <Route path="dashboard" element={<Navigate to="/overview" replace />} />
-      <Route path="companies" element={<Companies />} />
-      <Route path="settings" element={<CompanySettings />} />
+      <Route path="companies" element={routeElement(<Companies />)} />
+      <Route path="settings" element={routeElement(<CompanySettings />)} />
       <Route path="company/settings" element={<Navigate to="/settings" replace />} />
-      <Route path="org" element={<OrgChart />} />
-      <Route path="team" element={<Team />} />
+      <Route path="org" element={routeElement(<OrgChart />)} />
+      <Route path="team" element={routeElement(<Team />)} />
       <Route path="agents" element={<Navigate to="/team" replace />} />
-      <Route path="agents/all" element={<Agents />} />
-      <Route path="agents/active" element={<Agents />} />
-      <Route path="agents/paused" element={<Agents />} />
-      <Route path="agents/error" element={<Agents />} />
-      <Route path="agents/:agentId" element={<AgentDetail />} />
-      <Route path="agents/:agentId/:tab" element={<AgentDetail />} />
-      <Route path="agents/:agentId/runs/:runId" element={<AgentDetail />} />
-      <Route path="projects" element={<Projects />} />
-      <Route path="projects/:projectId" element={<ProjectDetail />} />
-      <Route path="projects/:projectId/overview" element={<ProjectDetail />} />
-      <Route path="projects/:projectId/issues" element={<ProjectDetail />} />
-      <Route path="projects/:projectId/issues/:filter" element={<ProjectDetail />} />
-      <Route path="work" element={<Issues />} />
-      <Route path="work/:issueId" element={<IssueDetail />} />
+      <Route path="agents/all" element={routeElement(<Agents />)} />
+      <Route path="agents/active" element={routeElement(<Agents />)} />
+      <Route path="agents/paused" element={routeElement(<Agents />)} />
+      <Route path="agents/error" element={routeElement(<Agents />)} />
+      <Route path="agents/:agentId" element={routeElement(<AgentDetail />)} />
+      <Route path="agents/:agentId/:tab" element={routeElement(<AgentDetail />)} />
+      <Route path="agents/:agentId/runs/:runId" element={routeElement(<AgentDetail />)} />
+      <Route path="projects" element={routeElement(<Projects />)} />
+      <Route path="projects/:projectId" element={routeElement(<ProjectDetail />)} />
+      <Route path="projects/:projectId/overview" element={routeElement(<ProjectDetail />)} />
+      <Route path="projects/:projectId/issues" element={routeElement(<ProjectDetail />)} />
+      <Route path="projects/:projectId/issues/:filter" element={routeElement(<ProjectDetail />)} />
+      <Route path="work" element={routeElement(<Issues />)} />
+      <Route path="work/:issueId" element={routeElement(<IssueDetail />)} />
       <Route path="issues" element={<Navigate to="/work" replace />} />
       <Route path="issues/all" element={<Navigate to="/work" replace />} />
       <Route path="issues/active" element={<Navigate to="/work" replace />} />
@@ -133,23 +156,23 @@ function boardRoutes() {
       <Route path="issues/done" element={<Navigate to="/work" replace />} />
       <Route path="issues/recent" element={<Navigate to="/work" replace />} />
       <Route path="issues/:issueId" element={<LegacyIssueRedirect />} />
-      <Route path="changes" element={<Changes />} />
-      <Route path="changes/:issueId" element={<IssueDetail />} />
-      <Route path="runs" element={<Runs />} />
-      <Route path="goals" element={<Goals />} />
-      <Route path="goals/:goalId" element={<GoalDetail />} />
+      <Route path="changes" element={routeElement(<Changes />)} />
+      <Route path="changes/:issueId" element={routeElement(<IssueDetail />)} />
+      <Route path="runs" element={routeElement(<Runs />)} />
+      <Route path="goals" element={routeElement(<Goals />)} />
+      <Route path="goals/:goalId" element={routeElement(<GoalDetail />)} />
       <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
-      <Route path="approvals/pending" element={<Approvals />} />
-      <Route path="approvals/all" element={<Approvals />} />
-      <Route path="approvals/:approvalId" element={<ApprovalDetail />} />
-      <Route path="costs" element={<Costs />} />
-      <Route path="activity" element={<Activity />} />
+      <Route path="approvals/pending" element={routeElement(<Approvals />)} />
+      <Route path="approvals/all" element={routeElement(<Approvals />)} />
+      <Route path="approvals/:approvalId" element={routeElement(<ApprovalDetail />)} />
+      <Route path="costs" element={routeElement(<Costs />)} />
+      <Route path="activity" element={routeElement(<Activity />)} />
       <Route path="inbox" element={<Navigate to="/inbox/new" replace />} />
-      <Route path="inbox/new" element={<Inbox />} />
-      <Route path="inbox/all" element={<Inbox />} />
-      <Route path="knowledge" element={<Knowledge />} />
-      <Route path="analytics" element={<Analytics />} />
-      <Route path="design-guide" element={<DesignGuide />} />
+      <Route path="inbox/new" element={routeElement(<Inbox />)} />
+      <Route path="inbox/all" element={routeElement(<Inbox />)} />
+      <Route path="knowledge" element={routeElement(<Knowledge />)} />
+      <Route path="analytics" element={routeElement(<Analytics />)} />
+      <Route path="design-guide" element={routeElement(<DesignGuide />)} />
     </>
   );
 }
@@ -249,6 +272,8 @@ function NoCompaniesStartPage({ autoOpen = true }: { autoOpen?: boolean }) {
 }
 
 export function App() {
+  const { onboardingOpen } = useDialog();
+
   return (
     <>
       <Routes>
@@ -291,7 +316,9 @@ export function App() {
           </Route>
         </Route>
       </Routes>
-      <OnboardingWizard />
+      <Suspense fallback={null}>
+        {onboardingOpen ? <OnboardingWizard /> : null}
+      </Suspense>
     </>
   );
 }

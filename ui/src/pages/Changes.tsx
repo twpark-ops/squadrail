@@ -5,6 +5,7 @@ import {
   ExternalLink,
   GitBranch,
   GitCommitHorizontal,
+  MoveRight,
   ShieldCheck,
   TestTube2,
   Workflow,
@@ -14,7 +15,7 @@ import { issuesApi } from "../api/issues";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
-import { relativeTime, issueUrl } from "../lib/utils";
+import { relativeTime } from "../lib/utils";
 import { changeIssuePath, workIssuePath } from "../lib/appRoutes";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -82,7 +83,7 @@ function ChangeLane({
                 <Button asChild size="sm" variant="outline" className="rounded-full">
                   <Link to={changeIssuePath(item.identifier ?? item.issueId)}>
                     <GitBranch className="h-3.5 w-3.5" />
-                    Change View
+                    Open review
                   </Link>
                 </Button>
                 <Button asChild size="sm" variant="ghost" className="rounded-full">
@@ -187,11 +188,47 @@ export function Changes() {
     return <PageSkeleton variant="list" />;
   }
 
+  const reviewDesk = [
+    {
+      title: "Diff signal",
+      description: "Open review should immediately surface changed files, diff summary, and implementation context.",
+    },
+    {
+      title: "Verification evidence",
+      description: "Show tests, checks, and verification summary before asking for a close decision.",
+    },
+    {
+      title: "Rollback readiness",
+      description: "Every near-close change needs a rollback path and merge status that can be inspected quickly.",
+    },
+  ];
+
+  const primaryReviewRef =
+    changesInMotion[0]?.identifier ??
+    changesInMotion[0]?.issueId ??
+    reviewReady[0]?.identifier ??
+    reviewReady[0]?.issueId ??
+    mergeCandidates[0]?.identifier ??
+    mergeCandidates[0]?.issueId ??
+    null;
+
   return (
     <div className="space-y-8">
       <HeroSection
+        eyebrow="Review workspace"
         title="Changes"
-        subtitle="Review implementation flow, approval readiness, and merge handoff without digging through hidden worktrees."
+        subtitle="Review implementation flow, evidence, and merge readiness without bouncing back into the generic work queue."
+        actions={
+          primaryReviewRef ? (
+            <Link
+              to={workIssuePath(primaryReviewRef)}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
+            >
+              Inspect linked work
+              <MoveRight className="h-4 w-4" />
+            </Link>
+          ) : undefined
+        }
       />
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
@@ -221,13 +258,8 @@ export function Changes() {
         />
       </div>
 
-      <section className="rounded-[1.9rem] border border-border bg-card px-5 py-5 shadow-card">
-        <div className="grid gap-6 xl:grid-cols-2">
-          <ChangeLane
-            title="Implementation In Motion"
-            subtitle="Changes currently backed by execution work, queued implementation, or follow-up engineering activity."
-            items={changesInMotion}
-          />
+      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="space-y-6">
           <ChangeLane
             title="Review Ready"
             subtitle="Changes that already crossed the handoff boundary and need reviewer or QA attention."
@@ -237,6 +269,107 @@ export function Changes() {
             title="Merge Candidates"
             subtitle="Approved work waiting for explicit close, merge export, or merge-candidate follow-through."
             items={mergeCandidates}
+          />
+        </div>
+
+        <section className="rounded-[1.9rem] border border-border bg-card px-5 py-5 shadow-card">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">Review desk</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This tab exists to answer one question: can this change be approved or closed with confidence?
+              </p>
+            </div>
+            <span className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
+              Evidence first
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            {reviewDesk.map((item) => (
+              <div key={item.title} className="rounded-[1.25rem] border border-border bg-background/72 px-4 py-4">
+                <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                <div className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[1.25rem] border border-border bg-background/72 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">Implementation In Motion</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Active engineering work that will soon become a review item.
+                  </div>
+                </div>
+                <Workflow className="h-4 w-4 text-primary" />
+              </div>
+              <div className="mt-4 space-y-3">
+                {changesInMotion.length === 0 ? (
+                  <div className="rounded-[1rem] border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                    No implementation changes are currently moving.
+                  </div>
+                ) : (
+                  changesInMotion.slice(0, 4).map((item) => (
+                    <Link
+                      key={item.issueId}
+                      to={changeIssuePath(item.identifier ?? item.issueId)}
+                      className="block rounded-[1rem] border border-border bg-card px-3 py-3 no-underline transition-colors hover:border-primary/18 hover:bg-accent/24"
+                    >
+                      <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{item.summary}</div>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[1.25rem] border border-border bg-background/72 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">Recently Closed</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Completed work that may still need audit, release, or merge verification.
+                  </div>
+                </div>
+                <GitCommitHorizontal className="h-4 w-4 text-primary" />
+              </div>
+              <div className="mt-4 space-y-3">
+                {recentlyClosed.length === 0 ? (
+                  <div className="rounded-[1rem] border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                    No recently closed changes yet.
+                  </div>
+                ) : (
+                  recentlyClosed.slice(0, 4).map((item) => (
+                    <Link
+                      key={item.issueId}
+                      to={changeIssuePath(item.identifier ?? item.issueId)}
+                      className="block rounded-[1rem] border border-border bg-card px-3 py-3 no-underline transition-colors hover:border-primary/18 hover:bg-accent/24"
+                    >
+                      <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{item.summary}</div>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section className="rounded-[1.9rem] border border-border bg-card px-5 py-5 shadow-card">
+        <div className="mb-5">
+          <h2 className="text-lg font-semibold text-foreground">Change lanes</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Secondary lanes that help operators compare active implementation with already-closed work.
+          </p>
+        </div>
+        <div className="grid gap-6 xl:grid-cols-2">
+          <ChangeLane
+            title="Implementation In Motion"
+            subtitle="Changes currently backed by execution work, queued implementation, or follow-up engineering activity."
+            items={changesInMotion}
           />
           <ChangeLane
             title="Recently Closed"
