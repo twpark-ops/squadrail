@@ -1,0 +1,60 @@
+@startuml
+title Autonomous Org Full-Loop Plan
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultFontName Noto Sans CJK KR
+
+package "Current Completed Core" {
+  [TL Routing]
+  [Engineer Implementation]
+  [Review / QA Participation]
+  [Close / Merge Candidate]
+  [Real-Org E2E]
+  [Knowledge Setup UI]
+}
+
+package "P0 Highest Priority" {
+  [Organizational Memory Ingest]
+  [Human -> PM Intake]
+  [QA Gate Policy]
+}
+
+package "P1 Retrieval / Operator" {
+  [Operator Pin / Hide UI]
+  [Candidate / Final-Hit Cache]
+  [Chunk-Link Multi-Hop]
+}
+
+package "P2 Long-Term Learning" {
+  [Quality Trend Surface]
+  [Cross-Issue Memory]
+  [External Agent Feedback]
+}
+
+[TL Routing] --> [Engineer Implementation]
+[Engineer Implementation] --> [Review / QA Participation]
+[Review / QA Participation] --> [Close / Merge Candidate]
+[Close / Merge Candidate] --> [Organizational Memory Ingest]
+[Real-Org E2E] --> [Organizational Memory Ingest]
+[Knowledge Setup UI] --> [Organizational Memory Ingest]
+
+[Human -> PM Intake] --> [TL Routing]
+[QA Gate Policy] --> [Review / QA Participation]
+[Organizational Memory Ingest] --> [Operator Pin / Hide UI]
+[Organizational Memory Ingest] --> [Candidate / Final-Hit Cache]
+[Organizational Memory Ingest] --> [Chunk-Link Multi-Hop]
+[Operator Pin / Hide UI] --> [Quality Trend Surface]
+[Candidate / Final-Hit Cache] --> [Quality Trend Surface]
+[Chunk-Link Multi-Hop] --> [Cross-Issue Memory]
+[External Agent Feedback] --> [Cross-Issue Memory]
+
+note bottom
+Priority:
+P0 (memory + intake + QA policy)
+-> P1 (operator/retrieval quality)
+-> P2 (learning surfaces)
+end note
+
+@enduml

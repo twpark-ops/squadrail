@@ -26,6 +26,7 @@ import {
   issueProtocolExecutionService,
   issueRetrievalService,
   issueProtocolService,
+  organizationalMemoryService,
   retrievalPersonalizationService,
   issueService,
   knowledgeService,
@@ -164,6 +165,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
   const protocolExecution = issueProtocolExecutionService(db);
   const issueRetrieval = issueRetrievalService(db);
   const protocolSvc = issueProtocolService(db);
+  const organizationalMemory = organizationalMemoryService(db);
   const retrievalPersonalization = retrievalPersonalizationService(db);
   const mergeCandidatesSvc = issueMergeCandidateService(db);
   const upload = multer({
@@ -176,6 +178,25 @@ export function issueRoutes(db: Db, storage: StorageService) {
       ...attachment,
       contentPath: `/api/attachments/${attachment.id}/content`,
     };
+  }
+
+  function scheduleIssueMemoryIngest(issueId: string, mutation: "create" | "update" | "internal_work_item") {
+    runWithoutDbContext(() => {
+      void organizationalMemory
+        .ingestIssueSnapshot({ issueId, mutation })
+        .catch((err) => logger.error({ err, issueId, mutation }, "issue organizational memory ingest failed"));
+    });
+  }
+
+  function scheduleProtocolMemoryIngest(messageId: string, issueId: string, messageType: string) {
+    runWithoutDbContext(() => {
+      void organizationalMemory
+        .ingestProtocolMessage({ messageId })
+        .catch((err) => logger.error(
+          { err, issueId, messageId, messageType },
+          "protocol organizational memory ingest failed",
+        ));
+    });
   }
 
   async function loadIssueChangeSurface(issue: {
@@ -573,6 +594,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
       message: effectiveMessage,
       persistedMessageId: result.message.id,
     });
+
+    scheduleProtocolMemoryIngest(result.message.id, input.issue.id, effectiveMessage.messageType);
 
     if (
       effectiveMessage.messageType === "REQUEST_CHANGES"
@@ -1220,6 +1243,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
       },
     });
 
+    scheduleIssueMemoryIngest(workItem.id, "internal_work_item");
+
     const assignmentRecipients: CreateIssueProtocolMessage["recipients"] = [
       {
         recipientType: "agent",
@@ -1414,6 +1439,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
       );
     }
 
+    scheduleIssueMemoryIngest(issue.id, "create");
+
     res.status(201).json(issue);
   });
 
@@ -1582,6 +1609,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
         "failed to wake agent on issue update",
       );
     }
+
+    scheduleIssueMemoryIngest(issue.id, "update");
 
     res.json({ ...issue, comment });
   });

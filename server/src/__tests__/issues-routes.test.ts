@@ -27,6 +27,9 @@ const {
   mockProtocolCreateViolation,
   mockProtocolDispatchMessage,
   mockIssueRetrievalHandleProtocolMessage,
+  mockOrgMemoryBackfillCompany,
+  mockOrgMemoryIngestIssueSnapshot,
+  mockOrgMemoryIngestProtocolMessage,
   mockRetrievalPersonalizationRecordProtocolFeedback,
   mockRetrievalPersonalizationRecordManualFeedback,
   mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback,
@@ -65,6 +68,9 @@ const {
   mockProtocolCreateViolation: vi.fn(),
   mockProtocolDispatchMessage: vi.fn(),
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
+  mockOrgMemoryBackfillCompany: vi.fn(),
+  mockOrgMemoryIngestIssueSnapshot: vi.fn(),
+  mockOrgMemoryIngestProtocolMessage: vi.fn(),
   mockRetrievalPersonalizationRecordProtocolFeedback: vi.fn(),
   mockRetrievalPersonalizationRecordManualFeedback: vi.fn(),
   mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback: vi.fn(),
@@ -121,6 +127,11 @@ vi.mock("../services/index.js", () => ({
     buildBrief: vi.fn(),
     listBriefs: vi.fn(),
     handleProtocolMessage: mockIssueRetrievalHandleProtocolMessage,
+  }),
+  organizationalMemoryService: () => ({
+    ingestIssueSnapshot: mockOrgMemoryIngestIssueSnapshot,
+    ingestProtocolMessage: mockOrgMemoryIngestProtocolMessage,
+    backfillCompany: mockOrgMemoryBackfillCompany,
   }),
   retrievalPersonalizationService: () => ({
     recordProtocolFeedback: mockRetrievalPersonalizationRecordProtocolFeedback,
@@ -361,6 +372,23 @@ describe("issue routes wakeup handling", () => {
     });
     mockProtocolDispatchMessage.mockResolvedValue(undefined);
     mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({ recipientHints: [] });
+    mockOrgMemoryIngestIssueSnapshot.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      sourceType: "issue",
+    });
+    mockOrgMemoryIngestProtocolMessage.mockResolvedValue({
+      messageId: "protocol-message-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      sourceType: "protocol_message",
+    });
+    mockOrgMemoryBackfillCompany.mockResolvedValue({
+      companyId: "company-1",
+      issueScannedCount: 0,
+      issueDocumentCount: 0,
+      protocolScannedCount: 0,
+      protocolDocumentCount: 0,
+      reviewDocumentCount: 0,
+    });
     mockRetrievalPersonalizationRecordProtocolFeedback.mockResolvedValue({
       ok: true,
       feedbackEventCount: 0,
@@ -497,7 +525,7 @@ describe("issue routes wakeup handling", () => {
 
     expect(response.statusCode).toBe(201);
     expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
-    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(2);
     expect(mockIssueRetrievalHandleProtocolMessage).toHaveBeenCalledTimes(1);
     expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
   });
@@ -561,12 +589,12 @@ describe("issue routes wakeup handling", () => {
     expect(response.statusCode).toBe(201);
     expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
     expect(mockProtocolDispatchMessage).not.toHaveBeenCalled();
-    expect(mockRunWithoutDbContext).not.toHaveBeenCalled();
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
 
     expect(queuedCallback).not.toBeNull();
     await queuedCallback?.();
 
-    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(2);
     expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -609,6 +637,37 @@ describe("issue routes wakeup handling", () => {
       }),
     );
     expect(wakeResolved).toBe(true);
+  });
+
+  it("ingests organizational memory after issue create", async () => {
+    mockIssueCreate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-101",
+      title: "Create test issue",
+      status: "todo",
+      assigneeAgentId: null,
+    });
+    mockOrgMemoryIngestIssueSnapshot.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      sourceType: "issue",
+    });
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/issues",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        title: "Create test issue",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
+    expect(mockOrgMemoryIngestIssueSnapshot).toHaveBeenCalledWith({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      mutation: "create",
+    });
   });
 
   it("awaits assignee wakeup on issue reassignment", async () => {
@@ -658,6 +717,46 @@ describe("issue routes wakeup handling", () => {
       }),
     );
     expect(wakeResolved).toBe(true);
+  });
+
+  it("ingests organizational memory after issue update", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-102",
+      title: "Existing issue",
+      status: "todo",
+      assigneeAgentId: null,
+      assigneeUserId: null,
+      createdByUserId: "user-1",
+    });
+    mockIssueUpdate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-102",
+      title: "Existing issue",
+      status: "blocked",
+      assigneeAgentId: null,
+      assigneeUserId: null,
+    });
+    mockOrgMemoryIngestIssueSnapshot.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      sourceType: "issue",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id",
+      method: "patch",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: { status: "blocked" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
+    expect(mockOrgMemoryIngestIssueSnapshot).toHaveBeenCalledWith({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      mutation: "update",
+    });
   });
 
   it("awaits wakeup on checkout", async () => {
@@ -1414,6 +1513,79 @@ describe("issue routes wakeup handling", () => {
         }),
       }),
     );
+  });
+
+  it("ingests organizational memory after high-signal protocol messages", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-201",
+      title: "Protocol issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: {
+        id: "message-1",
+        seq: 12,
+      },
+      state: { workflowState: "submitted_for_review" },
+      mirroredComment: null,
+    });
+    mockOrgMemoryIngestProtocolMessage.mockResolvedValue({
+      messageId: "message-1",
+      sourceType: "review",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "rev-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [
+          { kind: "diff", uri: "run://run-1/workspace-diff", label: "Workspace diff" },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockRunWithoutDbContext).toHaveBeenCalled();
+    expect(mockOrgMemoryIngestProtocolMessage).toHaveBeenCalledWith({
+      messageId: "message-1",
+    });
   });
 
   it("returns change surface derived from protocol artifacts", async () => {

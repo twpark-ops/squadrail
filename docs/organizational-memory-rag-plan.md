@@ -19,6 +19,9 @@
 
 다음 목표는 `코드를 잘 찾는 시스템`에서 `조직의 판단과 실행 근거를 기억하는 회사`로 올리는 것이다.
 
+이 문서는 `조직 기억 인입` 자체에 집중한다.
+상류 PM intake와 QA gate까지 포함한 전체 제품 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/autonomous-org-full-loop-plan.md) 참조.
+
 ## 현재까지 완료된 기반
 
 ### 1. 지식 운영 표면
@@ -102,7 +105,7 @@
 
 범위:
 
-- sourceType `protocol_message`, `review_feedback`
+- sourceType `protocol_message`, `review`
 - 포함 메시지 유형 최소 집합:
   - `ASSIGN_TASK`
   - `REASSIGN_TASK`
@@ -131,7 +134,7 @@
 
 완료 기준:
 
-- `issue`, `protocol_message`, `review_feedback` sourceType 문서가 실제로 쌓이고 coverage를 측정할 수 있다.
+- `issue`, `protocol_message`, `review` sourceType 문서가 실제로 쌓이고 coverage를 측정할 수 있다.
 
 ### P1-1. Candidate / Final-Hit Cache
 

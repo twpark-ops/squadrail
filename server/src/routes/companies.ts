@@ -23,6 +23,7 @@ import {
   companyPortabilityService,
   companyService,
   doctorService,
+  organizationalMemoryService,
   logActivity,
   knowledgeSetupService,
   rolePackService,
@@ -34,6 +35,13 @@ const doctorQuerySchema = z.object({
   deep: z.coerce.boolean().optional(),
   workspaceId: z.string().uuid().optional(),
 });
+
+const organizationalMemoryBackfillSchema = z.object({
+  issueLimit: z.number().int().min(1).max(20_000).optional(),
+  messageLimit: z.number().int().min(1).max(50_000).optional(),
+  issueIds: z.array(z.string().uuid()).max(10_000).optional(),
+  messageIds: z.array(z.string().uuid()).max(20_000).optional(),
+}).strict();
 
 export function companyRoutes(
   db: Db,
@@ -52,6 +60,7 @@ export function companyRoutes(
   const setup = setupProgressService(db);
   const rolePacks = rolePackService(db);
   const knowledgeSetup = knowledgeSetupService(db);
+  const organizationalMemory = organizationalMemoryService(db);
   const doctor = doctorService(db, opts);
 
   router.get("/role-pack-presets", (req, res) => {
@@ -174,6 +183,32 @@ export function companyRoutes(
       },
     });
     res.status(201).json(job);
+  });
+
+  router.post("/:companyId/organizational-memory/backfill", validate(organizationalMemoryBackfillSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await organizationalMemory.backfillCompany({
+      companyId,
+      issueLimit: req.body.issueLimit,
+      messageLimit: req.body.messageLimit,
+      issueIds: req.body.issueIds,
+      messageIds: req.body.messageIds,
+    });
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "knowledge.organizational_memory.backfilled",
+      entityType: "company",
+      entityId: companyId,
+      details: result,
+    });
+    res.status(202).json(result);
   });
 
   router.get("/:companyId/knowledge-sync/:jobId", async (req, res) => {

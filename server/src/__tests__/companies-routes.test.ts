@@ -10,6 +10,7 @@ const {
   mockKnowledgeSetupGetKnowledgeSetup,
   mockKnowledgeSetupRunKnowledgeSync,
   mockKnowledgeSetupGetKnowledgeSyncJob,
+  mockOrgMemoryBackfillCompany,
   mockDoctorRun,
   mockListRolePacks,
   mockListPresets,
@@ -30,6 +31,7 @@ const {
   mockKnowledgeSetupGetKnowledgeSetup: vi.fn(),
   mockKnowledgeSetupRunKnowledgeSync: vi.fn(),
   mockKnowledgeSetupGetKnowledgeSyncJob: vi.fn(),
+  mockOrgMemoryBackfillCompany: vi.fn(),
   mockDoctorRun: vi.fn(),
   mockListRolePacks: vi.fn(),
   mockListPresets: vi.fn(),
@@ -62,6 +64,9 @@ vi.mock("../services/index.js", () => ({
   }),
   doctorService: () => ({
     run: mockDoctorRun,
+  }),
+  organizationalMemoryService: () => ({
+    backfillCompany: mockOrgMemoryBackfillCompany,
   }),
   knowledgeSetupService: () => ({
     getOrgSync: mockKnowledgeSetupGetOrgSync,
@@ -493,6 +498,44 @@ describe("company routes", () => {
       status: "completed",
     });
     expect(mockKnowledgeSetupGetKnowledgeSyncJob).toHaveBeenCalledWith("company-1", "job-1");
+  });
+
+  it("runs organizational memory backfill for a company", async () => {
+    mockOrgMemoryBackfillCompany.mockResolvedValue({
+      companyId: "company-1",
+      issueScanned: 12,
+      issueDocumentCount: 12,
+      messageScanned: 20,
+      protocolDocumentCount: 9,
+      reviewDocumentCount: 6,
+      completedAt: "2026-03-11T00:00:00.000Z",
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/organizational-memory/backfill",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        issueLimit: 25,
+        messageLimit: 50,
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(mockOrgMemoryBackfillCompany).toHaveBeenCalledWith({
+      companyId: "company-1",
+      issueLimit: 25,
+      messageLimit: 50,
+      issueIds: undefined,
+      messageIds: undefined,
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "knowledge.organizational_memory.backfilled",
+        companyId: "company-1",
+      }),
+    );
   });
 
   it("returns 404 when a knowledge sync job cannot be found", async () => {
