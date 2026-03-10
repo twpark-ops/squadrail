@@ -37,6 +37,23 @@ type MergeCandidateRecordLike = {
   resolvedAt: Date | string | null;
 } | null;
 
+type BriefLike = {
+  id: string;
+  briefScope: string;
+  retrievalRunId: string | null;
+  createdAt: Date | string;
+  contentJson?: Record<string, unknown> | null;
+} | null;
+
+type RetrievalFeedbackSummaryLike = {
+  positiveCount: number;
+  negativeCount: number;
+  pinnedPathCount: number;
+  hiddenPathCount: number;
+  lastFeedbackAt: Date | string | null;
+  feedbackTypeCounts: Record<string, number>;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -123,10 +140,30 @@ function findMergeCandidateCloseMessage(input: {
     ?? null;
 }
 
+function readBriefQualityValue(
+  brief: BriefLike,
+  key: "confidenceLevel" | "graphHitCount" | "multiHopGraphHitCount" | "personalizationApplied",
+) {
+  const quality = asRecord(asRecord(brief?.contentJson)?.quality);
+  if (key === "confidenceLevel") {
+    const confidenceLevel = readString(quality.confidenceLevel);
+    return confidenceLevel === "high" || confidenceLevel === "medium" || confidenceLevel === "low"
+      ? confidenceLevel
+      : null;
+  }
+  if (key === "personalizationApplied") {
+    return quality.personalizationApplied === true;
+  }
+  const numeric = quality[key];
+  return typeof numeric === "number" ? numeric : 0;
+}
+
 export function buildIssueChangeSurface(input: {
   issue: IssueLike;
   messages: ProtocolMessageLike[];
   mergeCandidateRecord?: MergeCandidateRecordLike;
+  briefs?: BriefLike[];
+  retrievalFeedbackSummary?: RetrievalFeedbackSummaryLike | null;
 }): IssueChangeSurface {
   const mergeCandidateClose = findMergeCandidateCloseMessage(input);
   const candidateCutoff = mergeCandidateClose ? normalizeDate(mergeCandidateClose.createdAt) : null;
@@ -156,6 +193,7 @@ export function buildIssueChangeSurface(input: {
     .map((entry) => artifactSummary(entry)!);
 
   const bindingMetadata = asRecord(workspaceBinding?.artifact.metadata);
+  const boundWorkspace = asRecord(bindingMetadata.workspace);
   const diffMetadata = asRecord(diffArtifact?.artifact.metadata);
   const latestApproval = latestMessage(scopedMessages, "APPROVE_IMPLEMENTATION");
   const closePayload = asRecord(mergeCandidateClose?.payload);
@@ -180,6 +218,33 @@ export function buildIssueChangeSurface(input: {
     ?? null;
   const changedFiles = readStringArray(diffMetadata.changedFiles);
   const statusEntries = readStringArray(diffMetadata.statusEntries);
+  const latestRuns = (input.briefs ?? [])
+    .filter((brief): brief is Exclude<BriefLike, null> => Boolean(brief?.retrievalRunId))
+    .sort((left, right) => normalizeDate(right.createdAt).getTime() - normalizeDate(left.createdAt).getTime())
+    .slice(0, 6)
+    .map((brief) => ({
+      briefScope: brief.briefScope,
+      briefId: brief.id,
+      retrievalRunId: brief.retrievalRunId!,
+      createdAt: normalizeDate(brief.createdAt),
+      confidenceLevel:
+        readBriefQualityValue(brief, "confidenceLevel") as IssueChangeSurface["retrievalContext"]["latestRuns"][number]["confidenceLevel"],
+      graphHitCount: Number(readBriefQualityValue(brief, "graphHitCount") ?? 0),
+      multiHopGraphHitCount: Number(readBriefQualityValue(brief, "multiHopGraphHitCount") ?? 0),
+      personalized: Boolean(readBriefQualityValue(brief, "personalizationApplied")),
+      candidateCacheHit:
+        asRecord(asRecord(brief.contentJson)?.quality).candidateCacheHit === true,
+      finalCacheHit:
+        asRecord(asRecord(brief.contentJson)?.quality).finalCacheHit === true,
+    }));
+  const feedbackSummary = input.retrievalFeedbackSummary ?? {
+    positiveCount: 0,
+    negativeCount: 0,
+    pinnedPathCount: 0,
+    hiddenPathCount: 0,
+    lastFeedbackAt: null,
+    feedbackTypeCounts: {},
+  };
 
   let mergeCandidate: IssueChangeSurface["mergeCandidate"] = null;
   const mergeStatus = readString(closePayload.mergeStatus);
@@ -221,8 +286,8 @@ export function buildIssueChangeSurface(input: {
     branchName: sourceBranch,
     headSha,
     workspacePath,
-    workspaceSource: readString(bindingMetadata.source),
-    workspaceState: readString(bindingMetadata.workspaceState),
+    workspaceSource: readString(bindingMetadata.source) ?? readString(boundWorkspace.source),
+    workspaceState: readString(bindingMetadata.workspaceState) ?? readString(boundWorkspace.workspaceState),
     changedFiles,
     statusEntries,
     diffStat,
@@ -233,6 +298,17 @@ export function buildIssueChangeSurface(input: {
     diffArtifact: artifactSummary(diffArtifact),
     approvalArtifact: artifactSummary(approvalArtifact),
     verificationArtifacts,
+    retrievalContext: {
+      latestRuns,
+      feedbackSummary: {
+        positiveCount: feedbackSummary.positiveCount,
+        negativeCount: feedbackSummary.negativeCount,
+        pinnedPathCount: feedbackSummary.pinnedPathCount,
+        hiddenPathCount: feedbackSummary.hiddenPathCount,
+        lastFeedbackAt: feedbackSummary.lastFeedbackAt ? normalizeDate(feedbackSummary.lastFeedbackAt) : null,
+        feedbackTypeCounts: feedbackSummary.feedbackTypeCounts,
+      },
+    },
     mergeCandidate,
   };
 }

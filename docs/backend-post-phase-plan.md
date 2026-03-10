@@ -259,6 +259,72 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
    - operator pin / merge outcome feedback을 실제 reviewer brief personalization까지 연결
    - follow-up issue에서 graph / personalization 신호가 실제 retrieval hit에 반영되는지 검증
 
+## 다음 우선순위 큐
+
+현재 backend 커널은 닫혔다. 다음 우선순위는 품질 안정화와 제품 표면 연결이다.
+
+### 1. Operator Feedback UI Surface
+
+- 현재 pin / hide / merge feedback은 backend와 E2E 경로로만 넣고 있다.
+- 이를 Knowledge / Change 표면에서 직접 조작할 수 있게 올린다.
+- 목표:
+  - operator correction latency 축소
+  - retrieval 교정 루프를 제품 기본 기능으로 승격
+
+### 2. Candidate / Final-Hit Cache
+
+- 현재 실사용 캐시는 query embedding 중심이다.
+- candidate merge cache와 final-hit cache를 추가해 동일 역할/유사 컨텍스트 반복 검색 비용을 줄인다.
+- 목표:
+  - retrieval hot path latency 안정화
+  - personalization / graph 확장 비용 흡수
+
+### 3. Deeper Chunk-Link Multi-Hop
+
+- 현재 graph expansion은 의미가 생겼지만 chunk-link 중심 multi-hop은 아직 얕다.
+- symbol edge와 chunk link를 2-hop 이상 결합해 `지식 그래프 느낌`을 강화한다.
+- 목표:
+  - cross-issue / cross-project 연결 근거 확장
+  - graphHitCount의 실질적 상승
+
+### 4. Retrieval Ranking Stabilization
+
+- latest readiness 관찰 기준으로 engineer brief와 reviewer brief가 여전히 historical issue snapshot에 과하게 끌리는 경우가 있다.
+- sourceType balancing, role-aware source ordering, code evidence promotion 규칙을 추가로 정교화한다.
+- 목표:
+  - `issue snapshot` 과잉 의존 감소
+  - `code / test / review` evidence 우선순위 안정화
+
+### 5. Retrieval God-File Refactor
+
+- [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/retrieval-god-file-refactor-debt.md) 기준으로 `issue-retrieval.ts`를 분리한다.
+- 목표:
+  - 유지보수성 회복
+  - multi-hop / cache / ranking 개선을 독립적으로 실험 가능하게 만들기
+
+### 6. Rerank Provider Abstraction
+
+- 현재 model rerank는 OpenAI 단일 provider 중심이다.
+- provider abstraction을 추가해 Jina / Cohere 등 대체 provider를 붙일 수 있게 한다.
+- 목표:
+  - rerank 품질/비용 선택권 확보
+  - provider 장애 시 graceful fallback 강화
+
+### 7. RAG Quality Trend Surface
+
+- quality metric은 backend에 있지만, sourceType / role / project별 추세를 운영자가 읽기 쉽게 정리할 표면이 부족하다.
+- 목표:
+  - retrieval 품질의 장기 변화 감시
+  - organizational memory coverage 가시화
+
+### 8. Cross-Issue Memory Reuse
+
+- 현재는 issue / protocol / review가 ingest되고 personalization에 쓰인다.
+- 다음 단계는 새 issue가 과거 issue의 decision / fix / review 패턴을 직접 재사용하도록 만드는 것이다.
+- 목표:
+  - 비슷한 이슈의 해결 패턴 재사용
+  - 조직 기억의 실질적 생산성 효과 확보
+
 다음 우선순위:
 
 1. operator feedback UI surface

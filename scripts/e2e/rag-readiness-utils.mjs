@@ -67,6 +67,8 @@ export function summarizeBriefQuality(brief) {
     graphHitCount: typeof quality.graphHitCount === "number" ? quality.graphHitCount : 0,
     graphMaxDepth: typeof quality.graphMaxDepth === "number" ? quality.graphMaxDepth : 0,
     multiHopGraphHitCount: typeof quality.multiHopGraphHitCount === "number" ? quality.multiHopGraphHitCount : 0,
+    candidateCacheHit: quality.candidateCacheHit === true,
+    finalCacheHit: quality.finalCacheHit === true,
     personalizationApplied: quality.personalizationApplied === true,
     personalizedHitCount: typeof quality.personalizedHitCount === "number" ? quality.personalizedHitCount : 0,
     averagePersonalizationBoost:

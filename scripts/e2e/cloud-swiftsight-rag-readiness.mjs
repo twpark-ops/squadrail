@@ -197,6 +197,10 @@ async function fetchBriefs(issueId) {
   return api(`/api/issues/${issueId}/protocol/briefs`);
 }
 
+async function fetchKnowledgeQuality(companyId) {
+  return api(`/api/knowledge/quality?companyId=${companyId}&days=14&limit=2000`);
+}
+
 async function recordOperatorPin(issueId, retrievalRunId, pinnedPaths) {
   return api(`/api/issues/${issueId}/retrieval-feedback`, {
     method: "POST",
@@ -290,6 +294,23 @@ async function main() {
     "Follow-up reviewer brief did not surface pinned implementation paths",
   );
 
+  section("Replay Issue");
+  const replayRun = await runScenarioOnce({
+    scenarioKey: RAG_SCENARIO_KEY,
+    preCleanup: false,
+  });
+  note(`replay issue=${replayRun.identifier} (${replayRun.issueId})`);
+  const replayInspect = await inspectScenarioIssue(replayRun.issueId, scenarioConfig.reviewScope);
+  note(`replay review quality=${JSON.stringify(replayInspect.reviewQuality)}`);
+
+  assert(
+    replayInspect.reviewQuality.candidateCacheHit || replayInspect.reviewQuality.finalCacheHit,
+    "Replay reviewer brief did not hit retrieval caches",
+  );
+
+  const quality = await fetchKnowledgeQuality(company.id);
+  assert(quality.candidateCacheHitRate > 0 || quality.finalCacheHitRate > 0, "Knowledge quality did not record cache hit rates");
+
   section("Summary");
   note(JSON.stringify({
     ok: true,
@@ -305,6 +326,17 @@ async function main() {
       issueId: followUpRun.issueId,
       identifier: followUpRun.identifier,
       reviewQuality: followInspect.reviewQuality,
+    },
+    replay: {
+      issueId: replayRun.issueId,
+      identifier: replayRun.identifier,
+      reviewQuality: replayInspect.reviewQuality,
+    },
+    quality: {
+      candidateCacheHitRate: quality.candidateCacheHitRate,
+      finalCacheHitRate: quality.finalCacheHitRate,
+      averageGraphHitCount: quality.averageGraphHitCount,
+      multiHopGraphExpandedRuns: quality.multiHopGraphExpandedRuns,
     },
   }, null, 2));
 }

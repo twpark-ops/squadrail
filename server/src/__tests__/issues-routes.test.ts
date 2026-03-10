@@ -40,6 +40,7 @@ const {
   mockRetrievalPersonalizationRecordProtocolFeedback,
   mockRetrievalPersonalizationRecordManualFeedback,
   mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback,
+  mockRetrievalPersonalizationSummarizeIssueFeedback,
   mockMergeCandidateGetByIssueId,
   mockMergeCandidateUpsertDecision,
   mockMergeCandidatePatchAutomationMetadata,
@@ -48,6 +49,7 @@ const {
   mockRunMergeAutomationAction,
   mockRunWithoutDbContext,
   mockLogActivity,
+  mockKnowledgeListTaskBriefs,
 } = vi.hoisted(() => ({
   mockEnqueueAfterDbCommit: vi.fn(),
   mockEnsureMembership: vi.fn(),
@@ -88,6 +90,7 @@ const {
   mockRetrievalPersonalizationRecordProtocolFeedback: vi.fn(),
   mockRetrievalPersonalizationRecordManualFeedback: vi.fn(),
   mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback: vi.fn(),
+  mockRetrievalPersonalizationSummarizeIssueFeedback: vi.fn(),
   mockMergeCandidateGetByIssueId: vi.fn(),
   mockMergeCandidateUpsertDecision: vi.fn(),
   mockMergeCandidatePatchAutomationMetadata: vi.fn(),
@@ -96,6 +99,7 @@ const {
   mockRunMergeAutomationAction: vi.fn(),
   mockRunWithoutDbContext: vi.fn(),
   mockLogActivity: vi.fn(),
+  mockKnowledgeListTaskBriefs: vi.fn(),
 }));
 
 vi.mock("@squadrail/db", async (importOriginal) => {
@@ -155,6 +159,7 @@ vi.mock("../services/index.js", () => ({
     recordProtocolFeedback: mockRetrievalPersonalizationRecordProtocolFeedback,
     recordManualFeedback: mockRetrievalPersonalizationRecordManualFeedback,
     recordMergeCandidateOutcomeFeedback: mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback,
+    summarizeIssueFeedback: mockRetrievalPersonalizationSummarizeIssueFeedback,
     loadProfile: vi.fn(),
     backfillProtocolFeedback: vi.fn(),
   }),
@@ -200,6 +205,7 @@ vi.mock("../services/index.js", () => ({
   }),
   knowledgeService: () => ({
     upsertDocument: vi.fn(),
+    listTaskBriefs: mockKnowledgeListTaskBriefs,
   }),
   projectService: () => ({
     list: vi.fn(),
@@ -470,6 +476,15 @@ describe("issue routes wakeup handling", () => {
       profiledRunCount: 2,
       retrievalRunIds: ["retrieval-run-1", "retrieval-run-2"],
     });
+    mockRetrievalPersonalizationSummarizeIssueFeedback.mockResolvedValue({
+      positiveCount: 0,
+      negativeCount: 0,
+      pinnedPathCount: 0,
+      hiddenPathCount: 0,
+      lastFeedbackAt: null,
+      feedbackTypeCounts: {},
+    });
+    mockKnowledgeListTaskBriefs.mockResolvedValue([]);
     mockProjectGetById.mockResolvedValue(null);
     mockMergeCandidateGetByIssueId.mockResolvedValue(null);
     mockMergeCandidateUpsertDecision.mockResolvedValue(null);

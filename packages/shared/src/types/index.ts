@@ -27,6 +27,8 @@ export type {
   IssueAttachment,
   IssueLabel,
   IssueChangeSurfaceArtifact,
+  IssueChangeSurfaceRetrievalRun,
+  IssueChangeSurfaceFeedbackSummary,
   IssueMergeCandidate,
   IssueChangeSurface,
 } from "./issue.js";

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams, Link, useNavigate, useLocation } from "@/lib/router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { issuesApi } from "../api/issues";
 import { activityApi } from "../api/activity";
 import { heartbeatsApi } from "../api/heartbeats";
 import { agentsApi } from "../api/agents";
 import { authApi } from "../api/auth";
+import { knowledgeApi } from "../api/knowledge";
 import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
 import { useToast } from "../context/ToastContext";
@@ -56,11 +57,14 @@ import {
   TriangleAlert,
   Workflow,
   Lightbulb,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import type {
   ActivityEvent,
   Agent,
   DashboardBriefSnapshot,
+  IssueChangeSurface,
   IssueAttachment,
   IssueProtocolMessage,
   IssueProtocolState,
@@ -219,6 +223,33 @@ function readProtocolString(payload: Record<string, unknown>, key: string) {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function deriveFeedbackTarget(hit: {
+  path: string | null;
+  symbolName: string | null;
+  sourceType: string;
+  chunkId: string;
+}) {
+  if (hit.path) {
+    return {
+      targetType: "path" as const,
+      targetIds: [hit.path],
+      label: hit.path,
+    };
+  }
+  if (hit.symbolName) {
+    return {
+      targetType: "symbol" as const,
+      targetIds: [hit.symbolName],
+      label: hit.symbolName,
+    };
+  }
+  return {
+    targetType: "source_type" as const,
+    targetIds: [hit.sourceType],
+    label: hit.sourceType,
+  };
 }
 
 type ProtocolReviewHandoffSnapshot = {
@@ -612,6 +643,13 @@ export function IssueDetail() {
     refetchInterval: 5000,
   });
 
+  const { data: changeSurface } = useQuery({
+    queryKey: queryKeys.issues.changeSurface(issueId!),
+    queryFn: () => issuesApi.getChangeSurface(issueId!),
+    enabled: !!issueId,
+    refetchInterval: issueSection === "Changes" ? 5000 : false,
+  });
+
   const { data: activity } = useQuery({
     queryKey: queryKeys.issues.activity(issueId!),
     queryFn: () => activityApi.forIssue(issueId!),
@@ -699,6 +737,15 @@ export function IssueDetail() {
     queryKey: queryKeys.projects.list(selectedCompanyId!),
     queryFn: () => projectsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
+  });
+
+  const retrievalRunHitsQueries = useQueries({
+    queries: (changeSurface?.retrievalContext.latestRuns ?? []).slice(0, 3).map((run) => ({
+      queryKey: ["knowledge", "retrieval-run-hits", run.retrievalRunId],
+      queryFn: () => knowledgeApi.getRetrievalRunHits(run.retrievalRunId),
+      enabled: issueSection === "Changes",
+      staleTime: 15_000,
+    })),
   });
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
   const { orderedProjects } = useProjectOrder({
@@ -870,6 +917,19 @@ export function IssueDetail() {
       verificationArtifacts,
     };
   }, [latestReviewSubmission]);
+  const retrievalRunDetails = useMemo(
+    () =>
+      retrievalRunHitsQueries
+        .map((query) => query.data)
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+    [retrievalRunHitsQueries],
+  );
+  const retrievalRunById = useMemo(
+    () => new Map(retrievalRunDetails.map((entry) => [entry.retrievalRun.id, entry])),
+    [retrievalRunDetails],
+  );
+  const latestRetrievalRuns = changeSurface?.retrievalContext.latestRuns ?? [];
+  const retrievalFeedbackSummary = changeSurface?.retrievalContext.feedbackSummary ?? null;
 
   const issueCostSummary = useMemo(() => {
     let input = 0;
@@ -914,6 +974,7 @@ export function IssueDetail() {
 
   const invalidateIssue = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issueId!) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.changeSurface(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolState(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolMessages(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolBriefs(issueId!) });
@@ -929,6 +990,7 @@ export function IssueDetail() {
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboardProtocolQueue(selectedCompanyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedCompanyId) });
+      queryClient.invalidateQueries({ queryKey: ["knowledge", "quality", selectedCompanyId] });
     }
   };
 
@@ -1039,6 +1101,34 @@ export function IssueDetail() {
       pushToast({
         title: "Protocol action failed",
         body: err instanceof Error ? err.message : "Failed to post protocol action",
+        tone: "error",
+      });
+    },
+  });
+
+  const recordRetrievalFeedback = useMutation({
+    mutationFn: (input: {
+      retrievalRunId: string;
+      feedbackType: "operator_pin" | "operator_hide";
+      targetType: "chunk" | "path" | "symbol" | "source_type";
+      targetIds: string[];
+      noteBody?: string | null;
+    }) => issuesApi.recordRetrievalFeedback(issueId!, input),
+    onSuccess: (_, variables) => {
+      invalidateIssue();
+      for (const run of latestRetrievalRuns) {
+        queryClient.invalidateQueries({ queryKey: ["knowledge", "retrieval-run-hits", run.retrievalRunId] });
+      }
+      pushToast({
+        title: variables.feedbackType === "operator_pin" ? "Retrieval hit pinned" : "Retrieval hit hidden",
+        body: variables.targetIds[0] ?? variables.retrievalRunId,
+        tone: "success",
+      });
+    },
+    onError: (err) => {
+      pushToast({
+        title: "Retrieval feedback failed",
+        body: err instanceof Error ? err.message : "Failed to record retrieval feedback",
         tone: "error",
       });
     },
@@ -1228,6 +1318,170 @@ export function IssueDetail() {
                   <p>Rollback: {latestCloseSnapshot.rollbackPlan}</p>
                 )}
                 {!latestCloseSnapshot && <p>No close handoff has been recorded yet.</p>}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                    Retrieval Feedback
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Pin or hide evidence directly from the change surface to steer follow-up briefs.
+                  </div>
+                </div>
+                {retrievalFeedbackSummary && (
+                  <div className="text-right text-xs text-muted-foreground">
+                    <div>{retrievalFeedbackSummary.positiveCount} positive</div>
+                    <div>{retrievalFeedbackSummary.negativeCount} negative</div>
+                  </div>
+                )}
+              </div>
+              {latestRetrievalRuns.length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">No retrieval-backed brief has been attached yet.</p>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  {latestRetrievalRuns.map((run) => {
+                    const runDetail = retrievalRunById.get(run.retrievalRunId);
+                    const hits = (runDetail?.hits ?? []).slice(0, 5);
+                    return (
+                      <div key={run.retrievalRunId} className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium text-foreground">
+                              {formatProtocolValue(run.briefScope)}
+                            </span>
+                            <span className="font-mono">{run.retrievalRunId.slice(0, 8)}</span>
+                            {run.candidateCacheHit && (
+                              <span className="rounded-full border border-emerald-300/70 bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                                candidate cache
+                              </span>
+                            )}
+                            {run.finalCacheHit && (
+                              <span className="rounded-full border border-blue-300/70 bg-blue-50 px-2.5 py-1 text-blue-700">
+                                final cache
+                              </span>
+                            )}
+                            {run.multiHopGraphHitCount > 0 && (
+                              <span className="rounded-full border border-violet-300/70 bg-violet-50 px-2.5 py-1 text-violet-700">
+                                {run.multiHopGraphHitCount} multi-hop
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {run.graphHitCount} graph hits
+                            {run.personalized ? " · personalized" : ""}
+                          </div>
+                        </div>
+                        {hits.length === 0 ? (
+                          <p className="mt-3 text-sm text-muted-foreground">Retrieval hits are loading or unavailable.</p>
+                        ) : (
+                          <div className="mt-3 space-y-2">
+                            {hits.map((hit) => {
+                              const target = deriveFeedbackTarget({
+                                path: hit.documentPath,
+                                symbolName: hit.symbolName,
+                                sourceType: hit.sourceType,
+                                chunkId: hit.chunkId,
+                              });
+                              return (
+                                <div
+                                  key={`${run.retrievalRunId}:${hit.chunkId}`}
+                                  className="rounded-[0.95rem] border border-border/80 bg-background px-3 py-3"
+                                >
+                                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                    <div className="space-y-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-foreground">
+                                          {hit.sourceType}
+                                        </span>
+                                        {hit.documentPath && (
+                                          <span className="font-mono text-xs text-foreground/80">{hit.documentPath}</span>
+                                        )}
+                                      </div>
+                                      <div className="text-sm font-medium text-foreground">
+                                        {hit.documentTitle ?? hit.symbolName ?? hit.chunkId.slice(0, 8)}
+                                      </div>
+                                      <div className="line-clamp-2 text-sm text-muted-foreground">{hit.rationale ?? hit.textContent}</div>
+                                    </div>
+                                    <div className="flex shrink-0 gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={recordRetrievalFeedback.isPending}
+                                        onClick={() => recordRetrievalFeedback.mutate({
+                                          retrievalRunId: run.retrievalRunId,
+                                          feedbackType: "operator_pin",
+                                          targetType: target.targetType,
+                                          targetIds: target.targetIds,
+                                          noteBody: `Pinned from change surface: ${target.label}`,
+                                        })}
+                                      >
+                                        <Pin className="mr-2 h-3.5 w-3.5" />
+                                        Pin
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={recordRetrievalFeedback.isPending}
+                                        onClick={() => recordRetrievalFeedback.mutate({
+                                          retrievalRunId: run.retrievalRunId,
+                                          feedbackType: "operator_hide",
+                                          targetType: target.targetType,
+                                          targetIds: target.targetIds,
+                                          noteBody: `Hidden from change surface: ${target.label}`,
+                                        })}
+                                      >
+                                        <PinOff className="mr-2 h-3.5 w-3.5" />
+                                        Hide
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Retrieval Summary
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                  <div className="text-xs text-muted-foreground">Pinned paths</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">
+                    {retrievalFeedbackSummary?.pinnedPathCount ?? 0}
+                  </div>
+                </div>
+                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                  <div className="text-xs text-muted-foreground">Hidden paths</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">
+                    {retrievalFeedbackSummary?.hiddenPathCount ?? 0}
+                  </div>
+                </div>
+                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                  <div className="text-xs text-muted-foreground">Latest retrieval runs</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">{latestRetrievalRuns.length}</div>
+                </div>
+                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                  <div className="text-xs text-muted-foreground">Last feedback</div>
+                  <div className="mt-1 text-sm font-medium text-foreground">
+                    {retrievalFeedbackSummary?.lastFeedbackAt
+                      ? relativeTime(retrievalFeedbackSummary.lastFeedbackAt)
+                      : "No feedback yet"}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

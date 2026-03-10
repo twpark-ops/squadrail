@@ -67,6 +67,16 @@ export interface RetrievalHit {
   finalRank: number | null;
   selected: boolean;
   rationale: string | null;
+  textContent: string;
+  headingPath: string | null;
+  symbolName: string | null;
+  chunkMetadata: Record<string, unknown>;
+  documentId: string;
+  documentPath: string | null;
+  documentTitle: string | null;
+  sourceType: string;
+  authorityLevel: string;
+  documentMetadata: Record<string, unknown>;
 }
 
 export interface WorkspaceKnowledgeImportResult {
@@ -122,6 +132,38 @@ export interface KnowledgeOverview {
   linkEntityDistribution: Array<{ key: string; count: number }>;
 }
 
+export interface KnowledgeQualitySummary {
+  totalRuns: number;
+  lowConfidenceRuns: number;
+  averageEvidenceCount: number;
+  averageSourceDiversity: number;
+  averageGraphHitCount: number;
+  averageTemporalHitCount: number;
+  averagePersonalizedHitCount: number;
+  averagePersonalizationBoost: number;
+  cacheHitRate: number;
+  candidateCacheHitRate: number;
+  finalCacheHitRate: number;
+  feedbackEventCount: number;
+  positiveFeedbackCount: number;
+  negativeFeedbackCount: number;
+  feedbackCoverageRate: number;
+  graphExpandedRuns: number;
+  multiHopGraphExpandedRuns: number;
+  graphEntityTypeCounts: Record<string, number>;
+  feedbackTypeCounts: Record<string, number>;
+  dailyTrend?: Array<{
+    date: string;
+    totalRuns: number;
+    lowConfidenceRuns: number;
+    graphExpandedRuns: number;
+    multiHopGraphExpandedRuns: number;
+    candidateCacheHits: number;
+    finalCacheHits: number;
+    personalizedRuns: number;
+  }>;
+}
+
 export const knowledgeApi = {
   listDocuments: (params: {
     companyId: string;
@@ -137,6 +179,12 @@ export const knowledgeApi = {
   },
   getOverview: (companyId: string) =>
     api.get<KnowledgeOverview>(`/knowledge/overview?companyId=${encodeURIComponent(companyId)}`),
+  getQuality: (companyId: string, params?: { days?: number; limit?: number }) => {
+    const queryParams = new URLSearchParams({ companyId });
+    if (params?.days) queryParams.append("days", params.days.toString());
+    if (params?.limit) queryParams.append("limit", params.limit.toString());
+    return api.get<KnowledgeQualitySummary>(`/knowledge/quality?${queryParams.toString()}`);
+  },
   getDocument: (documentId: string) =>
     api.get<KnowledgeDocument>(`/knowledge/documents/${documentId}`),
   getDocumentChunks: (documentId: string, options?: { includeLinks?: boolean }) => {

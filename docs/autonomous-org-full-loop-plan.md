@@ -245,6 +245,26 @@
 8. P2-B Cross-Issue Memory
 9. P2-C External Agent Feedback Integration
 
+## 7.1 현재 기준 후속 우선순위
+
+상류 intake, QA 게이트, organizational memory backend 커널이 닫힌 뒤의 다음 우선순위는 아래 8개다.
+
+1. Operator Feedback UI Surface
+2. Candidate / Final-Hit Cache
+3. Deeper Chunk-Link Multi-Hop
+4. Retrieval Ranking Stabilization
+5. Retrieval God-File Refactor
+6. Rerank Provider Abstraction
+7. RAG Quality Trend Surface
+8. Cross-Issue Memory Reuse
+
+이 순서는 다음 원칙을 따른다.
+
+- 먼저 operator가 retrieval을 교정할 수 있어야 한다.
+- 그 다음 latency와 graph 연결성을 보강한다.
+- 이후 구조 부채와 provider lock-in을 줄인다.
+- 마지막에 조직 기억 재사용을 본격화한다.
+
 ## 8. 결정 포인트
 
 ### 결정 1. QA를 별도 게이트로 올릴지

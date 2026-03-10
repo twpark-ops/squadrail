@@ -3,8 +3,10 @@ import type {
   CreateIssueProtocolMessage,
   Issue,
   IssueAttachment,
+  IssueChangeSurface,
   IssueComment,
   IssueLabel,
+  IssueMergeCandidate,
   IssueProtocolMessage,
   IssueProtocolState,
   IssueProtocolViolation,
@@ -54,6 +56,23 @@ export const issuesApi = {
   listProtocolReviewCycles: (id: string) => api.get<IssueReviewCycle[]>(`/issues/${id}/protocol/review-cycles`),
   listProtocolViolations: (id: string, status?: string) =>
     api.get<IssueProtocolViolation[]>(`/issues/${id}/protocol/violations${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  getChangeSurface: (id: string) => api.get<IssueChangeSurface>(`/issues/${id}/change-surface`),
+  recordRetrievalFeedback: (
+    id: string,
+    data: {
+      retrievalRunId: string;
+      feedbackType: "operator_pin" | "operator_hide";
+      targetType: "chunk" | "path" | "symbol" | "source_type";
+      targetIds: string[];
+      noteBody?: string | null;
+    },
+  ) => api.post<{
+    ok: boolean;
+    feedbackEventCount: number;
+    profiledRunCount: number;
+    retrievalRunIds: string[];
+  }>(`/issues/${id}/retrieval-feedback`, data),
+  getMergeCandidate: (id: string) => api.get<IssueMergeCandidate>(`/issues/${id}/merge-candidate`),
   create: (companyId: string, data: Record<string, unknown>) =>
     api.post<Issue>(`/companies/${companyId}/issues`, data),
   update: (id: string, data: Record<string, unknown>) => api.patch<Issue>(`/issues/${id}`, data),
