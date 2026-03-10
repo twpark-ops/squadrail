@@ -39,3 +39,5 @@ tmp/
 .squadrail-local/
 .serena/
 bootstrap-bundles/
+ui-review-screenshots/
+test-results/

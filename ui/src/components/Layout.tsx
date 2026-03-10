@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type UIEvent } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type UIEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate, useParams } from "@/lib/router";
 import { CompanyRail } from "./CompanyRail";
@@ -6,10 +6,6 @@ import { Sidebar } from "./Sidebar";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { CommandPalette } from "./CommandPalette";
-import { NewIssueDialog } from "./NewIssueDialog";
-import { NewProjectDialog } from "./NewProjectDialog";
-import { NewGoalDialog } from "./NewGoalDialog";
-import { NewAgentDialog } from "./NewAgentDialog";
 import { ToastViewport } from "./ToastViewport";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { useDialog } from "../context/DialogContext";
@@ -25,6 +21,11 @@ import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { appRoutes } from "../lib/appRoutes";
 
+const NewIssueDialog = lazy(async () => import("./NewIssueDialog").then((module) => ({ default: module.NewIssueDialog })));
+const NewProjectDialog = lazy(async () => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
+const NewGoalDialog = lazy(async () => import("./NewGoalDialog").then((module) => ({ default: module.NewGoalDialog })));
+const NewAgentDialog = lazy(async () => import("./NewAgentDialog").then((module) => ({ default: module.NewAgentDialog })));
+
 export function Layout() {
   const {
     sidebarOpen,
@@ -36,7 +37,14 @@ export function Layout() {
     minSidebarWidth,
     maxSidebarWidth,
   } = useSidebar();
-  const { openNewIssue, openOnboarding } = useDialog();
+  const {
+    openNewIssue,
+    openOnboarding,
+    newIssueOpen,
+    newProjectOpen,
+    newGoalOpen,
+    newAgentOpen,
+  } = useDialog();
   const { togglePanelVisible } = usePanel();
   const { companies, loading: companiesLoading, selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { companyPrefix } = useParams<{ companyPrefix: string }>();
@@ -142,7 +150,7 @@ export function Layout() {
       const shellRect = desktopSidebarShellRef.current?.getBoundingClientRect();
       const railRect = companyRailRef.current?.getBoundingClientRect();
       if (!shellRect) return;
-      const railWidth = railRect?.width ?? 88;
+      const railWidth = railRect?.width ?? 82;
       const nextWidth = event.clientX - shellRect.left - railWidth;
       setSidebarWidth(nextWidth);
     };
@@ -259,7 +267,7 @@ export function Layout() {
       {isMobile && sidebarOpen && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-black/50"
+          className="fixed inset-0 z-40 bg-slate-950/18 backdrop-blur-sm"
           onClick={() => setSidebarOpen(false)}
           aria-label="Close sidebar"
         />
@@ -269,7 +277,7 @@ export function Layout() {
       {isMobile ? (
         <div
           className={cn(
-            "fixed inset-y-0 left-0 z-50 flex overflow-hidden pt-[env(safe-area-inset-top)] transition-transform duration-100 ease-out",
+            "fixed inset-y-0 left-0 z-50 flex overflow-hidden pt-[env(safe-area-inset-top)] shadow-[0_30px_70px_rgba(15,23,42,0.16)] transition-transform duration-100 ease-out",
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           )}
         >
@@ -311,44 +319,48 @@ export function Layout() {
             id="main-content"
             tabIndex={-1}
             className={cn(
-              "flex-1 overflow-auto px-4 pb-6 pt-5 md:px-6 md:pb-8 md:pt-6",
+              "relative flex-1 overflow-auto px-4 pb-8 pt-6 md:px-6 md:pb-10 md:pt-6 lg:px-8",
               isMobile && "pb-[calc(5.75rem+env(safe-area-inset-bottom))]",
             )}
             onScroll={handleMainScroll}
           >
-            {showSetupGate && selectedCompany && setupProgress && (
-              <div className="mb-6 rounded-[1.5rem] border border-amber-300/22 bg-[color-mix(in_oklab,var(--card)_96%,#f4e4b9)] px-5 py-4 shadow-[0_10px_22px_rgba(180,129,18,0.05)] dark:border-amber-300/14 dark:bg-[linear-gradient(180deg,rgba(52,42,24,0.72),rgba(37,30,20,0.72))]">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-amber-950 dark:text-amber-100">
-                      Setup is still in progress for {selectedCompany.name}
+            <div className="mx-auto w-full max-w-[1600px]">
+              {showSetupGate && selectedCompany && setupProgress && (
+                <div className="mb-6 rounded-[1.6rem] border border-amber-300/32 bg-[color-mix(in_oklab,var(--card)_95%,#f5e7c6)] px-5 py-4 shadow-[0_14px_30px_rgba(180,129,18,0.06)]">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-amber-950">
+                        Setup is still in progress for {selectedCompany.name}
+                      </div>
+                      <div className="mt-1 text-sm text-amber-900/90">
+                        Current status: {setupProgress.status}. Finish engine, workspace, knowledge, and first-issue readiness in the setup console.
+                      </div>
                     </div>
-                    <div className="mt-1 text-sm text-amber-900/90 dark:text-amber-100/82">
-                      Current status: {setupProgress.status}. Finish engine, workspace, knowledge, and first-issue readiness in the setup console.
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => navigate(`/${selectedCompany.issuePrefix}${appRoutes.settings}`)}
+                      >
+                        Resume Setup
+                      </Button>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => navigate(`/${selectedCompany.issuePrefix}${appRoutes.settings}`)}
-                    >
-                      Resume Setup
-                    </Button>
                   </div>
                 </div>
-              </div>
-            )}
-            <Outlet />
+              )}
+              <Outlet />
+            </div>
           </main>
           <PropertiesPanel />
         </div>
       </div>
       {isMobile && <MobileBottomNav visible={mobileNavVisible} />}
       <CommandPalette />
-      <NewIssueDialog />
-      <NewProjectDialog />
-      <NewGoalDialog />
-      <NewAgentDialog />
+      <Suspense fallback={null}>
+        {newIssueOpen ? <NewIssueDialog /> : null}
+        {newProjectOpen ? <NewProjectDialog /> : null}
+        {newGoalOpen ? <NewGoalDialog /> : null}
+        {newAgentOpen ? <NewAgentDialog /> : null}
+      </Suspense>
       <ToastViewport />
     </div>
   );

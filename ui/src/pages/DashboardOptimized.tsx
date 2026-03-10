@@ -17,7 +17,6 @@ import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { HeroSection } from "../components/HeroSection";
-import { RecoveryDrilldownPanel } from "../components/RecoveryDrilldownPanel";
 import {
   AlertTriangle,
   Bot,
@@ -26,6 +25,7 @@ import {
   GitPullRequestArrow,
   LayoutDashboard,
   MessageSquareMore,
+  MoveRight,
   ShieldAlert,
 } from "lucide-react";
 import type { Agent } from "@squadrail/shared";
@@ -130,16 +130,42 @@ export function DashboardOptimized() {
   const company = companies.find((c) => c.id === selectedCompanyId);
   const activeIssues = issues?.filter((i) => i.status !== "done" && i.status !== "cancelled").length ?? 0;
   const buckets = protocolQueue?.buckets;
+  const recoveryItems = recoveryQueue?.items ?? [];
+  const recoveryPreview = recoveryItems.slice(0, 3);
+  const runningRuns = data?.executionReliability.runningRuns ?? 0;
+  const queuedRuns = data?.executionReliability.queuedRuns ?? 0;
+  const reviewReady = data?.protocol.reviewQueueCount ?? 0;
+  const blockedCount = data?.protocol.blockedQueueCount ?? 0;
+  const humanDecisionCount = data?.protocol.awaitingHumanDecisionCount ?? 0;
 
   return (
-    <div className="space-y-10">
-      {/* Hero - Larger, bolder */}
+    <div className="space-y-8">
       <HeroSection
-        title={company?.name ?? "Operations"}
+        eyebrow="Mission control"
+        title="Overview"
         subtitle={
-          <span className="text-muted-foreground">
-            {agents?.length ?? 0} agents operating delivery loops · {activeIssues} active issues
+          <span>
+            {company?.name ?? "Operations"} is running {agents?.length ?? 0} agents across {activeIssues} active issues.
+            Use this surface for attention routing, not deep execution or recovery work.
           </span>
+        }
+        actions={
+          <>
+            <Link
+              to={appRoutes.work}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
+            >
+              Open work queue
+              <MoveRight className="h-4 w-4" />
+            </Link>
+            <Link
+              to={appRoutes.runs}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent hover:text-foreground"
+            >
+              Open runtime board
+              <MoveRight className="h-4 w-4" />
+            </Link>
+          </>
         }
       />
 
@@ -164,107 +190,132 @@ export function DashboardOptimized() {
 
       {data && (
         <>
-          {/* Key Metrics - 4 cards, generous spacing */}
-          <section className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-2xl font-bold tracking-tight">System Status</h2>
-              <p className="text-sm text-muted-foreground">
-                Queue pressure, human blockers, and execution health in one glance.
-              </p>
+          <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-2xl font-bold tracking-tight">System Status</h2>
+                <p className="text-sm text-muted-foreground">
+                  Queue pressure, review readiness, and execution risks in one pass.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <MetricCardV2
+                  icon={CircleDot}
+                  value={data.protocol.executionQueueCount}
+                  label="Execution Queue"
+                  to={appRoutes.work}
+                  description={<span>{data.tasks.inProgress} issues actively moving through implementation.</span>}
+                />
+                <MetricCardV2
+                  icon={GitPullRequestArrow}
+                  value={reviewReady}
+                  label="Review Backlog"
+                  to={appRoutes.changes}
+                  description={<span>{data.protocol.readyToCloseCount} are already near close readiness.</span>}
+                />
+                <MetricCardV2
+                  icon={AlertTriangle}
+                  value={blockedCount + humanDecisionCount}
+                  label="Blocked / Human"
+                  to={appRoutes.work}
+                  description={<span>{blockedCount} blocked, {humanDecisionCount} waiting on a board or operator decision.</span>}
+                />
+                <MetricCardV2
+                  icon={Clock3}
+                  value={runningRuns + queuedRuns}
+                  label="Heartbeat Runs"
+                  to={appRoutes.runs}
+                  description={<span>{runningRuns} running, {queuedRuns} queued across the selected company.</span>}
+                />
+              </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-              <MetricCardV2
-                icon={CircleDot}
-                value={data.protocol.executionQueueCount}
-                label="Execution Queue"
-                to={appRoutes.work}
-                description={<span>{data.tasks.inProgress} in progress</span>}
-              />
-              <MetricCardV2
-                icon={GitPullRequestArrow}
-                value={data.protocol.reviewQueueCount}
-                label="Review Backlog"
-                to={appRoutes.work}
-                description={<span>{data.protocol.readyToCloseCount} ready to close</span>}
-              />
-              <MetricCardV2
-                icon={MessageSquareMore}
-                value={data.protocol.handoffBlockerCount}
-                label="Handoff Blockers"
-                to={appRoutes.work}
-                description={
-                  <span>
-                    {data.protocol.awaitingHumanDecisionCount} human, {data.protocol.readyToCloseCount} ready to close
-                  </span>
-                }
-              />
-              <MetricCardV2
-                icon={AlertTriangle}
-                value={data.protocol.blockedQueueCount + data.protocol.awaitingHumanDecisionCount}
-                label="Blocked / Human"
-                to={appRoutes.work}
-                description={
-                  <span>
-                    {data.protocol.blockedQueueCount} blocked, {data.protocol.awaitingHumanDecisionCount} waiting
-                  </span>
-                }
-              />
-              <MetricCardV2
-                icon={ShieldAlert}
-                value={data.protocol.openViolationCount}
-                label="Protocol Violations"
-                to={appRoutes.runs}
-                description={<span>{data.protocol.protocolMessagesLast24h} messages in 24h</span>}
-              />
-              <MetricCardV2
-                icon={Clock3}
-                value={data.executionReliability.runningRuns + data.executionReliability.queuedRuns}
-                label="Heartbeat Runs"
-                to={appRoutes.runs}
-                description={
-                  <span>
-                    {data.executionReliability.runningRuns} running, {data.executionReliability.queuedRuns} queued
-                  </span>
-                }
-              />
-              <MetricCardV2
-                icon={MessageSquareMore}
-                value={
-                  data.executionReliability.dispatchTimeoutsLast24h
-                  + data.executionReliability.processLostLast24h
-                  + data.executionReliability.workspaceBlockedLast24h
-                }
-                label="Execution Risks (24h)"
-                to={appRoutes.runs}
-                description={
-                  <span>
-                    watchdog {data.executionReliability.dispatchRedispatchesLast24h}, blocked {data.executionReliability.workspaceBlockedLast24h}
-                  </span>
-                }
-              />
-            </div>
+
+            <section className="rounded-[1.75rem] border border-border bg-card px-5 py-5 shadow-card">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Recovery Attention</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Keep recovery visible here, but move actual operator handling into `Runs`.
+                  </p>
+                </div>
+                <Link
+                  to={appRoutes.runs}
+                  className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
+                >
+                  Open Runs
+                </Link>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
+                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Open recovery items</div>
+                  <div className="mt-2 text-3xl font-semibold text-foreground">{recoveryItems.length}</div>
+                  <div className="mt-2 text-sm text-muted-foreground">Runtime, timeout, integrity, or violation work waiting for operator attention.</div>
+                </div>
+                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
+                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Protocol risk</div>
+                  <div className="mt-2 text-3xl font-semibold text-foreground">{data.protocol.openViolationCount}</div>
+                  <div className="mt-2 text-sm text-muted-foreground">{data.protocol.protocolMessagesLast24h} protocol messages recorded in the last 24 hours.</div>
+                </div>
+                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
+                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Execution risk</div>
+                  <div className="mt-2 text-3xl font-semibold text-foreground">
+                    {data.executionReliability.dispatchTimeoutsLast24h + data.executionReliability.workspaceBlockedLast24h}
+                  </div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    Timeout and workspace-block signals that should not stay buried in a queue list.
+                  </div>
+                </div>
+              </div>
+
+              {recoveryPreview.length > 0 && (
+                <div className="mt-5 space-y-3">
+                  {recoveryPreview.map((item) => (
+                    <Link
+                      key={`${item.issueId}-${item.code ?? "runtime"}`}
+                      to={appRoutes.runs}
+                      className="block rounded-[1.2rem] border border-border bg-background/74 px-4 py-4 no-underline transition-colors hover:border-primary/18 hover:bg-accent/28"
+                    >
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full border border-border px-2 py-0.5">
+                          {item.recoveryType}
+                        </span>
+                        <span>{item.severity}</span>
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-foreground">{item.title}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{item.nextAction}</div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </section>
           </section>
 
-          {/* Live Agent Activity - Promoted to top */}
           <section className="space-y-4">
             <div className="space-y-1">
               <h2 className="text-2xl font-bold tracking-tight">Live Agents</h2>
               <p className="text-sm text-muted-foreground">
-                Agents currently executing work, streaming events, or waiting on the next protocol step.
+                See who is active now, what issue they are touching, and the latest meaningful signal.
               </p>
             </div>
             <ActiveAgentsPanel companyId={selectedCompanyId!} />
           </section>
 
-          {/* Protocol Queues - 2 columns for better readability */}
           <section className="space-y-4">
             <div className="space-y-1">
               <h2 className="text-2xl font-bold tracking-tight">Protocol Queues</h2>
               <p className="text-sm text-muted-foreground">
-                Delivery queues grouped by execution phase so blocked work and human decisions surface early.
+                Four high-signal lanes for delivery flow. Deep recovery work stays in `Runs`.
               </p>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <MetricCardV2
+                icon={MessageSquareMore}
+                value={data.protocol.handoffBlockerCount}
+                label="Handoff Blockers"
+                to={appRoutes.changes}
+                description={<span>{humanDecisionCount} need explicit human judgment, close handoff, or approval routing.</span>}
+              />
               <QueueCardV2
                 title="Execution Queue"
                 subtitle="Active engineering work"
@@ -293,77 +344,80 @@ export function DashboardOptimized() {
                 to={appRoutes.work}
               />
               <QueueCardV2
-                title="Handoff Blockers"
-                subtitle="Review, board, and close handoffs"
-                items={buckets?.handoffBlockerQueue ?? []}
-                emptyMessage="No handoff blockers"
-                icon={MessageSquareMore}
-                variant="approval"
-                to={appRoutes.work}
-              />
-              <QueueCardV2
-                title="Violation Queue"
-                subtitle="Protocol breakdowns"
-                items={buckets?.violationQueue ?? []}
-                emptyMessage="No violations"
+                title="Ready To Close"
+                subtitle="Approved work near the finish line"
+                items={buckets?.readyToCloseQueue ?? []}
+                emptyMessage="Nothing is waiting for close or merge handoff."
                 icon={ShieldAlert}
-                variant="blocked"
-                to={appRoutes.work}
-              />
-              <QueueCardV2
-                title="Human Decisions"
-                subtitle="Awaiting board direction"
-                items={buckets?.humanDecisionQueue ?? []}
-                emptyMessage="No decisions pending"
-                icon={MessageSquareMore}
-                variant="approval"
-                to={appRoutes.work}
-              />
-              <QueueCardV2
-                title="Stale Queue"
-                subtitle="Long-running work"
-                items={buckets?.staleQueue ?? []}
-                emptyMessage="No stale work"
-                icon={Clock3}
-                variant="idle"
-                to={appRoutes.work}
+                variant="closure"
+                to={appRoutes.changes}
               />
             </div>
           </section>
 
-          {/* Recovery Section */}
-          {recoveryQueue && (
-            <RecoveryDrilldownPanel
-              companyId={selectedCompanyId!}
-              items={recoveryQueue.items}
-            />
-          )}
-
-          {/* Recent Activity - Compact */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold tracking-tight">Recent Activity</h2>
-              <Link to={appRoutes.runs} className="text-sm font-medium text-primary hover:underline">
-                View all
-              </Link>
+          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[1.75rem] border border-border bg-card shadow-card">
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Attention Notes</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Signals that explain why operators should move into `Work`, `Changes`, or `Runs`.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-3 p-5">
+                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
+                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Review pressure</div>
+                  <div className="mt-2 text-sm text-foreground">
+                    {reviewReady > 0
+                      ? `${reviewReady} items are already in review and ${data.protocol.readyToCloseCount} are close to merge or close handoff.`
+                      : "No heavy review pressure right now."}
+                  </div>
+                </div>
+                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
+                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Human attention</div>
+                  <div className="mt-2 text-sm text-foreground">
+                    {humanDecisionCount > 0
+                      ? `${humanDecisionCount} items are waiting on explicit board or operator decisions.`
+                      : "No explicit board decisions are waiting right now."}
+                  </div>
+                </div>
+                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
+                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Stale work</div>
+                  <div className="mt-2 text-sm text-foreground">
+                    {data.protocol.staleQueueCount > 0
+                      ? `${data.protocol.staleQueueCount} issues are staying in flow too long and need a fresh owner or recovery step.`
+                      : "No stale flow signal is currently elevated."}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="overflow-hidden rounded-xl border border-border divide-y divide-border bg-card">
-              {recentActivity.length === 0 ? (
-                <EmptyState
-                  icon={MessageSquareMore}
-                  message="Activity will appear here once the squad starts moving through assignments, reviews, and recoveries."
-                />
-              ) : (
-                recentActivity.map((event) => (
-                  <ActivityRow
-                    key={event.id}
-                    event={event}
-                    agentMap={agentMap}
-                    entityNameMap={entityNameMap}
-                    entityTitleMap={entityTitleMap}
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold tracking-tight">Recent Activity</h2>
+                <Link to={appRoutes.runs} className="text-sm font-medium text-primary hover:underline">
+                  View all
+                </Link>
+              </div>
+              <div className="overflow-hidden rounded-[1.75rem] border border-border divide-y divide-border bg-card">
+                {recentActivity.length === 0 ? (
+                  <EmptyState
+                    icon={MessageSquareMore}
+                    message="Activity will appear here once the squad starts moving through assignments, reviews, and recoveries."
                   />
-                ))
-              )}
+                ) : (
+                  recentActivity.map((event) => (
+                    <ActivityRow
+                      key={event.id}
+                      event={event}
+                      agentMap={agentMap}
+                      entityNameMap={entityNameMap}
+                      entityTitleMap={entityTitleMap}
+                    />
+                  ))
+                )}
+              </div>
             </div>
           </section>
         </>

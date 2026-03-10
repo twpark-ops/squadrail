@@ -12,6 +12,7 @@ import { ProjectDistribution } from "@/components/knowledge/ProjectDistribution"
 import { DocumentList } from "@/components/knowledge/DocumentList";
 import { DocumentDetailModal } from "@/components/knowledge/DocumentDetailModal";
 import { KnowledgeSignalPanel } from "@/components/knowledge/KnowledgeSignalPanel";
+import { KnowledgeMapPanel } from "@/components/knowledge/KnowledgeMapPanel";
 import { timeAgo } from "@/lib/timeAgo";
 
 export function Knowledge() {
@@ -91,16 +92,16 @@ export function Knowledge() {
   return (
     <PageTransition>
       <div className="space-y-8">
-        <section className="rounded-[2rem] border border-border bg-[linear-gradient(145deg,color-mix(in_oklab,var(--card)_88%,white),color-mix(in_oklab,var(--primary)_7%,white))] p-6 shadow-card md:p-7">
+        <section className="rounded-[2rem] border border-border bg-[linear-gradient(145deg,color-mix(in_oklab,var(--card)_88%,var(--background)),color-mix(in_oklab,var(--primary)_8%,var(--card)))] p-6 shadow-card dark:bg-[linear-gradient(145deg,color-mix(in_oklab,var(--card)_94%,var(--background)),color-mix(in_oklab,var(--card)_88%,var(--primary)))] md:p-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
-              <div className="inline-flex rounded-full border border-primary/10 bg-primary/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/84">
-                RAG Evidence Browser
+              <div className="inline-flex rounded-full border border-primary/10 bg-primary/8 px-3 py-1 text-[11px] font-medium tracking-[0.1em] text-primary/84">
+                Evidence explorer
               </div>
               <div>
                 <h1 className="text-4xl font-semibold tracking-tight text-foreground">Knowledge Base</h1>
                 <p className="mt-2 max-w-3xl text-base text-muted-foreground md:text-lg">
-                  Company-wide retrieval coverage, graph connectivity, and project-scoped knowledge slices for agent briefs.
+                  Explore company-wide retrieval coverage, graph connectivity, and project-scoped evidence slices. This pass prioritizes graph-read exploration without new backend contracts.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -121,12 +122,12 @@ export function Knowledge() {
                 size="sm"
                 onClick={handleRefresh}
                 disabled={isLoading}
-                className="rounded-full border-border bg-background"
+                className="rounded-full border-border bg-background dark:bg-background/92"
               >
                 <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
-              <Button variant="outline" size="sm" disabled className="rounded-full border-border bg-background">
+              <Button variant="outline" size="sm" disabled className="rounded-full border-border bg-background dark:bg-background/92">
                 <Download className="mr-2 h-4 w-4" />
                 Export
               </Button>
@@ -153,45 +154,97 @@ export function Knowledge() {
         )}
 
         {!isLoading && overviewQuery.data && (
-          <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-              <KnowledgeStats
-                totalDocuments={stats.totalDocuments}
-                totalChunks={stats.totalChunks}
-                totalLinks={stats.totalLinks}
-                connectedDocuments={stats.connectedDocuments}
-                activeProjects={stats.activeProjects}
-                lastSync={stats.lastSync}
-              />
-            </div>
-            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-              <KnowledgeSignalPanel
-                sourceTypeDistribution={overviewQuery.data.sourceTypeDistribution}
-                authorityDistribution={overviewQuery.data.authorityDistribution}
-                linkEntityDistribution={overviewQuery.data.linkEntityDistribution}
-              />
+          <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+            <KnowledgeMapPanel
+              coverage={overviewQuery.data.projectCoverage}
+              documents={documentsQuery.data ?? []}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={setSelectedProjectId}
+              onSelectDocument={setSelectedDocument}
+            />
+            <div className="space-y-6">
+              <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                <KnowledgeSignalPanel
+                  sourceTypeDistribution={overviewQuery.data.sourceTypeDistribution}
+                  authorityDistribution={overviewQuery.data.authorityDistribution}
+                  linkEntityDistribution={overviewQuery.data.linkEntityDistribution}
+                />
+              </div>
+              <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-foreground">Retrieval posture</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Current retrieval scale and import freshness. These stats support the explorer instead of dominating it.
+                  </p>
+                </div>
+                <KnowledgeStats
+                  totalDocuments={stats.totalDocuments}
+                  totalChunks={stats.totalChunks}
+                  totalLinks={stats.totalLinks}
+                  connectedDocuments={stats.connectedDocuments}
+                  activeProjects={stats.activeProjects}
+                  lastSync={stats.lastSync}
+                />
+              </div>
             </div>
           </section>
         )}
 
         {!isLoading && overviewQuery.data && (
-          <section className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-            <div className="mb-4 flex items-start gap-3">
-              <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
-                <FolderTree className="h-5 w-5" />
+          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+              <div className="mb-4 flex items-start gap-3">
+                <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
+                  <FolderTree className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-semibold">Coverage by Project</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Use project coverage to pivot the map and document browser into a more focused slice.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-2xl font-semibold">Coverage by Project</h2>
-                <p className="text-sm text-muted-foreground">
-                  Exact project-level knowledge coverage. This is the real company-wide picture, not just the recent document slice.
-                </p>
+              <ProjectDistribution
+                coverage={overviewQuery.data.projectCoverage}
+                selectedProjectId={selectedProjectId}
+                onSelectProject={setSelectedProjectId}
+              />
+            </div>
+            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+              <div className="mb-4 flex items-start gap-3">
+                <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
+                  <Network className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-semibold">Explorer Notes</h2>
+                  <p className="text-sm text-muted-foreground">
+                    This UI-only pass gives knowledge a graph-read identity. Ask mode stays parked until the retrieval query API is exposed.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-3">
+                <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
+                  <div className="text-sm font-semibold text-foreground">What you can do now</div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Pivot by project, inspect source clusters, browse visible documents, and drill into chunk-level graph links from the detail modal.
+                  </div>
+                </div>
+                <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
+                  <div className="text-sm font-semibold text-foreground">What is intentionally parked</div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Natural-language ask mode and true company-scale graph traversal are backend-dependent and remain out of scope for this worktree.
+                  </div>
+                </div>
+                <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
+                  <div className="text-sm font-semibold text-foreground">Current selected slice</div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {selectedProjectId
+                      ? `${projectNameMap[selectedProjectId] ?? "Selected project"} is active in the explorer.`
+                      : "The explorer is showing a company-wide slice of the latest indexed material."}
+                  </div>
+                </div>
               </div>
             </div>
-            <ProjectDistribution
-              coverage={overviewQuery.data.projectCoverage}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={setSelectedProjectId}
-            />
           </section>
         )}
 

@@ -9,7 +9,7 @@ import type { TranscriptEntry } from "../adapters";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
 import { workIssuePath } from "../lib/appRoutes";
-import { ExternalLink } from "lucide-react";
+import { ArrowUpRight, ExternalLink } from "lucide-react";
 import { Identity } from "./Identity";
 
 type FeedTone = "info" | "warn" | "error" | "assistant" | "tool";
@@ -196,6 +196,8 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
 
   const runById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
   const activeRunIds = useMemo(() => new Set(runs.filter(isRunActive).map((r) => r.id)), [runs]);
+  const runningCount = runs.filter((run) => run.status === "running").length;
+  const queuedCount = runs.filter((run) => run.status === "queued").length;
 
   // Clean up pending buffers for runs that ended
   useEffect(() => {
@@ -321,16 +323,34 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
   }, [activeRunIds, companyId, runById]);
 
   return (
-    <div>
-      <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-        Agents
-      </h3>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-border/80 bg-background/72 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-foreground">
+            {runs.length === 0 ? "No live execution right now" : `${runs.length} active or recent agent sessions`}
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            Focus on the latest meaningful handoff instead of raw transcript walls.
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span className="rounded-full border border-border bg-card px-3 py-1.5">
+            {runningCount} running
+          </span>
+          <span className="rounded-full border border-border bg-card px-3 py-1.5">
+            {queuedCount} queued
+          </span>
+          <span className="rounded-full border border-border bg-card px-3 py-1.5">
+            {Math.max(runs.length - runningCount - queuedCount, 0)} cooling down
+          </span>
+        </div>
+      </div>
       {runs.length === 0 ? (
         <div className="rounded-[1.3rem] border border-dashed border-border/80 bg-card/70 p-8">
           <p className="text-sm text-muted-foreground">No recent agent runs.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {runs.map((run) => (
             <AgentRunCard
               key={run.id}
@@ -357,96 +377,103 @@ function AgentRunCard({
   feed: FeedItem[];
   isActive: boolean;
 }) {
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const recent = feed.slice(-20);
-
-  useEffect(() => {
-    const body = bodyRef.current;
-    if (!body) return;
-    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
-  }, [feed.length]);
+  const recent = feed.slice(-3);
+  const latest = recent[recent.length - 1] ?? null;
+  const toneClassName =
+    latest?.tone === "error"
+      ? "text-red-600 dark:text-red-300"
+      : latest?.tone === "warn"
+        ? "text-amber-600 dark:text-amber-300"
+        : latest?.tone === "assistant"
+          ? "text-emerald-700 dark:text-emerald-200"
+          : latest?.tone === "tool"
+            ? "text-cyan-700 dark:text-cyan-200"
+            : "text-foreground";
+  const fallbackText = isActive
+    ? "Execution is live, waiting for the next meaningful event."
+    : run.finishedAt
+      ? `Finished ${relativeTime(run.finishedAt)}`
+      : `Started ${relativeTime(run.createdAt)}`;
 
   return (
-    <div className={cn(
-      "flex min-h-[240px] flex-col overflow-hidden rounded-[1.35rem] border",
-      isActive
-        ? "border-blue-500/24 bg-card/92 shadow-[0_16px_34px_rgba(59,130,246,0.08)]"
-        : "border-border/85 bg-card/78",
-    )}>
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <div className="flex items-center gap-2 min-w-0">
-          {isActive ? (
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+    <div
+      className={cn(
+        "overflow-hidden rounded-[1.45rem] border bg-card/88 shadow-card",
+        isActive ? "border-primary/18" : "border-border/85",
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span
+                className={cn(
+                  "absolute inline-flex h-full w-full rounded-full",
+                  isActive ? "animate-ping bg-primary/55" : "bg-muted-foreground/25",
+                )}
+              />
+              <span
+                className={cn(
+                  "relative inline-flex h-2.5 w-2.5 rounded-full",
+                  isActive ? "bg-primary" : "bg-muted-foreground/45",
+                )}
+              />
             </span>
-          ) : (
-            <span className="flex h-2 w-2 shrink-0">
-              <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/40" />
+            <Identity name={run.agentName} size="sm" />
+            <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {run.status}
             </span>
-          )}
-          <Identity name={run.agentName} size="sm" />
-          {isActive && (
-            <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">Live</span>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{run.triggerDetail ?? run.invocationSource}</span>
+            <span className="text-border">•</span>
+            <span>{relativeTime(run.startedAt ?? run.createdAt)}</span>
+          </div>
+
+          {run.issueId && (
+            <Link
+              to={workIssuePath(issue?.identifier ?? run.issueId)}
+              className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground no-underline hover:border-primary/20 hover:text-primary"
+              title={issue?.title ? `${issue.identifier ?? run.issueId.slice(0, 8)} - ${issue.title}` : issue?.identifier ?? run.issueId.slice(0, 8)}
+            >
+              <span className="truncate">
+                {issue?.identifier ?? run.issueId.slice(0, 8)}
+                {issue?.title ? ` · ${issue.title}` : ""}
+              </span>
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+            </Link>
           )}
         </div>
+
         <Link
           to={`/agents/${run.agentId}/runs/${run.id}`}
-          className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground shrink-0"
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground no-underline hover:border-primary/20 hover:text-foreground"
         >
-          <ExternalLink className="h-2.5 w-2.5" />
+          Run detail
+          <ExternalLink className="h-3.5 w-3.5" />
         </Link>
       </div>
 
-      {/* Issue context */}
-      {run.issueId && (
-        <div className="flex min-w-0 items-center gap-1 border-b border-border/50 px-4 py-2 text-xs">
-          <Link
-            to={workIssuePath(issue?.identifier ?? run.issueId)}
-            className={cn(
-              "hover:underline min-w-0 truncate",
-              isActive ? "text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground hover:text-foreground",
-            )}
-            title={issue?.title ? `${issue?.identifier ?? run.issueId.slice(0, 8)} - ${issue.title}` : issue?.identifier ?? run.issueId.slice(0, 8)}
-          >
-            {issue?.identifier ?? run.issueId.slice(0, 8)}
-            {issue?.title ? ` - ${issue.title}` : ""}
-          </Link>
+      <div className="border-t border-border/70 bg-background/66 px-4 py-4">
+        <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
+          Latest signal
         </div>
-      )}
-
-      {/* Feed body */}
-      <div ref={bodyRef} className="flex-1 space-y-2 overflow-y-auto p-4 font-mono text-[11px]">
-        {isActive && recent.length === 0 && (
-          <div className="text-xs text-muted-foreground">Waiting for output...</div>
-        )}
-        {!isActive && recent.length === 0 && (
-          <div className="text-xs text-muted-foreground">
-            {run.finishedAt ? `Finished ${relativeTime(run.finishedAt)}` : `Started ${relativeTime(run.createdAt)}`}
+        <div className={cn("mt-2 text-sm leading-6", toneClassName)}>
+          {latest?.text ?? fallbackText}
+        </div>
+        {recent.length > 1 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {recent.slice(0, -1).map((item) => (
+              <span
+                key={item.id}
+                className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] text-muted-foreground"
+              >
+                {relativeTime(item.ts)} · {item.text.slice(0, 48)}
+              </span>
+            ))}
           </div>
         )}
-        {recent.map((item, index) => (
-          <div
-            key={item.id}
-            className={cn(
-              "flex items-start gap-3",
-              index === recent.length - 1 && isActive && "animate-in fade-in slide-in-from-bottom-1 duration-300",
-            )}
-          >
-            <span className="shrink-0 text-[10px] text-muted-foreground">{relativeTime(item.ts)}</span>
-            <span className={cn(
-              "min-w-0 break-words leading-5",
-              item.tone === "error" && "text-red-600 dark:text-red-300",
-              item.tone === "warn" && "text-amber-600 dark:text-amber-300",
-              item.tone === "assistant" && "text-emerald-700 dark:text-emerald-200",
-              item.tone === "tool" && "text-cyan-600 dark:text-cyan-300",
-              item.tone === "info" && "text-foreground/86",
-            )}>
-              {item.text}
-            </span>
-          </div>
-        ))}
       </div>
     </div>
   );

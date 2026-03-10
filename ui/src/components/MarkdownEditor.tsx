@@ -27,6 +27,7 @@ import {
   thematicBreakPlugin,
   type RealmPlugin,
 } from "@mdxeditor/editor";
+import "@mdxeditor/editor/style.css";
 import { buildProjectMentionHref, parseProjectMentionHref } from "@squadrail/shared";
 import { cn } from "../lib/utils";
 

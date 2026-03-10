@@ -9,19 +9,19 @@ export function ProductWordmark({ compact = false, className }: ProductWordmarkP
   if (compact) {
     return (
       <div className={cn("flex max-w-full items-center justify-center overflow-hidden", className)}>
-        <ProductGlyph className="h-9 w-9" />
+        <ProductGlyph className="h-8 w-8 rounded-[0.95rem]" />
       </div>
     );
   }
 
   return (
-    <div className={cn("flex items-center gap-3.5", className)}>
-      <ProductGlyph className="h-11 w-11 shrink-0" />
+    <div className={cn("flex items-center gap-2.5", className)}>
+      <ProductGlyph className="h-9.5 w-9.5 shrink-0 rounded-[1rem]" />
       <div className="min-w-0">
-        <div className="truncate text-[10px] font-semibold uppercase tracking-[0.34em] text-primary/82">
-          Autonomous Delivery
+        <div className="truncate text-[10px] font-medium tracking-[0.12em] text-muted-foreground">
+          Operations studio
         </div>
-        <div className="truncate font-['Space_Grotesk'] text-[1.15rem] font-semibold tracking-[-0.05em] text-foreground">
+        <div className="truncate font-['Space_Grotesk'] text-[1.02rem] font-semibold tracking-[-0.05em] text-foreground">
           Squadrail
         </div>
       </div>

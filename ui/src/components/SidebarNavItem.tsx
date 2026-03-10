@@ -35,10 +35,10 @@ export function SidebarNavItem({
       onClick={() => { if (isMobile) setSidebarOpen(false); }}
       className={({ isActive }) =>
         cn(
-          "group relative flex items-center gap-3 rounded-[1.15rem] border px-3.5 py-3 text-[13px] font-medium transition-[border-color,background-color,color,transform,box-shadow]",
+          "group relative flex items-center gap-3 rounded-[1.2rem] border px-3 py-2.5 text-[13px] font-medium transition-[border-color,background-color,color,transform,box-shadow]",
           isActive
-            ? "border-primary/16 bg-[linear-gradient(135deg,color-mix(in_oklab,var(--primary)_92%,white),color-mix(in_oklab,var(--primary)_76%,black))] text-primary-foreground shadow-[0_16px_28px_color-mix(in_oklab,var(--primary)_18%,transparent)]"
-            : "border-transparent text-foreground/72 hover:border-border hover:bg-sidebar-accent hover:text-foreground",
+            ? "border-primary/14 bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] text-foreground shadow-[0_16px_28px_color-mix(in_oklab,var(--primary)_10%,transparent)]"
+            : "border-transparent text-foreground/72 hover:border-border/80 hover:bg-card/70 hover:text-foreground dark:hover:bg-card/90",
           className,
         )
       }
@@ -47,24 +47,34 @@ export function SidebarNavItem({
         <>
           <span
             className={cn(
-              "absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full transition-colors",
-              isActive ? "bg-white/88" : "bg-transparent group-hover:bg-primary/35",
+              "absolute inset-y-2 left-0.5 w-1 rounded-full transition-colors",
+              isActive ? "bg-primary/80" : "bg-transparent group-hover:bg-primary/35",
             )}
           />
-          <span className="relative shrink-0">
+          <span
+            className={cn(
+              "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.95rem] border transition-colors",
+              isActive
+                ? "border-primary/10 bg-background text-primary shadow-[0_8px_18px_rgba(15,23,42,0.05)] dark:bg-background/92"
+                : "border-transparent bg-transparent text-muted-foreground group-hover:border-border/80 group-hover:bg-card group-hover:text-foreground",
+            )}
+          >
             <Icon className="h-4 w-4" />
             {alert && (
-              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-background" />
+              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-card" />
             )}
           </span>
           <span className="flex-1 truncate">{label}</span>
           {liveCount != null && liveCount > 0 && (
-            <span className="ml-auto flex items-center gap-1.5">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-              </span>
-              <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">{liveCount} live</span>
+            <span
+              className={cn(
+                "ml-auto rounded-full border px-2 py-1 text-[10px] font-semibold",
+                isActive
+                  ? "border-primary/12 bg-background/82 text-primary dark:bg-background/92"
+                  : "border-border bg-background text-muted-foreground",
+              )}
+            >
+              {liveCount} live
             </span>
           )}
           {badge != null && badge > 0 && (
@@ -74,7 +84,7 @@ export function SidebarNavItem({
                 badgeTone === "danger"
                   ? "bg-red-600/90 text-red-50"
                   : isActive
-                    ? "bg-white/18 text-white"
+                    ? "bg-primary/14 text-primary"
                     : "bg-primary text-primary-foreground",
               )}
             >

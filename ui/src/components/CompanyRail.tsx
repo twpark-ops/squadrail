@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { Company } from "@squadrail/shared";
 import { CompanyPatternIcon } from "./CompanyPatternIcon";
+import { ProductWordmark } from "./ProductWordmark";
 import { readJsonStorageAlias, writeJsonStorageAlias } from "../lib/storage-aliases";
 
 const ORDER_STORAGE_KEY = "squadrail.companyOrder";
@@ -122,8 +123,8 @@ function SortableCompanyItem({
               className={cn(
                 "relative overflow-visible rounded-[1.35rem] border p-1.5 transition-[transform,border-color,background-color,box-shadow] duration-200",
                 isSelected
-                  ? "border-primary/35 bg-white/7 shadow-[0_18px_30px_rgba(23,40,74,0.35)]"
-                  : "border-transparent bg-transparent group-hover:border-white/10 group-hover:bg-white/6",
+                  ? "border-primary/16 bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] shadow-[0_18px_30px_rgba(54,78,155,0.14)] dark:shadow-[0_18px_28px_rgba(6,11,22,0.34)]"
+                  : "border-border/0 bg-transparent group-hover:border-border/80 group-hover:bg-card/72 dark:group-hover:bg-card/88",
                 isDragging && "scale-105 shadow-lg",
               )}
             >
@@ -131,24 +132,24 @@ function SortableCompanyItem({
                 companyName={company.name}
                 brandColor={company.brandColor}
                 label={company.issuePrefix}
-                className={cn(isDragging && "shadow-lg")}
+                className={cn("h-10 w-10 rounded-[1rem] text-[10px]", isDragging && "shadow-lg")}
               />
               {hasLiveAgents && (
                 <span className="pointer-events-none absolute -right-0.5 -top-0.5 z-10">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-80" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-background" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-card" />
                   </span>
                 </span>
               )}
               {hasUnreadInbox && (
-                <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-background" />
+                <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-card" />
               )}
             </div>
             <span
               className={cn(
                 "max-w-full truncate px-1 text-[9px] font-semibold uppercase tracking-[0.18em]",
-                isSelected ? "text-white" : "text-slate-300 group-hover:text-white",
+                isSelected ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
               )}
             >
               {company.issuePrefix}
@@ -277,21 +278,17 @@ export function CompanyRail() {
   );
 
   return (
-    <div className="flex w-[88px] shrink-0 flex-col overflow-hidden border-r border-slate-900/80 bg-[linear-gradient(180deg,#0b1220,#10192b_48%,#0c1424_100%)] text-white">
-      <div className="flex w-full shrink-0 flex-col items-center gap-3 overflow-hidden border-b border-white/8 px-3 py-4">
-        <div className="flex h-11 w-11 items-center justify-center rounded-[1.25rem] border border-white/10 bg-white/6 shadow-[0_14px_28px_rgba(0,0,0,0.24)]">
-          <div className="relative h-6 w-6 overflow-hidden rounded-full bg-[linear-gradient(160deg,#1d4ed8,#60a5fa)]">
-            <span className="absolute left-1.5 top-1.5 h-1.5 w-3.5 rounded-full bg-white/92" />
-            <span className="absolute left-1.5 top-1.5 h-3.5 w-1.5 rounded-full bg-white/82" />
-            <span className="absolute right-1.5 bottom-1.5 h-1.5 w-3.5 rounded-full bg-cyan-200/92" />
-          </div>
+    <div className="flex w-[82px] shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-[linear-gradient(180deg,color-mix(in_oklab,var(--sidebar)_92%,var(--background)),color-mix(in_oklab,var(--sidebar)_96%,var(--accent))_56%,color-mix(in_oklab,var(--background)_98%,var(--sidebar)))] text-foreground dark:bg-[linear-gradient(180deg,color-mix(in_oklab,var(--sidebar)_94%,var(--background)),color-mix(in_oklab,var(--sidebar)_88%,var(--accent))_56%,color-mix(in_oklab,var(--background)_96%,black))]">
+      <div className="flex w-full shrink-0 flex-col items-center gap-2.5 overflow-hidden border-b border-sidebar-border px-2.5 py-3.5">
+        <div className="grid h-10 w-10 place-items-center rounded-[1.15rem] border border-border/80 bg-card/84 shadow-[0_14px_28px_rgba(15,23,42,0.07)] dark:bg-card/90 dark:shadow-[0_16px_24px_rgba(4,8,18,0.32)]">
+          <ProductWordmark compact />
         </div>
-        <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-300">
-          Orgs
+        <div className="rounded-full border border-border/80 bg-card/80 px-2 py-1 text-[9px] font-medium tracking-[0.12em] text-muted-foreground dark:bg-card/92">
+          Co
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-4 scrollbar-none">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-3.5 scrollbar-none">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -301,7 +298,7 @@ export function CompanyRail() {
             items={orderedCompanies.map((c) => c.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-2.5">
               {orderedCompanies.map((company) => (
                 <SortableCompanyItem
                   key={company.id}
@@ -317,16 +314,16 @@ export function CompanyRail() {
         </DndContext>
       </div>
 
-      <div className="border-t border-white/8 px-3 py-4">
+      <div className="border-t border-sidebar-border px-2.5 py-3.5">
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <button
               onClick={() => openOnboarding()}
-              className="flex w-full flex-col items-center justify-center gap-1 rounded-[1.35rem] border border-dashed border-white/14 bg-white/5 px-2 py-3 text-slate-300 transition-[border-color,color,background-color,transform] duration-200 hover:-translate-y-0.5 hover:border-white/24 hover:bg-white/8 hover:text-white"
+              className="flex w-full flex-col items-center justify-center gap-1 rounded-[1.15rem] border border-dashed border-border bg-card/74 px-1.5 py-2.5 text-muted-foreground transition-[border-color,color,background-color,transform] duration-200 hover:-translate-y-0.5 hover:border-primary/24 hover:bg-card hover:text-foreground dark:bg-card/88 dark:hover:bg-card"
               aria-label="Add company"
             >
               <Plus className="h-4 w-4" />
-              <span className="text-[9px] font-semibold uppercase tracking-[0.22em]">Add</span>
+              <span className="text-[9px] font-semibold uppercase tracking-[0.18em]">Add</span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
