@@ -34,6 +34,7 @@ export { rolePackSets } from "./role_pack_sets.js";
 export { rolePackRevisions } from "./role_pack_revisions.js";
 export { rolePackFiles } from "./role_pack_files.js";
 export { knowledgeDocuments } from "./knowledge_documents.js";
+export { knowledgeDocumentVersions } from "./knowledge_document_versions.js";
 export { knowledgeChunks, KNOWLEDGE_EMBEDDING_DIMENSIONS } from "./knowledge_chunks.js";
 export { knowledgeChunkLinks } from "./knowledge_chunk_links.js";
 export { codeSymbols } from "./code_symbols.js";

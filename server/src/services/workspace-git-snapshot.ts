@@ -20,6 +20,15 @@ export type WorkspaceGitSnapshot = {
   capturedAt: string;
 };
 
+export type WorkspaceVersionContext = {
+  branchName: string | null;
+  defaultBranchName: string | null;
+  headSha: string | null;
+  parentCommitSha: string | null;
+  isDefaultBranch: boolean;
+  capturedAt: string;
+};
+
 let gitExecutorOverride: GitExecutor | null = null;
 
 async function runGit(args: string[], cwd: string) {
@@ -53,6 +62,13 @@ function parseChangedPathFromStatusLine(line: string) {
   if (!rawPath) return null;
   const renamed = rawPath.split(" -> ");
   return renamed[renamed.length - 1]?.trim() || null;
+}
+
+function parseDefaultBranchFromRemoteHead(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/refs\/remotes\/[^/]+\/(.+)$/u);
+  return match?.[1]?.trim() || null;
 }
 
 async function isGitWorkTree(cwd: string) {
@@ -101,6 +117,32 @@ export async function inspectWorkspaceGitSnapshot(input: {
     changedFiles,
     statusEntries,
     diffStat: readFirstLine(diffStatResult.stdout),
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+export async function inspectWorkspaceVersionContext(input: {
+  cwd: string | null;
+}): Promise<WorkspaceVersionContext | null> {
+  if (!input.cwd) return null;
+  if (!(await isGitWorkTree(input.cwd))) return null;
+
+  const [branchResult, headResult, parentResult, remoteHeadResult] = await Promise.all([
+    runGit(["branch", "--show-current"], input.cwd).catch(() => ({ stdout: "" })),
+    runGit(["rev-parse", "HEAD"], input.cwd).catch(() => ({ stdout: "" })),
+    runGit(["rev-parse", "HEAD^"], input.cwd).catch(() => ({ stdout: "" })),
+    runGit(["symbolic-ref", "refs/remotes/origin/HEAD"], input.cwd).catch(() => ({ stdout: "" })),
+  ]);
+
+  const branchName = readFirstLine(branchResult.stdout);
+  const defaultBranchName = parseDefaultBranchFromRemoteHead(remoteHeadResult.stdout) ?? branchName;
+
+  return {
+    branchName,
+    defaultBranchName,
+    headSha: readFirstLine(headResult.stdout),
+    parentCommitSha: readFirstLine(parentResult.stdout),
+    isDefaultBranch: Boolean(branchName && defaultBranchName && branchName === defaultBranchName),
     capturedAt: new Date().toISOString(),
   };
 }

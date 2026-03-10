@@ -7,6 +7,7 @@ import {
   knowledgeChunkLinks,
   knowledgeChunks,
   knowledgeDocuments,
+  knowledgeDocumentVersions,
   projects,
   retrievalPolicies,
   retrievalRunHits,
@@ -34,6 +35,22 @@ type ReplaceDocumentChunksCodeGraph = {
     metadata?: Record<string, unknown>;
   }>;
   stats?: Record<string, unknown>;
+};
+
+type KnowledgeDocumentVersionInput = {
+  companyId: string;
+  documentId: string;
+  projectId?: string | null;
+  path?: string | null;
+  repoRef?: string | null;
+  branchName?: string | null;
+  defaultBranchName?: string | null;
+  commitSha?: string | null;
+  parentCommitSha?: string | null;
+  isHead?: boolean;
+  isDefaultBranch?: boolean;
+  capturedAt?: string | Date | null;
+  metadata?: Record<string, unknown>;
 };
 
 function buildMinimalCodeGraphFromChunks(input: {
@@ -110,6 +127,104 @@ export function knowledgeService(db: Db) {
         WHERE id = ${chunk.id}
       `);
     }
+  }
+
+  async function recordDocumentVersion(input: KnowledgeDocumentVersionInput) {
+    const branchName = typeof input.branchName === "string" && input.branchName.trim().length > 0
+      ? input.branchName.trim()
+      : null;
+    const commitSha = typeof input.commitSha === "string" && input.commitSha.trim().length > 0
+      ? input.commitSha.trim()
+      : null;
+    if (!branchName && !commitSha) return null;
+
+    const document = await db
+      .select({
+        id: knowledgeDocuments.id,
+        companyId: knowledgeDocuments.companyId,
+        projectId: knowledgeDocuments.projectId,
+        path: knowledgeDocuments.path,
+        repoRef: knowledgeDocuments.repoRef,
+      })
+      .from(knowledgeDocuments)
+      .where(eq(knowledgeDocuments.id, input.documentId))
+      .then((rows) => rows[0] ?? null);
+    if (!document) return null;
+
+    const projectId = input.projectId ?? document.projectId ?? null;
+    const pathValue = input.path ?? document.path ?? null;
+    const repoRef = input.repoRef ?? document.repoRef ?? null;
+    const defaultBranchName = typeof input.defaultBranchName === "string" && input.defaultBranchName.trim().length > 0
+      ? input.defaultBranchName.trim()
+      : null;
+    const capturedAt = input.capturedAt
+      ? (input.capturedAt instanceof Date ? input.capturedAt : new Date(input.capturedAt))
+      : new Date();
+
+    if (branchName && pathValue) {
+      await db
+        .update(knowledgeDocumentVersions)
+        .set({
+          isHead: false,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(knowledgeDocumentVersions.companyId, input.companyId),
+            eqNullable(knowledgeDocumentVersions.projectId, projectId),
+            eqNullable(knowledgeDocumentVersions.path, pathValue),
+            eqNullable(knowledgeDocumentVersions.branchName, branchName),
+            ne(knowledgeDocumentVersions.documentId, input.documentId),
+          ),
+        );
+    }
+
+    const existing = await db
+      .select()
+      .from(knowledgeDocumentVersions)
+      .where(
+        and(
+          eq(knowledgeDocumentVersions.companyId, input.companyId),
+          eq(knowledgeDocumentVersions.documentId, input.documentId),
+          eqNullable(knowledgeDocumentVersions.branchName, branchName),
+          eqNullable(knowledgeDocumentVersions.commitSha, commitSha),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    const values = {
+      companyId: input.companyId,
+      documentId: input.documentId,
+      projectId,
+      path: pathValue,
+      repoRef,
+      branchName,
+      defaultBranchName,
+      commitSha,
+      parentCommitSha: typeof input.parentCommitSha === "string" && input.parentCommitSha.trim().length > 0
+        ? input.parentCommitSha.trim()
+        : null,
+      isHead: input.isHead ?? true,
+      isDefaultBranch: input.isDefaultBranch === true,
+      capturedAt,
+      metadata: input.metadata ?? {},
+      updatedAt: new Date(),
+    };
+
+    if (!existing) {
+      const [created] = await db
+        .insert(knowledgeDocumentVersions)
+        .values(values)
+        .returning();
+      return created ?? null;
+    }
+
+    const [updated] = await db
+      .update(knowledgeDocumentVersions)
+      .set(values)
+      .where(eq(knowledgeDocumentVersions.id, existing.id))
+      .returning();
+    return updated ?? null;
   }
 
   async function replaceDocumentCodeGraph(input: {
@@ -360,6 +475,7 @@ export function knowledgeService(db: Db) {
           connectedDocuments: number;
           totalSymbols: number;
           totalSymbolEdges: number;
+          totalDocumentVersions: number;
         }>(sql`
           select
             (select count(*)::int from knowledge_documents where company_id = ${input.companyId}) as "totalDocuments",
@@ -367,6 +483,7 @@ export function knowledgeService(db: Db) {
             (select count(*)::int from knowledge_chunk_links where company_id = ${input.companyId}) as "totalLinks",
             (select count(*)::int from code_symbols where company_id = ${input.companyId}) as "totalSymbols",
             (select count(*)::int from code_symbol_edges where company_id = ${input.companyId}) as "totalSymbolEdges",
+            (select count(*)::int from knowledge_document_versions where company_id = ${input.companyId}) as "totalDocumentVersions",
             (select count(distinct chunk_id)::int from knowledge_chunk_links where company_id = ${input.companyId}) as "linkedChunks",
             (
               select count(distinct kc.document_id)::int
@@ -450,6 +567,7 @@ export function knowledgeService(db: Db) {
         connectedDocuments: 0,
         totalSymbols: 0,
         totalSymbolEdges: 0,
+        totalDocumentVersions: 0,
       };
 
       return {
@@ -620,6 +738,37 @@ export function knowledgeService(db: Db) {
         .where(eq(knowledgeDocuments.id, documentId))
         .returning();
       return updated ?? null;
+    },
+
+    recordDocumentVersion,
+
+    listDocumentVersions: async (input: {
+      companyId: string;
+      documentIds?: string[];
+      projectId?: string | null;
+      path?: string | null;
+      branchName?: string | null;
+      limit?: number;
+    }) => {
+      const conditions = [eq(knowledgeDocumentVersions.companyId, input.companyId)];
+      if (input.documentIds && input.documentIds.length > 0) {
+        conditions.push(inArray(knowledgeDocumentVersions.documentId, input.documentIds));
+      }
+      if (input.projectId) {
+        conditions.push(eq(knowledgeDocumentVersions.projectId, input.projectId));
+      }
+      if (input.path) {
+        conditions.push(eq(knowledgeDocumentVersions.path, input.path));
+      }
+      if (input.branchName) {
+        conditions.push(eq(knowledgeDocumentVersions.branchName, input.branchName));
+      }
+      return db
+        .select()
+        .from(knowledgeDocumentVersions)
+        .where(and(...conditions))
+        .orderBy(desc(knowledgeDocumentVersions.capturedAt), desc(knowledgeDocumentVersions.updatedAt))
+        .limit(input.limit ?? 500);
     },
 
     deprecateSupersededDocuments: async (input: {
@@ -1075,9 +1224,13 @@ export function knowledgeService(db: Db) {
       let graphHitCountTotal = 0;
       let symbolGraphHitCountTotal = 0;
       let edgeTraversalCountTotal = 0;
+      let temporalHitCountTotal = 0;
+      let branchAlignedTopHitCountTotal = 0;
       let lowConfidenceRuns = 0;
       let exactPathMissCount = 0;
       let projectMismatchCount = 0;
+      let staleVersionPenaltyCount = 0;
+      let exactCommitMatchCount = 0;
       let graphExpandedRuns = 0;
       let symbolGraphExpandedRuns = 0;
       const graphEntityTypeCounts: Record<string, number> = {};
@@ -1092,6 +1245,16 @@ export function knowledgeService(db: Db) {
         const graphHitCount = typeof quality.graphHitCount === "number" ? quality.graphHitCount : 0;
         const symbolGraphHitCount = typeof quality.symbolGraphHitCount === "number" ? quality.symbolGraphHitCount : 0;
         const edgeTraversalCount = typeof quality.edgeTraversalCount === "number" ? quality.edgeTraversalCount : 0;
+        const temporalHitCount = typeof quality.temporalHitCount === "number" ? quality.temporalHitCount : 0;
+        const branchAlignedTopHitCount = typeof quality.branchAlignedTopHitCount === "number"
+          ? quality.branchAlignedTopHitCount
+          : 0;
+        const staleVersionPenaltyCountForRun = typeof quality.staleVersionPenaltyCount === "number"
+          ? quality.staleVersionPenaltyCount
+          : 0;
+        const exactCommitMatchCountForRun = typeof quality.exactCommitMatchCount === "number"
+          ? quality.exactCommitMatchCount
+          : 0;
         const graphEntityTypes = Array.isArray(quality.graphEntityTypes)
           ? quality.graphEntityTypes.filter((value): value is string => typeof value === "string")
           : [];
@@ -1119,6 +1282,10 @@ export function knowledgeService(db: Db) {
         graphHitCountTotal += graphHitCount;
         symbolGraphHitCountTotal += symbolGraphHitCount;
         edgeTraversalCountTotal += edgeTraversalCount;
+        temporalHitCountTotal += temporalHitCount;
+        branchAlignedTopHitCountTotal += branchAlignedTopHitCount;
+        staleVersionPenaltyCount += staleVersionPenaltyCountForRun;
+        exactCommitMatchCount += exactCommitMatchCountForRun;
         if (graphHitCount > 0) graphExpandedRuns += 1;
         if (symbolGraphHitCount > 0) symbolGraphExpandedRuns += 1;
         if (confidenceLevel) {
@@ -1206,6 +1373,10 @@ export function knowledgeService(db: Db) {
         averageGraphHitCount: totalRuns > 0 ? graphHitCountTotal / totalRuns : 0,
         averageSymbolGraphHitCount: totalRuns > 0 ? symbolGraphHitCountTotal / totalRuns : 0,
         averageEdgeTraversalCount: totalRuns > 0 ? edgeTraversalCountTotal / totalRuns : 0,
+        averageTemporalHitCount: totalRuns > 0 ? temporalHitCountTotal / totalRuns : 0,
+        averageBranchAlignedTopHitCount: totalRuns > 0 ? branchAlignedTopHitCountTotal / totalRuns : 0,
+        staleVersionPenaltyCount,
+        exactCommitMatchCount,
         graphExpandedRuns,
         symbolGraphExpandedRuns,
         confidenceCounts,

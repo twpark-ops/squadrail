@@ -1,0 +1,23 @@
+@startuml
+title B8 Slice 3 - Version-Aware Retrieval
+
+actor Agent
+participant "Issue Retrieval Service" as IRS
+database "Issue Protocol Artifacts" as IPA
+database "Issue Merge Candidates" as IMC
+database "Knowledge Document Versions" as KDV
+database "Knowledge Chunks/Documents" as KD
+
+Agent -> IRS : handleProtocolMessage(...)
+IRS -> IPA : resolve diff/workspace artifact context
+IRS -> IMC : fallback merge candidate context
+IRS -> KD : query hybrid candidates
+IRS -> KDV : load candidate version rows
+IRS -> IRS : temporal rerank\nexact_commit / same_branch / stale / foreign
+IRS --> Agent : brief + quality metrics
+
+note right of IRS
+Temporal scoring stays additive.
+Hybrid retrieval remains the base signal.
+end note
+@enduml

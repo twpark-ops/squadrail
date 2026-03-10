@@ -1,7 +1,17 @@
 import path from "node:path";
 import { and, desc, eq, inArray, not, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
-import { codeSymbolEdges, codeSymbols, knowledgeChunkLinks, knowledgeChunks, knowledgeDocuments } from "@squadrail/db";
+import {
+  codeSymbolEdges,
+  codeSymbols,
+  issueMergeCandidates,
+  issueProtocolArtifacts,
+  issueProtocolMessages,
+  knowledgeChunkLinks,
+  knowledgeChunks,
+  knowledgeDocumentVersions,
+  knowledgeDocuments,
+} from "@squadrail/db";
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
 import { knowledgeRerankingService } from "./knowledge-reranking.js";
@@ -55,6 +65,14 @@ interface RetrievalHitView {
     seedReasons: string[];
     graphScore: number;
     edgeTypes?: string[];
+  } | null;
+  temporalMetadata?: {
+    branchName: string | null;
+    defaultBranchName: string | null;
+    commitSha: string | null;
+    matchType: "exact_commit" | "same_branch_head" | "same_branch_stale" | "default_branch_head" | "foreign_branch" | "none";
+    score: number;
+    stale: boolean;
   } | null;
 }
 
@@ -129,6 +147,11 @@ interface RetrievalRerankWeights {
   expiredPenalty: number;
   futurePenalty: number;
   supersededPenalty: number;
+  temporalExactCommitBoost: number;
+  temporalSameBranchHeadBoost: number;
+  temporalDefaultBranchBoost: number;
+  temporalForeignBranchPenalty: number;
+  temporalStalePenalty: number;
 }
 
 interface RetrievalPolicyRerankConfig {
@@ -158,6 +181,11 @@ interface BriefQualitySummary {
   symbolGraphHitCount: number;
   edgeTraversalCount: number;
   edgeTypeCounts: Record<string, number>;
+  temporalContextAvailable: boolean;
+  temporalHitCount: number;
+  branchAlignedTopHitCount: number;
+  staleVersionPenaltyCount: number;
+  exactCommitMatchCount: number;
   sourceDiversity: number;
   degradedReasons: string[];
 }
@@ -188,6 +216,25 @@ interface RetrievalSymbolGraphSeed {
   seedReasons: string[];
 }
 
+interface RetrievalTemporalContext {
+  branchName: string | null;
+  defaultBranchName: string | null;
+  headSha: string | null;
+  source: "artifact" | "merge_candidate" | "default_branch";
+}
+
+interface RetrievalDocumentVersionView {
+  documentId: string;
+  branchName: string | null;
+  defaultBranchName: string | null;
+  commitSha: string | null;
+  parentCommitSha: string | null;
+  isHead: boolean;
+  isDefaultBranch: boolean;
+  capturedAt: Date;
+  metadata: Record<string, unknown>;
+}
+
 const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   sourceTypeBaseBoost: 1.25,
   sourceTypeDecay: 0.15,
@@ -211,6 +258,11 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   expiredPenalty: -1.2,
   futurePenalty: -0.4,
   supersededPenalty: -0.8,
+  temporalExactCommitBoost: 1.8,
+  temporalSameBranchHeadBoost: 0.85,
+  temporalDefaultBranchBoost: 0.25,
+  temporalForeignBranchPenalty: -0.35,
+  temporalStalePenalty: -0.45,
 } as const satisfies RetrievalRerankWeights;
 
 function summarizeBriefQuality(input: {
@@ -227,6 +279,7 @@ function summarizeBriefQuality(input: {
   symbolGraphHitCount: number;
   edgeTraversalCount: number;
   edgeTypeCounts: Record<string, number>;
+  temporalContext: RetrievalTemporalContext | null;
   crossProjectRequested: boolean;
 }): BriefQualitySummary {
   const evidenceCount = input.finalHits.length;
@@ -249,6 +302,21 @@ function summarizeBriefQuality(input: {
   }
   if (input.crossProjectRequested && input.graphHitCount === 0) {
     degradedReasons.push("cross_project_graph_empty");
+  }
+
+  const temporalHitCount = input.finalHits.filter((hit) => (hit.temporalMetadata?.score ?? 0) > 0).length;
+  const branchAlignedTopHitCount = input.finalHits
+    .slice(0, 3)
+    .filter((hit) =>
+      hit.temporalMetadata?.matchType === "exact_commit"
+      || hit.temporalMetadata?.matchType === "same_branch_head"
+      || hit.temporalMetadata?.matchType === "default_branch_head"
+    )
+    .length;
+  const staleVersionPenaltyCount = input.finalHits.filter((hit) => hit.temporalMetadata?.stale === true).length;
+  const exactCommitMatchCount = input.finalHits.filter((hit) => hit.temporalMetadata?.matchType === "exact_commit").length;
+  if (input.temporalContext && temporalHitCount === 0) {
+    degradedReasons.push("temporal_context_unmatched");
   }
 
   let confidenceLevel: BriefQualitySummary["confidenceLevel"] = "low";
@@ -276,6 +344,11 @@ function summarizeBriefQuality(input: {
     symbolGraphHitCount: input.symbolGraphHitCount,
     edgeTraversalCount: input.edgeTraversalCount,
     edgeTypeCounts: input.edgeTypeCounts,
+    temporalContextAvailable: Boolean(input.temporalContext),
+    temporalHitCount,
+    branchAlignedTopHitCount,
+    staleVersionPenaltyCount,
+    exactCommitMatchCount,
     sourceDiversity,
     degradedReasons,
   };
@@ -741,6 +814,11 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     expiredPenalty: readConfiguredNumber(weightsRecord.expiredPenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.expiredPenalty),
     futurePenalty: readConfiguredNumber(weightsRecord.futurePenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.futurePenalty),
     supersededPenalty: readConfiguredNumber(weightsRecord.supersededPenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.supersededPenalty),
+    temporalExactCommitBoost: readConfiguredNumber(weightsRecord.temporalExactCommitBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalExactCommitBoost),
+    temporalSameBranchHeadBoost: readConfiguredNumber(weightsRecord.temporalSameBranchHeadBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalSameBranchHeadBoost),
+    temporalDefaultBranchBoost: readConfiguredNumber(weightsRecord.temporalDefaultBranchBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalDefaultBranchBoost),
+    temporalForeignBranchPenalty: readConfiguredNumber(weightsRecord.temporalForeignBranchPenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalForeignBranchPenalty),
+    temporalStalePenalty: readConfiguredNumber(weightsRecord.temporalStalePenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalStalePenalty),
   } satisfies RetrievalRerankWeights;
 
   return {
@@ -799,6 +877,11 @@ export function renderRetrievedBriefMarkdown(input: {
           ...(hit.graphMetadata.edgeTypes?.length
             ? [`   - graph edges: ${hit.graphMetadata.edgeTypes.join(", ")}`]
             : []),
+        ]
+        : []),
+      ...(hit.temporalMetadata && hit.temporalMetadata.matchType !== "none"
+        ? [
+          `   - version: ${hit.temporalMetadata.matchType} (${hit.temporalMetadata.branchName ?? hit.temporalMetadata.defaultBranchName ?? "-"})`,
         ]
         : []),
       `   - excerpt: ${compactWhitespace(hit.textContent)}`,
@@ -991,6 +1074,281 @@ function computeFreshnessBoost(hit: RetrievalHitView, weights: RetrievalRerankWe
   return score;
 }
 
+function readMetadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+async function listDocumentVersionsForRetrieval(input: {
+  db: Db;
+  companyId: string;
+  documentIds: string[];
+}) {
+  if (input.documentIds.length === 0) return new Map<string, RetrievalDocumentVersionView[]>();
+
+  const rows = await input.db
+    .select({
+      documentId: knowledgeDocumentVersions.documentId,
+      branchName: knowledgeDocumentVersions.branchName,
+      defaultBranchName: knowledgeDocumentVersions.defaultBranchName,
+      commitSha: knowledgeDocumentVersions.commitSha,
+      parentCommitSha: knowledgeDocumentVersions.parentCommitSha,
+      isHead: knowledgeDocumentVersions.isHead,
+      isDefaultBranch: knowledgeDocumentVersions.isDefaultBranch,
+      capturedAt: knowledgeDocumentVersions.capturedAt,
+      metadata: knowledgeDocumentVersions.metadata,
+    })
+    .from(knowledgeDocumentVersions)
+    .where(
+      and(
+        eq(knowledgeDocumentVersions.companyId, input.companyId),
+        inArray(knowledgeDocumentVersions.documentId, input.documentIds),
+      ),
+    )
+    .orderBy(desc(knowledgeDocumentVersions.capturedAt), desc(knowledgeDocumentVersions.updatedAt));
+
+  const byDocumentId = new Map<string, RetrievalDocumentVersionView[]>();
+  for (const row of rows) {
+    const current = byDocumentId.get(row.documentId) ?? [];
+    current.push({
+      documentId: row.documentId,
+      branchName: row.branchName,
+      defaultBranchName: row.defaultBranchName,
+      commitSha: row.commitSha,
+      parentCommitSha: row.parentCommitSha,
+      isHead: row.isHead,
+      isDefaultBranch: row.isDefaultBranch,
+      capturedAt: row.capturedAt,
+      metadata: row.metadata ?? {},
+    });
+    byDocumentId.set(row.documentId, current);
+  }
+  return byDocumentId;
+}
+
+async function deriveRetrievalTemporalContext(input: {
+  db: Db;
+  companyId: string;
+  issueId: string;
+  issueProjectId: string | null;
+  currentMessageSeq: number;
+}) {
+  const artifactRows = await input.db
+    .select({
+      kind: issueProtocolArtifacts.artifactKind,
+      metadata: issueProtocolArtifacts.metadata,
+      seq: issueProtocolMessages.seq,
+    })
+    .from(issueProtocolArtifacts)
+    .innerJoin(issueProtocolMessages, eq(issueProtocolMessages.id, issueProtocolArtifacts.messageId))
+    .where(
+      and(
+        eq(issueProtocolMessages.companyId, input.companyId),
+        eq(issueProtocolMessages.issueId, input.issueId),
+        sql`${issueProtocolMessages.seq} <= ${input.currentMessageSeq}`,
+        or(
+          eq(issueProtocolArtifacts.artifactKind, "diff"),
+          eq(issueProtocolArtifacts.artifactKind, "doc"),
+        ),
+      ),
+    )
+    .orderBy(desc(issueProtocolMessages.seq));
+
+  for (const row of artifactRows) {
+    const metadata = row.metadata ?? {};
+    const branchName = readMetadataString(metadata, "branchName");
+    const headSha = readMetadataString(metadata, "headSha");
+    const defaultBranchName = readMetadataString(metadata, "defaultBranchName");
+    const bindingType = readMetadataString(metadata, "bindingType");
+
+    if (row.kind === "diff" && (branchName || headSha)) {
+      return {
+        branchName,
+        defaultBranchName: defaultBranchName ?? branchName,
+        headSha,
+        source: "artifact",
+      } satisfies RetrievalTemporalContext;
+    }
+    if (row.kind === "doc" && bindingType === "implementation_workspace" && (branchName || headSha)) {
+      return {
+        branchName,
+        defaultBranchName: defaultBranchName ?? branchName,
+        headSha,
+        source: "artifact",
+      } satisfies RetrievalTemporalContext;
+    }
+  }
+
+  const mergeCandidate = await input.db
+    .select({
+      sourceBranch: issueMergeCandidates.sourceBranch,
+      headSha: issueMergeCandidates.headSha,
+      targetBaseBranch: issueMergeCandidates.targetBaseBranch,
+    })
+    .from(issueMergeCandidates)
+    .where(eq(issueMergeCandidates.issueId, input.issueId))
+    .then((rows) => rows[0] ?? null);
+  if (mergeCandidate && (mergeCandidate.sourceBranch || mergeCandidate.headSha)) {
+    return {
+      branchName: mergeCandidate.sourceBranch,
+      defaultBranchName: mergeCandidate.targetBaseBranch,
+      headSha: mergeCandidate.headSha,
+      source: "merge_candidate",
+    } satisfies RetrievalTemporalContext;
+  }
+
+  if (input.issueProjectId) {
+    const defaultVersion = await input.db
+      .select({
+        branchName: knowledgeDocumentVersions.branchName,
+        defaultBranchName: knowledgeDocumentVersions.defaultBranchName,
+      })
+      .from(knowledgeDocumentVersions)
+      .where(
+        and(
+          eq(knowledgeDocumentVersions.companyId, input.companyId),
+          eq(knowledgeDocumentVersions.projectId, input.issueProjectId),
+          eq(knowledgeDocumentVersions.isDefaultBranch, true),
+          eq(knowledgeDocumentVersions.isHead, true),
+        ),
+      )
+      .orderBy(desc(knowledgeDocumentVersions.capturedAt))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (defaultVersion) {
+      return {
+        branchName: null,
+        defaultBranchName: defaultVersion.defaultBranchName ?? defaultVersion.branchName,
+        headSha: null,
+        source: "default_branch",
+      } satisfies RetrievalTemporalContext;
+    }
+  }
+
+  return null;
+}
+
+function computeTemporalBoost(input: {
+  hit: RetrievalHitView;
+  temporalContext: RetrievalTemporalContext | null;
+  versions: RetrievalDocumentVersionView[];
+  weights: RetrievalRerankWeights;
+}) {
+  if (!input.temporalContext || input.versions.length === 0) {
+    return {
+      score: 0,
+      metadata: {
+        branchName: null,
+        defaultBranchName: input.temporalContext?.defaultBranchName ?? null,
+        commitSha: null,
+        matchType: "none",
+        score: 0,
+        stale: false,
+      } satisfies NonNullable<RetrievalHitView["temporalMetadata"]>,
+    };
+  }
+
+  const exactCommit = input.temporalContext.headSha
+    ? input.versions.find((version) => version.commitSha === input.temporalContext?.headSha)
+    : null;
+  if (exactCommit) {
+    return {
+      score: input.weights.temporalExactCommitBoost,
+      metadata: {
+        branchName: exactCommit.branchName,
+        defaultBranchName: exactCommit.defaultBranchName,
+        commitSha: exactCommit.commitSha,
+        matchType: "exact_commit",
+        score: input.weights.temporalExactCommitBoost,
+        stale: false,
+      } satisfies NonNullable<RetrievalHitView["temporalMetadata"]>,
+    };
+  }
+
+  const sameBranchVersions = input.temporalContext.branchName
+    ? input.versions.filter((version) => version.branchName === input.temporalContext?.branchName)
+    : [];
+  const sameBranchHead = sameBranchVersions.find((version) => version.isHead);
+  if (sameBranchHead) {
+    return {
+      score: input.weights.temporalSameBranchHeadBoost,
+      metadata: {
+        branchName: sameBranchHead.branchName,
+        defaultBranchName: sameBranchHead.defaultBranchName,
+        commitSha: sameBranchHead.commitSha,
+        matchType: "same_branch_head",
+        score: input.weights.temporalSameBranchHeadBoost,
+        stale: false,
+      } satisfies NonNullable<RetrievalHitView["temporalMetadata"]>,
+    };
+  }
+
+  const sameBranchStale = sameBranchVersions[0] ?? null;
+  if (sameBranchStale) {
+    return {
+      score: input.weights.temporalStalePenalty,
+      metadata: {
+        branchName: sameBranchStale.branchName,
+        defaultBranchName: sameBranchStale.defaultBranchName,
+        commitSha: sameBranchStale.commitSha,
+        matchType: "same_branch_stale",
+        score: input.weights.temporalStalePenalty,
+        stale: true,
+      } satisfies NonNullable<RetrievalHitView["temporalMetadata"]>,
+    };
+  }
+
+  const defaultBranchHead = input.versions.find((version) =>
+    version.isHead
+    && (
+      version.isDefaultBranch
+      || (
+        input.temporalContext?.defaultBranchName != null
+        && version.branchName === input.temporalContext.defaultBranchName
+      )
+    ));
+  if (defaultBranchHead) {
+    return {
+      score: input.weights.temporalDefaultBranchBoost,
+      metadata: {
+        branchName: defaultBranchHead.branchName,
+        defaultBranchName: defaultBranchHead.defaultBranchName,
+        commitSha: defaultBranchHead.commitSha,
+        matchType: "default_branch_head",
+        score: input.weights.temporalDefaultBranchBoost,
+        stale: false,
+      } satisfies NonNullable<RetrievalHitView["temporalMetadata"]>,
+    };
+  }
+
+  const foreignBranch = input.versions[0] ?? null;
+  if (foreignBranch) {
+    return {
+      score: input.weights.temporalForeignBranchPenalty,
+      metadata: {
+        branchName: foreignBranch.branchName,
+        defaultBranchName: foreignBranch.defaultBranchName,
+        commitSha: foreignBranch.commitSha,
+        matchType: "foreign_branch",
+        score: input.weights.temporalForeignBranchPenalty,
+        stale: false,
+      } satisfies NonNullable<RetrievalHitView["temporalMetadata"]>,
+    };
+  }
+
+  return {
+    score: 0,
+    metadata: {
+      branchName: null,
+      defaultBranchName: input.temporalContext.defaultBranchName,
+      commitSha: null,
+      matchType: "none",
+      score: 0,
+      stale: false,
+    } satisfies NonNullable<RetrievalHitView["temporalMetadata"]>,
+  };
+}
+
 function computeLinkBoost(input: {
   hit: RetrievalHitView;
   links: RetrievalLinkView[];
@@ -1028,6 +1386,8 @@ export function rerankRetrievalHits(input: {
   projectId: string | null;
   projectAffinityIds?: string[];
   linkMap?: Map<string, RetrievalLinkView[]>;
+  temporalContext?: RetrievalTemporalContext | null;
+  documentVersionMap?: Map<string, RetrievalDocumentVersionView[]>;
   finalK: number;
   rerankConfig?: RetrievalPolicyRerankConfig;
 }) {
@@ -1036,6 +1396,12 @@ export function rerankRetrievalHits(input: {
   });
   return input.hits
     .map((hit) => {
+      const temporal = computeTemporalBoost({
+        hit,
+        temporalContext: input.temporalContext ?? null,
+        versions: input.documentVersionMap?.get(hit.documentId) ?? [],
+        weights: rerankConfig.weights,
+      });
       const rerankScore =
         computeSourceTypeBoost({
           sourceType: hit.sourceType,
@@ -1047,6 +1413,7 @@ export function rerankRetrievalHits(input: {
         + computeTagBoost(hit, input.signals, rerankConfig.weights)
         + computeLatestBoost(hit, rerankConfig.weights)
         + computeFreshnessBoost(hit, rerankConfig.weights)
+        + temporal.score
         + computeLinkBoost({
           hit,
           links: input.linkMap?.get(hit.chunkId) ?? [],
@@ -1058,6 +1425,7 @@ export function rerankRetrievalHits(input: {
         });
       return {
         ...hit,
+        temporalMetadata: temporal.metadata,
         rerankScore,
         fusedScore: hit.fusedScore + rerankScore,
       };
@@ -1316,6 +1684,25 @@ function buildHitRationale(input: {
   }
   for (const edgeType of uniqueNonEmpty(input.hit.graphMetadata?.edgeTypes ?? [])) {
     reasons.push(`graph_edge_${edgeType}`);
+  }
+  switch (input.hit.temporalMetadata?.matchType) {
+    case "exact_commit":
+      reasons.push("exact_commit_match");
+      break;
+    case "same_branch_head":
+      reasons.push("same_branch_head");
+      break;
+    case "same_branch_stale":
+      reasons.push("same_branch_stale");
+      break;
+    case "default_branch_head":
+      reasons.push("default_branch_head");
+      break;
+    case "foreign_branch":
+      reasons.push("foreign_branch_penalty");
+      break;
+    default:
+      break;
   }
   return reasons.join(", ") || "ranked";
 }
@@ -2033,6 +2420,13 @@ export function issueRetrievalService(db: Db) {
           eventType,
           baselineSourceTypes: rerankConfig.preferredSourceTypes,
         });
+        const temporalContext = await deriveRetrievalTemporalContext({
+          db,
+          companyId: input.companyId,
+          issueId: input.issueId,
+          issueProjectId: input.issue.projectId,
+          currentMessageSeq: input.triggeringMessageSeq,
+        });
 
         let queryEmbedding: number[] | null = null;
         let queryEmbeddingDebug: Record<string, unknown> = {
@@ -2099,6 +2493,7 @@ export function issueRetrievalService(db: Db) {
             symbolGraphHitCount: 0,
             edgeTraversalCount: 0,
             edgeTypeCounts: {},
+            temporalContext,
             ...queryEmbeddingDebug,
           },
         });
@@ -2158,6 +2553,11 @@ export function issueRetrievalService(db: Db) {
         });
         console.log("[RETRIEVAL] Fused candidates:", hits.length);
         const linkMap = await listRetrievalLinks(hits.map((hit) => hit.chunkId));
+        const initialDocumentVersionMap = await listDocumentVersionsForRetrieval({
+          db,
+          companyId: input.companyId,
+          documentIds: uniqueNonEmpty(hits.map((hit) => hit.documentId)),
+        });
         const initialRerankedHits = rerankRetrievalHits({
           hits,
           signals: dynamicSignals,
@@ -2165,6 +2565,8 @@ export function issueRetrievalService(db: Db) {
           projectId: input.issue.projectId,
           projectAffinityIds: dynamicSignals.projectAffinityIds,
           linkMap,
+          temporalContext,
+          documentVersionMap: initialDocumentVersionMap,
           finalK: policy.finalK,
           rerankConfig,
         });
@@ -2203,6 +2605,18 @@ export function issueRetrievalService(db: Db) {
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
             linkMap: combinedLinkMap,
+            temporalContext,
+            documentVersionMap: await listDocumentVersionsForRetrieval({
+              db,
+              companyId: input.companyId,
+              documentIds: uniqueNonEmpty(
+                mergeGraphExpandedHits({
+                  baseHits: hits,
+                  graphHits: legacyGraphHits,
+                  finalK: Math.max(policy.rerankK, policy.finalK) + legacyGraphHits.length,
+                }).map((hit) => hit.documentId),
+              ),
+            }),
             finalK: policy.finalK,
             rerankConfig,
           })
@@ -2239,6 +2653,18 @@ export function issueRetrievalService(db: Db) {
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
             linkMap: symbolCombinedLinkMap,
+            temporalContext,
+            documentVersionMap: await listDocumentVersionsForRetrieval({
+              db,
+              companyId: input.companyId,
+              documentIds: uniqueNonEmpty(
+                mergeGraphExpandedHits({
+                  baseHits: rerankedHits,
+                  graphHits: symbolGraphResult.hits,
+                  finalK: Math.max(policy.rerankK, policy.finalK) + symbolGraphResult.hits.length,
+                }).map((hit) => hit.documentId),
+              ),
+            }),
             finalK: policy.finalK,
             rerankConfig,
           })
@@ -2315,6 +2741,7 @@ export function issueRetrievalService(db: Db) {
           symbolGraphHitCount: symbolGraphResult.hits.length,
           edgeTraversalCount: symbolGraphResult.edgeTraversalCount,
           edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+          temporalContext,
           crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
         });
 
@@ -2352,6 +2779,7 @@ export function issueRetrievalService(db: Db) {
               rerankScore: hit.rerankScore,
               fusedScore: hit.fusedScore,
               graphMetadata: hit.graphMetadata ?? null,
+              temporalMetadata: hit.temporalMetadata ?? null,
             })),
           },
           retrievalRunId: retrievalRun.id,
@@ -2382,6 +2810,7 @@ export function issueRetrievalService(db: Db) {
           symbolGraphHitCount: symbolGraphResult.hits.length,
           edgeTraversalCount: symbolGraphResult.edgeTraversalCount,
           edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+          temporalContext,
           exactPathSatisfied: dynamicSignals.exactPaths.length === 0
             ? true
             : finalHits.some((hit) => {
