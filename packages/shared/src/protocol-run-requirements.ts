@@ -12,6 +12,7 @@ export interface ProtocolRunRequirement {
     | "implementation_engineer"
     | "change_request_engineer"
     | "review_reviewer"
+    | "qa_gate_reviewer"
     | "approval_tech_lead";
   protocolMessageType: IssueProtocolMessageType;
   recipientRole: IssueProtocolParticipantRole;
@@ -121,6 +122,17 @@ export function resolveProtocolRunRequirement(input: {
       requiredMessageTypes: ["START_REVIEW", "APPROVE_IMPLEMENTATION", "REQUEST_CHANGES", "REQUEST_HUMAN_DECISION"],
       firstActionMessageTypes: ["START_REVIEW", "REQUEST_CHANGES", "REQUEST_HUMAN_DECISION"],
       description: "review start or review decision",
+    };
+  }
+
+  if (protocolMessageType === "APPROVE_IMPLEMENTATION" && recipientRole === "qa") {
+    return {
+      key: "qa_gate_reviewer",
+      protocolMessageType,
+      recipientRole,
+      requiredMessageTypes: ["START_REVIEW", "APPROVE_IMPLEMENTATION", "REQUEST_CHANGES", "REQUEST_HUMAN_DECISION"],
+      firstActionMessageTypes: ["START_REVIEW"],
+      description: "QA gate review start and decision",
     };
   }
 

@@ -242,6 +242,8 @@ export const ISSUE_PROTOCOL_WORKFLOW_STATES = [
   "implementing",
   "submitted_for_review",
   "under_review",
+  "qa_pending",
+  "under_qa_review",
   "changes_requested",
   "awaiting_human_decision",
   "approved",

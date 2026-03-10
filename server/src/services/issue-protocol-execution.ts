@@ -22,6 +22,7 @@ type ProtocolDispatchMode =
   | "reviewer_watch"
   | "lead_supervisor"
   | "implementation_followup"
+  | "qa_gate_followup"
   | "approval_close_followup";
 
 export interface ProtocolExecutionRecipientHint {
@@ -188,7 +189,10 @@ function shouldWakeRecipientForMessage(messageType: string, recipientRole: strin
   if (messageType === "CANCEL_TASK") {
     return false;
   }
-  if ((messageType === "ASSIGN_TASK" || messageType === "REASSIGN_TASK") && recipientRole === "reviewer") {
+  if (
+    (messageType === "ASSIGN_TASK" || messageType === "REASSIGN_TASK")
+    && (recipientRole === "reviewer" || recipientRole === "qa")
+  ) {
     return false;
   }
   return true;
@@ -368,9 +372,44 @@ export function buildProtocolExecutionDispatchPlan(input: {
       : null;
 
   const approvalCloseFollowupAgentId =
-    input.message.messageType === "APPROVE_IMPLEMENTATION"
+    input.message.messageType === "APPROVE_IMPLEMENTATION" && input.message.workflowStateAfter === "approved"
       ? input.issueContext?.techLeadAgentId ?? null
       : null;
+  const qaGateFollowupAgentId =
+    input.message.messageType === "APPROVE_IMPLEMENTATION" && input.message.workflowStateAfter === "qa_pending"
+      ? input.issueContext?.qaAgentId ?? null
+      : null;
+
+  if (
+    qaGateFollowupAgentId
+    && !input.message.recipients.some(
+      (recipient) =>
+        recipient.recipientType === "agent"
+        && recipient.recipientId === qaGateFollowupAgentId
+        && recipient.role === "qa",
+    )
+  ) {
+    plan.push({
+      kind: "wakeup",
+      ...buildDispatchPlanBase({
+        issueId: input.issueId,
+        protocolMessageId: input.protocolMessageId,
+        message: input.message,
+        protocolPayload,
+        wakeHints,
+        source,
+        reason: "issue_ready_for_qa_gate",
+        recipient: {
+          recipientType: "agent",
+          recipientId: qaGateFollowupAgentId,
+          role: "qa",
+        },
+        issueContext: input.issueContext,
+        dispatchMode: "qa_gate_followup",
+        forceFollowupRun: true,
+      }),
+    });
+  }
 
   if (
     approvalCloseFollowupAgentId

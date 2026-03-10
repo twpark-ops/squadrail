@@ -1,0 +1,27 @@
+@startuml
+title P0-B Human -> PM Intake Layer
+
+actor Human
+participant "Board API" as API
+participant "Issue Route" as Route
+participant "Issue Service" as Issues
+participant "Protocol Service" as Protocol
+participant "Retrieval + Dispatch" as Dispatch
+participant "PM Agent" as PM
+
+Human -> API : POST /companies/:companyId/intake/issues
+API -> Route : validate request
+Route -> Issues : create root intake issue
+Issues --> Route : issue
+Route -> Protocol : append ASSIGN_TASK(to PM)
+Protocol --> Route : persisted protocol message
+Route -> Dispatch : async brief + wake dispatch
+Dispatch --> PM : PM direct-assignment wake
+PM --> Protocol : REASSIGN_TASK / ASK_CLARIFICATION / ESCALATE_BLOCKER
+
+note right of PM
+No new state machine.
+Reuse existing issue + protocol kernel.
+end note
+
+@enduml

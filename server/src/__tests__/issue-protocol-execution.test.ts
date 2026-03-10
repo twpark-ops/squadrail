@@ -90,6 +90,54 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     expect(plan[1]?.kind).toBe("notify_only");
   });
 
+  it("keeps QA recipients as notify_only during assignment handoff", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-1",
+      protocolMessageId: "msg-1qa",
+      senderAgentId: null,
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "qa-1",
+            role: "qa",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "assign with qa gate",
+        payload: {
+          goal: "goal",
+          acceptanceCriteria: ["a"],
+          definitionOfDone: ["d"],
+          priority: "high",
+          assigneeAgentId: "00000000-0000-0000-0000-000000000001",
+          reviewerAgentId: "00000000-0000-0000-0000-000000000002",
+          qaAgentId: "00000000-0000-0000-0000-000000000003",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]?.kind).toBe("wakeup");
+    expect(plan[1]).toMatchObject({
+      kind: "notify_only",
+      recipientId: "qa-1",
+      recipientRole: "qa",
+    });
+  });
+
   it("wakes reviewer recipients for internal child issue assignment when watch mode is enabled", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "child-1",
@@ -410,6 +458,64 @@ describe("buildProtocolExecutionDispatchPlan", () => {
         forceFollowupRun: true,
         protocolDispatchMode: "approval_close_followup",
         protocolRecipientRole: "tech_lead",
+      },
+    });
+  });
+
+  it("routes reviewer approval into a QA gate when qaAgentId is configured", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-approval-qa-1",
+      protocolMessageId: "msg-approval-qa-1",
+      senderAgentId: "reviewer-1",
+      issueContext: {
+        issueId: "issue-approval-qa-1",
+        parentId: null,
+        hiddenAt: null,
+        labelNames: [],
+        techLeadAgentId: "lead-1",
+        qaAgentId: "qa-1",
+      },
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "reviewer-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "qa_pending",
+        summary: "approved pending qa gate",
+        payload: {
+          approvalSummary: "Primary review passed.",
+          approvalMode: "agent_review",
+          approvalChecklist: ["Focused tests passed."],
+          verifiedEvidence: ["go test ./pkg -count=1: PASS"],
+          residualRisks: ["Operational QA validation is still pending."],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan.some((item) => item.recipientRole === "tech_lead" && item.reason === "issue_ready_for_closure")).toBe(false);
+    expect(plan.find((item) => item.recipientRole === "qa")).toMatchObject({
+      kind: "wakeup",
+      recipientId: "qa-1",
+      reason: "issue_ready_for_qa_gate",
+      payload: {
+        forceFollowupRun: true,
+        protocolDispatchMode: "qa_gate_followup",
+      },
+      contextSnapshot: {
+        forceFollowupRun: true,
+        protocolDispatchMode: "qa_gate_followup",
+        protocolRecipientRole: "qa",
       },
     });
   });

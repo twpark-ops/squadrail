@@ -14,6 +14,7 @@ export const issueProtocolState = pgTable(
     techLeadAgentId: uuid("tech_lead_agent_id").references(() => agents.id, { onDelete: "set null" }),
     primaryEngineerAgentId: uuid("primary_engineer_agent_id").references(() => agents.id, { onDelete: "set null" }),
     reviewerAgentId: uuid("reviewer_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    qaAgentId: uuid("qa_agent_id").references(() => agents.id, { onDelete: "set null" }),
     currentReviewCycle: integer("current_review_cycle").notNull().default(0),
     lastProtocolMessageId: uuid("last_protocol_message_id").references(() => issueProtocolMessages.id, {
       onDelete: "set null",
@@ -41,6 +42,11 @@ export const issueProtocolState = pgTable(
     reviewerIdx: index("issue_protocol_state_reviewer_idx").on(
       table.companyId,
       table.reviewerAgentId,
+      table.workflowState,
+    ),
+    qaIdx: index("issue_protocol_state_qa_idx").on(
+      table.companyId,
+      table.qaAgentId,
       table.workflowState,
     ),
   }),

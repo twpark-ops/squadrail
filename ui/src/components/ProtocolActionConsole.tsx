@@ -139,8 +139,10 @@ function availableActions(state: IssueProtocolState | null): HumanBoardAction[] 
     case "changes_requested":
       return ["REASSIGN_TASK", "NOTE", "CANCEL_TASK"];
     case "submitted_for_review":
+    case "qa_pending":
       return ["NOTE", "CANCEL_TASK"];
     case "under_review":
+    case "under_qa_review":
       return ["APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
     case "awaiting_human_decision":
       return ["REQUEST_CHANGES", "APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
@@ -196,6 +198,13 @@ function buildCurrentParticipantRecipients(input: {
       recipientType: "agent",
       recipientId: input.protocolState.reviewerAgentId,
       role: "reviewer",
+    });
+  }
+  if (input.protocolState?.qaAgentId) {
+    recipients.push({
+      recipientType: "agent",
+      recipientId: input.protocolState.qaAgentId,
+      role: "qa",
     });
   }
   if (recipients.length === 0 && input.currentUserId) {

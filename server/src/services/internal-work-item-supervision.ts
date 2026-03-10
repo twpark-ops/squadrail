@@ -23,6 +23,9 @@ export interface InternalWorkItemSupervisorContext {
   hiddenAt: Date | null;
   labelNames: string[];
   techLeadAgentId: string | null;
+  reviewerAgentId?: string | null;
+  qaAgentId?: string | null;
+  primaryEngineerAgentId?: string | null;
 }
 
 function normalizeLabelNames(labelNames: string[] | null | undefined) {
@@ -47,6 +50,9 @@ export function loadInternalWorkItemSupervisorContext(
           parentId: issues.parentId,
           hiddenAt: issues.hiddenAt,
           techLeadAgentId: issueProtocolState.techLeadAgentId,
+          reviewerAgentId: issueProtocolState.reviewerAgentId,
+          qaAgentId: issueProtocolState.qaAgentId,
+          primaryEngineerAgentId: issueProtocolState.primaryEngineerAgentId,
         })
         .from(issues)
         .leftJoin(issueProtocolState, eq(issueProtocolState.issueId, issues.id))
@@ -70,6 +76,9 @@ export function loadInternalWorkItemSupervisorContext(
       parentId: issueRow.parentId,
       hiddenAt: issueRow.hiddenAt,
       techLeadAgentId: issueRow.techLeadAgentId ?? null,
+      reviewerAgentId: issueRow.reviewerAgentId ?? null,
+      qaAgentId: issueRow.qaAgentId ?? null,
+      primaryEngineerAgentId: issueRow.primaryEngineerAgentId ?? null,
       labelNames: normalizeLabelNames(labelRows.map((row) => row.name)),
     };
   })();

@@ -147,6 +147,27 @@
 
 - 사람이 “이거 만들어줘” 수준의 요청을 주면 PM이 execution-ready issue로 바꾼다.
 
+현재 상태:
+
+- `Slice 1` 완료
+  - `POST /api/companies/:companyId/intake/issues`
+  - active PM / reviewer-capable agent 자동 선택
+  - root intake issue 생성
+  - PM lane `ASSIGN_TASK` 자동 부착
+- `Slice 2` 완료
+  - `POST /api/issues/:id/intake/projection`
+  - PM structuring 결과를 root issue enrichment와 hidden child work item으로 projection
+  - TL / reviewer / optional QA owner assignment
+- 남은 것
+  - intake UI surface
+
+세부 구현 기록은 [p0b-human-pm-intake-layer.md](/home/taewoong/company-project/squadall/docs/p0b-human-pm-intake-layer.md) 참조.
+
+다음 구현 우선순위:
+
+1. `P0-B Slice 2` PM projection
+2. `P0-C` QA separate gate
+
 ### P0-C. QA Gate Policy and Automation
 
 세 번째 우선순위다.
@@ -168,6 +189,12 @@
 추천:
 
 - product / release 중심 조직을 목표로 하면 `Separate QA Gate`가 더 맞다.
+
+현재 상태:
+
+- `qaAgentId`가 있는 경우 reviewer approval은 `qa_pending`으로 전이된다.
+- QA는 assignment 시점에는 notify-only이고, reviewer approval 뒤에 `issue_ready_for_qa_gate` wake를 받는다.
+- 최종 `approved` 뒤에만 TL close follow-up이 발생한다.
 
 완료 기준:
 

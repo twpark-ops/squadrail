@@ -219,6 +219,20 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 - [b8-retrieval-cache-incremental-reindex.md](/home/taewoong/company-project/squadall/docs/b8-retrieval-cache-incremental-reindex.md)
 - [b8-role-specific-personalization.md](/home/taewoong/company-project/squadall/docs/b8-role-specific-personalization.md)
 
+## Current Status Notes
+
+- Organizational memory ingest: complete
+- Human -> PM intake: complete for backend kernel
+  - intake entrypoint exists
+  - PM projection route exists
+  - next work is UI intake surface
+- QA policy / separate gate: complete for backend kernel
+  - reviewer approval can escalate into `qa_pending`
+  - QA follow-up wake and timeout handling are active
+  - close follow-up only happens after final `approved`
+- Retrieval god-file refactor debt is explicitly recorded in
+  - [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/retrieval-god-file-refactor-debt.md)
+
 완료 기준:
 
 - 대형 코드베이스에서 retrieval 품질과 비용이 안정화된다.
@@ -247,8 +261,9 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 다음 우선순위:
 
-1. organizational memory ingest
-2. operator feedback UI surface
+1. operator feedback UI surface
+2. candidate / final-hit cache
+3. deeper chunk-link multi-hop
 3. candidate / final-hit cache
 4. deeper chunk-link multi-hop traversal
 5. cross-issue memory / quality trend surface

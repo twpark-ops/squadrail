@@ -61,13 +61,13 @@ const MESSAGE_RULES: Record<
     stateChanging: true,
   },
   START_REVIEW: {
-    from: ["submitted_for_review"],
-    to: "under_review",
+    from: ["submitted_for_review", "qa_pending"],
+    to: "same",
     roles: ["reviewer", "tech_lead", "qa", "system"],
     stateChanging: true,
   },
   REQUEST_CHANGES: {
-    from: ["under_review", "awaiting_human_decision"],
+    from: ["under_review", "under_qa_review", "awaiting_human_decision"],
     to: "changes_requested",
     roles: ["reviewer", "tech_lead", "qa", "human_board"],
     stateChanging: true,
@@ -79,14 +79,14 @@ const MESSAGE_RULES: Record<
     stateChanging: true,
   },
   REQUEST_HUMAN_DECISION: {
-    from: ["under_review", "blocked"],
+    from: ["under_review", "under_qa_review", "blocked"],
     to: "awaiting_human_decision",
     roles: ["reviewer", "tech_lead", "cto", "pm", "qa", "system"],
     stateChanging: true,
   },
   APPROVE_IMPLEMENTATION: {
-    from: ["under_review", "awaiting_human_decision"],
-    to: "approved",
+    from: ["under_review", "under_qa_review", "awaiting_human_decision"],
+    to: "same",
     roles: ["reviewer", "tech_lead", "cto", "qa", "human_board"],
     stateChanging: true,
   },
@@ -126,6 +126,8 @@ function mapProtocolStateToIssueStatus(state: IssueProtocolWorkflowState): Issue
       return "in_progress";
     case "submitted_for_review":
     case "under_review":
+    case "qa_pending":
+    case "under_qa_review":
     case "changes_requested":
     case "awaiting_human_decision":
     case "approved":
@@ -244,6 +246,7 @@ export function validateProtocolRecipientContract(message: CreateIssueProtocolMe
   if (message.messageType === "ASSIGN_TASK") {
     const assigneeAgentId = payload.assigneeAgentId as string;
     const reviewerAgentId = payload.reviewerAgentId as string;
+    const qaAgentId = payload.qaAgentId as string | null | undefined;
     const assigneeInRecipients = message.recipients.find(
       (recipient) => recipient.recipientType === "agent" && recipient.recipientId === assigneeAgentId,
     );
@@ -253,11 +256,18 @@ export function validateProtocolRecipientContract(message: CreateIssueProtocolMe
     if (reviewerAgentId === assigneeAgentId) {
       return "Reviewer must be different from assignee";
     }
+    if (qaAgentId && qaAgentId === assigneeAgentId) {
+      return "QA must be different from assignee";
+    }
+    if (qaAgentId && qaAgentId === reviewerAgentId) {
+      return "QA must be different from reviewer";
+    }
   }
 
   if (message.messageType === "REASSIGN_TASK") {
     const newAssigneeAgentId = payload.newAssigneeAgentId as string;
     const newReviewerAgentId = payload.newReviewerAgentId as string | null | undefined;
+    const newQaAgentId = payload.newQaAgentId as string | null | undefined;
     const newAssigneeInRecipients = message.recipients.find(
       (recipient) => recipient.recipientType === "agent" && recipient.recipientId === newAssigneeAgentId,
     );
@@ -269,6 +279,12 @@ export function validateProtocolRecipientContract(message: CreateIssueProtocolMe
     }
     if (newReviewerAgentId && newReviewerAgentId === newAssigneeAgentId) {
       return "Reviewer must be different from assignee";
+    }
+    if (newQaAgentId && newQaAgentId === newAssigneeAgentId) {
+      return "QA must be different from assignee";
+    }
+    if (newQaAgentId && newReviewerAgentId && newQaAgentId === newReviewerAgentId) {
+      return "QA must be different from reviewer";
     }
   }
 
@@ -291,7 +307,36 @@ type ProtocolOwnershipState = {
   techLeadAgentId: string | null;
   primaryEngineerAgentId: string | null;
   reviewerAgentId: string | null;
+  qaAgentId: string | null;
 };
+
+function resolveExpectedWorkflowStateAfter(input: {
+  before: IssueProtocolWorkflowState;
+  currentState: typeof issueProtocolState.$inferSelect | null;
+  message: CreateIssueProtocolMessage;
+  rule: {
+    to: IssueProtocolWorkflowState | "same";
+  };
+}) {
+  if (input.message.messageType === "START_REVIEW") {
+    return input.before === "qa_pending" ? "under_qa_review" : "under_review";
+  }
+
+  if (input.message.messageType === "APPROVE_IMPLEMENTATION") {
+    const payload = input.message.payload as Record<string, unknown>;
+    const approvalMode = payload.approvalMode;
+    const humanOverride = approvalMode === "human_override" || input.message.sender.role === "human_board";
+    const qaRequired = Boolean(input.currentState?.qaAgentId);
+
+    if (input.before === "under_review" && qaRequired && !humanOverride && input.message.sender.role !== "qa") {
+      return "qa_pending";
+    }
+
+    return "approved";
+  }
+
+  return input.rule.to === "same" ? input.before : input.rule.to;
+}
 
 export function resolveProtocolOwnershipForMessage(input: {
   currentState: ProtocolOwnershipState | null;
@@ -339,10 +384,18 @@ export function resolveProtocolOwnershipForMessage(input: {
         ? (currentPayload.newReviewerAgentId as string | null | undefined) ?? input.currentState?.reviewerAgentId ?? null
         : input.currentState?.reviewerAgentId ?? null;
 
+  const qaAgentId =
+    input.message.messageType === "ASSIGN_TASK"
+      ? (currentPayload.qaAgentId as string | null | undefined) ?? null
+      : input.message.messageType === "REASSIGN_TASK"
+        ? (currentPayload.newQaAgentId as string | null | undefined) ?? input.currentState?.qaAgentId ?? null
+        : input.currentState?.qaAgentId ?? null;
+
   return {
     techLeadAgentId,
     primaryEngineerAgentId,
     reviewerAgentId,
+    qaAgentId,
   };
 }
 
@@ -421,7 +474,12 @@ export function issueProtocolService(db: Db) {
       throw conflict(`Message ${message.messageType} cannot run from state ${before}`);
     }
 
-    const expectedAfter = rule.to === "same" ? before : rule.to;
+    const expectedAfter = resolveExpectedWorkflowStateAfter({
+      before,
+      currentState,
+      message,
+      rule,
+    });
     if (message.workflowStateAfter !== expectedAfter) {
       throw conflict(`Message ${message.messageType} must transition to ${expectedAfter}`);
     }
@@ -449,6 +507,16 @@ export function issueProtocolService(db: Db) {
       if (message.sender.actorId !== currentState.reviewerAgentId) {
         throw unprocessable("Only the assigned reviewer can send this protocol message");
       }
+    }
+
+    if (message.sender.role === "qa" && currentState?.qaAgentId) {
+      if (message.sender.actorId !== currentState.qaAgentId) {
+        throw unprocessable("Only the assigned QA agent can send this protocol message");
+      }
+    }
+
+    if (message.messageType === "START_REVIEW" && before === "submitted_for_review" && message.sender.role === "qa") {
+      throw unprocessable("QA cannot start the primary review lane before reviewer approval");
     }
 
     if (message.sender.role === "tech_lead" && currentState?.techLeadAgentId) {
@@ -735,7 +803,8 @@ export function issueProtocolService(db: Db) {
             issueId: issue.id,
             cycleNumber: reviewCycle,
             reviewerAgentId:
-              input.message.sender.actorType === "agent" && input.message.sender.role === "reviewer"
+              input.message.sender.actorType === "agent"
+                && (input.message.sender.role === "reviewer" || input.message.sender.role === "qa")
                 ? input.message.sender.actorId
                 : null,
             reviewerUserId: input.message.sender.actorType === "user" ? input.message.sender.actorId : null,
@@ -767,6 +836,7 @@ export function issueProtocolService(db: Db) {
                 techLeadAgentId: currentState.techLeadAgentId,
                 primaryEngineerAgentId: currentState.primaryEngineerAgentId,
                 reviewerAgentId: currentState.reviewerAgentId,
+                qaAgentId: currentState.qaAgentId ?? null,
               }
             : null,
           message: input.message,
@@ -781,6 +851,7 @@ export function issueProtocolService(db: Db) {
           techLeadAgentId: resolvedOwnership.techLeadAgentId,
           primaryEngineerAgentId: resolvedOwnership.primaryEngineerAgentId,
           reviewerAgentId: resolvedOwnership.reviewerAgentId,
+          qaAgentId: resolvedOwnership.qaAgentId,
           currentReviewCycle:
             input.message.messageType === "START_REVIEW"
               ? Number(currentPayload.reviewCycle ?? (currentState?.currentReviewCycle ?? 0) + 1)
@@ -790,6 +861,7 @@ export function issueProtocolService(db: Db) {
           blockedPhase:
             workflowState === "blocked"
               ? currentState?.workflowState === "under_review"
+                || currentState?.workflowState === "under_qa_review"
                 ? "review"
                 : currentState?.workflowState === "planning"
                   ? "planning"
