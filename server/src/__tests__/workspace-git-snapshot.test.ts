@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   inspectWorkspaceGitSnapshot,
+  inspectWorkspaceVersionContext,
   setWorkspaceGitExecutorForTests,
 } from "../services/workspace-git-snapshot.js";
 
@@ -44,5 +45,27 @@ describe("inspectWorkspaceGitSnapshot", () => {
     });
 
     await expect(inspectWorkspaceGitSnapshot({ cwd: "/workspace/plain" })).resolves.toBeNull();
+  });
+});
+
+describe("inspectWorkspaceVersionContext", () => {
+  it("captures branch, default branch, and commit lineage", async () => {
+    setWorkspaceGitExecutorForTests(async ({ args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { stdout: "true\n" };
+      if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "release/1.2\n" };
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return { stdout: "def456\n" };
+      if (args[0] === "rev-parse" && args[1] === "HEAD^") return { stdout: "abc123\n" };
+      if (args[0] === "symbolic-ref") return { stdout: "refs/remotes/origin/main\n" };
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const context = await inspectWorkspaceVersionContext({ cwd: "/workspace/repo" });
+    expect(context).toMatchObject({
+      branchName: "release/1.2",
+      defaultBranchName: "main",
+      headSha: "def456",
+      parentCommitSha: "abc123",
+      isDefaultBranch: false,
+    });
   });
 });

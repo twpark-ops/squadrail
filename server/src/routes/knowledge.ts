@@ -80,6 +80,10 @@ const knowledgeQualitySchema = z.object({
   limit: z.coerce.number().int().min(1).max(5000).optional(),
 });
 
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 const listDocumentChunksSchema = z.object({
   includeLinks: z.coerce.boolean().optional(),
 });
@@ -166,6 +170,23 @@ export function knowledgeRoutes(db: Db) {
       res.status(500).json({ error: "Failed to create knowledge document" });
       return;
     }
+    await knowledge.recordDocumentVersion({
+      companyId: document.companyId,
+      documentId: document.id,
+      projectId: document.projectId,
+      path: document.path,
+      repoRef: document.repoRef,
+      branchName: readString(document.metadata?.versionBranchName),
+      defaultBranchName: readString(document.metadata?.versionDefaultBranchName),
+      commitSha: readString(document.metadata?.versionCommitSha),
+      parentCommitSha: readString(document.metadata?.versionParentCommitSha),
+      isHead: document.metadata?.versionIsHead !== false,
+      isDefaultBranch: document.metadata?.versionIsDefaultBranch === true,
+      capturedAt: readString(document.metadata?.versionCapturedAt),
+      metadata: {
+        source: readString(document.metadata?.importSource) ?? "manual_create",
+      },
+    });
 
     await logActivity(db, {
       companyId: parsed.data.companyId,
@@ -345,6 +366,23 @@ export function knowledgeRoutes(db: Db) {
         codeGraphEdgeCount: codeGraph?.edges.length ?? 0,
       });
     }
+    await knowledge.recordDocumentVersion({
+      companyId: document.companyId,
+      documentId: document.id,
+      projectId: document.projectId,
+      path: document.path,
+      repoRef: document.repoRef,
+      branchName: readString(document.metadata?.versionBranchName),
+      defaultBranchName: readString(document.metadata?.versionDefaultBranchName),
+      commitSha: readString(document.metadata?.versionCommitSha),
+      parentCommitSha: readString(document.metadata?.versionParentCommitSha),
+      isHead: document.metadata?.versionIsHead !== false,
+      isDefaultBranch: document.metadata?.versionIsDefaultBranch === true,
+      capturedAt: readString(document.metadata?.versionCapturedAt),
+      metadata: {
+        source: readString(document.metadata?.importSource) ?? "manual_replace",
+      },
+    });
 
     await logActivity(db, {
       companyId: document.companyId,

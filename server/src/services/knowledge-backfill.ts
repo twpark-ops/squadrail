@@ -5,6 +5,8 @@ import { logActivity } from "./activity-log.js";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
 import { buildCodeGraphForWorkspaceFile } from "./knowledge-import.js";
 import { knowledgeService } from "./knowledge.js";
+import { projectService } from "./projects.js";
+import { inspectWorkspaceVersionContext } from "./workspace-git-snapshot.js";
 
 export function needsEmbeddingRefresh(
   metadata: Record<string, unknown> | null | undefined,
@@ -41,9 +43,42 @@ function buildEmbeddingMetadata(
   };
 }
 
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 export function knowledgeBackfillService(db: Db) {
   const knowledge = knowledgeService(db);
   const embeddings = knowledgeEmbeddingService();
+  const projects = projectService(db);
+
+  async function recordVersionFromDocumentMetadata(document: {
+    id: string;
+    companyId: string;
+    projectId: string | null;
+    path: string | null;
+    repoRef: string | null;
+    metadata: Record<string, unknown> | null;
+  }) {
+    const metadata = document.metadata ?? {};
+    return knowledge.recordDocumentVersion({
+      companyId: document.companyId,
+      documentId: document.id,
+      projectId: document.projectId,
+      path: document.path,
+      repoRef: document.repoRef,
+      branchName: readString(metadata.versionBranchName),
+      defaultBranchName: readString(metadata.versionDefaultBranchName),
+      commitSha: readString(metadata.versionCommitSha),
+      parentCommitSha: readString(metadata.versionParentCommitSha),
+      isHead: metadata.versionIsHead !== false,
+      isDefaultBranch: metadata.versionIsDefaultBranch === true,
+      capturedAt: readString(metadata.versionCapturedAt),
+      metadata: {
+        source: readString(metadata.importSource) ?? "backfill",
+      },
+    });
+  }
 
   return {
     async reembedDocument(input: {
@@ -135,6 +170,7 @@ export function knowledgeBackfillService(db: Db) {
         codeGraphEdgeCount: codeGraph?.edges.length ?? 0,
         embeddingTotalTokens: result.usage.totalTokens,
       });
+      await recordVersionFromDocumentMetadata(document);
 
       await logActivity(db, {
         companyId: document.companyId,
@@ -291,6 +327,7 @@ export function knowledgeBackfillService(db: Db) {
         codeGraphEdgeCount: codeGraph?.edges.length ?? 0,
         codeGraphRebuiltAt: new Date().toISOString(),
       });
+      await recordVersionFromDocumentMetadata(document);
 
       await logActivity(db, {
         companyId: document.companyId,
@@ -357,6 +394,88 @@ export function knowledgeBackfillService(db: Db) {
       return {
         companyId: input.companyId,
         scanned: documents.length,
+        processed,
+        skipped,
+      };
+    },
+
+    async rebuildCompanyDocumentVersions(input: {
+      companyId: string;
+      limit?: number;
+    }) {
+      const companyProjects = await projects.list(input.companyId);
+      let scanned = 0;
+      let processed = 0;
+      let skipped = 0;
+
+      for (const project of companyProjects) {
+        const workspace = project.primaryWorkspace ?? project.workspaces.find((entry: { cwd?: string | null }) => Boolean(entry.cwd)) ?? null;
+        if (!workspace?.cwd) continue;
+
+        const versionContext = await inspectWorkspaceVersionContext({ cwd: workspace.cwd });
+        if (!versionContext?.branchName && !versionContext?.headSha) continue;
+
+        const documents = await db
+          .select({
+            id: knowledgeDocuments.id,
+            companyId: knowledgeDocuments.companyId,
+            projectId: knowledgeDocuments.projectId,
+            path: knowledgeDocuments.path,
+            repoRef: knowledgeDocuments.repoRef,
+            metadata: knowledgeDocuments.metadata,
+          })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.projectId, project.id),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`coalesce(${knowledgeDocuments.metadata} ->> 'importSource', '') = 'workspace'`,
+          ))
+          .orderBy(desc(knowledgeDocuments.updatedAt))
+          .limit(input.limit ?? 1000);
+
+        for (const document of documents) {
+          scanned += 1;
+          if (!document.path) {
+            skipped += 1;
+            continue;
+          }
+
+          await knowledge.updateDocumentMetadata(document.id, {
+            versionBranchName: versionContext.branchName,
+            versionDefaultBranchName: versionContext.defaultBranchName,
+            versionCommitSha: versionContext.headSha,
+            versionParentCommitSha: versionContext.parentCommitSha,
+            versionCapturedAt: versionContext.capturedAt,
+            versionIsDefaultBranch: versionContext.isDefaultBranch,
+            versionIsHead: true,
+          });
+          await knowledge.recordDocumentVersion({
+            companyId: document.companyId,
+            documentId: document.id,
+            projectId: document.projectId,
+            path: document.path,
+            repoRef: document.repoRef,
+            branchName: versionContext.branchName,
+            defaultBranchName: versionContext.defaultBranchName,
+            commitSha: versionContext.headSha,
+            parentCommitSha: versionContext.parentCommitSha,
+            isHead: true,
+            isDefaultBranch: versionContext.isDefaultBranch,
+            capturedAt: versionContext.capturedAt,
+            metadata: {
+              source: "version_backfill",
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+            },
+          });
+          processed += 1;
+        }
+      }
+
+      return {
+        companyId: input.companyId,
+        scanned,
         processed,
         skipped,
       };

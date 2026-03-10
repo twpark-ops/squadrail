@@ -7,6 +7,7 @@ import { logActivity } from "./activity-log.js";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
 import { knowledgeService } from "./knowledge.js";
 import { projectService } from "./projects.js";
+import { inspectWorkspaceVersionContext } from "./workspace-git-snapshot.js";
 
 const runtimeRequire = createRequire(import.meta.url);
 
@@ -1921,6 +1922,7 @@ export function knowledgeImportService(db: Db) {
       }
 
       const workspaceRoot = await resolveWorkspaceImportRoot({ cwd: workspace.cwd });
+      const workspaceVersion = await inspectWorkspaceVersionContext({ cwd: workspaceRoot });
 
       const filePaths = await walkWorkspaceFiles({
         cwd: workspaceRoot,
@@ -1968,6 +1970,12 @@ export function knowledgeImportService(db: Db) {
             workspaceId: workspace.id,
             workspaceName: workspace.name,
             cwd: workspaceRoot,
+            versionBranchName: workspaceVersion?.branchName ?? null,
+            versionDefaultBranchName: workspaceVersion?.defaultBranchName ?? null,
+            versionCommitSha: workspaceVersion?.headSha ?? null,
+            versionParentCommitSha: workspaceVersion?.parentCommitSha ?? null,
+            versionCapturedAt: workspaceVersion?.capturedAt ?? null,
+            versionIsDefaultBranch: workspaceVersion?.isDefaultBranch ?? false,
             ...descriptor.metadata,
           },
         });
@@ -2074,9 +2082,35 @@ export function knowledgeImportService(db: Db) {
           codeGraphLocalReferenceEdgeCandidates: codeGraph?.stats.localReferenceEdgeCandidates ?? 0,
           codeGraphImportEdgeCandidates: codeGraph?.stats.importEdgeCandidates ?? 0,
           codeGraphTestEdgeCandidates: codeGraph?.stats.testEdgeCandidates ?? 0,
+          versionBranchName: workspaceVersion?.branchName ?? null,
+          versionDefaultBranchName: workspaceVersion?.defaultBranchName ?? null,
+          versionCommitSha: workspaceVersion?.headSha ?? null,
+          versionParentCommitSha: workspaceVersion?.parentCommitSha ?? null,
+          versionCapturedAt: workspaceVersion?.capturedAt ?? generatedAt,
+          versionIsDefaultBranch: workspaceVersion?.isDefaultBranch ?? false,
+          versionIsHead: true,
           embeddingTotalTokens: embeddingResult.usage.totalTokens,
           tags: descriptor.tags,
           isLatestForScope: true,
+        });
+        await knowledge.recordDocumentVersion({
+          companyId: project.companyId,
+          documentId: document.id,
+          projectId: project.id,
+          path: relativePath,
+          repoRef: workspace.repoRef,
+          branchName: workspaceVersion?.branchName ?? null,
+          defaultBranchName: workspaceVersion?.defaultBranchName ?? null,
+          commitSha: workspaceVersion?.headSha ?? null,
+          parentCommitSha: workspaceVersion?.parentCommitSha ?? null,
+          isHead: true,
+          isDefaultBranch: workspaceVersion?.isDefaultBranch ?? false,
+          capturedAt: workspaceVersion?.capturedAt ?? generatedAt,
+          metadata: {
+            source: "workspace_import",
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+          },
         });
 
         importedFiles += 1;

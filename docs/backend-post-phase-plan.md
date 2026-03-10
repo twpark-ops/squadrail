@@ -196,11 +196,17 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - workspace import 시 symbol registry / edge 후보 생성
   - retrieval의 symbol 1-hop graph expansion 추가
   - company knowledge graph backfill 경로 추가
+- Slice 3. version-aware retrieval
+  - `knowledge_document_versions` 추가
+  - workspace import / backfill 시 branch/head snapshot 영속화
+  - retrieval의 temporal context / branch alignment scoring 추가
+  - quality metric에 temporal hit 계열 추가
 
 후속 설계 문서:
 
 - [b8-deep-rag-hardening-plan.md](/home/taewoong/company-project/squadall/docs/b8-deep-rag-hardening-plan.md)
 - [b8-symbol-dependency-graph-foundation.md](/home/taewoong/company-project/squadall/docs/b8-symbol-dependency-graph-foundation.md)
+- [b8-version-aware-retrieval.md](/home/taewoong/company-project/squadall/docs/b8-version-aware-retrieval.md)
 
 완료 기준:
 

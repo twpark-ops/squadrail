@@ -870,6 +870,103 @@ describe("issue retrieval helpers", () => {
     expect(reranked[0]?.rerankScore).toBeGreaterThan(reranked[1]?.rerankScore ?? 0);
   });
 
+  it("boosts branch-aligned evidence and penalizes stale versions", () => {
+    const reranked = rerankRetrievalHits({
+      issueId: "issue-1",
+      projectId: "project-1",
+      finalK: 2,
+      signals: {
+        exactPaths: [],
+        fileNames: [],
+        symbolHints: [],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code"],
+        blockerCode: null,
+        questionType: null,
+      },
+      temporalContext: {
+        branchName: "squadrail/clo-1-eng-1",
+        defaultBranchName: "main",
+        headSha: "abc123",
+        source: "artifact",
+      },
+      documentVersionMap: new Map([
+        ["doc-1", [
+          {
+            documentId: "doc-1",
+            branchName: "main",
+            defaultBranchName: "main",
+            commitSha: "aaa111",
+            parentCommitSha: null,
+            isHead: true,
+            isDefaultBranch: true,
+            capturedAt: new Date("2026-03-10T00:00:00Z"),
+            metadata: {},
+          },
+        ]],
+        ["doc-2", [
+          {
+            documentId: "doc-2",
+            branchName: "squadrail/clo-1-eng-1",
+            defaultBranchName: "main",
+            commitSha: "abc123",
+            parentCommitSha: "aaa111",
+            isHead: true,
+            isDefaultBranch: false,
+            capturedAt: new Date("2026-03-10T00:00:00Z"),
+            metadata: {},
+          },
+        ]],
+      ]),
+      hits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "canonical",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "main branch retry",
+          headingPath: "src/retry.ts",
+          symbolName: "retryWorker",
+          textContent: "main branch implementation",
+          documentMetadata: { isLatestForScope: true },
+          chunkMetadata: {},
+          denseScore: 0.9,
+          sparseScore: 0.8,
+          rerankScore: null,
+          fusedScore: 2.9,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+        },
+        {
+          chunkId: "chunk-2",
+          documentId: "doc-2",
+          sourceType: "code",
+          authorityLevel: "canonical",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "issue branch retry",
+          headingPath: "src/retry.ts",
+          symbolName: "retryWorker",
+          textContent: "issue branch implementation",
+          documentMetadata: { isLatestForScope: true },
+          chunkMetadata: {},
+          denseScore: 0.2,
+          sparseScore: 0.2,
+          rerankScore: null,
+          fusedScore: 1.8,
+          updatedAt: new Date("2026-03-08T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(reranked[0]?.chunkId).toBe("chunk-2");
+    expect(reranked[0]?.temporalMetadata?.matchType).toBe("exact_commit");
+    expect(reranked[1]?.temporalMetadata?.matchType).toBe("default_branch_head");
+  });
+
   it("applies policy-configured rerank weights and source preferences", () => {
     const rerankConfig = resolveRetrievalPolicyRerankConfig({
       allowedSourceTypes: ["adr", "code", "review"],
