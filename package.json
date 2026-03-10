@@ -29,6 +29,7 @@
     "e2e:cloud-swiftsight-real-org": "node scripts/e2e/cloud-swiftsight-real-org.mjs",
     "e2e:cloud-swiftsight-real-org:cleanup": "node scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs",
     "e2e:cloud-swiftsight-real-org:nightly": "node scripts/e2e/nightly-cloud-swiftsight-real-org.mjs",
+    "knowledge:rebuild-graph": "node cli/node_modules/tsx/dist/cli.mjs scripts/knowledge/rebuild-graph.ts",
     "test:browser-smoke": "./scripts/smoke/local-ui-flow.sh",
     "audit:tenant-rls": "node scripts/audit/tenant-rls.mjs",
     "bench:retrieval-vector": "node scripts/bench/retrieval-vector.mjs",

@@ -191,6 +191,16 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - `symbol`, `path`, `project` link를 따라 linked chunk를 retrieval 후보로 확장
   - brief / retrieval debug에 `graphSeedCount`, `graphHitCount`, `graphEntityTypes` 기록
   - cross-project 이슈에서 graph expansion이 비어 있으면 `cross_project_graph_empty` degraded reason 부여
+- Slice 2. symbol / dependency graph foundation
+  - `code_symbols`, `code_symbol_edges` 추가
+  - workspace import 시 symbol registry / edge 후보 생성
+  - retrieval의 symbol 1-hop graph expansion 추가
+  - company knowledge graph backfill 경로 추가
+
+후속 설계 문서:
+
+- [b8-deep-rag-hardening-plan.md](/home/taewoong/company-project/squadall/docs/b8-deep-rag-hardening-plan.md)
+- [b8-symbol-dependency-graph-foundation.md](/home/taewoong/company-project/squadall/docs/b8-symbol-dependency-graph-foundation.md)
 
 완료 기준:
 

@@ -142,6 +142,37 @@ type StructuredSymbolChunk = AstSymbolChunk & {
   parser: string;
 };
 
+export type CodeGraphSymbolInput = {
+  chunkIndex: number;
+  symbolKey: string;
+  symbolName: string;
+  symbolKind: string;
+  receiverType?: string | null;
+  startLine?: number | null;
+  endLine?: number | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type CodeGraphEdgeInput = {
+  fromSymbolKey: string;
+  targetSymbolKey?: string | null;
+  targetSymbolName?: string | null;
+  targetPath?: string | null;
+  edgeType: "imports" | "calls" | "implements" | "tests" | "configures" | "routes_to" | "references";
+  weight?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type CodeGraphInput = {
+  symbols: CodeGraphSymbolInput[];
+  edges: CodeGraphEdgeInput[];
+  stats: {
+    localReferenceEdgeCandidates: number;
+    importEdgeCandidates: number;
+    testEdgeCandidates: number;
+  };
+};
+
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -949,6 +980,392 @@ function uniqueNonEmpty(values: Array<string | null | undefined>) {
   return ordered;
 }
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildCodeSymbolKey(input: {
+  symbolName: string;
+  symbolKind: string;
+  receiverType?: string | null;
+  startLine?: number | null;
+}) {
+  return [
+    input.receiverType?.trim() ?? "",
+    input.symbolKind.trim(),
+    input.symbolName.trim(),
+    String(input.startLine ?? ""),
+  ].join(":");
+}
+
+function detectGoReceiverType(textContent: string) {
+  const firstMeaningfulLine = textContent
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (!firstMeaningfulLine) return null;
+  const match = firstMeaningfulLine.match(/^func\s*\(([^)]*)\)\s*[A-Za-z_][A-Za-z0-9_]*\s*\(/);
+  if (!match?.[1]) return null;
+  const receiver = match[1].trim().replace(/^\*+/, "");
+  const parts = receiver.split(/\s+/).filter(Boolean);
+  return parts.at(-1) ?? null;
+}
+
+type ImportReference = {
+  importedName: string;
+  targetPaths: string[];
+  moduleSpecifier: string;
+  sourceKind: "typescript" | "python";
+};
+
+function buildRelativeModulePathCandidates(input: {
+  relativePath: string;
+  moduleSpecifier: string;
+  extensions: string[];
+}) {
+  if (!input.moduleSpecifier.startsWith(".")) return [];
+  const fromDir = path.posix.dirname(input.relativePath.replace(/\\/g, "/"));
+  const resolvedBase = path.posix.normalize(path.posix.join(fromDir, input.moduleSpecifier));
+  const candidates = [
+    ...input.extensions.map((ext) => `${resolvedBase}${ext}`),
+    ...input.extensions.map((ext) => `${resolvedBase}/index${ext}`),
+  ];
+  return uniqueNonEmpty(candidates);
+}
+
+function extractTypeScriptImportReferences(input: {
+  relativePath: string;
+  content: string;
+}) {
+  const references: ImportReference[] = [];
+  const lines = input.content.split(/\r?\n/);
+  for (const rawLine of lines.slice(0, 80)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const fromMatch = line.match(/^import\s+(.+?)\s+from\s+["']([^"']+)["']/);
+    if (fromMatch?.[1] && fromMatch[2]) {
+      const moduleSpecifier = fromMatch[2];
+      const namedBlock = fromMatch[1].match(/\{([^}]+)\}/)?.[1] ?? "";
+      const importedNames = uniqueNonEmpty(
+        namedBlock
+          .split(",")
+          .map((entry) => entry.trim())
+          .map((entry) => entry.split(/\s+as\s+/i)[0]?.trim() ?? null),
+      );
+      const targetPaths = buildRelativeModulePathCandidates({
+        relativePath: input.relativePath,
+        moduleSpecifier,
+        extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+      });
+      for (const importedName of importedNames) {
+        references.push({
+          importedName,
+          targetPaths,
+          moduleSpecifier,
+          sourceKind: "typescript",
+        });
+      }
+    }
+
+    const requireObjectMatch = line.match(/^const\s+\{([^}]+)\}\s*=\s*require\(["']([^"']+)["']\)/);
+    if (requireObjectMatch?.[1] && requireObjectMatch[2]) {
+      const moduleSpecifier = requireObjectMatch[2];
+      const importedNames = uniqueNonEmpty(
+        requireObjectMatch[1]
+          .split(",")
+          .map((entry) => entry.trim())
+          .map((entry) => entry.split(":")[0]?.trim() ?? null),
+      );
+      const targetPaths = buildRelativeModulePathCandidates({
+        relativePath: input.relativePath,
+        moduleSpecifier,
+        extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+      });
+      for (const importedName of importedNames) {
+        references.push({
+          importedName,
+          targetPaths,
+          moduleSpecifier,
+          sourceKind: "typescript",
+        });
+      }
+    }
+  }
+
+  return references;
+}
+
+function resolvePythonModuleCandidates(input: {
+  relativePath: string;
+  moduleSpecifier: string;
+}) {
+  const normalizedPath = input.relativePath.replace(/\\/g, "/");
+  const currentDir = path.posix.dirname(normalizedPath);
+  let specifier = input.moduleSpecifier.trim();
+  let dotDepth = 0;
+  while (specifier.startsWith(".")) {
+    dotDepth += 1;
+    specifier = specifier.slice(1);
+  }
+  let baseDir = currentDir;
+  for (let index = 1; index < dotDepth; index += 1) {
+    baseDir = path.posix.dirname(baseDir);
+  }
+  const modulePath = specifier.replace(/\./g, "/");
+  const resolvedBase = modulePath
+    ? path.posix.normalize(path.posix.join(baseDir, modulePath))
+    : baseDir;
+  return uniqueNonEmpty([
+    `${resolvedBase}.py`,
+    `${resolvedBase}/__init__.py`,
+  ]);
+}
+
+function extractPythonImportReferences(input: {
+  relativePath: string;
+  content: string;
+}) {
+  const references: ImportReference[] = [];
+  const lines = input.content.split(/\r?\n/);
+  for (const rawLine of lines.slice(0, 80)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const fromMatch = line.match(/^from\s+([.\w]+)\s+import\s+(.+)$/);
+    if (fromMatch?.[1] && fromMatch[2]) {
+      const importedNames = uniqueNonEmpty(
+        fromMatch[2]
+          .split(",")
+          .map((entry) => entry.trim())
+          .map((entry) => entry.split(/\s+as\s+/i)[0]?.trim() ?? null),
+      );
+      const targetPaths = resolvePythonModuleCandidates({
+        relativePath: input.relativePath,
+        moduleSpecifier: fromMatch[1],
+      });
+      for (const importedName of importedNames) {
+        references.push({
+          importedName,
+          targetPaths,
+          moduleSpecifier: fromMatch[1],
+          sourceKind: "python",
+        });
+      }
+    }
+  }
+
+  return references;
+}
+
+function deriveProductionPathCandidates(input: {
+  relativePath: string;
+  language: string;
+}) {
+  const normalizedPath = input.relativePath.replace(/\\/g, "/");
+  const candidates = new Set<string>();
+  if (input.language === "go" && normalizedPath.endsWith("_test.go")) {
+    candidates.add(normalizedPath.replace(/_test\.go$/, ".go"));
+  }
+  if (["typescript", "javascript"].includes(input.language)) {
+    candidates.add(normalizedPath.replace(/(\.test|\.spec)(\.[^.]+)$/, "$2"));
+  }
+  if (input.language === "python") {
+    const fileName = path.posix.basename(normalizedPath);
+    if (fileName.startsWith("test_")) {
+      candidates.add(path.posix.join(path.posix.dirname(normalizedPath), fileName.replace(/^test_/, "")));
+    }
+    if (normalizedPath.includes("/tests/")) {
+      candidates.add(normalizedPath.replace("/tests/", "/"));
+    }
+    if (normalizedPath.includes("/test/")) {
+      candidates.add(normalizedPath.replace("/test/", "/"));
+    }
+  }
+  return Array.from(candidates).filter((candidate) => candidate !== normalizedPath);
+}
+
+export function buildCodeGraphForWorkspaceFile(input: {
+  relativePath: string;
+  content: string;
+  language: string;
+  chunks: WorkspaceChunkInput[];
+}) {
+  if (!isCodeLanguage(input.language)) return null;
+
+  const symbols = input.chunks
+    .filter((chunk): chunk is WorkspaceChunkInput & { symbolName: string } => (
+      typeof chunk.symbolName === "string"
+      && chunk.symbolName.trim().length > 0
+      && typeof chunk.metadata.lineStart === "number"
+      && typeof chunk.metadata.lineEnd === "number"
+    ))
+    .map((chunk) => {
+      const receiverType = input.language === "go" ? detectGoReceiverType(chunk.textContent) : null;
+      return {
+        chunkIndex: chunk.chunkIndex,
+        symbolKey: buildCodeSymbolKey({
+          symbolName: chunk.symbolName,
+          symbolKind: String(chunk.metadata.symbolKind ?? "symbol"),
+          receiverType,
+          startLine: Number(chunk.metadata.lineStart ?? null),
+        }),
+        symbolName: chunk.symbolName,
+        symbolKind: String(chunk.metadata.symbolKind ?? "symbol"),
+        receiverType,
+        startLine: Number(chunk.metadata.lineStart ?? null),
+        endLine: Number(chunk.metadata.lineEnd ?? null),
+        metadata: {
+          parser: chunk.metadata.parser,
+          chunkKind: chunk.metadata.chunkKind,
+          exported: chunk.metadata.exported === true,
+          isTestFile: chunk.metadata.isTestFile === true,
+        },
+      } satisfies CodeGraphSymbolInput;
+    });
+
+  if (symbols.length === 0) return null;
+
+  const symbolByKey = new Map(symbols.map((symbol) => [symbol.symbolKey, symbol] as const));
+  const chunkByIndex = new Map(input.chunks.map((chunk) => [chunk.chunkIndex, chunk] as const));
+  const edges = new Map<string, CodeGraphEdgeInput>();
+  let localReferenceEdgeCandidates = 0;
+  let importEdgeCandidates = 0;
+  let testEdgeCandidates = 0;
+
+  const pushEdge = (edge: CodeGraphEdgeInput) => {
+    const key = [
+      edge.fromSymbolKey,
+      edge.targetSymbolKey ?? "",
+      edge.targetSymbolName ?? "",
+      edge.targetPath ?? "",
+      edge.edgeType,
+    ].join("|");
+    const existing = edges.get(key);
+    if (!existing) {
+      edges.set(key, edge);
+      return;
+    }
+    edges.set(key, {
+      ...existing,
+      weight: Math.max(existing.weight ?? 0, edge.weight ?? 0),
+      metadata: {
+        ...(existing.metadata ?? {}),
+        ...(edge.metadata ?? {}),
+      },
+    });
+  };
+
+  for (const sourceSymbol of symbols) {
+    const sourceChunk = chunkByIndex.get(sourceSymbol.chunkIndex);
+    if (!sourceChunk) continue;
+    const sourceText = sourceChunk.textContent;
+    for (const targetSymbol of symbols) {
+      if (targetSymbol.symbolKey === sourceSymbol.symbolKey) continue;
+      const callPattern = new RegExp(`\\b${escapeRegex(targetSymbol.symbolName)}\\s*\\(`);
+      const referencePattern = new RegExp(`\\b${escapeRegex(targetSymbol.symbolName)}\\b`);
+      if (callPattern.test(sourceText)) {
+        localReferenceEdgeCandidates += 1;
+        pushEdge({
+          fromSymbolKey: sourceSymbol.symbolKey,
+          targetSymbolKey: targetSymbol.symbolKey,
+          edgeType: "calls",
+          weight: 1.05,
+          metadata: {
+            origin: "local_reference",
+            matchType: "call",
+          },
+        });
+        continue;
+      }
+      if (referencePattern.test(sourceText)) {
+        localReferenceEdgeCandidates += 1;
+        pushEdge({
+          fromSymbolKey: sourceSymbol.symbolKey,
+          targetSymbolKey: targetSymbol.symbolKey,
+          edgeType: "references",
+          weight: 0.62,
+          metadata: {
+            origin: "local_reference",
+            matchType: "symbol",
+          },
+        });
+      }
+    }
+  }
+
+  const importReferences = input.language === "python"
+    ? extractPythonImportReferences({ relativePath: input.relativePath, content: input.content })
+    : ["typescript", "javascript"].includes(input.language)
+      ? extractTypeScriptImportReferences({ relativePath: input.relativePath, content: input.content })
+      : [];
+
+  for (const sourceSymbol of symbols) {
+    const sourceChunk = chunkByIndex.get(sourceSymbol.chunkIndex);
+    if (!sourceChunk) continue;
+    const sourceText = sourceChunk.textContent;
+    for (const reference of importReferences) {
+      if (!new RegExp(`\\b${escapeRegex(reference.importedName)}\\b`).test(sourceText)) continue;
+      const targetPaths = reference.targetPaths.length > 0 ? reference.targetPaths : [null as string | null];
+      for (const targetPath of targetPaths) {
+        importEdgeCandidates += 1;
+        pushEdge({
+          fromSymbolKey: sourceSymbol.symbolKey,
+          targetSymbolName: reference.importedName,
+          targetPath,
+          edgeType: "imports",
+          weight: 0.86,
+          metadata: {
+            origin: "import_reference",
+            moduleSpecifier: reference.moduleSpecifier,
+            sourceKind: reference.sourceKind,
+          },
+        });
+      }
+    }
+  }
+
+  const productionPathCandidates = deriveProductionPathCandidates({
+    relativePath: input.relativePath,
+    language: input.language,
+  });
+  const isTestFile = isTestFilePath(input.relativePath);
+  if (isTestFile && productionPathCandidates.length > 0) {
+    for (const sourceSymbol of symbols) {
+      const sourceChunk = chunkByIndex.get(sourceSymbol.chunkIndex);
+      if (!sourceChunk) continue;
+      const sourceText = sourceChunk.textContent;
+      for (const targetSymbol of symbols) {
+        if (targetSymbol.symbolKey === sourceSymbol.symbolKey) continue;
+        if (!new RegExp(`\\b${escapeRegex(targetSymbol.symbolName)}\\b`).test(sourceText)) continue;
+        for (const targetPath of productionPathCandidates) {
+          testEdgeCandidates += 1;
+          pushEdge({
+            fromSymbolKey: sourceSymbol.symbolKey,
+            targetSymbolName: targetSymbol.symbolName,
+            targetPath,
+            edgeType: "tests",
+            weight: 1.12,
+            metadata: {
+              origin: "test_file_reference",
+              testPath: input.relativePath,
+              productionPath: targetPath,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    symbols: symbols.filter((symbol) => symbolByKey.has(symbol.symbolKey)),
+    edges: Array.from(edges.values()),
+    stats: {
+      localReferenceEdgeCandidates,
+      importEdgeCandidates,
+      testEdgeCandidates,
+    },
+  } satisfies CodeGraphInput;
+}
+
 function stripQuotedLiterals(line: string) {
   return line
     .replace(/(["'`])(?:\\.|(?!\1).)*\1/g, "\"\"")
@@ -1578,6 +1995,12 @@ export function knowledgeImportService(db: Db) {
             language: descriptor.language,
           }),
         });
+        const codeGraph = buildCodeGraphForWorkspaceFile({
+          relativePath,
+          content: rawContent,
+          language: descriptor.language,
+          chunks: chunkInputs,
+        });
         const embeddingResult = await embeddings.generateEmbeddings(
           chunkInputs.map((chunk) => chunk.textContent),
         );
@@ -1586,6 +2009,7 @@ export function knowledgeImportService(db: Db) {
         const chunks = await knowledge.replaceDocumentChunks({
           companyId: project.companyId,
           documentId: document.id,
+          codeGraph,
           chunks: chunkInputs.map((chunk, index) => ({
             ...chunk,
             embedding: embeddingResult.embeddings[index]!,
@@ -1645,6 +2069,11 @@ export function knowledgeImportService(db: Db) {
           embeddingOrigin: "workspace_import",
           embeddingGeneratedAt: generatedAt,
           embeddingChunkCount: chunks.length,
+          codeGraphSymbolCount: codeGraph?.symbols.length ?? 0,
+          codeGraphEdgeCount: codeGraph?.edges.length ?? 0,
+          codeGraphLocalReferenceEdgeCandidates: codeGraph?.stats.localReferenceEdgeCandidates ?? 0,
+          codeGraphImportEdgeCandidates: codeGraph?.stats.importEdgeCandidates ?? 0,
+          codeGraphTestEdgeCandidates: codeGraph?.stats.testEdgeCandidates ?? 0,
           embeddingTotalTokens: embeddingResult.usage.totalTokens,
           tags: descriptor.tags,
           isLatestForScope: true,

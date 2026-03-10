@@ -1,6 +1,9 @@
 import type { Db } from "@squadrail/db";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { knowledgeDocuments } from "@squadrail/db";
 import { logActivity } from "./activity-log.js";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
+import { buildCodeGraphForWorkspaceFile } from "./knowledge-import.js";
 import { knowledgeService } from "./knowledge.js";
 
 export function needsEmbeddingRefresh(
@@ -84,31 +87,41 @@ export function knowledgeBackfillService(db: Db) {
       const result = await embeddings.generateEmbeddings(chunks.map((chunk) => chunk.textContent));
       const generatedAt = new Date().toISOString();
       const origin = input.origin ?? "backfill";
+      const replacementChunks = chunks.map((chunk, index) => ({
+        chunkIndex: chunk.chunkIndex,
+        headingPath: chunk.headingPath,
+        symbolName: chunk.symbolName,
+        tokenCount: chunk.tokenCount,
+        textContent: chunk.textContent,
+        searchText: [
+          chunk.headingPath ?? "",
+          chunk.symbolName ?? "",
+          chunk.textContent,
+        ].filter(Boolean).join("\n"),
+        embedding: result.embeddings[index]!,
+        metadata: buildEmbeddingMetadata(chunk.metadata, {
+          provider: result.provider,
+          model: result.model,
+          dimensions: result.dimensions,
+          origin,
+          generatedAt,
+        }),
+        links: chunk.links,
+      }));
+      const codeGraph = document.path && document.language && document.rawContent
+        ? buildCodeGraphForWorkspaceFile({
+          relativePath: document.path,
+          content: document.rawContent,
+          language: document.language,
+          chunks: replacementChunks,
+        })
+        : null;
 
       const replacedChunks = await knowledge.replaceDocumentChunks({
         companyId: document.companyId,
         documentId: document.id,
-        chunks: chunks.map((chunk, index) => ({
-          chunkIndex: chunk.chunkIndex,
-          headingPath: chunk.headingPath,
-          symbolName: chunk.symbolName,
-          tokenCount: chunk.tokenCount,
-          textContent: chunk.textContent,
-          searchText: [
-            chunk.headingPath ?? "",
-            chunk.symbolName ?? "",
-            chunk.textContent,
-          ].filter(Boolean).join("\n"),
-          embedding: result.embeddings[index]!,
-          metadata: buildEmbeddingMetadata(chunk.metadata, {
-            provider: result.provider,
-            model: result.model,
-            dimensions: result.dimensions,
-            origin,
-            generatedAt,
-          }),
-          links: chunk.links,
-        })),
+        codeGraph,
+        chunks: replacementChunks,
       });
 
       await knowledge.updateDocumentMetadata(document.id, {
@@ -118,6 +131,8 @@ export function knowledgeBackfillService(db: Db) {
         embeddingOrigin: origin,
         embeddingGeneratedAt: generatedAt,
         embeddingChunkCount: replacedChunks.length,
+        codeGraphSymbolCount: codeGraph?.symbols.length ?? 0,
+        codeGraphEdgeCount: codeGraph?.edges.length ?? 0,
         embeddingTotalTokens: result.usage.totalTokens,
       });
 
@@ -195,6 +210,155 @@ export function knowledgeBackfillService(db: Db) {
         scanned: staleDocuments.length,
         processed,
         failed,
+      };
+    },
+
+    async rebuildDocumentGraph(input: {
+      documentId: string;
+      actor: {
+        actorType: "agent" | "user" | "system";
+        actorId: string;
+        agentId?: string;
+        runId?: string;
+      };
+    }) {
+      const document = await knowledge.getDocumentById(input.documentId);
+      if (!document) return null;
+      if (!document.path || !document.language || !document.rawContent) {
+        return {
+          documentId: document.id,
+          companyId: document.companyId,
+          chunkCount: 0,
+          symbolCount: 0,
+          edgeCount: 0,
+          skipped: true,
+        };
+      }
+      if (!["code", "test_report"].includes(document.sourceType)) {
+        return {
+          documentId: document.id,
+          companyId: document.companyId,
+          chunkCount: 0,
+          symbolCount: 0,
+          edgeCount: 0,
+          skipped: true,
+        };
+      }
+
+      const chunks = await knowledge.listDocumentChunksWithLinks(document.id);
+      if (chunks.length === 0) {
+        return {
+          documentId: document.id,
+          companyId: document.companyId,
+          chunkCount: 0,
+          symbolCount: 0,
+          edgeCount: 0,
+          skipped: true,
+        };
+      }
+
+      const replacementChunks = chunks.map((chunk) => ({
+        chunkIndex: chunk.chunkIndex,
+        headingPath: chunk.headingPath,
+        symbolName: chunk.symbolName,
+        tokenCount: chunk.tokenCount,
+        textContent: chunk.textContent,
+        searchText: [
+          chunk.headingPath ?? "",
+          chunk.symbolName ?? "",
+          chunk.textContent,
+        ].filter(Boolean).join("\n"),
+        embedding: Array.isArray(chunk.embedding) ? chunk.embedding : [],
+        metadata: chunk.metadata ?? {},
+        links: chunk.links,
+      }));
+      const codeGraph = buildCodeGraphForWorkspaceFile({
+        relativePath: document.path,
+        content: document.rawContent,
+        language: document.language,
+        chunks: replacementChunks,
+      });
+
+      const replacedChunks = await knowledge.replaceDocumentChunks({
+        companyId: document.companyId,
+        documentId: document.id,
+        codeGraph,
+        chunks: replacementChunks,
+      });
+
+      await knowledge.updateDocumentMetadata(document.id, {
+        codeGraphSymbolCount: codeGraph?.symbols.length ?? 0,
+        codeGraphEdgeCount: codeGraph?.edges.length ?? 0,
+        codeGraphRebuiltAt: new Date().toISOString(),
+      });
+
+      await logActivity(db, {
+        companyId: document.companyId,
+        actorType: input.actor.actorType,
+        actorId: input.actor.actorId,
+        agentId: input.actor.agentId,
+        runId: input.actor.runId,
+        action: "knowledge.document.graph_rebuilt",
+        entityType: "project",
+        entityId: document.projectId ?? document.issueId ?? document.id,
+        details: {
+          documentId: document.id,
+          chunkCount: replacedChunks.length,
+          symbolCount: codeGraph?.symbols.length ?? 0,
+          edgeCount: codeGraph?.edges.length ?? 0,
+        },
+      });
+
+      return {
+        documentId: document.id,
+        companyId: document.companyId,
+        chunkCount: replacedChunks.length,
+        symbolCount: codeGraph?.symbols.length ?? 0,
+        edgeCount: codeGraph?.edges.length ?? 0,
+        skipped: false,
+      };
+    },
+
+    async rebuildCompanyCodeGraph(input: {
+      companyId: string;
+      limit?: number;
+    }) {
+      const documents = await db
+        .select({
+          id: knowledgeDocuments.id,
+        })
+        .from(knowledgeDocuments)
+        .where(and(
+          eq(knowledgeDocuments.companyId, input.companyId),
+          inArray(knowledgeDocuments.sourceType, ["code", "test_report"]),
+          ne(knowledgeDocuments.authorityLevel, "deprecated"),
+          sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
+        ))
+        .orderBy(desc(knowledgeDocuments.updatedAt))
+        .limit(input.limit ?? 500);
+
+      let processed = 0;
+      let skipped = 0;
+      for (const document of documents) {
+        const result = await this.rebuildDocumentGraph({
+          documentId: document.id,
+          actor: {
+            actorType: "system",
+            actorId: "knowledge_graph_backfill",
+          },
+        });
+        if (!result || result.skipped) {
+          skipped += 1;
+          continue;
+        }
+        processed += 1;
+      }
+
+      return {
+        companyId: input.companyId,
+        scanned: documents.length,
+        processed,
+        skipped,
       };
     },
   };

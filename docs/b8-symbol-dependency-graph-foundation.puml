@@ -1,0 +1,64 @@
+@startuml
+title B8 Slice 2 - Symbol / Dependency Graph Foundation
+
+skinparam backgroundColor #0b1020
+skinparam defaultFontName Noto Sans CJK KR
+skinparam ArrowColor #8fb3ff
+skinparam ArrowThickness 1.4
+skinparam rectangle {
+  BackgroundColor #141b2d
+  BorderColor #5f7adb
+  FontColor #eef2ff
+  RoundCorner 16
+}
+skinparam database {
+  BackgroundColor #111827
+  BorderColor #22c55e
+  FontColor #ecfeff
+}
+
+rectangle "Workspace Import" as Import
+rectangle "Chunker\n(symbol-aware chunks)" as Chunker
+rectangle "Code Graph Builder\n(local / import / test edges)" as Builder
+database "knowledge_chunks" as Chunks
+database "knowledge_chunk_links" as Links
+database "code_symbols" as Symbols
+database "code_symbol_edges" as Edges
+rectangle "Hybrid Retrieval" as Hybrid
+rectangle "Legacy Graph Expansion" as Legacy
+rectangle "Symbol Graph Expansion" as SymbolGraph
+rectangle "Rerank + Brief" as Brief
+database "retrieval_runs\nquery_debug.quality" as Runs
+
+Import --> Chunker
+Chunker --> Chunks
+Chunker --> Links
+Chunker --> Builder
+Builder --> Symbols
+Builder --> Edges
+
+Hybrid --> Legacy
+Legacy --> SymbolGraph
+Symbols --> SymbolGraph
+Edges --> SymbolGraph
+Chunks --> SymbolGraph
+SymbolGraph --> Brief
+Brief --> Runs
+
+note right of SymbolGraph
+1-hop traversal
+- imports
+- calls
+- references
+- tests
+end note
+
+note bottom of Runs
+quality metrics
+- symbolGraphSeedCount
+- symbolGraphHitCount
+- edgeTraversalCount
+- edgeTypeCounts
+end note
+
+@enduml

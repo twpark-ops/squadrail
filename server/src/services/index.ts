@@ -29,7 +29,12 @@ export { knowledgeService } from "./knowledge.js";
 export { knowledgeEmbeddingService, normalizeEmbeddingInput } from "./knowledge-embeddings.js";
 export { knowledgeRerankingService } from "./knowledge-reranking.js";
 export { knowledgeBackfillService, needsEmbeddingRefresh, buildEmbeddingMetadata } from "./knowledge-backfill.js";
-export { knowledgeImportService, shouldIncludeWorkspacePath, chunkWorkspaceFile } from "./knowledge-import.js";
+export {
+  knowledgeImportService,
+  shouldIncludeWorkspacePath,
+  chunkWorkspaceFile,
+  buildCodeGraphForWorkspaceFile,
+} from "./knowledge-import.js";
 export { setupProgressService, buildSetupProgressSteps, deriveSetupProgressState } from "./setup-progress.js";
 export { rolePackService, buildDefaultRolePackFiles } from "./role-packs.js";
 export { doctorService } from "./doctor.js";
