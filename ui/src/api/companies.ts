@@ -6,8 +6,14 @@ import type {
   CompanyPortabilityImportResult,
   CompanyPortabilityPreviewRequest,
   CompanyPortabilityPreviewResult,
+  CreateKnowledgeSyncJob,
   CreateRolePackDraft,
   DoctorReport,
+  KnowledgeSetupView,
+  KnowledgeSyncJobView,
+  OrgSyncRepairResult,
+  OrgSyncView,
+  RepairOrgSync,
   RolePackPresetDescriptor,
   RolePackRevisionWithFiles,
   RolePackSimulationRequest,
@@ -50,6 +56,32 @@ export const companiesApi = {
     api.get<SetupProgressView>(`/companies/${companyId}/setup-progress`),
   updateSetupProgress: (companyId: string, data: UpdateSetupProgress) =>
     api.patch<SetupProgressView>(`/companies/${companyId}/setup-progress`, data),
+  getOrgSync: (companyId: string) =>
+    api.get<OrgSyncView>(`/companies/${companyId}/org-sync`),
+  repairOrgSync: (
+    companyId: string,
+    data: RepairOrgSync = {
+      createMissing: true,
+      adoptLegacySingleEngineers: true,
+      repairMismatches: true,
+      pauseLegacyExtras: true,
+    },
+  ) =>
+    api.post<OrgSyncRepairResult>(`/companies/${companyId}/org-sync/repair`, data),
+  getKnowledgeSetup: (companyId: string) =>
+    api.get<KnowledgeSetupView>(`/companies/${companyId}/knowledge-setup`),
+  startKnowledgeSync: (
+    companyId: string,
+    data: CreateKnowledgeSyncJob = {
+      forceFull: false,
+      rebuildGraph: true,
+      rebuildVersions: true,
+      backfillPersonalization: true,
+    },
+  ) =>
+    api.post<KnowledgeSyncJobView>(`/companies/${companyId}/knowledge-sync`, data),
+  getKnowledgeSyncJob: (companyId: string, jobId: string) =>
+    api.get<KnowledgeSyncJobView>(`/companies/${companyId}/knowledge-sync/${jobId}`),
   getDoctorReport: (
     companyId: string,
     opts: {

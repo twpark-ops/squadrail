@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, FolderTree, Network, RefreshCw } from "lucide-react";
+import { Download, FolderTree, Network, RefreshCw, Settings2 } from "lucide-react";
 import { PageTransition } from "@/components/PageTransition";
 import { useCompany } from "@/context/CompanyContext";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { companiesApi } from "@/api/companies";
 import { knowledgeApi, type KnowledgeDocument } from "@/api/knowledge";
 import { projectsApi } from "@/api/projects";
 import { KnowledgeStats } from "@/components/knowledge/KnowledgeStats";
@@ -13,6 +15,8 @@ import { DocumentList } from "@/components/knowledge/DocumentList";
 import { DocumentDetailModal } from "@/components/knowledge/DocumentDetailModal";
 import { KnowledgeSignalPanel } from "@/components/knowledge/KnowledgeSignalPanel";
 import { KnowledgeMapPanel } from "@/components/knowledge/KnowledgeMapPanel";
+import { KnowledgeSetupPanel } from "@/components/knowledge/KnowledgeSetupPanel";
+import { queryKeys } from "@/lib/queryKeys";
 import { timeAgo } from "@/lib/timeAgo";
 
 export function Knowledge() {
@@ -20,6 +24,7 @@ export function Knowledge() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"explore" | "setup">("explore");
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Knowledge" }]);
@@ -48,6 +53,17 @@ export function Knowledge() {
     enabled: Boolean(selectedCompanyId),
   });
 
+  const setupQuery = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.companies.knowledgeSetup(selectedCompanyId) : ["companies", "__none__", "knowledge-setup"],
+    queryFn: () => companiesApi.getKnowledgeSetup(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || typeof data !== "object" || !("activeJobCount" in data)) return false;
+      return Number((data as { activeJobCount?: number }).activeJobCount ?? 0) > 0 ? 5000 : false;
+    },
+  });
+
   const stats = useMemo(() => {
     const overview = overviewQuery.data;
     const timestamps = (overview?.projectCoverage ?? [])
@@ -71,13 +87,14 @@ export function Knowledge() {
   );
 
   const handleRefresh = () => {
-    overviewQuery.refetch();
-    documentsQuery.refetch();
-    projectsQuery.refetch();
+    void overviewQuery.refetch();
+    void documentsQuery.refetch();
+    void projectsQuery.refetch();
+    void setupQuery.refetch();
   };
 
-  const isLoading = overviewQuery.isLoading || documentsQuery.isLoading || projectsQuery.isLoading;
-  const hasError = overviewQuery.error || documentsQuery.error || projectsQuery.error;
+  const isLoading = overviewQuery.isLoading || documentsQuery.isLoading || projectsQuery.isLoading || setupQuery.isLoading;
+  const hasError = overviewQuery.error || documentsQuery.error || projectsQuery.error || setupQuery.error;
 
   if (!selectedCompanyId) {
     return (
@@ -92,7 +109,7 @@ export function Knowledge() {
   return (
     <PageTransition>
       <div className="space-y-8">
-        <section className="rounded-[2rem] border border-border bg-[linear-gradient(145deg,color-mix(in_oklab,var(--card)_88%,var(--background)),color-mix(in_oklab,var(--primary)_8%,var(--card)))] p-6 shadow-card dark:bg-[linear-gradient(145deg,color-mix(in_oklab,var(--card)_94%,var(--background)),color-mix(in_oklab,var(--card)_88%,var(--primary)))] md:p-7">
+        <section className="rounded-[2rem] border border-border bg-[linear-gradient(145deg,color-mix(in_oklab,var(--card)_92%,var(--background)),color-mix(in_oklab,var(--primary)_7%,var(--card)))] p-6 shadow-card md:p-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
               <div className="inline-flex rounded-full border border-primary/10 bg-primary/8 px-3 py-1 text-[11px] font-medium tracking-[0.1em] text-primary/84">
@@ -101,7 +118,7 @@ export function Knowledge() {
               <div>
                 <h1 className="text-4xl font-semibold tracking-tight text-foreground">Knowledge Base</h1>
                 <p className="mt-2 max-w-3xl text-base text-muted-foreground md:text-lg">
-                  Explore company-wide retrieval coverage, graph connectivity, and project-scoped evidence slices. This pass prioritizes graph-read exploration without new backend contracts.
+                  Explore company-wide retrieval coverage and keep the org, workspace, graph, version, and personalization layers in sync from one place.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -142,148 +159,178 @@ export function Knowledge() {
               {(overviewQuery.error instanceof Error ? overviewQuery.error.message : null)
                 || (documentsQuery.error instanceof Error ? documentsQuery.error.message : null)
                 || (projectsQuery.error instanceof Error ? projectsQuery.error.message : null)
+                || (setupQuery.error instanceof Error ? setupQuery.error.message : null)
                 || "unknown error"}
             </p>
           </div>
         )}
 
-        {isLoading && !overviewQuery.data && (
+        {isLoading && !overviewQuery.data && !setupQuery.data && (
           <div className="rounded-[1.5rem] border border-border/70 bg-card/60 py-12 text-center text-muted-foreground">
             Loading knowledge base...
           </div>
         )}
 
-        {!isLoading && overviewQuery.data && (
-          <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-            <KnowledgeMapPanel
-              coverage={overviewQuery.data.projectCoverage}
-              documents={documentsQuery.data ?? []}
-              selectedProjectId={selectedProjectId}
-              onSelectProject={setSelectedProjectId}
-              onSelectDocument={setSelectedDocument}
-            />
-            <div className="space-y-6">
-              <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-                <KnowledgeSignalPanel
-                  sourceTypeDistribution={overviewQuery.data.sourceTypeDistribution}
-                  authorityDistribution={overviewQuery.data.authorityDistribution}
-                  linkEntityDistribution={overviewQuery.data.linkEntityDistribution}
-                />
-              </div>
-              <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-                <div className="mb-4">
-                  <h2 className="text-lg font-semibold text-foreground">Retrieval posture</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Current retrieval scale and import freshness. These stats support the explorer instead of dominating it.
-                  </p>
-                </div>
-                <KnowledgeStats
-                  totalDocuments={stats.totalDocuments}
-                  totalChunks={stats.totalChunks}
-                  totalLinks={stats.totalLinks}
-                  connectedDocuments={stats.connectedDocuments}
-                  activeProjects={stats.activeProjects}
-                  lastSync={stats.lastSync}
-                />
-              </div>
-            </div>
-          </section>
-        )}
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "explore" | "setup")} className="space-y-5">
+          <TabsList variant="line" className="w-full justify-start gap-2 rounded-[1rem] border border-border bg-card px-2 py-2">
+            <TabsTrigger value="explore" className="gap-2 rounded-full px-4 py-2">
+              <Network className="h-4 w-4" />
+              Explore
+            </TabsTrigger>
+            <TabsTrigger value="setup" className="gap-2 rounded-full px-4 py-2">
+              <Settings2 className="h-4 w-4" />
+              Setup
+            </TabsTrigger>
+          </TabsList>
 
-        {!isLoading && overviewQuery.data && (
-          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-              <div className="mb-4 flex items-start gap-3">
-                <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
-                  <FolderTree className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-semibold">Coverage by Project</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Use project coverage to pivot the map and document browser into a more focused slice.
-                  </p>
-                </div>
-              </div>
-              <ProjectDistribution
-                coverage={overviewQuery.data.projectCoverage}
-                selectedProjectId={selectedProjectId}
-                onSelectProject={setSelectedProjectId}
-              />
-            </div>
-            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-              <div className="mb-4 flex items-start gap-3">
-                <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
-                  <Network className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-semibold">Explorer Notes</h2>
-                  <p className="text-sm text-muted-foreground">
-                    This UI-only pass gives knowledge a graph-read identity. Ask mode stays parked until the retrieval query API is exposed.
-                  </p>
-                </div>
-              </div>
-              <div className="grid gap-3">
-                <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
-                  <div className="text-sm font-semibold text-foreground">What you can do now</div>
-                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Pivot by project, inspect source clusters, browse visible documents, and drill into chunk-level graph links from the detail modal.
+          <TabsContent value="explore" className="space-y-6">
+            {!isLoading && overviewQuery.data && (
+              <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+                <KnowledgeMapPanel
+                  coverage={overviewQuery.data.projectCoverage}
+                  documents={documentsQuery.data ?? []}
+                  selectedProjectId={selectedProjectId}
+                  onSelectProject={setSelectedProjectId}
+                  onSelectDocument={setSelectedDocument}
+                />
+                <div className="space-y-6">
+                  <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                    <KnowledgeSignalPanel
+                      sourceTypeDistribution={overviewQuery.data.sourceTypeDistribution}
+                      authorityDistribution={overviewQuery.data.authorityDistribution}
+                      linkEntityDistribution={overviewQuery.data.linkEntityDistribution}
+                    />
+                  </div>
+                  <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                    <div className="mb-4">
+                      <h2 className="text-lg font-semibold text-foreground">Retrieval posture</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Current retrieval scale and import freshness. These stats support the explorer instead of dominating it.
+                      </p>
+                    </div>
+                    <KnowledgeStats
+                      totalDocuments={stats.totalDocuments}
+                      totalChunks={stats.totalChunks}
+                      totalLinks={stats.totalLinks}
+                      connectedDocuments={stats.connectedDocuments}
+                      activeProjects={stats.activeProjects}
+                      lastSync={stats.lastSync}
+                    />
                   </div>
                 </div>
-                <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
-                  <div className="text-sm font-semibold text-foreground">What is intentionally parked</div>
-                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Natural-language ask mode and true company-scale graph traversal are backend-dependent and remain out of scope for this worktree.
-                  </div>
-                </div>
-                <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
-                  <div className="text-sm font-semibold text-foreground">Current selected slice</div>
-                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {selectedProjectId
-                      ? `${projectNameMap[selectedProjectId] ?? "Selected project"} is active in the explorer.`
-                      : "The explorer is showing a company-wide slice of the latest indexed material."}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
+              </section>
+            )}
 
-        {!isLoading && documentsQuery.data && (
-          <section className="space-y-4 rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-semibold">
-                  {selectedProjectId ? "Project Slice" : "Recent Company Slice"} ({documentsQuery.data.length})
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {selectedProjectId
-                    ? `${projectNameMap[selectedProjectId] ?? "Selected project"} scoped documents.`
-                    : "Recent documents across all projects. Use the project coverage panel above to inspect full project slices."}
+            {!isLoading && overviewQuery.data && (
+              <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+                <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                  <div className="mb-4 flex items-start gap-3">
+                    <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
+                      <FolderTree className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-semibold">Coverage by Project</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Use project coverage to pivot the map and document browser into a more focused slice.
+                      </p>
+                    </div>
+                  </div>
+                  <ProjectDistribution
+                    coverage={overviewQuery.data.projectCoverage}
+                    selectedProjectId={selectedProjectId}
+                    onSelectProject={setSelectedProjectId}
+                  />
+                </div>
+                <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                  <div className="mb-4 flex items-start gap-3">
+                    <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
+                      <Network className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-semibold">Explorer Notes</h2>
+                      <p className="text-sm text-muted-foreground">
+                        This pass makes graph reach, project coverage, and source slices visible before ask-mode orchestration enters the UI.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
+                      <div className="text-sm font-semibold text-foreground">What you can do now</div>
+                      <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                        Pivot by project, inspect source clusters, browse visible documents, and drill into chunk-level graph links from the detail modal.
+                      </div>
+                    </div>
+                    <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
+                      <div className="text-sm font-semibold text-foreground">Current selected slice</div>
+                      <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                        {selectedProjectId
+                          ? `${projectNameMap[selectedProjectId] ?? "Selected project"} is active in the explorer.`
+                          : "The explorer is showing a company-wide slice of the latest indexed material."}
+                      </div>
+                    </div>
+                    {setupQuery.data && (
+                      <div className="rounded-[1.2rem] border border-border bg-background/72 px-4 py-4">
+                        <div className="text-sm font-semibold text-foreground">Setup health</div>
+                        <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                          Org sync is <span className="font-medium text-foreground">{setupQuery.data.orgSync.status.replaceAll("_", " ")}</span> and{" "}
+                          <span className="font-medium text-foreground">{setupQuery.data.projects.filter((project) => project.projectStatus === "ready").length}</span> of{" "}
+                          <span className="font-medium text-foreground">{setupQuery.data.projects.length}</span> projects are ready.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {!isLoading && documentsQuery.data && (
+              <section className="space-y-4 rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-semibold">
+                      {selectedProjectId ? "Project Slice" : "Recent Company Slice"} ({documentsQuery.data.length})
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {selectedProjectId
+                        ? `${projectNameMap[selectedProjectId] ?? "Selected project"} scoped documents.`
+                        : "Recent documents across all projects. Use the project coverage panel above to inspect full project slices."}
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    <Network className="mr-2 inline h-3.5 w-3.5" />
+                    {stats.linkedChunks.toLocaleString()} linked chunks
+                  </div>
+                </div>
+                <DocumentList
+                  documents={documentsQuery.data}
+                  projectNames={projectNameMap}
+                  selectedProjectId={selectedProjectId}
+                  recentMode={!selectedProjectId}
+                  onDocumentClick={setSelectedDocument}
+                />
+              </section>
+            )}
+
+            {!isLoading && overviewQuery.data && overviewQuery.data.totalDocuments === 0 && (
+              <div className="rounded-[1.5rem] border border-dashed border-border bg-muted/20 p-12 text-center">
+                <h3 className="mb-2 text-lg font-semibold">No documents indexed yet</h3>
+                <p className="mx-auto max-w-md text-muted-foreground">
+                  Import project workspaces to build your knowledge base. Documents will be chunked, embedded, and linked into the retrieval graph.
                 </p>
               </div>
-              <div className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                <Network className="mr-2 inline h-3.5 w-3.5" />
-                {stats.linkedChunks.toLocaleString()} linked chunks
-              </div>
-            </div>
-            <DocumentList
-              documents={documentsQuery.data}
-              projectNames={projectNameMap}
-              selectedProjectId={selectedProjectId}
-              recentMode={!selectedProjectId}
-              onDocumentClick={setSelectedDocument}
-            />
-          </section>
-        )}
+            )}
+          </TabsContent>
 
-        {!isLoading && overviewQuery.data && overviewQuery.data.totalDocuments === 0 && (
-          <div className="rounded-[1.5rem] border border-dashed border-border bg-muted/20 p-12 text-center">
-            <h3 className="mb-2 text-lg font-semibold">No documents indexed yet</h3>
-            <p className="mx-auto max-w-md text-muted-foreground">
-              Import project workspaces to build your knowledge base. Documents will be chunked, embedded, and linked into the retrieval graph.
-            </p>
-          </div>
-        )}
+          <TabsContent value="setup">
+            {setupQuery.data && (
+              <KnowledgeSetupPanel
+                companyId={selectedCompanyId}
+                view={setupQuery.data}
+                onRefresh={handleRefresh}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
 
         {selectedDocument && (
           <DocumentDetailModal

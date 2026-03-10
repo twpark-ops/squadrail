@@ -19,7 +19,7 @@ It is now a graph-assisted, temporal, and role-aware retrieval runtime. The curr
 ### Core tables
 
 - `knowledge_documents`
-  - document-level metadata for imported repository files, issue artifacts, and protocol-linked knowledge
+  - document-level metadata for imported repository files and future organizational artifacts
   - includes scope fields such as `projectId`, `issueId`, `messageId`, `repoUrl`, `repoRef`, `path`
 - `knowledge_chunks`
   - chunked retrieval units with `headingPath`, `symbolName`, `searchTsv`, `embedding`, and freeform `metadata`
@@ -62,6 +62,8 @@ The current implementation does not have dedicated tables for:
 ### Entry points
 
 The active ingestion path is workspace import. The system scans the configured project workspace and imports selected files into `knowledge_documents` and `knowledge_chunks`.
+
+The schema is already capable of linking issue and protocol artifacts through `issueId`, `messageId`, and `sourceType`, but organizational artifact ingestion is not yet an active default runtime path. Today the system remains workspace-centric first.
 
 ### File selection and prioritization
 

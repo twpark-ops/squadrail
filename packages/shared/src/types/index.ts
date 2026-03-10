@@ -69,6 +69,24 @@ export type { ActivityEvent } from "./activity.js";
 export type { SidebarBadges } from "./sidebar-badges.js";
 export type { SetupProgress, SetupProgressView, DoctorCheck, DoctorReport, DoctorWorkspaceTarget } from "./setup.js";
 export type {
+  OrgSyncStatus,
+  OrgSyncExpectedAgent,
+  OrgSyncMissingAgent,
+  OrgSyncExtraAgent,
+  OrgSyncMismatch,
+  OrgSyncView,
+  OrgSyncRepairResult,
+  KnowledgeSyncJobStatus,
+  KnowledgeSetupProjectStatus,
+  KnowledgeSetupWorkspaceState,
+  KnowledgeSetupProjectMetrics,
+  KnowledgeSetupPersonalizationMetrics,
+  KnowledgeSetupProjectView,
+  KnowledgeSyncJobProjectRun,
+  KnowledgeSyncJobView,
+  KnowledgeSetupView,
+} from "./knowledge-setup.js";
+export type {
   RolePackSet,
   RolePackRevision,
   RolePackRevisionWithFiles,

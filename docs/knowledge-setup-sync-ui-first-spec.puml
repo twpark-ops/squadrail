@@ -1,0 +1,94 @@
+@startuml
+title Knowledge Setup / Sync UI-First
+
+skinparam backgroundColor transparent
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "Knowledge / Setup UI" {
+  [Company Readiness Header]
+  [Readiness Strips]
+  [Project Sync Table]
+  [Job Activity Rail]
+  [Failure Drilldown]
+}
+
+package "Read Models" {
+  [GET /companies/:id/knowledge-setup]
+  [GET /companies/:id/org-sync]
+}
+
+package "Command APIs" {
+  [POST /companies/:id/knowledge-sync]
+  [GET /companies/:id/knowledge-sync/:jobId]
+  [POST /companies/:id/org-sync/repair]
+}
+
+package "Execution" {
+  [Workspace Import]
+  [Graph Rebuild]
+  [Version Rebuild]
+  [Personalization Backfill]
+  [Org Drift Repair]
+}
+
+database "RAG / Org State" {
+  [projects]
+  [agents]
+  [knowledge_documents]
+  [knowledge_chunks]
+  [knowledge_chunk_links]
+  [code_symbols]
+  [code_symbol_edges]
+  [knowledge_document_versions]
+  [retrieval_feedback_events]
+  [retrieval_role_profiles]
+}
+
+[Company Readiness Header] --> [GET /companies/:id/knowledge-setup]
+[Readiness Strips] --> [GET /companies/:id/knowledge-setup]
+[Project Sync Table] --> [GET /companies/:id/knowledge-setup]
+[Project Sync Table] --> [POST /companies/:id/knowledge-sync]
+[Job Activity Rail] --> [GET /companies/:id/knowledge-sync/:jobId]
+[Failure Drilldown] --> [GET /companies/:id/knowledge-sync/:jobId]
+[Readiness Strips] --> [GET /companies/:id/org-sync]
+[Company Readiness Header] --> [POST /companies/:id/org-sync/repair]
+
+[POST /companies/:id/knowledge-sync] --> [Workspace Import]
+[POST /companies/:id/knowledge-sync] --> [Graph Rebuild]
+[POST /companies/:id/knowledge-sync] --> [Version Rebuild]
+[POST /companies/:id/knowledge-sync] --> [Personalization Backfill]
+[POST /companies/:id/org-sync/repair] --> [Org Drift Repair]
+
+[Workspace Import] --> [knowledge_documents]
+[Workspace Import] --> [knowledge_chunks]
+[Workspace Import] --> [knowledge_chunk_links]
+[Workspace Import] --> [code_symbols]
+[Workspace Import] --> [code_symbol_edges]
+[Version Rebuild] --> [knowledge_document_versions]
+[Personalization Backfill] --> [retrieval_feedback_events]
+[Personalization Backfill] --> [retrieval_role_profiles]
+[Org Drift Repair] --> [agents]
+[GET /companies/:id/knowledge-setup] --> [projects]
+[GET /companies/:id/knowledge-setup] --> [knowledge_documents]
+[GET /companies/:id/knowledge-setup] --> [knowledge_chunks]
+[GET /companies/:id/knowledge-setup] --> [knowledge_chunk_links]
+[GET /companies/:id/knowledge-setup] --> [code_symbol_edges]
+[GET /companies/:id/knowledge-setup] --> [knowledge_document_versions]
+[GET /companies/:id/knowledge-setup] --> [retrieval_role_profiles]
+[GET /companies/:id/org-sync] --> [agents]
+
+note right of [Project Sync Table]
+Desktop-first
+Primary path for operators
+Select projects
+Sync selected or sync all
+end note
+
+note bottom of [GET /companies/:id/knowledge-setup]
+Single read model for setup UX
+instead of many scattered endpoints
+end note
+
+@enduml

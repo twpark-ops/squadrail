@@ -1481,8 +1481,11 @@ export function knowledgeService(db: Db) {
       let exactCommitMatchCount = 0;
       let graphExpandedRuns = 0;
       let symbolGraphExpandedRuns = 0;
+      let multiHopGraphExpandedRuns = 0;
+      let graphMaxDepthTotal = 0;
       const graphEntityTypeCounts: Record<string, number> = {};
       const edgeTypeCounts: Record<string, number> = {};
+      const graphHopDepthCounts: Record<string, number> = {};
 
       for (const row of rows) {
         const debug = (row.queryDebug ?? {}) as Record<string, unknown>;
@@ -1493,6 +1496,10 @@ export function knowledgeService(db: Db) {
         const graphHitCount = typeof quality.graphHitCount === "number" ? quality.graphHitCount : 0;
         const symbolGraphHitCount = typeof quality.symbolGraphHitCount === "number" ? quality.symbolGraphHitCount : 0;
         const edgeTraversalCount = typeof quality.edgeTraversalCount === "number" ? quality.edgeTraversalCount : 0;
+        const graphMaxDepth = typeof quality.graphMaxDepth === "number" ? quality.graphMaxDepth : 0;
+        const multiHopGraphHitCount = typeof quality.multiHopGraphHitCount === "number"
+          ? quality.multiHopGraphHitCount
+          : 0;
         const temporalHitCount = typeof quality.temporalHitCount === "number" ? quality.temporalHitCount : 0;
         const branchAlignedTopHitCount = typeof quality.branchAlignedTopHitCount === "number"
           ? quality.branchAlignedTopHitCount
@@ -1508,6 +1515,10 @@ export function knowledgeService(db: Db) {
           : [];
         const edgeTypes = quality.edgeTypeCounts && typeof quality.edgeTypeCounts === "object"
           ? Object.entries(quality.edgeTypeCounts as Record<string, unknown>)
+            .filter((entry): entry is [string, number] => typeof entry[0] === "string" && typeof entry[1] === "number")
+          : [];
+        const hopDepths = quality.graphHopDepthCounts && typeof quality.graphHopDepthCounts === "object"
+          ? Object.entries(quality.graphHopDepthCounts as Record<string, unknown>)
             .filter((entry): entry is [string, number] => typeof entry[0] === "string" && typeof entry[1] === "number")
           : [];
         const degradedReasons = Array.isArray(quality.degradedReasons)
@@ -1536,6 +1547,7 @@ export function knowledgeService(db: Db) {
         graphHitCountTotal += graphHitCount;
         symbolGraphHitCountTotal += symbolGraphHitCount;
         edgeTraversalCountTotal += edgeTraversalCount;
+        graphMaxDepthTotal += graphMaxDepth;
         temporalHitCountTotal += temporalHitCount;
         branchAlignedTopHitCountTotal += branchAlignedTopHitCount;
         if (personalization.applied === true) personalizedRunCount += 1;
@@ -1550,6 +1562,7 @@ export function knowledgeService(db: Db) {
         exactCommitMatchCount += exactCommitMatchCountForRun;
         if (graphHitCount > 0) graphExpandedRuns += 1;
         if (symbolGraphHitCount > 0) symbolGraphExpandedRuns += 1;
+        if (multiHopGraphHitCount > 0) multiHopGraphExpandedRuns += 1;
         if (confidenceLevel) {
           confidenceCounts[confidenceLevel] = (confidenceCounts[confidenceLevel] ?? 0) + 1;
         }
@@ -1558,6 +1571,9 @@ export function knowledgeService(db: Db) {
         }
         for (const [edgeType, count] of edgeTypes) {
           edgeTypeCounts[edgeType] = (edgeTypeCounts[edgeType] ?? 0) + count;
+        }
+        for (const [depth, count] of hopDepths) {
+          graphHopDepthCounts[depth] = (graphHopDepthCounts[depth] ?? 0) + count;
         }
         for (const reason of degradedReasons) {
           degradedReasonCounts[reason] = (degradedReasonCounts[reason] ?? 0) + 1;
@@ -1636,6 +1652,20 @@ export function knowledgeService(db: Db) {
           ),
         )
         .then((result) => result[0] ?? { eventCount: 0, positiveCount: 0, negativeCount: 0 });
+      const feedbackTypeCounts = await db
+        .select({
+          feedbackType: retrievalFeedbackEvents.feedbackType,
+          count: sql<number>`count(*)`,
+        })
+        .from(retrievalFeedbackEvents)
+        .where(
+          and(
+            eq(retrievalFeedbackEvents.companyId, input.companyId),
+            gte(retrievalFeedbackEvents.createdAt, since),
+          ),
+        )
+        .groupBy(retrievalFeedbackEvents.feedbackType)
+        .then((rows) => Object.fromEntries(rows.map((row) => [row.feedbackType, row.count])));
 
       const profileCount = await db
         .select({ count: sql<number>`count(*)` })
@@ -1656,6 +1686,7 @@ export function knowledgeService(db: Db) {
         averageGraphHitCount: totalRuns > 0 ? graphHitCountTotal / totalRuns : 0,
         averageSymbolGraphHitCount: totalRuns > 0 ? symbolGraphHitCountTotal / totalRuns : 0,
         averageEdgeTraversalCount: totalRuns > 0 ? edgeTraversalCountTotal / totalRuns : 0,
+        averageGraphMaxDepth: totalRuns > 0 ? graphMaxDepthTotal / totalRuns : 0,
         averageTemporalHitCount: totalRuns > 0 ? temporalHitCountTotal / totalRuns : 0,
         averageBranchAlignedTopHitCount: totalRuns > 0 ? branchAlignedTopHitCountTotal / totalRuns : 0,
         profileAppliedRunCount: personalizedRunCount,
@@ -1673,10 +1704,13 @@ export function knowledgeService(db: Db) {
         exactCommitMatchCount,
         graphExpandedRuns,
         symbolGraphExpandedRuns,
+        multiHopGraphExpandedRuns,
         confidenceCounts,
         degradedReasonCounts,
         graphEntityTypeCounts,
         edgeTypeCounts,
+        graphHopDepthCounts,
+        feedbackTypeCounts,
         perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         samples: {

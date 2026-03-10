@@ -358,8 +358,10 @@ export function knowledgeBackfillService(db: Db) {
 
     async rebuildCompanyCodeGraph(input: {
       companyId: string;
+      projectIds?: string[];
       limit?: number;
     }) {
+      const projectIds = Array.from(new Set((input.projectIds ?? []).filter(Boolean)));
       const documents = await db
         .select({
           id: knowledgeDocuments.id,
@@ -367,6 +369,7 @@ export function knowledgeBackfillService(db: Db) {
         .from(knowledgeDocuments)
         .where(and(
           eq(knowledgeDocuments.companyId, input.companyId),
+          projectIds.length > 0 ? inArray(knowledgeDocuments.projectId, projectIds) : sql`true`,
           inArray(knowledgeDocuments.sourceType, ["code", "test_report"]),
           ne(knowledgeDocuments.authorityLevel, "deprecated"),
           sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
@@ -401,9 +404,12 @@ export function knowledgeBackfillService(db: Db) {
 
     async rebuildCompanyDocumentVersions(input: {
       companyId: string;
+      projectIds?: string[];
       limit?: number;
     }) {
-      const companyProjects = await projects.list(input.companyId);
+      const selectedProjectIds = Array.from(new Set((input.projectIds ?? []).filter(Boolean)));
+      const companyProjects = (await projects.list(input.companyId))
+        .filter((project) => selectedProjectIds.length === 0 || selectedProjectIds.includes(project.id));
       let scanned = 0;
       let processed = 0;
       let skipped = 0;

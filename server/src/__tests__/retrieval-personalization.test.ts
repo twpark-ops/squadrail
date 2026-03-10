@@ -15,14 +15,22 @@ describe("retrieval personalization", () => {
         { targetType: "symbol", targetId: "retryWorker", weight: 0.9, feedbackType: "approved" },
         { targetType: "source_type", targetId: "code", weight: 0.6, feedbackType: "approved" },
         { targetType: "path", targetId: "docs/adr/retries.md", weight: -0.9, feedbackType: "request_changes" },
+        { targetType: "path", targetId: "src/legacy.ts", weight: -0.7, feedbackType: "merge_rejected" },
+        { targetType: "path", targetId: "src/important.ts", weight: 1, feedbackType: "operator_pin" },
+        { targetType: "path", targetId: "docs/noisy.md", weight: -0.6, feedbackType: "operator_hide" },
       ],
     });
 
-    expect(profile.stats.feedbackCount).toBe(5);
-    expect(profile.stats.positiveFeedbackCount).toBe(4);
-    expect(profile.stats.negativeFeedbackCount).toBe(1);
+    expect(profile.stats.feedbackCount).toBe(8);
+    expect(profile.stats.positiveFeedbackCount).toBe(5);
+    expect(profile.stats.negativeFeedbackCount).toBe(3);
+    expect(profile.stats.mergeRejectedCount).toBe(1);
+    expect(profile.stats.operatorPinCount).toBe(1);
+    expect(profile.stats.operatorHideCount).toBe(1);
     expect(profile.pathBoosts["src/retry.ts"]).toBeGreaterThan(0);
     expect(profile.pathBoosts["docs/adr/retries.md"]).toBeLessThan(0);
+    expect(profile.pathBoosts["src/important.ts"]).toBeGreaterThan(0);
+    expect(profile.pathBoosts["docs/noisy.md"]).toBeLessThan(0);
     expect(profile.symbolBoosts.retryWorker).toBeGreaterThan(0);
     expect(profile.sourceTypeBoosts.code).toBeGreaterThan(0);
   });
@@ -39,6 +47,9 @@ describe("retrieval personalization", () => {
           positiveFeedbackCount: 3,
           negativeFeedbackCount: 0,
           mergeCompletedCount: 1,
+          mergeRejectedCount: 0,
+          operatorPinCount: 0,
+          operatorHideCount: 0,
           lastFeedbackAt: "2026-03-10T00:00:00Z",
         },
         generatedAt: "2026-03-10T00:00:00Z",
@@ -53,6 +64,9 @@ describe("retrieval personalization", () => {
           positiveFeedbackCount: 3,
           negativeFeedbackCount: 1,
           mergeCompletedCount: 1,
+          mergeRejectedCount: 0,
+          operatorPinCount: 0,
+          operatorHideCount: 0,
           lastFeedbackAt: "2026-03-10T06:00:00Z",
         },
         generatedAt: "2026-03-10T06:00:00Z",

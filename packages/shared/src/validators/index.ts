@@ -130,6 +130,13 @@ export {
   updateSetupProgressSchema,
   type UpdateSetupProgress,
 } from "./setup.js";
+export {
+  repairOrgSyncSchema,
+  createKnowledgeSyncJobSchema,
+  knowledgeSyncJobStatusSchema,
+  type RepairOrgSync,
+  type CreateKnowledgeSyncJob,
+} from "./knowledge-setup.js";
 
 export {
   dashboardRecoveryActionSchema,

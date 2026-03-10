@@ -5,8 +5,10 @@ import {
   companyPortabilityImportSchema,
   companyPortabilityPreviewSchema,
   createRolePackDraftSchema,
+  createKnowledgeSyncJobSchema,
   createCompanySchema,
   rolePackSimulationRequestSchema,
+  repairOrgSyncSchema,
   listRolePacksQuerySchema,
   restoreRolePackRevisionSchema,
   seedDefaultRolePacksSchema,
@@ -22,6 +24,7 @@ import {
   companyService,
   doctorService,
   logActivity,
+  knowledgeSetupService,
   rolePackService,
   setupProgressService,
 } from "../services/index.js";
@@ -48,6 +51,7 @@ export function companyRoutes(
   const access = accessService(db);
   const setup = setupProgressService(db);
   const rolePacks = rolePackService(db);
+  const knowledgeSetup = knowledgeSetupService(db);
   const doctor = doctorService(db, opts);
 
   router.get("/role-pack-presets", (req, res) => {
@@ -97,6 +101,91 @@ export function companyRoutes(
     assertCompanyAccess(req, companyId);
     const progress = await setup.getView(companyId);
     res.json(progress);
+  });
+
+  router.get("/:companyId/org-sync", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const view = await knowledgeSetup.getOrgSync(companyId);
+    res.json(view);
+  });
+
+  router.post("/:companyId/org-sync/repair", validate(repairOrgSyncSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await knowledgeSetup.repairOrgSync(companyId, req.body, {
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+    });
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.org_sync_repaired",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        createdAgentIds: result.createdAgentIds,
+        updatedAgentIds: result.updatedAgentIds,
+        pausedAgentIds: result.pausedAgentIds,
+        adoptedAgentIds: result.adoptedAgentIds,
+        statusBefore: result.statusBefore,
+        statusAfter: result.statusAfter,
+      },
+    });
+    res.json(result);
+  });
+
+  router.get("/:companyId/knowledge-setup", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const view = await knowledgeSetup.getKnowledgeSetup(companyId);
+    res.json(view);
+  });
+
+  router.post("/:companyId/knowledge-sync", validate(createKnowledgeSyncJobSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const job = await knowledgeSetup.runKnowledgeSync(companyId, req.body, {
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+    });
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "knowledge.sync_requested",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        jobId: job.id,
+        selectedProjectIds: job.selectedProjectIds,
+        status: job.status,
+      },
+    });
+    res.status(201).json(job);
+  });
+
+  router.get("/:companyId/knowledge-sync/:jobId", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const jobId = req.params.jobId as string;
+    const job = await knowledgeSetup.getKnowledgeSyncJob(companyId, jobId);
+    if (!job) {
+      res.status(404).json({ error: "Knowledge sync job not found" });
+      return;
+    }
+    res.json(job);
   });
 
   router.patch("/:companyId/setup-progress", validate(updateSetupProgressSchema), async (req, res) => {

@@ -5,6 +5,11 @@ const {
   mockCompanyCreate,
   mockSetupGetView,
   mockSetupUpdate,
+  mockKnowledgeSetupGetOrgSync,
+  mockKnowledgeSetupRepairOrgSync,
+  mockKnowledgeSetupGetKnowledgeSetup,
+  mockKnowledgeSetupRunKnowledgeSync,
+  mockKnowledgeSetupGetKnowledgeSyncJob,
   mockDoctorRun,
   mockListRolePacks,
   mockListPresets,
@@ -20,6 +25,11 @@ const {
   mockCompanyCreate: vi.fn(),
   mockSetupGetView: vi.fn(),
   mockSetupUpdate: vi.fn(),
+  mockKnowledgeSetupGetOrgSync: vi.fn(),
+  mockKnowledgeSetupRepairOrgSync: vi.fn(),
+  mockKnowledgeSetupGetKnowledgeSetup: vi.fn(),
+  mockKnowledgeSetupRunKnowledgeSync: vi.fn(),
+  mockKnowledgeSetupGetKnowledgeSyncJob: vi.fn(),
   mockDoctorRun: vi.fn(),
   mockListRolePacks: vi.fn(),
   mockListPresets: vi.fn(),
@@ -52,6 +62,13 @@ vi.mock("../services/index.js", () => ({
   }),
   doctorService: () => ({
     run: mockDoctorRun,
+  }),
+  knowledgeSetupService: () => ({
+    getOrgSync: mockKnowledgeSetupGetOrgSync,
+    repairOrgSync: mockKnowledgeSetupRepairOrgSync,
+    getKnowledgeSetup: mockKnowledgeSetupGetKnowledgeSetup,
+    runKnowledgeSync: mockKnowledgeSetupRunKnowledgeSync,
+    getKnowledgeSyncJob: mockKnowledgeSetupGetKnowledgeSyncJob,
   }),
   logActivity: mockLogActivity,
   rolePackService: () => ({
@@ -258,6 +275,239 @@ describe("company routes", () => {
         companyId: "company-1",
       }),
     );
+  });
+
+  it("returns org sync status for the requested company", async () => {
+    mockKnowledgeSetupGetOrgSync.mockResolvedValue({
+      companyId: "company-1",
+      templateKey: "cloud-swiftsight",
+      templateConfigured: true,
+      canonicalVersion: "cloud-swiftsight-18a-v1",
+      canonicalAgentCount: 18,
+      liveAgentCount: 13,
+      matchedAgentCount: 13,
+      status: "repairable",
+      missingAgents: [],
+      extraAgents: [],
+      mismatchedAgents: [],
+      generatedAt: "2026-03-11T00:00:00.000Z",
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/org-sync",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      companyId: "company-1",
+      status: "repairable",
+      canonicalAgentCount: 18,
+    });
+    expect(mockKnowledgeSetupGetOrgSync).toHaveBeenCalledWith("company-1");
+  });
+
+  it("repairs org sync drift and records activity", async () => {
+    mockKnowledgeSetupRepairOrgSync.mockResolvedValue({
+      companyId: "company-1",
+      createdAgentIds: ["agent-created"],
+      updatedAgentIds: ["agent-updated"],
+      pausedAgentIds: ["agent-paused"],
+      adoptedAgentIds: ["agent-adopted"],
+      statusBefore: "repairable",
+      statusAfter: "in_sync",
+      orgSync: {
+        companyId: "company-1",
+        templateKey: "cloud-swiftsight",
+        templateConfigured: true,
+        canonicalVersion: "cloud-swiftsight-18a-v1",
+        canonicalAgentCount: 18,
+        liveAgentCount: 18,
+        matchedAgentCount: 18,
+        status: "in_sync",
+        missingAgents: [],
+        extraAgents: [],
+        mismatchedAgents: [],
+        generatedAt: "2026-03-11T00:00:00.000Z",
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/org-sync/repair",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        createMissing: true,
+        adoptLegacySingleEngineers: true,
+        repairMismatches: true,
+        pauseLegacyExtras: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockKnowledgeSetupRepairOrgSync).toHaveBeenCalledWith(
+      "company-1",
+      {
+        createMissing: true,
+        adoptLegacySingleEngineers: true,
+        repairMismatches: true,
+        pauseLegacyExtras: true,
+      },
+      expect.objectContaining({
+        actorType: "user",
+        actorId: "user-1",
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.org_sync_repaired",
+        companyId: "company-1",
+      }),
+    );
+  });
+
+  it("returns knowledge setup view for the requested company", async () => {
+    mockKnowledgeSetupGetKnowledgeSetup.mockResolvedValue({
+      companyId: "company-1",
+      generatedAt: "2026-03-11T00:00:00.000Z",
+      setupProgressStatus: "first_issue_ready",
+      orgSync: {
+        companyId: "company-1",
+        templateKey: "cloud-swiftsight",
+        templateConfigured: true,
+        canonicalVersion: "cloud-swiftsight-18a-v1",
+        canonicalAgentCount: 18,
+        liveAgentCount: 18,
+        matchedAgentCount: 18,
+        status: "in_sync",
+        missingAgents: [],
+        extraAgents: [],
+        mismatchedAgents: [],
+        generatedAt: "2026-03-11T00:00:00.000Z",
+      },
+      projects: [],
+      activeJobCount: 0,
+      latestJob: null,
+      recentJobs: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/knowledge-setup",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      companyId: "company-1",
+      setupProgressStatus: "first_issue_ready",
+      activeJobCount: 0,
+    });
+    expect(mockKnowledgeSetupGetKnowledgeSetup).toHaveBeenCalledWith("company-1");
+  });
+
+  it("starts a company knowledge sync job and records activity", async () => {
+    mockKnowledgeSetupRunKnowledgeSync.mockResolvedValue({
+      id: "job-1",
+      companyId: "company-1",
+      status: "running",
+      selectedProjectIds: ["11111111-1111-4111-8111-111111111111"],
+      optionsJson: {
+        rebuildGraph: true,
+        rebuildVersions: true,
+        backfillPersonalization: true,
+      },
+      summaryJson: {},
+      error: null,
+      startedAt: "2026-03-11T00:00:00.000Z",
+      completedAt: null,
+      createdAt: "2026-03-11T00:00:00.000Z",
+      updatedAt: "2026-03-11T00:00:00.000Z",
+      projectRuns: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/knowledge-sync",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        projectIds: ["11111111-1111-4111-8111-111111111111"],
+        rebuildGraph: true,
+        rebuildVersions: true,
+        backfillPersonalization: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockKnowledgeSetupRunKnowledgeSync).toHaveBeenCalledWith(
+      "company-1",
+      {
+        projectIds: ["11111111-1111-4111-8111-111111111111"],
+        forceFull: false,
+        rebuildGraph: true,
+        rebuildVersions: true,
+        backfillPersonalization: true,
+      },
+      expect.objectContaining({
+        actorType: "user",
+        actorId: "user-1",
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "knowledge.sync_requested",
+        companyId: "company-1",
+      }),
+    );
+  });
+
+  it("returns a knowledge sync job by id", async () => {
+    mockKnowledgeSetupGetKnowledgeSyncJob.mockResolvedValue({
+      id: "job-1",
+      companyId: "company-1",
+      status: "completed",
+      selectedProjectIds: [],
+      optionsJson: {},
+      summaryJson: {},
+      error: null,
+      startedAt: "2026-03-11T00:00:00.000Z",
+      completedAt: "2026-03-11T00:10:00.000Z",
+      createdAt: "2026-03-11T00:00:00.000Z",
+      updatedAt: "2026-03-11T00:10:00.000Z",
+      projectRuns: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/knowledge-sync/:jobId",
+      method: "get",
+      params: { companyId: "company-1", jobId: "job-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      id: "job-1",
+      companyId: "company-1",
+      status: "completed",
+    });
+    expect(mockKnowledgeSetupGetKnowledgeSyncJob).toHaveBeenCalledWith("company-1", "job-1");
+  });
+
+  it("returns 404 when a knowledge sync job cannot be found", async () => {
+    mockKnowledgeSetupGetKnowledgeSyncJob.mockResolvedValue(null);
+
+    const response = await invokeRoute({
+      path: "/:companyId/knowledge-sync/:jobId",
+      method: "get",
+      params: { companyId: "company-1", jobId: "missing-job" },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body).toMatchObject({
+      error: "Knowledge sync job not found",
+    });
   });
 
   it("runs doctor checks with validated query params", async () => {
