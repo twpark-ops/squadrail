@@ -21,84 +21,59 @@
 
 <br/>
 
-## What is Squadrail?
+## Overview
 
-# Open-source orchestration for autonomous software delivery squads
+# Protocol-first orchestration for autonomous software delivery
 
-Squadrail is a protocol-first control plane for AI agent teams working on real software delivery.
+Squadrail is an open-source control plane for AI agent teams working on real engineering tasks.
 
-It combines:
+The project started by taking product inspiration from **Paperclip** and then pushing it in a more delivery-specific direction: issues, protocol messages, reviews, runtime recovery, and knowledge retrieval are all treated as first-class operating surfaces.
 
-- issue-driven execution
-- typed protocol messages and state transitions
-- role-based agent coordination
-- graph-assisted, temporal, role-aware retrieval
-- review and approval workflows
-- runtime monitoring and recovery
+At the product level, Squadrail focuses on five things:
 
-The result is a system that feels less like "a pile of agent terminals" and more like an operating rail for engineering teams.
-
-> **Inspiration**
-> Squadrail started from the product framing introduced by **Paperclip**. Paperclip treats AI systems as something closer to a company than a chatbot, and Squadrail takes that same core idea into software delivery: if Paperclip is company-shaped orchestration, Squadrail is the delivery rail for protocol-governed engineering work.
+- turning work into explicit protocol state instead of loose chat
+- giving different agents distinct roles in the delivery loop
+- attaching retrieval-backed context directly to the task
+- making review, approval, and closure auditable
+- surfacing runtime health and recovery from one UI
 
 <br/>
 
-## Squadrail is right for you if
+## What Squadrail actually runs
 
-- You want AI agents to work through a defined delivery protocol instead of ad-hoc chat.
-- You need engineers, reviewers, QA, and leads to have distinct roles and handoff rules.
-- You want retrieval-backed task context without dumping an entire codebase into every prompt.
-- You need auditability for approvals, protocol violations, runtime recovery, and task closure.
-- You want one deployment to host multiple companies or teams with strict isolation.
-- You are already using tools like Claude Code, Codex, Cursor, OpenClaw, or local adapters and need an orchestration layer above them.
+Squadrail is built for teams that want agents to operate inside a delivery system rather than as isolated coding terminals.
 
-<br/>
+It is a good fit when you need:
 
-## Problems Squadrail solves
-
-| Without Squadrail | With Squadrail |
-| --- | --- |
-| Agents receive vague tasks and improvise their own workflow. | Delivery is driven by explicit protocol messages, required evidence, and valid state transitions. |
-| Review handoffs are inconsistent and missing critical context. | Review submission is structured around implementation summary, diff summary, tests, checklist, and residual risk. |
-| Every agent session must be manually re-explained after a restart. | Task briefs, protocol history, runtime state, and retrieval context stay attached to the work. |
-| "Knowledge" means pasting large code dumps into prompts. | Retrieval is hybrid, graph-assisted, version-aware, and role-aware. |
-| Runtime failures are hidden inside terminal windows. | Runs, recovery queues, and live squad activity are surfaced in one control plane. |
-| Multi-tenant delivery work becomes a data-isolation risk. | PostgreSQL Row-Level Security keeps company data scoped and isolated. |
+- structured issue assignment and handoff
+- engineer, reviewer, QA, and board-style roles
+- repository-aware retrieval instead of prompt dumping
+- company or team isolation in one deployment
+- live visibility into active runs, queues, and recovery work
 
 <br/>
 
-## Core capabilities
+## Core operating surfaces
 
-<table>
-<tr>
-<td align="center" width="33%">
-<h3>Protocol-first execution</h3>
-Issues move through typed messages, validated states, role authorization, and evidence-aware transitions.
-</td>
-<td align="center" width="33%">
-<h3>Delivery-specific org model</h3>
-Leads, engineers, reviewers, QA, and board actors each have distinct responsibilities and workflow powers.
-</td>
-<td align="center" width="33%">
-<h3>Knowledge that follows the task</h3>
-Hybrid retrieval generates focused task context instead of broad repository dumps.
-</td>
-</tr>
-<tr>
-<td align="center">
-<h3>Runtime observability</h3>
-Track live runs, queue state, heartbeats, recovery actions, and agent activity from one UI.
-</td>
-<td align="center">
-<h3>Multi-company isolation</h3>
-Run many companies or squads on one deployment with company-scoped resources and RLS enforcement.
-</td>
-<td align="center">
-<h3>Audit and governance</h3>
-Approvals, violations, recovery actions, reviews, and closures remain inspectable and reproducible.
-</td>
-</tr>
-</table>
+### 1. Delivery protocol
+
+Issues move through typed protocol messages, validated transitions, evidence requirements, and review gates.
+
+### 2. Role-based execution
+
+Leads, engineers, reviewers, QA, and operators have different capabilities and different responsibilities in the workflow.
+
+### 3. Retrieval-backed task context
+
+Context is assembled from repository knowledge, document links, revisions, and role-aware retrieval signals instead of broad copy-pasted code blocks.
+
+### 4. Runtime and recovery
+
+Live runs, heartbeats, recovery queues, and operator actions are visible from the control plane UI.
+
+### 5. Governance and audit
+
+Review handoffs, approvals, protocol violations, closures, and recovery decisions remain inspectable after the fact.
 
 <br/>
 
@@ -148,14 +123,28 @@ CLOSE_TASK
 
 <br/>
 
-## Why Squadrail is technically distinct
+## Product shape
+
+Squadrail is not meant to be a generic chatbot shell. It is shaped around software delivery:
+
+- work begins from issues, projects, and company context
+- execution is routed through protocol messages
+- review uses structured handoff data instead of freeform summaries
+- knowledge is attached to delivery artifacts and repository state
+- runtime operations and recovery live beside the workflow, not outside it
+
+That gives the product a more operational feel than most agent wrappers.
+
+<br/>
+
+## Technical highlights
 
 - **Protocol over chat.** Work is driven by typed messages and explicit transitions, not loosely-scoped conversation history.
-- **Review handoff is structured.** `SUBMIT_FOR_REVIEW` expects implementation summary, diff summary, changed files, test results, checklist, residual risk, and review artifacts.
-- **Retrieval is not just vector search.** The current stack is graph-assisted, temporal, and role-aware, with document versioning, retrieval cache, incremental reindex, and explainable personalization. See [docs/rag-current-architecture.md](docs/rag-current-architecture.md).
+- **Structured review handoff.** `SUBMIT_FOR_REVIEW` expects implementation summary, diff summary, changed files, test results, checklist, residual risk, and review artifacts.
+- **Graph-assisted retrieval.** The current stack is graph-assisted, temporal, and role-aware, with document versioning, retrieval cache, incremental reindex, and explainable personalization. See [docs/rag-current-architecture.md](docs/rag-current-architecture.md).
 - **Knowledge stays attached to delivery.** Retrieval is grounded in issues, projects, runs, and evolving repository knowledge instead of being a detached chatbot layer.
-- **Local-first development is practical.** Embedded PostgreSQL is auto-managed in development, and the CLI can bootstrap and diagnose a local instance quickly.
-- **Adapters are pluggable.** The repository already includes adapters for Claude local, Codex local, Cursor local, OpenClaw, and OpenCode local.
+- **Local-first development.** Embedded PostgreSQL is auto-managed in development, and the CLI can bootstrap and diagnose a local instance quickly.
+- **Pluggable adapters.** The repository already includes adapters for Claude local, Codex local, Cursor local, OpenClaw, and OpenCode local.
 
 <br/>
 
