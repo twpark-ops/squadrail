@@ -1,6 +1,12 @@
 export { companyService } from "./companies.js";
 export { agentService } from "./agents.js";
 export { organizationalMemoryService } from "./organizational-memory-ingest.js";
+export {
+  resolvePmIntakeAgents,
+  derivePmIntakeIssueTitle,
+  buildPmIntakeIssueDescription,
+  buildPmIntakeAssignment,
+} from "./pm-intake.js";
 export { assetService } from "./assets.js";
 export { projectService } from "./projects.js";
 export { issueService, type IssueFilters } from "./issues.js";

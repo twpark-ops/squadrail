@@ -102,6 +102,49 @@ describe("validateProtocolRecipientContract", () => {
       }),
     ).toBeNull();
   });
+
+  it("rejects QA assignees that overlap with the reviewer", () => {
+    expect(
+      validateProtocolRecipientContract({
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "qa",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "Assign work with QA gate",
+        payload: {
+          goal: "goal",
+          acceptanceCriteria: ["a"],
+          definitionOfDone: ["d"],
+          priority: "high",
+          assigneeAgentId: "eng-1",
+          reviewerAgentId: "rev-1",
+          qaAgentId: "rev-1",
+        },
+        artifacts: [],
+      }),
+    ).toBe("QA must be different from reviewer");
+  });
 });
 
 describe("resolveProtocolOwnershipForMessage", () => {
@@ -147,6 +190,58 @@ describe("resolveProtocolOwnershipForMessage", () => {
       techLeadAgentId: "lead-1",
       primaryEngineerAgentId: "eng-1",
       reviewerAgentId: "reviewer-1",
+    });
+  });
+
+  it("persists QA ownership when assignments provide an explicit QA gate agent", () => {
+    expect(
+      resolveProtocolOwnershipForMessage({
+        currentState: null,
+        fallbackTechLeadAgentId: "lead-1",
+        message: {
+          messageType: "ASSIGN_TASK",
+          sender: {
+            actorType: "user",
+            actorId: "board-1",
+            role: "human_board",
+          },
+          recipients: [
+            {
+              recipientType: "agent",
+              recipientId: "eng-1",
+              role: "engineer",
+            },
+            {
+              recipientType: "agent",
+              recipientId: "reviewer-1",
+              role: "reviewer",
+            },
+            {
+              recipientType: "agent",
+              recipientId: "qa-1",
+              role: "qa",
+            },
+          ],
+          workflowStateBefore: "backlog",
+          workflowStateAfter: "assigned",
+          summary: "Assign root issue with QA gate",
+          payload: {
+            goal: "goal",
+            acceptanceCriteria: ["a"],
+            definitionOfDone: ["d"],
+            priority: "high",
+            assigneeAgentId: "eng-1",
+            reviewerAgentId: "reviewer-1",
+            qaAgentId: "qa-1",
+          },
+          artifacts: [],
+        },
+      }),
+    ).toMatchObject({
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "reviewer-1",
+      qaAgentId: "qa-1",
     });
   });
 });

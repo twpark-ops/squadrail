@@ -1,0 +1,52 @@
+@startuml
+title P0-C Separate QA Gate
+
+skinparam backgroundColor transparent
+skinparam sequence {
+  ArrowColor #3b82f6
+  LifeLineBorderColor #64748b
+  LifeLineBackgroundColor #f8fafc
+  ParticipantBorderColor #334155
+  ParticipantBackgroundColor #ffffff
+}
+
+actor Reviewer
+actor QA
+actor "Tech Lead" as TL
+
+Reviewer -> Reviewer : START_REVIEW
+note right
+submitted_for_review
+-> under_review
+end note
+
+Reviewer -> QA : APPROVE_IMPLEMENTATION
+note right
+under_review
+-> qa_pending
+dispatch: issue_ready_for_qa_gate
+end note
+
+QA -> QA : START_REVIEW
+note right
+qa_pending
+-> under_qa_review
+end note
+
+alt QA requests changes
+  QA -> Reviewer : REQUEST_CHANGES
+  note right
+  under_qa_review
+  -> changes_requested
+  end note
+else QA approves
+  QA -> TL : APPROVE_IMPLEMENTATION
+  note right
+  under_qa_review
+  -> approved
+  dispatch: issue_ready_for_closure
+  end note
+end
+
+@enduml
+

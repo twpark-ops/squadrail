@@ -250,6 +250,8 @@ export function deriveProjectWorkspaceUsageFromContext(
     || messageType === "APPROVE_IMPLEMENTATION"
     || workflowStateAfter === "submitted_for_review"
     || workflowStateAfter === "under_review"
+    || workflowStateAfter === "qa_pending"
+    || workflowStateAfter === "under_qa_review"
     || workflowStateAfter === "approved"
   ) {
     return "review";

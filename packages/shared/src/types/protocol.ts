@@ -54,6 +54,7 @@ export interface IssueProtocolAssignTaskPayload {
   priority: IssuePriority;
   assigneeAgentId: string;
   reviewerAgentId: string;
+  qaAgentId?: string | null;
   deadlineAt?: string | null;
   relatedIssueIds?: string[];
   requiredKnowledgeTags?: string[];
@@ -177,6 +178,7 @@ export interface IssueProtocolReassignTaskPayload {
   reason: string;
   newAssigneeAgentId: string;
   newReviewerAgentId?: string | null;
+  newQaAgentId?: string | null;
   carryForwardBriefVersion?: number | null;
 }
 
@@ -282,6 +284,7 @@ export interface IssueProtocolState {
   techLeadAgentId: string | null;
   primaryEngineerAgentId: string | null;
   reviewerAgentId: string | null;
+  qaAgentId: string | null;
   currentReviewCycle: number;
   lastProtocolMessageId: string | null;
   lastTransitionAt: Date;
@@ -317,6 +320,7 @@ export interface IssueReviewCycle {
   cycleNumber: number;
   reviewerAgentId: string | null;
   reviewerUserId: string | null;
+  reviewerRole?: "reviewer" | "qa" | "tech_lead" | null;
   submittedMessageId: string;
   openedAt: Date;
   closedAt: Date | null;

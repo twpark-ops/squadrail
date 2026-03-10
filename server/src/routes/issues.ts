@@ -9,6 +9,8 @@ import {
   createIssueLabelSchema,
   checkoutIssueSchema,
   createIssueSchema,
+  createPmIntakeIssueSchema,
+  createPmIntakeProjectionSchema,
   createIssueProtocolMessageSchema,
   type CreateIssueProtocolMessage,
   linkIssueApprovalSchema,
@@ -27,6 +29,10 @@ import {
   issueRetrievalService,
   issueProtocolService,
   organizationalMemoryService,
+  resolvePmIntakeAgents,
+  derivePmIntakeIssueTitle,
+  buildPmIntakeIssueDescription,
+  buildPmIntakeAssignment,
   retrievalPersonalizationService,
   issueService,
   knowledgeService,
@@ -148,6 +154,12 @@ function shouldGenerateProtocolRetrievalContext(
   return PROTOCOL_RETRIEVAL_MESSAGE_TYPES.has(messageType);
 }
 
+const PM_INTAKE_LABEL_SPECS = [
+  { name: "workflow:intake", color: "#2563EB" },
+  { name: "lane:pm", color: "#0F766E" },
+  { name: "source:human_request", color: "#7C3AED" },
+] as const;
+
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -197,6 +209,28 @@ export function issueRoutes(db: Db, storage: StorageService) {
           "protocol organizational memory ingest failed",
         ));
     });
+  }
+
+  async function ensureIssueLabelsByName(companyId: string, specs: ReadonlyArray<{ name: string; color: string }>) {
+    const existing = await svc.listLabels(companyId);
+    const labelByName = new Map(existing.map((label) => [label.name, label] as const));
+    const resolved = [];
+    for (const spec of specs) {
+      let label = labelByName.get(spec.name);
+      if (!label) {
+        try {
+          label = await svc.createLabel(companyId, spec);
+        } catch {
+          label = (await svc.listLabels(companyId)).find((entry) => entry.name === spec.name);
+        }
+        if (!label) {
+          throw conflict(`Failed to create reserved label ${spec.name}`);
+        }
+        labelByName.set(spec.name, label);
+      }
+      resolved.push(label);
+    }
+    return resolved;
   }
 
   async function loadIssueChangeSurface(issue: {
@@ -348,7 +382,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
   async function assertActiveCompanyAgent(
     companyId: string,
     agentId: string,
-    label: "Assignee" | "Reviewer" | "Tech Lead",
+    label: "Assignee" | "Reviewer" | "Tech Lead" | "QA",
   ) {
     const agent = await agentsSvc.getById(agentId);
     if (!agent || agent.companyId !== companyId) {
@@ -382,6 +416,15 @@ export function issueRoutes(db: Db, storage: StorageService) {
       throw unprocessable("Reviewer agent must support reviewer protocol role");
     }
     return reviewer;
+  }
+
+  async function assertInternalWorkItemQa(companyId: string, qaAgentId: string) {
+    const qaAgent = await assertActiveCompanyAgent(companyId, qaAgentId, "QA");
+    const allowedRoles = getAllowedProtocolRoles(qaAgent);
+    if (!allowedRoles.has("qa")) {
+      throw unprocessable("QA agent must support qa protocol role");
+    }
+    return qaAgent;
   }
 
   async function assertInternalWorkItemLeadSupervisor(companyId: string, techLeadAgentId: string) {
@@ -423,6 +466,255 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
 
     throw forbidden("Agent cannot create internal work items through protocol assignment");
+  }
+
+  const PM_PROJECTION_SECTION_START = "<!-- squadrail:intake-projection:start -->";
+  const PM_PROJECTION_SECTION_END = "<!-- squadrail:intake-projection:end -->";
+
+  function buildInternalWorkItemLabelNames(input: {
+    kind: "plan" | "implementation" | "review" | "qa";
+    watchReviewer?: boolean;
+    watchLead?: boolean;
+  }) {
+    return [
+      "team:internal",
+      input.kind === "plan"
+        ? "work:plan"
+        : input.kind === "implementation"
+          ? "work:implementation"
+          : input.kind === "review"
+            ? "work:review"
+            : "work:qa",
+      ...(input.watchReviewer === false ? [] : ["watch:reviewer"]),
+      ...(input.watchLead === false ? [] : ["watch:lead"]),
+    ];
+  }
+
+  function replaceMarkedSection(input: {
+    description: string | null | undefined;
+    content: string;
+  }) {
+    const existing = (input.description ?? "").trim();
+    const nextSection = [
+      PM_PROJECTION_SECTION_START,
+      input.content.trim(),
+      PM_PROJECTION_SECTION_END,
+    ].join("\n");
+
+    if (!existing) return nextSection;
+
+    const pattern = new RegExp(
+      `${PM_PROJECTION_SECTION_START}[\\s\\S]*?${PM_PROJECTION_SECTION_END}\\n*`,
+      "g",
+    );
+    const withoutOld = existing.replace(pattern, "").trim();
+    return [withoutOld, nextSection].filter(Boolean).join("\n\n");
+  }
+
+  function buildPmProjectionRootDescription(input: {
+    requestDescription: string | null | undefined;
+    projectName: string | null;
+    techLeadName: string;
+    reviewerName: string;
+    qaName: string | null;
+    root: {
+      executionSummary: string;
+      acceptanceCriteria: string[];
+      definitionOfDone: string[];
+      risks?: string[];
+      openQuestions?: string[];
+      documentationDebt?: string[];
+    };
+  }) {
+    const lines = [
+      "## Intake Structuring Snapshot",
+      "",
+      `- Routed to TL: ${input.techLeadName}`,
+      `- Reviewer: ${input.reviewerName}`,
+      `- QA gate: ${input.qaName ?? "not required"}`,
+      input.projectName ? `- Project: ${input.projectName}` : null,
+      "",
+      "### Execution Summary",
+      "",
+      input.root.executionSummary,
+      "",
+      "### Acceptance Criteria",
+      "",
+      ...input.root.acceptanceCriteria.map((item) => `- ${item}`),
+      "",
+      "### Definition of Done",
+      "",
+      ...input.root.definitionOfDone.map((item) => `- ${item}`),
+    ].filter((line): line is string => line !== null);
+
+    if (input.root.risks && input.root.risks.length > 0) {
+      lines.push("", "### Risks", "", ...input.root.risks.map((item) => `- ${item}`));
+    }
+    if (input.root.openQuestions && input.root.openQuestions.length > 0) {
+      lines.push("", "### Open Questions", "", ...input.root.openQuestions.map((item) => `- ${item}`));
+    }
+    if (input.root.documentationDebt && input.root.documentationDebt.length > 0) {
+      lines.push("", "### Documentation Debt", "", ...input.root.documentationDebt.map((item) => `- ${item}`));
+    }
+
+    return replaceMarkedSection({
+      description: input.requestDescription,
+      content: lines.join("\n"),
+    });
+  }
+
+  async function createAndAssignInternalWorkItem(input: {
+    rootIssue: NonNullable<Awaited<ReturnType<typeof svc.getById>>>;
+    actor: ReturnType<typeof getActorInfo>;
+    sender: CreateIssueProtocolMessage["sender"];
+    rootProtocolState: Awaited<ReturnType<typeof protocolSvc.getState>>;
+    body: z.infer<typeof createInternalWorkItemSchema>;
+    leadAgentIdOverride?: string | null;
+  }) {
+    if (input.body.assigneeAgentId === input.body.reviewerAgentId) {
+      throw unprocessable("Reviewer must be different from assignee");
+    }
+
+    const assignee = await assertInternalWorkItemAssignee(input.rootIssue.companyId, input.body.assigneeAgentId);
+    await assertInternalWorkItemReviewer(input.rootIssue.companyId, input.body.reviewerAgentId);
+    const qaAgent = input.body.qaAgentId
+      ? await assertInternalWorkItemQa(input.rootIssue.companyId, input.body.qaAgentId)
+      : null;
+
+    const watchLeadRequested = input.body.watchLead !== false;
+    const resolvedLeadAgentId =
+      input.leadAgentIdOverride
+      ?? (input.sender.actorType === "agent" && input.sender.role === "tech_lead"
+        ? input.sender.actorId
+        : input.rootProtocolState?.techLeadAgentId ?? null);
+    if (watchLeadRequested && !resolvedLeadAgentId) {
+      throw unprocessable("Lead watch requires a root tech lead or tech lead creator");
+    }
+    if (resolvedLeadAgentId) {
+      await assertInternalWorkItemLeadSupervisor(input.rootIssue.companyId, resolvedLeadAgentId);
+    }
+
+    const workItem = await svc.createInternalWorkItem({
+      parentIssueId: input.rootIssue.id,
+      companyId: input.rootIssue.companyId,
+      title: input.body.title,
+      description: input.body.description ?? null,
+      kind: input.body.kind,
+      priority: input.body.priority,
+      assigneeAgentId: input.body.assigneeAgentId,
+      createdByAgentId: input.actor.agentId,
+      createdByUserId: input.actor.actorType === "user" ? input.actor.actorId : null,
+      labelNames: buildInternalWorkItemLabelNames({
+        kind: input.body.kind,
+        watchReviewer: input.body.watchReviewer,
+        watchLead: input.body.watchLead,
+      }),
+    });
+
+    await logActivity(db, {
+      companyId: workItem.companyId,
+      actorType: input.actor.actorType,
+      actorId: input.actor.actorId,
+      agentId: input.actor.agentId,
+      runId: input.actor.runId,
+      action: "issue.created",
+      entityType: "issue",
+      entityId: workItem.id,
+      details: {
+        title: workItem.title,
+        identifier: workItem.identifier,
+        parentIssueId: input.rootIssue.id,
+        internalWorkItem: true,
+        kind: input.body.kind,
+      },
+    });
+
+    scheduleIssueMemoryIngest(workItem.id, "internal_work_item");
+
+    const assignmentRecipients: CreateIssueProtocolMessage["recipients"] = [
+      {
+        recipientType: "agent",
+        recipientId: input.body.assigneeAgentId,
+        role: assignee.protocolRole,
+      },
+      {
+        recipientType: "agent",
+        recipientId: input.body.reviewerAgentId,
+        role: "reviewer",
+      },
+    ];
+
+    if (qaAgent) {
+      assignmentRecipients.push({
+        recipientType: "agent",
+        recipientId: qaAgent.id,
+        role: "qa",
+      });
+    }
+
+    const senderIsInheritedLead =
+      input.sender.actorType === "agent" && input.sender.role === "tech_lead" && input.sender.actorId === resolvedLeadAgentId;
+    if (
+      resolvedLeadAgentId &&
+      !senderIsInheritedLead &&
+      !assignmentRecipients.some(
+        (recipient) => recipient.recipientType === "agent" && recipient.recipientId === resolvedLeadAgentId,
+      )
+    ) {
+      assignmentRecipients.push({
+        recipientType: "agent",
+        recipientId: resolvedLeadAgentId,
+        role: "tech_lead",
+      });
+    }
+
+    const assignmentMessage: CreateIssueProtocolMessage = {
+      messageType: "ASSIGN_TASK",
+      sender: input.sender,
+      recipients: assignmentRecipients,
+      workflowStateBefore: "backlog",
+      workflowStateAfter: "assigned",
+      summary: `Assign internal ${input.body.kind} work item`,
+      requiresAck: false,
+      payload: {
+        goal: input.body.goal?.trim() || input.body.title,
+        acceptanceCriteria: input.body.acceptanceCriteria,
+        definitionOfDone: input.body.definitionOfDone,
+        priority: input.body.priority,
+        assigneeAgentId: input.body.assigneeAgentId,
+        reviewerAgentId: input.body.reviewerAgentId,
+        qaAgentId: input.body.qaAgentId ?? null,
+        deadlineAt: input.body.deadlineAt ?? null,
+        relatedIssueIds: input.body.relatedIssueIds,
+        requiredKnowledgeTags: input.body.requiredKnowledgeTags,
+      },
+      artifacts: [],
+    };
+
+    let dispatch;
+    try {
+      dispatch = await appendProtocolMessageAndDispatch({
+        issue: workItem,
+        message: assignmentMessage,
+        actor: input.actor,
+      });
+    } catch (err) {
+      try {
+        await svc.remove(workItem.id);
+      } catch (cleanupErr) {
+        logger.error(
+          { err: cleanupErr, issueId: workItem.id, parentIssueId: input.rootIssue.id },
+          "failed to clean up internal work item after initial protocol assignment failed",
+        );
+      }
+      throw err;
+    }
+
+    return {
+      issue: await svc.getById(workItem.id) ?? workItem,
+      protocol: dispatch.result,
+      warnings: dispatch.warnings,
+    };
   }
 
   function normalizeProtocolApprovalModeAlias(value: unknown) {
@@ -1182,146 +1474,18 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const actor = getActorInfo(req);
     const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
     const rootProtocolState = await protocolSvc.getState(rootIssue.id);
-    if (req.body.assigneeAgentId === req.body.reviewerAgentId) {
-      throw unprocessable("Reviewer must be different from assignee");
-    }
-    const assignee = await assertInternalWorkItemAssignee(rootIssue.companyId, req.body.assigneeAgentId);
-    await assertInternalWorkItemReviewer(rootIssue.companyId, req.body.reviewerAgentId);
-    const watchLeadRequested = req.body.watchLead !== false;
-    const resolvedLeadAgentId =
-      sender.actorType === "agent" && sender.role === "tech_lead"
-        ? sender.actorId
-        : rootProtocolState?.techLeadAgentId ?? null;
-    if (watchLeadRequested && !resolvedLeadAgentId) {
-      throw unprocessable("Lead watch requires a root tech lead or tech lead creator");
-    }
-    if (resolvedLeadAgentId) {
-      await assertInternalWorkItemLeadSupervisor(rootIssue.companyId, resolvedLeadAgentId);
-    }
-
-    const labelNames = [
-      "team:internal",
-      req.body.kind === "plan"
-        ? "work:plan"
-        : req.body.kind === "implementation"
-          ? "work:implementation"
-          : req.body.kind === "review"
-            ? "work:review"
-            : "work:qa",
-      ...(req.body.watchReviewer === false ? [] : ["watch:reviewer"]),
-      ...(req.body.watchLead === false ? [] : ["watch:lead"]),
-    ];
-
-    const workItem = await svc.createInternalWorkItem({
-      parentIssueId: rootIssue.id,
-      companyId: rootIssue.companyId,
-      title: req.body.title,
-      description: req.body.description ?? null,
-      kind: req.body.kind,
-      priority: req.body.priority,
-      assigneeAgentId: req.body.assigneeAgentId,
-      createdByAgentId: actor.agentId,
-      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
-      labelNames,
-    });
-
-    await logActivity(db, {
-      companyId: workItem.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.created",
-      entityType: "issue",
-      entityId: workItem.id,
-      details: {
-        title: workItem.title,
-        identifier: workItem.identifier,
-        parentIssueId: rootIssue.id,
-        internalWorkItem: true,
-        kind: req.body.kind,
-      },
-    });
-
-    scheduleIssueMemoryIngest(workItem.id, "internal_work_item");
-
-    const assignmentRecipients: CreateIssueProtocolMessage["recipients"] = [
-      {
-        recipientType: "agent",
-        recipientId: req.body.assigneeAgentId,
-        role: assignee.protocolRole,
-      },
-      {
-        recipientType: "agent",
-        recipientId: req.body.reviewerAgentId,
-        role: "reviewer",
-      },
-    ];
-
-    const inheritedLeadAgentId = resolvedLeadAgentId;
-    const senderIsInheritedLead =
-      sender.actorType === "agent" && sender.role === "tech_lead" && sender.actorId === inheritedLeadAgentId;
-    if (
-      inheritedLeadAgentId &&
-      !senderIsInheritedLead &&
-      !assignmentRecipients.some(
-        (recipient) => recipient.recipientType === "agent" && recipient.recipientId === inheritedLeadAgentId,
-      )
-    ) {
-      assignmentRecipients.push({
-        recipientType: "agent",
-        recipientId: inheritedLeadAgentId,
-        role: "tech_lead",
-      });
-    }
-
-    const assignmentMessage: CreateIssueProtocolMessage = {
-      messageType: "ASSIGN_TASK",
+    const projected = await createAndAssignInternalWorkItem({
+      rootIssue,
+      actor,
       sender,
-      recipients: assignmentRecipients,
-      workflowStateBefore: "backlog",
-      workflowStateAfter: "assigned",
-      summary: `Assign internal ${req.body.kind} work item`,
-      requiresAck: false,
-      payload: {
-        goal: req.body.goal?.trim() || req.body.title,
-        acceptanceCriteria: req.body.acceptanceCriteria,
-        definitionOfDone: req.body.definitionOfDone,
-        priority: req.body.priority,
-        assigneeAgentId: req.body.assigneeAgentId,
-        reviewerAgentId: req.body.reviewerAgentId,
-        deadlineAt: req.body.deadlineAt ?? null,
-        relatedIssueIds: req.body.relatedIssueIds,
-        requiredKnowledgeTags: req.body.requiredKnowledgeTags,
-      },
-      artifacts: [],
-    };
-
-    let dispatch;
-    try {
-      dispatch = await appendProtocolMessageAndDispatch({
-        issue: workItem,
-        message: assignmentMessage,
-        actor,
-      });
-    } catch (err) {
-      try {
-        await svc.remove(workItem.id);
-      } catch (cleanupErr) {
-        logger.error(
-          { err: cleanupErr, issueId: workItem.id, parentIssueId: rootIssue.id },
-          "failed to clean up internal work item after initial protocol assignment failed",
-        );
-      }
-      throw err;
-    }
-
-    const refreshedWorkItem = await svc.getById(workItem.id) ?? workItem;
+      rootProtocolState,
+      body: req.body,
+    });
 
     res.status(201).json({
-      issue: refreshedWorkItem,
-      protocol: dispatch.result,
-      warnings: dispatch.warnings,
+      issue: projected.issue,
+      protocol: projected.protocol,
+      warnings: projected.warnings,
     });
   });
 
@@ -1442,6 +1606,297 @@ export function issueRoutes(db: Db, storage: StorageService) {
     scheduleIssueMemoryIngest(issue.id, "create");
 
     res.status(201).json(issue);
+  });
+
+  router.post("/companies/:companyId/intake/issues", validate(createPmIntakeIssueSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    await assertCanAssignTasks(req, companyId);
+
+    const actor = getActorInfo(req);
+    const companyAgents = await agentsSvc.list(companyId);
+    const { pmAgent, reviewerAgent } = resolvePmIntakeAgents({
+      agents: companyAgents,
+      pmAgentId: req.body.pmAgentId ?? null,
+      reviewerAgentId: req.body.reviewerAgentId ?? null,
+    });
+
+    const relatedIssueIdentifiers = req.body.relatedIssueIds?.length
+          ? (await Promise.all(req.body.relatedIssueIds.map(async (issueId: string) => {
+          const issue = await svc.getById(issueId);
+          return issue?.companyId === companyId ? (issue.identifier ?? issue.id) : null;
+        }))).filter((value): value is string => typeof value === "string")
+      : [];
+
+    const scopedProject =
+      req.body.projectId
+        ? await projectsSvc.getById(req.body.projectId)
+        : null;
+
+    if (scopedProject && scopedProject.companyId !== companyId) {
+      throw unprocessable("Selected project must belong to this company");
+    }
+
+    const title = derivePmIntakeIssueTitle({
+      title: req.body.title ?? null,
+      request: req.body.request,
+    });
+    const description = buildPmIntakeIssueDescription({
+      request: req.body.request,
+      projectName: scopedProject?.name ?? null,
+      relatedIssueIdentifiers,
+    });
+    const labels = await ensureIssueLabelsByName(companyId, PM_INTAKE_LABEL_SPECS);
+
+    const issue = await svc.create(companyId, {
+      projectId: req.body.projectId ?? null,
+      goalId: req.body.goalId ?? null,
+      parentId: null,
+      title,
+      description,
+      status: "backlog",
+      priority: req.body.priority,
+      assigneeAgentId: pmAgent.id,
+      assigneeUserId: null,
+      requestDepth: 0,
+      billingCode: null,
+      assigneeAdapterOverrides: null,
+      createdByAgentId: actor.agentId,
+      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      labelIds: labels.map((label) => label.id),
+    });
+
+    scheduleIssueMemoryIngest(issue.id, "create");
+
+    const sender = await buildTaskAssignmentSender(req, companyId);
+    const assignment = buildPmIntakeAssignment({
+      title,
+      priority: req.body.priority,
+      pmAgentId: pmAgent.id,
+      reviewerAgentId: reviewerAgent.id,
+      requestedDueAt: req.body.requestedDueAt ?? null,
+      relatedIssueIds: req.body.relatedIssueIds,
+      requiredKnowledgeTags: req.body.requiredKnowledgeTags,
+    });
+
+    const assignmentMessage: CreateIssueProtocolMessage = {
+      messageType: "ASSIGN_TASK",
+      sender,
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: pmAgent.id,
+          role: "pm",
+        },
+        {
+          recipientType: "agent",
+          recipientId: reviewerAgent.id,
+          role: "reviewer",
+        },
+      ],
+      workflowStateBefore: "backlog",
+      workflowStateAfter: "assigned",
+      summary: assignment.summary,
+      requiresAck: false,
+      payload: assignment.payload,
+      artifacts: [],
+    };
+
+    let dispatch;
+    try {
+      dispatch = await appendProtocolMessageAndDispatch({
+        issue,
+        message: assignmentMessage,
+        actor,
+        asyncDispatch: true,
+      });
+    } catch (err) {
+      try {
+        await svc.remove(issue.id);
+      } catch (cleanupErr) {
+        logger.error(
+          { err: cleanupErr, issueId: issue.id, companyId },
+          "failed to clean up PM intake issue after initial assignment failed",
+        );
+      }
+      throw err;
+    }
+
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.intake.created",
+      entityType: "issue",
+      entityId: issue.id,
+      details: {
+        identifier: issue.identifier,
+        pmAgentId: pmAgent.id,
+        reviewerAgentId: reviewerAgent.id,
+        projectId: issue.projectId,
+      },
+    });
+
+    const refreshedIssue = await svc.getById(issue.id) ?? issue;
+
+    res.status(201).json({
+      issue: refreshedIssue,
+      protocol: dispatch.result,
+      warnings: dispatch.warnings,
+      intake: {
+        pmAgentId: pmAgent.id,
+        reviewerAgentId: reviewerAgent.id,
+      },
+    });
+  });
+
+  router.post("/issues/:id/intake/projection", validate(createPmIntakeProjectionSchema), async (req, res) => {
+    const issueId = req.params.id as string;
+    const rootIssue = await svc.getById(issueId);
+    if (!rootIssue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+
+    assertCompanyAccess(req, rootIssue.companyId);
+    await assertCanAssignTasks(req, rootIssue.companyId);
+    if (rootIssue.parentId || rootIssue.hiddenAt) {
+      throw unprocessable("PM intake projection can only run on visible root issues");
+    }
+
+    const actor = getActorInfo(req);
+    const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
+    if (sender.role !== "pm" && sender.role !== "cto" && sender.role !== "human_board") {
+      throw forbidden("Only PM, CTO, or board actors can project intake issues");
+    }
+
+    const rootProtocolState = await protocolSvc.getState(rootIssue.id);
+    if (!rootProtocolState) {
+      throw conflict("PM intake projection requires initialized protocol state");
+    }
+
+    const techLead = await assertInternalWorkItemLeadSupervisor(rootIssue.companyId, req.body.techLeadAgentId);
+    const reviewer = await assertInternalWorkItemReviewer(rootIssue.companyId, req.body.reviewerAgentId);
+    const qaAgent = req.body.qaAgentId
+      ? await assertInternalWorkItemQa(rootIssue.companyId, req.body.qaAgentId)
+      : null;
+    const scopedProject =
+      req.body.root.projectId
+        ? await projectsSvc.getById(req.body.root.projectId)
+        : rootIssue.projectId
+          ? await projectsSvc.getById(rootIssue.projectId)
+          : null;
+    if (scopedProject && scopedProject.companyId !== rootIssue.companyId) {
+      throw unprocessable("Selected project must belong to the same company");
+    }
+
+    const nextDescription = buildPmProjectionRootDescription({
+      requestDescription: rootIssue.description,
+      projectName: scopedProject?.name ?? null,
+      techLeadName: techLead.name,
+      reviewerName: reviewer.name,
+      qaName: qaAgent?.name ?? null,
+      root: req.body.root,
+    });
+
+    const updatedRoot = await svc.update(rootIssue.id, {
+      title: req.body.root.structuredTitle ?? rootIssue.title,
+      description: nextDescription,
+      projectId: req.body.root.projectId === undefined ? rootIssue.projectId : req.body.root.projectId,
+      priority: req.body.root.priority ?? rootIssue.priority,
+    }) ?? rootIssue;
+    scheduleIssueMemoryIngest(rootIssue.id, "update");
+
+    const reassignMessage: CreateIssueProtocolMessage = {
+      messageType: "REASSIGN_TASK",
+      sender,
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: techLead.id,
+          role: "tech_lead",
+        },
+        {
+          recipientType: "agent",
+          recipientId: reviewer.id,
+          role: "reviewer",
+        },
+        ...(qaAgent
+          ? [{
+              recipientType: "agent" as const,
+              recipientId: qaAgent.id,
+              role: "qa" as const,
+            }]
+          : []),
+      ],
+      workflowStateBefore: rootProtocolState.workflowState as CreateIssueProtocolMessage["workflowStateBefore"],
+      workflowStateAfter: "assigned",
+      summary: `Route ${updatedRoot.identifier ?? updatedRoot.title} into ${techLead.name}'s TL lane`,
+      requiresAck: false,
+      payload: {
+        reason: req.body.reason,
+        newAssigneeAgentId: techLead.id,
+        newReviewerAgentId: reviewer.id,
+        newQaAgentId: qaAgent?.id ?? null,
+        carryForwardBriefVersion: req.body.carryForwardBriefVersion ?? null,
+      },
+      artifacts: [],
+    };
+
+    const reassignDispatch = await appendProtocolMessageAndDispatch({
+      issue: updatedRoot,
+      message: reassignMessage,
+      actor,
+      asyncDispatch: true,
+    });
+
+    const projectedWorkItems = [];
+    for (const workItem of req.body.workItems) {
+      const projected = await createAndAssignInternalWorkItem({
+        rootIssue: updatedRoot,
+        actor,
+        sender,
+        rootProtocolState,
+        leadAgentIdOverride: techLead.id,
+        body: {
+          ...workItem,
+          qaAgentId: workItem.qaAgentId ?? qaAgent?.id ?? null,
+        },
+      });
+      projectedWorkItems.push(projected.issue);
+    }
+
+    await logActivity(db, {
+      companyId: rootIssue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.intake.projected",
+      entityType: "issue",
+      entityId: rootIssue.id,
+      details: {
+        identifier: updatedRoot.identifier,
+        techLeadAgentId: techLead.id,
+        reviewerAgentId: reviewer.id,
+        qaAgentId: qaAgent?.id ?? null,
+        projectedWorkItemCount: projectedWorkItems.length,
+      },
+    });
+
+    res.status(201).json({
+      issue: updatedRoot,
+      protocol: reassignDispatch.result,
+      warnings: reassignDispatch.warnings,
+      projectedWorkItems,
+      intakeProjection: {
+        techLeadAgentId: techLead.id,
+        reviewerAgentId: reviewer.id,
+        qaAgentId: qaAgent?.id ?? null,
+      },
+    });
   });
 
   router.patch("/issues/:id", validate(updateIssueSchema), async (req, res) => {

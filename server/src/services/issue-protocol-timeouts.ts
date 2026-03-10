@@ -71,11 +71,29 @@ const TIMEOUT_RULES: TimeoutRule[] = [
     baselineMessageTypes: ["SUBMIT_FOR_REVIEW"],
   },
   {
+    timeoutCode: "review_start_timeout",
+    states: ["qa_pending"],
+    reminderAfterMs: 2 * MS.hour,
+    escalationAfterMs: 6 * MS.hour,
+    reminderRole: "qa",
+    escalationRole: "tech_lead",
+    baselineMessageTypes: ["APPROVE_IMPLEMENTATION"],
+  },
+  {
     timeoutCode: "review_decision_timeout",
     states: ["under_review"],
     reminderAfterMs: 4 * MS.hour,
     escalationAfterMs: 12 * MS.hour,
     reminderRole: "reviewer",
+    escalationRole: "tech_lead",
+    baselineMessageTypes: ["START_REVIEW"],
+  },
+  {
+    timeoutCode: "review_decision_timeout",
+    states: ["under_qa_review"],
+    reminderAfterMs: 4 * MS.hour,
+    escalationAfterMs: 12 * MS.hour,
+    reminderRole: "qa",
     escalationRole: "tech_lead",
     baselineMessageTypes: ["START_REVIEW"],
   },
@@ -117,6 +135,9 @@ function resolveRecipient(
   }
   if (role === "reviewer" && state.reviewerAgentId) {
     return { recipientType: "agent", recipientId: state.reviewerAgentId, role };
+  }
+  if (role === "qa" && state.qaAgentId) {
+    return { recipientType: "agent", recipientId: state.qaAgentId, role };
   }
   if (role === "tech_lead" && state.techLeadAgentId) {
     return { recipientType: "agent", recipientId: state.techLeadAgentId, role };

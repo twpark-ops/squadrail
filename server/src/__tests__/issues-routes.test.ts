@@ -16,10 +16,17 @@ const {
   mockIssueGetInternalWorkItemSummary,
   mockIssueCreateInternalWorkItem,
   mockIssueRemove,
+  mockIssueListLabels,
+  mockIssueCreateLabel,
   mockHeartbeatWakeup,
   mockHeartbeatGetRun,
   mockHeartbeatCancelIssueScope,
   mockAgentGetById,
+  mockAgentList,
+  mockResolvePmIntakeAgents,
+  mockDerivePmIntakeIssueTitle,
+  mockBuildPmIntakeIssueDescription,
+  mockBuildPmIntakeAssignment,
   mockProjectGetById,
   mockProtocolGetState,
   mockProtocolListMessages,
@@ -57,10 +64,17 @@ const {
   mockIssueGetInternalWorkItemSummary: vi.fn(),
   mockIssueCreateInternalWorkItem: vi.fn(),
   mockIssueRemove: vi.fn(),
+  mockIssueListLabels: vi.fn(),
+  mockIssueCreateLabel: vi.fn(),
   mockHeartbeatWakeup: vi.fn(),
   mockHeartbeatGetRun: vi.fn(),
   mockHeartbeatCancelIssueScope: vi.fn(),
   mockAgentGetById: vi.fn(),
+  mockAgentList: vi.fn(),
+  mockResolvePmIntakeAgents: vi.fn(),
+  mockDerivePmIntakeIssueTitle: vi.fn(),
+  mockBuildPmIntakeIssueDescription: vi.fn(),
+  mockBuildPmIntakeAssignment: vi.fn(),
   mockProjectGetById: vi.fn(),
   mockProtocolGetState: vi.fn(),
   mockProtocolListMessages: vi.fn(),
@@ -101,7 +115,7 @@ vi.mock("../services/index.js", () => ({
   }),
   agentService: () => ({
     getById: mockAgentGetById,
-    list: vi.fn(),
+    list: mockAgentList,
   }),
   goalService: () => ({
     listForIssue: vi.fn(),
@@ -133,6 +147,10 @@ vi.mock("../services/index.js", () => ({
     ingestProtocolMessage: mockOrgMemoryIngestProtocolMessage,
     backfillCompany: mockOrgMemoryBackfillCompany,
   }),
+  resolvePmIntakeAgents: mockResolvePmIntakeAgents,
+  derivePmIntakeIssueTitle: mockDerivePmIntakeIssueTitle,
+  buildPmIntakeIssueDescription: mockBuildPmIntakeIssueDescription,
+  buildPmIntakeAssignment: mockBuildPmIntakeAssignment,
   retrievalPersonalizationService: () => ({
     recordProtocolFeedback: mockRetrievalPersonalizationRecordProtocolFeedback,
     recordManualFeedback: mockRetrievalPersonalizationRecordManualFeedback,
@@ -174,7 +192,8 @@ vi.mock("../services/index.js", () => ({
     getAttachmentById: vi.fn(),
     linkLabels: vi.fn(),
     unlinkLabel: vi.fn(),
-    listLabels: vi.fn(),
+    listLabels: mockIssueListLabels,
+    createLabel: mockIssueCreateLabel,
     remove: mockIssueRemove,
     release: vi.fn(),
     getProtocolState: vi.fn(),
@@ -353,6 +372,7 @@ describe("issue routes wakeup handling", () => {
       reviewRequestedIssueId: null,
     });
     mockAgentGetById.mockResolvedValue(null);
+    mockAgentList.mockResolvedValue([]);
     mockHeartbeatGetRun.mockResolvedValue(null);
     mockHeartbeatCancelIssueScope.mockResolvedValue({
       cancelledWakeupCount: 0,
@@ -372,6 +392,49 @@ describe("issue routes wakeup handling", () => {
     });
     mockProtocolDispatchMessage.mockResolvedValue(undefined);
     mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({ recipientHints: [] });
+    mockIssueListLabels.mockResolvedValue([]);
+    mockIssueCreateLabel.mockImplementation(async (_companyId: string, input: { name: string; color: string }) => ({
+      id: `${input.name}-id`,
+      companyId: "company-1",
+      name: input.name,
+      color: input.color,
+    }));
+    mockResolvePmIntakeAgents.mockImplementation(() => ({
+      pmAgent: {
+        id: "pm-1",
+        companyId: "company-1",
+        name: "SwiftSight PM",
+        role: "pm",
+        status: "active",
+        reportsTo: null,
+        title: "PM",
+      },
+      reviewerAgent: {
+        id: "qa-1",
+        companyId: "company-1",
+        name: "QA Lead",
+        role: "qa",
+        status: "active",
+        reportsTo: null,
+        title: "QA Lead",
+      },
+    }));
+    mockDerivePmIntakeIssueTitle.mockImplementation(({ request }: { request: string }) => request);
+    mockBuildPmIntakeIssueDescription.mockImplementation(({ request }: { request: string }) => request);
+    mockBuildPmIntakeAssignment.mockImplementation((input: any) => ({
+      summary: `PM intake: structure and route "${input.title}"`,
+      payload: {
+        goal: input.title,
+        acceptanceCriteria: ["Clarify scope"],
+        definitionOfDone: ["Route to TL"],
+        priority: input.priority,
+        assigneeAgentId: input.pmAgentId,
+        reviewerAgentId: input.reviewerAgentId,
+        deadlineAt: input.requestedDueAt ?? null,
+        relatedIssueIds: input.relatedIssueIds,
+        requiredKnowledgeTags: input.requiredKnowledgeTags,
+      },
+    }));
     mockOrgMemoryIngestIssueSnapshot.mockResolvedValue({
       issueId: "11111111-1111-4111-8111-111111111111",
       sourceType: "issue",
@@ -668,6 +731,338 @@ describe("issue routes wakeup handling", () => {
       issueId: "11111111-1111-4111-8111-111111111111",
       mutation: "create",
     });
+  });
+
+  it("creates a PM intake issue and assigns it into the PM lane", async () => {
+    mockAgentList.mockResolvedValue([
+      {
+        id: "pm-1",
+        companyId: "company-1",
+        name: "SwiftSight PM",
+        role: "pm",
+        status: "active",
+        reportsTo: null,
+        title: "PM",
+      },
+      {
+        id: "qa-1",
+        companyId: "company-1",
+        name: "QA Lead",
+        role: "qa",
+        status: "active",
+        reportsTo: null,
+        title: "QA Lead",
+      },
+    ]);
+    mockIssueCreate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-150",
+      title: "Build a bulk export flow",
+      description: "## Human Intake Request",
+      projectId: null,
+      status: "backlog",
+      priority: "high",
+      assigneeAgentId: "pm-1",
+      assigneeUserId: null,
+      labels: [
+        { id: "workflow:intake-id", name: "workflow:intake", color: "#2563EB" },
+        { id: "lane:pm-id", name: "lane:pm", color: "#0F766E" },
+        { id: "source:human_request-id", name: "source:human_request", color: "#7C3AED" },
+      ],
+    });
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-150",
+      title: "Build a bulk export flow",
+      description: "## Human Intake Request",
+      projectId: null,
+      status: "backlog",
+      priority: "high",
+      assigneeAgentId: "pm-1",
+      assigneeUserId: null,
+      labels: [
+        { id: "workflow:intake-id", name: "workflow:intake", color: "#2563EB" },
+        { id: "lane:pm-id", name: "lane:pm", color: "#0F766E" },
+        { id: "source:human_request-id", name: "source:human_request", color: "#7C3AED" },
+      ],
+    });
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/intake/issues",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        request: "Build a bulk export flow for cloud studies with audit logs.",
+        priority: "high",
+        requiredKnowledgeTags: ["cloud", "export"],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+    expect(mockIssueCreate).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        title: "Build a bulk export flow for cloud studies with audit logs.",
+        assigneeAgentId: "pm-1",
+        labelIds: expect.arrayContaining([
+          "workflow:intake-id",
+          "lane:pm-id",
+          "source:human_request-id",
+        ]),
+      }),
+    );
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "11111111-1111-4111-8111-111111111111",
+        message: expect.objectContaining({
+          messageType: "ASSIGN_TASK",
+          recipients: expect.arrayContaining([
+            expect.objectContaining({ recipientId: "pm-1", role: "pm" }),
+            expect.objectContaining({ recipientId: "qa-1", role: "reviewer" }),
+          ]),
+        }),
+      }),
+    );
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects PM intake when no active PM is available", async () => {
+    mockAgentList.mockResolvedValue([
+      {
+        id: "qa-1",
+        companyId: "company-1",
+        name: "QA Lead",
+        role: "qa",
+        status: "active",
+        reportsTo: null,
+        title: "QA Lead",
+      },
+    ]);
+    mockResolvePmIntakeAgents.mockImplementation(() => {
+      const error = new Error("No active PM agent is available for intake routing") as Error & { status?: number };
+      error.status = 409;
+      throw error;
+    });
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/intake/issues",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        request: "Build a bulk export flow for cloud studies with audit logs.",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toEqual({
+      error: "No active PM agent is available for intake routing",
+    });
+  });
+
+  it("projects a PM intake issue into a TL lane with child work items and QA gate ownership", async () => {
+    mockIssueGetById
+      .mockResolvedValueOnce({
+        id: "11111111-1111-4111-8111-111111111111",
+        companyId: "company-1",
+        identifier: "CLO-151",
+        title: "Human intake issue",
+        description: "## Human Intake Request",
+        projectId: null,
+        status: "todo",
+        priority: "high",
+        parentId: null,
+        hiddenAt: null,
+        labels: [],
+      })
+      .mockResolvedValueOnce({
+        id: "33333333-3333-4333-8333-333333333333",
+        companyId: "company-1",
+        identifier: "CLO-152",
+        title: "Design cloud export flow",
+        description: "Projected child work item",
+        projectId: null,
+        goalId: null,
+        status: "todo",
+        priority: "high",
+        assigneeAgentId: "eng-1",
+        hiddenAt: new Date().toISOString(),
+        labels: [],
+      });
+    mockIssueUpdate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-151",
+      title: "Cloud export intake",
+      description: "## Intake Structuring Snapshot",
+      projectId: null,
+      status: "todo",
+      priority: "high",
+      parentId: null,
+      hiddenAt: null,
+      labels: [],
+    });
+    mockIssueCreateInternalWorkItem.mockResolvedValue({
+      id: "33333333-3333-4333-8333-333333333333",
+      companyId: "company-1",
+      identifier: "CLO-152",
+      title: "Design cloud export flow",
+      description: "Projected child work item",
+      projectId: null,
+      goalId: null,
+      status: "backlog",
+      priority: "high",
+      assigneeAgentId: "eng-1",
+      hiddenAt: new Date().toISOString(),
+      labels: [],
+    });
+    mockProtocolGetState.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      workflowState: "assigned",
+      techLeadAgentId: "pm-1",
+      reviewerAgentId: "qa-lead-1",
+      qaAgentId: null,
+    });
+    mockAgentGetById.mockImplementation(async (agentId: string) => {
+      if (agentId === "pm-1") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "pm",
+          status: "active",
+          title: "PM",
+          permissions: {},
+        };
+      }
+      if (agentId === "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "manager",
+          status: "active",
+          title: "Tech Lead",
+          permissions: {},
+        };
+      }
+      if (agentId === "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "reviewer",
+          status: "active",
+          title: "Reviewer",
+          permissions: {},
+        };
+      }
+      if (agentId === "cccccccc-cccc-4ccc-8ccc-cccccccccccc") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "qa",
+          status: "active",
+          title: "QA Engineer",
+          permissions: {},
+        };
+      }
+      if (agentId === "dddddddd-dddd-4ddd-8ddd-dddddddddddd") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "engineer",
+          status: "active",
+          title: "Engineer",
+          permissions: {},
+        };
+      }
+      return null;
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-1", seq: 1 },
+      state: { workflowState: "assigned" },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/intake/projection",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("pm-1"),
+      body: {
+        reason: "Structure the intake and route execution into the cloud TL lane.",
+        techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        root: {
+          structuredTitle: "Cloud export intake",
+          executionSummary: "Build a scoped export delivery plan for cloud studies and audit logs.",
+          acceptanceCriteria: ["Scope is explicit", "Audit trail is covered"],
+          definitionOfDone: ["TL lane owns the work", "Child execution item exists"],
+        },
+        workItems: [
+          {
+            title: "Design cloud export flow",
+            kind: "plan",
+            priority: "high",
+            assigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            acceptanceCriteria: ["Design covers audit trail"],
+            definitionOfDone: ["Plan is ready for implementation"],
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+    expect(mockIssueUpdate).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        title: "Cloud export intake",
+        priority: "high",
+      }),
+    );
+    expect(mockProtocolAppendMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        issueId: "11111111-1111-4111-8111-111111111111",
+        message: expect.objectContaining({
+          messageType: "REASSIGN_TASK",
+          payload: expect.objectContaining({
+            newAssigneeAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            newReviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            newQaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          }),
+        }),
+      }),
+    );
+    expect(mockProtocolAppendMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        issueId: "33333333-3333-4333-8333-333333333333",
+        message: expect.objectContaining({
+          messageType: "ASSIGN_TASK",
+          payload: expect.objectContaining({
+            assigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          }),
+        }),
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        projectedWorkItems: [
+          expect.objectContaining({
+            id: "33333333-3333-4333-8333-333333333333",
+          }),
+        ],
+        intakeProjection: {
+          techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        },
+      }),
+    );
   });
 
   it("awaits assignee wakeup on issue reassignment", async () => {

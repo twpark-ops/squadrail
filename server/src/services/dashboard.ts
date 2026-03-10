@@ -27,6 +27,8 @@ const DASHBOARD_PROTOCOL_QUEUE_STATES = [
   "implementing",
   "submitted_for_review",
   "under_review",
+  "qa_pending",
+  "under_qa_review",
   "changes_requested",
   "blocked",
   "awaiting_human_decision",
@@ -195,6 +197,9 @@ function deriveNextOwnerRole(workflowState: string) {
     case "submitted_for_review":
     case "under_review":
       return "reviewer";
+    case "qa_pending":
+    case "under_qa_review":
+      return "qa";
     case "blocked":
       return "tech_lead";
     case "awaiting_human_decision":
@@ -230,7 +235,7 @@ export function isProtocolDashboardStale(input: {
   now?: Date;
   staleAfterHours?: number;
 }) {
-  if (!["assigned", "accepted", "planning", "implementing", "submitted_for_review", "under_review", "approved"].includes(input.workflowState)) {
+  if (!["assigned", "accepted", "planning", "implementing", "submitted_for_review", "under_review", "qa_pending", "under_qa_review", "approved"].includes(input.workflowState)) {
     return false;
   }
 
@@ -250,11 +255,11 @@ export function buildProtocolDashboardBuckets(input: {
     .sort(compareQueueItems)
     .slice(0, limit);
   const reviewQueue = input.items
-    .filter((item) => ["submitted_for_review", "under_review", "changes_requested"].includes(item.workflowState))
+    .filter((item) => ["submitted_for_review", "under_review", "qa_pending", "under_qa_review", "changes_requested"].includes(item.workflowState))
     .sort(compareQueueItems)
     .slice(0, limit);
   const handoffBlockerQueue = input.items
-    .filter((item) => ["changes_requested", "awaiting_human_decision", "approved"].includes(item.workflowState))
+    .filter((item) => ["qa_pending", "changes_requested", "awaiting_human_decision", "approved"].includes(item.workflowState))
     .sort(compareQueueItems)
     .slice(0, limit);
   const blockedQueue = input.items
@@ -416,6 +421,8 @@ export function dashboardService(db: Db) {
               "implementing",
               "submitted_for_review",
               "under_review",
+              "qa_pending",
+              "under_qa_review",
               "approved",
             ]),
             sql`${issueProtocolState.lastTransitionAt} < ${new Date(Date.now() - DASHBOARD_PROTOCOL_STALE_HOURS * 60 * 60 * 1000).toISOString()}`,
@@ -536,9 +543,13 @@ export function dashboardService(db: Db) {
           reviewQueueCount:
             workflowCounts.submitted_for_review
             + workflowCounts.under_review
+            + workflowCounts.qa_pending
+            + workflowCounts.under_qa_review
             + workflowCounts.changes_requested,
           handoffBlockerCount:
-            workflowCounts.changes_requested
+            workflowCounts.qa_pending
+            + workflowCounts.under_qa_review
+            + workflowCounts.changes_requested
             + workflowCounts.awaiting_human_decision
             + workflowCounts.approved,
           blockedQueueCount: workflowCounts.blocked,

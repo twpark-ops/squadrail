@@ -72,6 +72,7 @@ export const issueProtocolAssignTaskPayloadSchema = z.object({
   priority: z.enum(ISSUE_PRIORITIES),
   assigneeAgentId: uuidSchema,
   reviewerAgentId: uuidSchema,
+  qaAgentId: optionalUuidSchema,
   deadlineAt: z.string().datetime().nullable().optional(),
   relatedIssueIds: z.array(uuidSchema).optional(),
   requiredKnowledgeTags: stringArraySchema.optional(),
@@ -195,6 +196,7 @@ export const issueProtocolReassignTaskPayloadSchema = z.object({
   reason: z.string().min(1),
   newAssigneeAgentId: uuidSchema,
   newReviewerAgentId: optionalUuidSchema,
+  newQaAgentId: optionalUuidSchema,
   carryForwardBriefVersion: z.number().int().nonnegative().nullable().optional(),
 }).strict();
 
@@ -284,6 +286,20 @@ export const createIssueProtocolMessageSchema = createIssueProtocolMessageSchema
         path: ["payload", "reviewerAgentId"],
       });
     }
+    if (message.payload.qaAgentId && message.payload.qaAgentId === message.payload.assigneeAgentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "QA must be different from assignee",
+        path: ["payload", "qaAgentId"],
+      });
+    }
+    if (message.payload.qaAgentId && message.payload.qaAgentId === message.payload.reviewerAgentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "QA must be different from reviewer",
+        path: ["payload", "qaAgentId"],
+      });
+    }
   }
 
   if (message.messageType === "REASSIGN_TASK" && message.payload.newReviewerAgentId) {
@@ -292,6 +308,23 @@ export const createIssueProtocolMessageSchema = createIssueProtocolMessageSchema
         code: z.ZodIssueCode.custom,
         message: "Reviewer must be different from assignee",
         path: ["payload", "newReviewerAgentId"],
+      });
+    }
+  }
+
+  if (message.messageType === "REASSIGN_TASK" && message.payload.newQaAgentId) {
+    if (message.payload.newAssigneeAgentId === message.payload.newQaAgentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "QA must be different from assignee",
+        path: ["payload", "newQaAgentId"],
+      });
+    }
+    if (message.payload.newReviewerAgentId && message.payload.newReviewerAgentId === message.payload.newQaAgentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "QA must be different from reviewer",
+        path: ["payload", "newQaAgentId"],
       });
     }
   }
@@ -318,6 +351,7 @@ export const updateIssueProtocolStateSchema = z.object({
   techLeadAgentId: optionalUuidSchema,
   primaryEngineerAgentId: optionalUuidSchema,
   reviewerAgentId: optionalUuidSchema,
+  qaAgentId: optionalUuidSchema,
   currentReviewCycle: z.number().int().nonnegative().optional(),
   lastProtocolMessageId: optionalUuidSchema,
   blockedPhase: issueProtocolBlockedPhaseSchema.nullable().optional(),
