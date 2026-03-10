@@ -78,8 +78,8 @@ describe("generate-swiftsight-org-bundle", () => {
         "codex_local",
       ]),
     );
-    expect(manifest.agents.some((agent) => agent.slug === "swiftsight-cloud-engineer-claude")).toBe(true);
-    expect(manifest.agents.some((agent) => agent.slug === "swiftsight-worker-engineer-codex")).toBe(true);
+    expect(manifest.agents.some((agent) => agent.slug === "swiftsight-cloud-claude-engineer")).toBe(true);
+    expect(manifest.agents.some((agent) => agent.slug === "swiftsight-worker-codex-engineer")).toBe(true);
 
     const cloudProject = manifest.projects.find((project) => project.slug === "swiftsight-cloud");
     expect(cloudProject?.workspaces.find((workspace) => workspace.name === "implementation")?.executionPolicy).toMatchObject({

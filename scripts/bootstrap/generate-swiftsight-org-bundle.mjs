@@ -71,7 +71,7 @@ const PROJECT_CATALOG = [
   {
     slug: "swiftsight-report-server",
     name: "swiftsight-report-server",
-    leadAgentSlug: "python-tl",
+    leadAgentSlug: "swiftsight-python-tl",
     description: "Python report generation service with RabbitMQ RPC, S3-backed artifacts, and validation-sensitive output formatting.",
     language: "Python",
     stack: ["Python", "RabbitMQ RPC", "S3", "Report Rendering"],
@@ -89,7 +89,7 @@ const PROJECT_CATALOG = [
   {
     slug: "swiftsight-worker",
     name: "swiftsight-worker",
-    leadAgentSlug: "python-tl",
+    leadAgentSlug: "swiftsight-python-tl",
     description: "Python processing worker for Temporal-driven imaging pipelines, ML inference, and result materialization.",
     language: "Python",
     stack: ["Python", "Temporal SDK", "PyTorch", "S3", "Worker Pipelines"],
@@ -536,7 +536,7 @@ function topLevelAgents() {
       ],
     },
     {
-      slug: "python-tl",
+      slug: "swiftsight-python-tl",
       name: "SwiftSight Python TL",
       role: "engineer",
       title: "Tech Lead",
@@ -562,7 +562,7 @@ function topLevelAgents() {
 function projectEngineerReportsTo(project) {
   const reportsToSlug =
     project.slug === "swiftsight-report-server" || project.slug === "swiftsight-worker"
-      ? "python-tl"
+      ? "swiftsight-python-tl"
       : `${project.slug}-tl`;
   return reportsToSlug;
 }
@@ -571,7 +571,7 @@ function projectEngineers(project) {
   const reportsToSlug = projectEngineerReportsTo(project);
   return [
     {
-      slug: `${project.slug}-engineer-codex`,
+      slug: `${project.slug}-codex-engineer`,
       name: `${project.slug} Codex Engineer`,
       role: "engineer",
       title: "Engineer",
@@ -594,7 +594,7 @@ function projectEngineers(project) {
       ],
     },
     {
-      slug: `${project.slug}-engineer-claude`,
+      slug: `${project.slug}-claude-engineer`,
       name: `${project.slug} Claude Engineer`,
       role: "engineer",
       title: "Engineer",

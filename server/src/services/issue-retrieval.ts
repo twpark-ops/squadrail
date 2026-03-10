@@ -72,7 +72,7 @@ function readCachedEmbedding(entryValue: Record<string, unknown> | null | undefi
   };
 }
 
-interface RetrievalHitView {
+export interface RetrievalHitView {
   chunkId: string;
   documentId: string;
   sourceType: string;
@@ -98,6 +98,7 @@ interface RetrievalHitView {
     seedReasons: string[];
     graphScore: number;
     edgeTypes?: string[];
+    hopDepth?: number;
   } | null;
   temporalMetadata?: {
     branchName: string | null;
@@ -224,6 +225,9 @@ interface BriefQualitySummary {
   symbolGraphHitCount: number;
   edgeTraversalCount: number;
   edgeTypeCounts: Record<string, number>;
+  graphMaxDepth: number;
+  graphHopDepthCounts: Record<string, number>;
+  multiHopGraphHitCount: number;
   temporalContextAvailable: boolean;
   temporalHitCount: number;
   branchAlignedTopHitCount: number;
@@ -253,7 +257,7 @@ interface RetrievalChunkSymbolView {
   metadata: Record<string, unknown>;
 }
 
-interface RetrievalSymbolGraphSeed {
+export interface RetrievalSymbolGraphSeed {
   symbolId: string;
   chunkId: string;
   path: string;
@@ -325,6 +329,9 @@ function summarizeBriefQuality(input: {
   symbolGraphHitCount: number;
   edgeTraversalCount: number;
   edgeTypeCounts: Record<string, number>;
+  graphMaxDepth: number;
+  graphHopDepthCounts: Record<string, number>;
+  multiHopGraphHitCount: number;
   temporalContext: RetrievalTemporalContext | null;
   crossProjectRequested: boolean;
 }): BriefQualitySummary {
@@ -396,6 +403,9 @@ function summarizeBriefQuality(input: {
     symbolGraphHitCount: input.symbolGraphHitCount,
     edgeTraversalCount: input.edgeTraversalCount,
     edgeTypeCounts: input.edgeTypeCounts,
+    graphMaxDepth: input.graphMaxDepth,
+    graphHopDepthCounts: input.graphHopDepthCounts,
+    multiHopGraphHitCount: input.multiHopGraphHitCount,
     temporalContextAvailable: Boolean(input.temporalContext),
     temporalHitCount,
     branchAlignedTopHitCount,
@@ -1686,6 +1696,181 @@ export function mergeGraphExpandedHits(input: {
     .slice(0, input.finalK);
 }
 
+export function buildSymbolGraphExpandedHits(input: {
+  symbolSeeds: RetrievalSymbolGraphSeed[];
+  edgeRows: Array<{
+    fromSymbolId: string;
+    toSymbolId: string;
+    edgeType: string;
+    weight: number;
+  }>;
+  targetSymbols: Array<{
+    symbolId: string;
+    chunkId: string;
+    path: string;
+    symbolName: string;
+    documentId: string;
+    sourceType: string;
+    authorityLevel: string;
+    documentIssueId: string | null;
+    documentProjectId: string | null;
+    title: string | null;
+    headingPath: string | null;
+    textContent: string;
+    documentMetadata: Record<string, unknown>;
+    chunkMetadata: Record<string, unknown>;
+    updatedAt: Date;
+  }>;
+  limit: number;
+  maxDepth: number;
+}) {
+  const seedById = new Map(input.symbolSeeds.map((seed) => [seed.symbolId, seed] as const));
+  const targetById = new Map(input.targetSymbols.map((target) => [target.symbolId, target] as const));
+  const adjacency = new Map<string, Array<{ targetId: string; edgeType: string; weight: number }>>();
+  for (const row of input.edgeRows) {
+    const forward = adjacency.get(row.fromSymbolId) ?? [];
+    forward.push({
+      targetId: row.toSymbolId,
+      edgeType: row.edgeType,
+      weight: row.weight,
+    });
+    adjacency.set(row.fromSymbolId, forward);
+
+    const reverse = adjacency.get(row.toSymbolId) ?? [];
+    reverse.push({
+      targetId: row.fromSymbolId,
+      edgeType: row.edgeType,
+      weight: row.weight,
+    });
+    adjacency.set(row.toSymbolId, reverse);
+  }
+
+  const edgeTypeCounts: Record<string, number> = {};
+  const bestBySymbol = new Map<string, {
+    score: number;
+    seedReasons: string[];
+    edgeTypes: string[];
+    depth: number;
+  }>();
+  let frontier = input.symbolSeeds.map((seed) => ({
+    symbolId: seed.symbolId,
+    score: seed.seedBoost,
+    seedReasons: seed.seedReasons,
+    edgeTypes: [] as string[],
+    depth: 0,
+  }));
+
+  for (let depth = 1; depth <= input.maxDepth; depth += 1) {
+    const nextBySymbol = new Map<string, {
+      symbolId: string;
+      score: number;
+      seedReasons: string[];
+      edgeTypes: string[];
+      depth: number;
+    }>();
+    for (const current of frontier) {
+      for (const edge of adjacency.get(current.symbolId) ?? []) {
+        edgeTypeCounts[edge.edgeType] = (edgeTypeCounts[edge.edgeType] ?? 0) + 1;
+        const edgeBoost = edge.edgeType === "tests" ? 1.25 : edge.edgeType === "imports" ? 0.92 : 0.8;
+        const depthDecay = depth === 1 ? 1 : 0.72;
+        const nextScore = Math.min(5.25, current.score + Math.max(0.18, edge.weight * edgeBoost) * depthDecay);
+        const nextEntry = {
+          symbolId: edge.targetId,
+          score: nextScore,
+          seedReasons: current.seedReasons,
+          edgeTypes: uniqueNonEmpty([...current.edgeTypes, edge.edgeType]),
+          depth,
+        };
+        const existingFrontier = nextBySymbol.get(edge.targetId);
+        if (!existingFrontier || existingFrontier.score < nextScore) {
+          nextBySymbol.set(edge.targetId, nextEntry);
+        }
+        if (seedById.has(edge.targetId)) continue;
+        const existingBest = bestBySymbol.get(edge.targetId);
+        if (!existingBest || existingBest.score < nextScore) {
+          bestBySymbol.set(edge.targetId, {
+            score: nextScore,
+            seedReasons: nextEntry.seedReasons,
+            edgeTypes: nextEntry.edgeTypes,
+            depth,
+          });
+        }
+      }
+    }
+    frontier = Array.from(nextBySymbol.values());
+    if (frontier.length === 0) break;
+  }
+
+  const graphHopDepthCounts: Record<string, number> = {};
+  const grouped = new Map<string, RetrievalHitView>();
+  for (const [symbolId, expansion] of bestBySymbol.entries()) {
+    const target = targetById.get(symbolId);
+    if (!target) continue;
+    graphHopDepthCounts[String(expansion.depth)] = (graphHopDepthCounts[String(expansion.depth)] ?? 0) + 1;
+    const existing = grouped.get(target.chunkId);
+    if (!existing) {
+      grouped.set(target.chunkId, {
+        chunkId: target.chunkId,
+        documentId: target.documentId,
+        sourceType: target.sourceType,
+        authorityLevel: target.authorityLevel,
+        documentIssueId: target.documentIssueId,
+        documentProjectId: target.documentProjectId,
+        path: target.path,
+        title: target.title,
+        headingPath: target.headingPath,
+        symbolName: target.symbolName,
+        textContent: target.textContent,
+        documentMetadata: target.documentMetadata,
+        chunkMetadata: target.chunkMetadata,
+        denseScore: null,
+        sparseScore: null,
+        rerankScore: expansion.score,
+        fusedScore: expansion.score,
+        updatedAt: target.updatedAt,
+        graphMetadata: {
+          entityTypes: ["symbol"],
+          entityIds: [target.symbolName],
+          seedReasons: expansion.seedReasons,
+          graphScore: expansion.score,
+          edgeTypes: expansion.edgeTypes,
+          hopDepth: expansion.depth,
+        },
+      });
+      continue;
+    }
+
+    grouped.set(target.chunkId, {
+      ...existing,
+      fusedScore: Math.max(existing.fusedScore, expansion.score),
+      rerankScore: Math.max(existing.rerankScore ?? 0, expansion.score),
+      graphMetadata: {
+        entityTypes: uniqueNonEmpty([...(existing.graphMetadata?.entityTypes ?? []), "symbol"]),
+        entityIds: uniqueNonEmpty([...(existing.graphMetadata?.entityIds ?? []), target.symbolName]),
+        seedReasons: uniqueNonEmpty([...(existing.graphMetadata?.seedReasons ?? []), ...expansion.seedReasons]),
+        graphScore: Math.max(existing.graphMetadata?.graphScore ?? 0, expansion.score),
+        edgeTypes: uniqueNonEmpty([...(existing.graphMetadata?.edgeTypes ?? []), ...expansion.edgeTypes]),
+        hopDepth: Math.min(existing.graphMetadata?.hopDepth ?? expansion.depth, expansion.depth),
+      },
+    });
+  }
+
+  const hits = Array.from(grouped.values())
+    .sort((left, right) => {
+      if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
+      return right.updatedAt.getTime() - left.updatedAt.getTime();
+    })
+    .slice(0, input.limit);
+
+  return {
+    hits,
+    edgeTraversalCount: input.edgeRows.length,
+    edgeTypeCounts,
+    graphMaxDepth: hits.reduce((max, hit) => Math.max(max, hit.graphMetadata?.hopDepth ?? 1), 0),
+    graphHopDepthCounts,
+  };
+}
+
 export function applyModelRerankOrder(input: {
   hits: RetrievalHitView[];
   rankedChunkIds: string[];
@@ -2278,19 +2463,20 @@ export function issueRetrievalService(db: Db) {
         hits: [] as RetrievalHitView[],
         edgeTraversalCount: 0,
         edgeTypeCounts: {} as Record<string, number>,
+        graphMaxDepth: 0,
+        graphHopDepthCounts: {} as Record<string, number>,
       };
     }
 
     const seedById = new Map(input.symbolSeeds.map((seed) => [seed.symbolId, seed] as const));
     const seedIds = input.symbolSeeds.map((seed) => seed.symbolId);
 
-    const edgeRows = await db
+    const firstHopEdges = await db
       .select({
         fromSymbolId: codeSymbolEdges.fromSymbolId,
         toSymbolId: codeSymbolEdges.toSymbolId,
         edgeType: codeSymbolEdges.edgeType,
         weight: codeSymbolEdges.weight,
-        metadata: codeSymbolEdges.metadata,
       })
       .from(codeSymbolEdges)
       .where(and(
@@ -2301,19 +2487,45 @@ export function issueRetrievalService(db: Db) {
         ),
       ))
       .orderBy(desc(codeSymbolEdges.weight))
-      .limit(Math.max(input.limit * 12, 72));
+      .limit(Math.max(input.limit * 12, 96));
 
-    if (edgeRows.length === 0) {
+    if (firstHopEdges.length === 0) {
       return {
         hits: [] as RetrievalHitView[],
         edgeTraversalCount: 0,
         edgeTypeCounts: {} as Record<string, number>,
+        graphMaxDepth: 0,
+        graphHopDepthCounts: {} as Record<string, number>,
       };
     }
 
-    const edgeTypeCounts: Record<string, number> = {};
+    const firstHopIds = Array.from(new Set(
+      firstHopEdges.map((row) => (seedById.has(row.fromSymbolId) ? row.toSymbolId : row.fromSymbolId)),
+    ));
+    const secondHopEdges = firstHopIds.length === 0
+      ? []
+      : await db
+        .select({
+          fromSymbolId: codeSymbolEdges.fromSymbolId,
+          toSymbolId: codeSymbolEdges.toSymbolId,
+          edgeType: codeSymbolEdges.edgeType,
+          weight: codeSymbolEdges.weight,
+        })
+        .from(codeSymbolEdges)
+        .where(and(
+          eq(codeSymbolEdges.companyId, input.companyId),
+          or(
+            inArray(codeSymbolEdges.fromSymbolId, firstHopIds),
+            inArray(codeSymbolEdges.toSymbolId, firstHopIds),
+          ),
+        ))
+        .orderBy(desc(codeSymbolEdges.weight))
+        .limit(Math.max(input.limit * 16, 128));
+    const edgeRows = [...firstHopEdges, ...secondHopEdges];
     const targetSymbolIds = Array.from(new Set(
-      edgeRows.map((row) => (seedById.has(row.fromSymbolId) ? row.toSymbolId : row.fromSymbolId)),
+      edgeRows
+        .flatMap((row) => [row.fromSymbolId, row.toSymbolId])
+        .filter((symbolId) => !seedById.has(symbolId)),
     ));
     const targetSymbols = targetSymbolIds.length === 0
       ? []
@@ -2348,74 +2560,13 @@ export function issueRetrievalService(db: Db) {
           ...(input.excludeChunkIds.length > 0 ? [not(inArray(knowledgeChunks.id, input.excludeChunkIds))] : []),
         ));
 
-    const targetById = new Map(targetSymbols.map((symbol) => [symbol.symbolId, symbol] as const));
-    const grouped = new Map<string, RetrievalHitView>();
-
-    for (const row of edgeRows) {
-      const seed = seedById.get(row.fromSymbolId) ?? seedById.get(row.toSymbolId);
-      if (!seed) continue;
-      const targetSymbolId = seedById.has(row.fromSymbolId) ? row.toSymbolId : row.fromSymbolId;
-      const target = targetById.get(targetSymbolId);
-      if (!target) continue;
-      edgeTypeCounts[row.edgeType] = (edgeTypeCounts[row.edgeType] ?? 0) + 1;
-      const edgeBoost = row.edgeType === "tests" ? 1.25 : row.edgeType === "imports" ? 0.92 : 0.8;
-      const graphScore = Math.min(4.5, seed.seedBoost + Math.max(0.25, row.weight * edgeBoost));
-      const existing = grouped.get(target.chunkId);
-      if (!existing) {
-        grouped.set(target.chunkId, {
-          chunkId: target.chunkId,
-          documentId: target.documentId,
-          sourceType: target.sourceType,
-          authorityLevel: target.authorityLevel,
-          documentIssueId: target.documentIssueId,
-          documentProjectId: target.documentProjectId,
-          path: target.path,
-          title: target.title,
-          headingPath: target.headingPath,
-          symbolName: target.symbolName,
-          textContent: target.textContent,
-          documentMetadata: target.documentMetadata,
-          chunkMetadata: target.chunkMetadata,
-          denseScore: null,
-          sparseScore: null,
-          rerankScore: graphScore,
-          fusedScore: graphScore,
-          updatedAt: target.updatedAt,
-          graphMetadata: {
-            entityTypes: ["symbol"],
-            entityIds: [target.symbolName],
-            seedReasons: seed.seedReasons,
-            graphScore,
-            edgeTypes: [row.edgeType],
-          },
-        });
-        continue;
-      }
-
-      grouped.set(target.chunkId, {
-        ...existing,
-        fusedScore: Math.max(existing.fusedScore, graphScore),
-        rerankScore: Math.max(existing.rerankScore ?? 0, graphScore),
-        graphMetadata: {
-          entityTypes: uniqueNonEmpty([...(existing.graphMetadata?.entityTypes ?? []), "symbol"]),
-          entityIds: uniqueNonEmpty([...(existing.graphMetadata?.entityIds ?? []), target.symbolName]),
-          seedReasons: uniqueNonEmpty([...(existing.graphMetadata?.seedReasons ?? []), ...seed.seedReasons]),
-          graphScore: Math.max(existing.graphMetadata?.graphScore ?? 0, graphScore),
-          edgeTypes: uniqueNonEmpty([...(existing.graphMetadata?.edgeTypes ?? []), row.edgeType]),
-        },
-      });
-    }
-
-    return {
-      hits: Array.from(grouped.values())
-        .sort((left, right) => {
-          if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
-          return right.updatedAt.getTime() - left.updatedAt.getTime();
-        })
-        .slice(0, input.limit),
-      edgeTraversalCount: edgeRows.length,
-      edgeTypeCounts,
-    };
+    return buildSymbolGraphExpandedHits({
+      symbolSeeds: input.symbolSeeds,
+      edgeRows,
+      targetSymbols,
+      limit: input.limit,
+      maxDepth: 2,
+    });
   }
 
   return {
@@ -2637,6 +2788,9 @@ export function issueRetrievalService(db: Db) {
             symbolGraphHitCount: 0,
             edgeTraversalCount: 0,
             edgeTypeCounts: {},
+            graphMaxDepth: 0,
+            graphHopDepthCounts: {},
+            multiHopGraphHitCount: 0,
             temporalContext,
             cache: {
               embeddingHit: queryEmbeddingDebug.embeddingCacheHit === true,
@@ -2887,6 +3041,8 @@ export function issueRetrievalService(db: Db) {
           recipientRole: recipient.role,
         });
         console.log("[RETRIEVAL] Brief scope:", briefScope);
+        const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
+        const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
         const briefQuality = summarizeBriefQuality({
           finalHits,
           queryEmbedding,
@@ -2895,12 +3051,15 @@ export function issueRetrievalService(db: Db) {
           symbolHitCount: symbolHits.length,
           denseHitCount: denseHits.length,
           graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
-          graphHitCount: finalHits.filter((hit) => hit.graphMetadata != null).length,
-          graphEntityTypes: uniqueNonEmpty(finalHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+          graphHitCount: graphHits.length,
+          graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
           symbolGraphSeedCount: symbolGraphSeeds.length,
           symbolGraphHitCount: symbolGraphResult.hits.length,
           edgeTraversalCount: symbolGraphResult.edgeTraversalCount,
           edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+          graphMaxDepth: symbolGraphResult.graphMaxDepth,
+          graphHopDepthCounts: symbolGraphResult.graphHopDepthCounts,
+          multiHopGraphHitCount,
           temporalContext,
           crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
         });
@@ -2965,12 +3124,15 @@ export function issueRetrievalService(db: Db) {
             ...graphSeeds.map((seed) => seed.entityType),
             ...(symbolGraphSeeds.length > 0 ? ["symbol_graph"] : []),
           ]),
-          graphHitCount: finalHits.filter((hit) => hit.graphMetadata != null).length,
-          graphEntityTypes: uniqueNonEmpty(finalHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+          graphHitCount: graphHits.length,
+          graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
           symbolGraphSeedCount: symbolGraphSeeds.length,
           symbolGraphHitCount: symbolGraphResult.hits.length,
           edgeTraversalCount: symbolGraphResult.edgeTraversalCount,
           edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+          graphMaxDepth: symbolGraphResult.graphMaxDepth,
+          graphHopDepthCounts: symbolGraphResult.graphHopDepthCounts,
+          multiHopGraphHitCount,
           temporalContext,
           exactPathSatisfied: dynamicSignals.exactPaths.length === 0
             ? true

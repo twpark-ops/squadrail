@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { runWithoutDbContext, type Db } from "@squadrail/db";
+import { enqueueAfterDbCommit, runWithoutDbContext, type Db } from "@squadrail/db";
 import {
   addIssueCommentSchema,
   createIssueAttachmentMetadataSchema,
@@ -131,6 +131,14 @@ const mergeCandidateAutomationSchema = z.object({
   remoteName: z.string().trim().max(255).nullable().optional(),
   branchName: z.string().trim().max(255).nullable().optional(),
   pushAfterAction: z.boolean().optional(),
+}).strict();
+
+const retrievalFeedbackSchema = z.object({
+  retrievalRunId: z.string().uuid(),
+  feedbackType: z.enum(["operator_pin", "operator_hide"]),
+  targetType: z.enum(["chunk", "path", "symbol", "source_type"]),
+  targetIds: z.array(z.string().trim().min(1)).min(1).max(32),
+  noteBody: z.string().trim().max(4_000).nullable().optional(),
 }).strict();
 
 function shouldGenerateProtocolRetrievalContext(
@@ -701,17 +709,25 @@ export function issueRoutes(db: Db, storage: StorageService) {
     };
 
     if (input.asyncDispatch) {
-      void runDispatch().catch((err) => {
-        logger.error(
-          {
-            err,
-            issueId: input.issue.id,
-            protocolMessageId: result.message.id,
-            messageType: effectiveMessage.messageType,
-          },
-          "Async protocol dispatch failed after response was returned",
-        );
-      });
+      const scheduleAsyncDispatch = () => {
+        runWithoutDbContext(() => {
+          void runDispatch().catch((err) => {
+            logger.error(
+              {
+                err,
+                issueId: input.issue.id,
+                protocolMessageId: result.message.id,
+                messageType: effectiveMessage.messageType,
+              },
+              "Async protocol dispatch failed after response was returned",
+            );
+          });
+        });
+      };
+
+      if (!enqueueAfterDbCommit(scheduleAsyncDispatch)) {
+        scheduleAsyncDispatch();
+      }
       return { result, warnings: [] as string[] };
     }
 
@@ -1809,6 +1825,59 @@ export function issueRoutes(db: Db, storage: StorageService) {
     res.json(surface);
   });
 
+  router.post("/issues/:id/retrieval-feedback", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Only board users can record retrieval feedback" });
+      return;
+    }
+
+    const parsed = retrievalFeedbackSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const result = await retrievalPersonalization.recordManualFeedback({
+      companyId: issue.companyId,
+      issueId: issue.id,
+      issueProjectId: issue.projectId ?? null,
+      retrievalRunId: parsed.data.retrievalRunId,
+      feedbackType: parsed.data.feedbackType,
+      targetType: parsed.data.targetType,
+      targetIds: parsed.data.targetIds,
+      actorRole: "human_board",
+      noteBody: parsed.data.noteBody ?? null,
+    });
+
+    await logActivity(db, {
+      companyId: issue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.retrieval_feedback.recorded",
+      entityType: "issue",
+      entityId: issue.id,
+      details: {
+        retrievalRunId: parsed.data.retrievalRunId,
+        feedbackType: parsed.data.feedbackType,
+        targetType: parsed.data.targetType,
+        targetIds: parsed.data.targetIds,
+        feedbackEventCount: result.feedbackEventCount,
+      },
+    });
+
+    res.json(result);
+  });
+
   router.get("/issues/:id/merge-candidate", async (req, res) => {
     const id = req.params.id as string;
     const issue = await svc.getById(id);
@@ -1925,6 +1994,30 @@ export function issueRoutes(db: Db, storage: StorageService) {
       operatorActorId: actor.actorId,
       operatorNote: parsed.data.noteBody ?? null,
     });
+
+    try {
+      await retrievalPersonalization.recordMergeCandidateOutcomeFeedback({
+        companyId: issue.companyId,
+        issueId: issue.id,
+        issueProjectId: issue.projectId ?? null,
+        closeMessageId: surface.mergeCandidate.closeMessageId,
+        outcome: nextState === "merged" ? "merge_completed" : "merge_rejected",
+        changedFiles: surface.changedFiles,
+        noteBody: parsed.data.noteBody ?? null,
+        actorRole: "human_board",
+        mergeCommitSha: parsed.data.mergeCommitSha ?? surface.mergeCandidate.mergeCommitSha ?? null,
+        mergeStatus: nextState,
+      });
+    } catch (err) {
+      logger.error(
+        {
+          err,
+          issueId: issue.id,
+          actionType: parsed.data.actionType,
+        },
+        "Merge candidate retrieval feedback recording failed",
+      );
+    }
 
     await logActivity(db, {
       companyId: issue.companyId,

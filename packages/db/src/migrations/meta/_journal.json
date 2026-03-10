@@ -267,6 +267,13 @@
       "when": 1773172800000,
       "tag": "0037_mellow_retrieval_personalization",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1773193200000,
+      "tag": "0038_sturdy_knowledge_sync_jobs",
+      "breakpoints": true
     }
   ]
 }

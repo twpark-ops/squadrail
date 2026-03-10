@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  mockEnqueueAfterDbCommit,
   mockEnsureMembership,
   mockAccessCanUser,
   mockAccessHasPermission,
@@ -27,14 +28,18 @@ const {
   mockProtocolDispatchMessage,
   mockIssueRetrievalHandleProtocolMessage,
   mockRetrievalPersonalizationRecordProtocolFeedback,
+  mockRetrievalPersonalizationRecordManualFeedback,
+  mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback,
   mockMergeCandidateGetByIssueId,
   mockMergeCandidateUpsertDecision,
   mockMergeCandidatePatchAutomationMetadata,
   mockMergeCandidateDeleteByIssueId,
   mockBuildMergeAutomationPlan,
   mockRunMergeAutomationAction,
+  mockRunWithoutDbContext,
   mockLogActivity,
 } = vi.hoisted(() => ({
+  mockEnqueueAfterDbCommit: vi.fn(),
   mockEnsureMembership: vi.fn(),
   mockAccessCanUser: vi.fn(),
   mockAccessHasPermission: vi.fn(),
@@ -61,14 +66,26 @@ const {
   mockProtocolDispatchMessage: vi.fn(),
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
   mockRetrievalPersonalizationRecordProtocolFeedback: vi.fn(),
+  mockRetrievalPersonalizationRecordManualFeedback: vi.fn(),
+  mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback: vi.fn(),
   mockMergeCandidateGetByIssueId: vi.fn(),
   mockMergeCandidateUpsertDecision: vi.fn(),
   mockMergeCandidatePatchAutomationMetadata: vi.fn(),
   mockMergeCandidateDeleteByIssueId: vi.fn(),
   mockBuildMergeAutomationPlan: vi.fn(),
   mockRunMergeAutomationAction: vi.fn(),
+  mockRunWithoutDbContext: vi.fn(),
   mockLogActivity: vi.fn(),
 }));
+
+vi.mock("@squadrail/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@squadrail/db")>();
+  return {
+    ...actual,
+    enqueueAfterDbCommit: mockEnqueueAfterDbCommit,
+    runWithoutDbContext: mockRunWithoutDbContext,
+  };
+});
 
 vi.mock("../services/index.js", () => ({
   accessService: () => ({
@@ -107,6 +124,8 @@ vi.mock("../services/index.js", () => ({
   }),
   retrievalPersonalizationService: () => ({
     recordProtocolFeedback: mockRetrievalPersonalizationRecordProtocolFeedback,
+    recordManualFeedback: mockRetrievalPersonalizationRecordManualFeedback,
+    recordMergeCandidateOutcomeFeedback: mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback,
     loadProfile: vi.fn(),
     backfillProtocolFeedback: vi.fn(),
   }),
@@ -300,6 +319,8 @@ async function invokeRoute(input: {
 describe("issue routes wakeup handling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnqueueAfterDbCommit.mockReturnValue(false);
+    mockRunWithoutDbContext.mockImplementation((fn: () => unknown) => fn());
     mockEnsureMembership.mockResolvedValue(true);
     mockAccessCanUser.mockResolvedValue(true);
     mockAccessHasPermission.mockResolvedValue(true);
@@ -340,6 +361,24 @@ describe("issue routes wakeup handling", () => {
     });
     mockProtocolDispatchMessage.mockResolvedValue(undefined);
     mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({ recipientHints: [] });
+    mockRetrievalPersonalizationRecordProtocolFeedback.mockResolvedValue({
+      ok: true,
+      feedbackEventCount: 0,
+      profiledRunCount: 0,
+      retrievalRunIds: [],
+    });
+    mockRetrievalPersonalizationRecordManualFeedback.mockResolvedValue({
+      ok: true,
+      feedbackEventCount: 2,
+      profiledRunCount: 1,
+      retrievalRunIds: ["retrieval-run-1"],
+    });
+    mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback.mockResolvedValue({
+      ok: true,
+      feedbackEventCount: 6,
+      profiledRunCount: 2,
+      retrievalRunIds: ["retrieval-run-1", "retrieval-run-2"],
+    });
     mockProjectGetById.mockResolvedValue(null);
     mockMergeCandidateGetByIssueId.mockResolvedValue(null);
     mockMergeCandidateUpsertDecision.mockResolvedValue(null);
@@ -391,6 +430,144 @@ describe("issue routes wakeup handling", () => {
         lastAutomationAction: "prepare_merge",
       },
     });
+  });
+
+  it("dispatches async agent protocol messages immediately when no db context is active", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-250",
+      title: "Async reassignment issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "lead-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Tech Lead",
+      permissions: {},
+    });
+    mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({
+      recipientHints: [
+        {
+          recipientId: "22222222-2222-4222-8222-222222222222",
+          recipientRole: "engineer",
+          retrievalRunId: "retrieval-run-1",
+          briefId: "brief-1",
+          briefScope: "engineer",
+        },
+      ],
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: {
+        ...buildAgentActor("lead-1"),
+        runId: "run-async-1",
+      },
+      headers: {
+        "x-squadrail-dispatch-mode": "async",
+      },
+      body: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "22222222-2222-4222-8222-222222222222", role: "engineer" },
+          { recipientType: "agent", recipientId: "33333333-3333-4333-8333-333333333333", role: "reviewer" },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "Route work to engineer",
+        payload: {
+          reason: "Tech lead staffing handoff",
+          newAssigneeAgentId: "22222222-2222-4222-8222-222222222222",
+          newReviewerAgentId: "33333333-3333-4333-8333-333333333333",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
+    expect(mockIssueRetrievalHandleProtocolMessage).toHaveBeenCalledTimes(1);
+    expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers async agent protocol dispatch until after db commit when a context callback is available", async () => {
+    let queuedCallback: (() => void) | null = null;
+    mockEnqueueAfterDbCommit.mockImplementation((callback: () => void) => {
+      queuedCallback = callback;
+      return true;
+    });
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-251",
+      title: "Deferred async protocol issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "lead-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Tech Lead",
+      permissions: {},
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: {
+        ...buildAgentActor("lead-1"),
+        runId: "run-async-2",
+      },
+      headers: {
+        "x-squadrail-dispatch-mode": "async",
+      },
+      body: {
+        messageType: "ACK_ASSIGNMENT",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "lead-1", role: "tech_lead" },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "accepted",
+        summary: "Acknowledged",
+        payload: {
+          accepted: true,
+          understoodScope: "Will staff the issue",
+          initialRisks: [],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
+    expect(mockProtocolDispatchMessage).not.toHaveBeenCalled();
+    expect(mockRunWithoutDbContext).not.toHaveBeenCalled();
+
+    expect(queuedCallback).not.toBeNull();
+    await queuedCallback?.();
+
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
+    expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
   });
 
   it("awaits assignee wakeup on issue create", async () => {
@@ -1320,7 +1497,7 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toEqual(
+  expect(response.body).toEqual(
       expect.objectContaining({
         branchName: "squadrail/clo-220",
         workspacePath: "/tmp/worktree",
@@ -1333,6 +1510,49 @@ describe("issue routes wakeup handling", () => {
     );
   });
 
+  it("records manual retrieval feedback for a retrieval run", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-220",
+      title: "Feedback issue",
+      status: "in_review",
+      projectId: "project-1",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/retrieval-feedback",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        retrievalRunId: "22222222-2222-4222-8222-222222222222",
+        feedbackType: "operator_pin",
+        targetType: "path",
+        targetIds: ["src/retry.ts"],
+        noteBody: "Keep this path near the top",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockRetrievalPersonalizationRecordManualFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        issueId: "11111111-1111-4111-8111-111111111111",
+        issueProjectId: "project-1",
+        retrievalRunId: "22222222-2222-4222-8222-222222222222",
+        feedbackType: "operator_pin",
+        targetType: "path",
+        targetIds: ["src/retry.ts"],
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        ok: true,
+        feedbackEventCount: 2,
+      }),
+    );
+  });
+
   it("records merge candidate operator decisions", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
@@ -1340,6 +1560,7 @@ describe("issue routes wakeup handling", () => {
       identifier: "CLO-221",
       title: "Merge candidate issue",
       status: "done",
+      projectId: "project-1",
     });
     mockProtocolListMessages.mockResolvedValue([
       {
@@ -1448,6 +1669,18 @@ describe("issue routes wakeup handling", () => {
         operatorActorType: "user",
         operatorActorId: "user-1",
         operatorNote: "Merged by operator",
+      }),
+    );
+    expect(mockRetrievalPersonalizationRecordMergeCandidateOutcomeFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        issueId: "11111111-1111-4111-8111-111111111111",
+        issueProjectId: "project-1",
+        closeMessageId: "close-1",
+        outcome: "merge_completed",
+        changedFiles: ["src/merge.ts"],
+        mergeCommitSha: "fedcba",
+        mergeStatus: "merged",
       }),
     );
     expect(response.body).toEqual(

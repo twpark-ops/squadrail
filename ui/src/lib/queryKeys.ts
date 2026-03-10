@@ -5,6 +5,9 @@ export const queryKeys = {
     detail: (id: string) => ["companies", id] as const,
     stats: ["companies", "stats"] as const,
     setupProgress: (id: string) => ["companies", id, "setup-progress"] as const,
+    orgSync: (id: string) => ["companies", id, "org-sync"] as const,
+    knowledgeSetup: (id: string) => ["companies", id, "knowledge-setup"] as const,
+    knowledgeSyncJob: (id: string, jobId: string) => ["companies", id, "knowledge-sync", jobId] as const,
     doctor: (id: string, deep: boolean = false, workspaceId?: string) =>
       ["companies", id, "doctor", deep ? "deep" : "fast", workspaceId ?? "__default__"] as const,
     rolePacks: (id: string) => ["companies", id, "role-packs"] as const,

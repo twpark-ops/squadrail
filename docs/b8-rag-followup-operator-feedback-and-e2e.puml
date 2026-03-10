@@ -1,0 +1,35 @@
+@startuml B8 Follow-up Operator Feedback and E2E
+title B8 Follow-up - Operator Feedback, Merge Outcome Refinement, Real-Org E2E
+
+actor "Board Operator" as Board
+actor "Agent" as Agent
+
+rectangle "Issue Retrieval Run" as Retrieval
+database "retrieval_feedback_events" as Feedback
+database "retrieval_role_profiles" as Profiles
+rectangle "Multi-hop Graph Traversal\nmaxDepth=2" as Graph
+rectangle "Merge Candidate Resolution" as Merge
+rectangle "Follow-up Issue Retrieval" as Followup
+
+Agent --> Retrieval
+Board --> Feedback : operator_pin / operator_hide
+Merge --> Feedback : merged / rejected
+Feedback --> Profiles
+Profiles --> Followup
+Graph --> Followup
+Agent --> Followup
+
+note right of Graph
+- two-hop limit
+- edge decay
+- edge-type weighted traversal
+end note
+
+note bottom of Followup
+E2E success signal:
+- graphHitCount > 0
+- personalization.applied = true
+- personalizedHitCount > 0
+end note
+
+@enduml

@@ -236,11 +236,24 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 7. B7. Merge Automation
 8. B8. Deep RAG Hardening
 
+추가 완료:
+
+9. Knowledge Setup UI-first foundation
+   - company-level org sync / knowledge sync read model과 UI surface 추가
+   - live `cloud-swiftsight`를 canonical 18-agent 조직으로 정렬
+10. Real-org RAG readiness E2E
+   - operator pin / merge outcome feedback을 실제 reviewer brief personalization까지 연결
+   - follow-up issue에서 graph / personalization 신호가 실제 retrieval hit에 반영되는지 검증
+
 다음 우선순위:
 
-1. operator pin/hide feedback surface
-2. merge outcome feedback refinement
-3. deeper multi-hop graph traversal
+1. organizational memory ingest
+2. operator feedback UI surface
+3. candidate / final-hit cache
+4. deeper chunk-link multi-hop traversal
+5. cross-issue memory / quality trend surface
+
+상세 우선순위와 단계별 계획은 [organizational-memory-rag-plan.md](/home/taewoong/company-project/squadall/docs/organizational-memory-rag-plan.md) 참조.
 
 ## 완료 증거
 
@@ -261,3 +274,27 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 지금 백엔드는 새 엔진을 만드는 단계가 아니다.
 
 운영 자동화, retrieval 계측, merge 반영 흐름을 닫는 단계다.
+
+## 다음 제품 단계
+
+Knowledge follow-up은 CLI-first가 아니라 UI-first로 진행한다.
+
+추천 순서:
+
+1. `K1. Org drift read model`
+   - live company와 canonical 18-agent bootstrap 차이 계산
+2. `K2. Company knowledge setup read model`
+   - project import state, graph/version/personalization state, quality 요약을 단일 응답으로 제공
+3. `K3. Knowledge Setup UI`
+   - 운영자의 주 경로
+4. `K4. Company knowledge sync orchestration API`
+   - selected/all sync, project-level step orchestration
+5. `K5. Org repair action`
+   - missing/misaligned agent repair
+6. `K6. Real-agent RAG E2E revalidation`
+   - follow-up issue brief에서 graph/personalization 사용 여부 확인
+
+참고:
+
+- [knowledge-setup-sync-ui-first-spec.md](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.md)
+- [knowledge-setup-sync-ui-first-spec.puml](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.puml)

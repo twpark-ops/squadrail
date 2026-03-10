@@ -18,7 +18,13 @@ const MAX_PROFILE_KEYS = {
   symbol: 24,
 } as const;
 
-type RetrievalFeedbackType = "approved" | "request_changes" | "merge_completed";
+type RetrievalFeedbackType =
+  | "approved"
+  | "request_changes"
+  | "merge_completed"
+  | "merge_rejected"
+  | "operator_pin"
+  | "operator_hide";
 type RetrievalFeedbackTargetType = "chunk" | "path" | "symbol" | "source_type";
 type RetrievalPersonalizationScope = "global" | "project";
 
@@ -42,6 +48,9 @@ export interface RetrievalRoleProfileJson {
     positiveFeedbackCount: number;
     negativeFeedbackCount: number;
     mergeCompletedCount: number;
+    mergeRejectedCount: number;
+    operatorPinCount: number;
+    operatorHideCount: number;
     lastFeedbackAt: string | null;
   };
   generatedAt: string;
@@ -73,6 +82,13 @@ export interface RetrievalPersonalizationBoost {
 type RetrievalFeedbackDescriptor = {
   feedbackType: RetrievalFeedbackType;
   baseWeight: number;
+};
+
+type RetrievalRunFeedbackContext = {
+  id: string;
+  actorRole: string;
+  eventType: string;
+  queryDebug: Record<string, unknown>;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -158,6 +174,9 @@ function parseRoleProfileJson(value: unknown): RetrievalRoleProfileJson {
       positiveFeedbackCount: typeof stats.positiveFeedbackCount === "number" ? stats.positiveFeedbackCount : 0,
       negativeFeedbackCount: typeof stats.negativeFeedbackCount === "number" ? stats.negativeFeedbackCount : 0,
       mergeCompletedCount: typeof stats.mergeCompletedCount === "number" ? stats.mergeCompletedCount : 0,
+      mergeRejectedCount: typeof stats.mergeRejectedCount === "number" ? stats.mergeRejectedCount : 0,
+      operatorPinCount: typeof stats.operatorPinCount === "number" ? stats.operatorPinCount : 0,
+      operatorHideCount: typeof stats.operatorHideCount === "number" ? stats.operatorHideCount : 0,
       lastFeedbackAt: readString(stats.lastFeedbackAt),
     },
     generatedAt: readString(record.generatedAt) ?? new Date(0).toISOString(),
@@ -172,6 +191,9 @@ export function aggregateRetrievalFeedbackProfile(input: {
   const positiveFeedbackCount = input.events.filter((event) => event.weight > 0).length;
   const negativeFeedbackCount = input.events.filter((event) => event.weight < 0).length;
   const mergeCompletedCount = input.events.filter((event) => event.feedbackType === "merge_completed").length;
+  const mergeRejectedCount = input.events.filter((event) => event.feedbackType === "merge_rejected").length;
+  const operatorPinCount = input.events.filter((event) => event.feedbackType === "operator_pin").length;
+  const operatorHideCount = input.events.filter((event) => event.feedbackType === "operator_hide").length;
   const grouped = {
     source_type: new Map<string, number>(),
     path: new Map<string, number>(),
@@ -203,6 +225,9 @@ export function aggregateRetrievalFeedbackProfile(input: {
       positiveFeedbackCount,
       negativeFeedbackCount,
       mergeCompletedCount,
+      mergeRejectedCount,
+      operatorPinCount,
+      operatorHideCount,
       lastFeedbackAt: input.events
         .map((event) => event.createdAt?.toISOString() ?? null)
         .filter((value): value is string => value != null)
@@ -322,6 +347,20 @@ function describeProtocolFeedback(message: CreateIssueProtocolMessage): Retrieva
   }
 }
 
+function describeManualFeedback(feedbackType: "operator_pin" | "operator_hide"): RetrievalFeedbackDescriptor {
+  return feedbackType === "operator_pin"
+    ? { feedbackType, baseWeight: 1.05 }
+    : { feedbackType, baseWeight: -0.9 };
+}
+
+function describeMergeOutcomeFeedback(
+  outcome: "merge_completed" | "merge_rejected",
+): RetrievalFeedbackDescriptor {
+  return outcome === "merge_completed"
+    ? { feedbackType: outcome, baseWeight: 1.2 }
+    : { feedbackType: outcome, baseWeight: -1.05 };
+}
+
 function fallbackBriefScopes(input: {
   senderRole: string;
   messageType: CreateIssueProtocolMessage["messageType"];
@@ -347,7 +386,7 @@ function buildFeedbackEvents(input: {
   projectId: string | null;
   issueId: string;
   retrievalRunId: string;
-  feedbackMessageId: string;
+  feedbackMessageId: string | null;
   actorRole: string;
   eventType: string;
   feedbackType: RetrievalFeedbackType;
@@ -436,6 +475,41 @@ function buildFeedbackEvents(input: {
   return events;
 }
 
+function buildDirectTargetFeedbackEvents(input: {
+  companyId: string;
+  projectId: string | null;
+  issueId: string;
+  retrievalRunId: string;
+  feedbackMessageId: string | null;
+  actorRole: string;
+  eventType: string;
+  feedbackType: RetrievalFeedbackType;
+  baseWeight: number;
+  targetType: Exclude<RetrievalFeedbackTargetType, "chunk">;
+  targetIds: string[];
+  metadata: Record<string, unknown>;
+}) {
+  const events: Array<typeof retrievalFeedbackEvents.$inferInsert> = [];
+  for (const targetId of input.targetIds) {
+    if (targetId.trim().length === 0) continue;
+    events.push({
+      companyId: input.companyId,
+      projectId: input.projectId,
+      issueId: input.issueId,
+      retrievalRunId: input.retrievalRunId,
+      feedbackMessageId: input.feedbackMessageId,
+      actorRole: input.actorRole,
+      eventType: input.eventType,
+      feedbackType: input.feedbackType,
+      targetType: input.targetType,
+      targetId,
+      weight: input.baseWeight,
+      metadata: input.metadata,
+    });
+  }
+  return events;
+}
+
 export function retrievalPersonalizationService(db: Db) {
   const knowledge = knowledgeService(db);
 
@@ -519,6 +593,84 @@ export function retrievalPersonalizationService(db: Db) {
     return updated ?? null;
   }
 
+  async function updateRunFeedbackDebug(input: {
+    retrievalRunId: string;
+    feedbackType: RetrievalFeedbackType;
+    feedbackMessageId: string | null;
+    feedbackActorRole: string;
+    feedbackEventCount: number;
+    metadata?: Record<string, unknown>;
+  }) {
+    await knowledge.updateRetrievalRunDebug(input.retrievalRunId, {
+      feedback: {
+        lastFeedbackMessageId: input.feedbackMessageId,
+        lastFeedbackType: input.feedbackType,
+        lastFeedbackActorRole: input.feedbackActorRole,
+        lastFeedbackAt: new Date().toISOString(),
+        feedbackEventCount: input.feedbackEventCount,
+        ...(input.metadata ?? {}),
+      },
+    });
+  }
+
+  async function loadRunsWithHits(runIds: string[]) {
+    if (runIds.length === 0) return [] as Array<{
+      run: RetrievalRunFeedbackContext;
+      hits: Awaited<ReturnType<typeof knowledge.listRetrievalRunHits>>;
+      runProjectId: string | null;
+    }>;
+
+    const runs = await db
+      .select({
+        id: retrievalRuns.id,
+        actorRole: retrievalRuns.actorRole,
+        eventType: retrievalRuns.eventType,
+        queryDebug: retrievalRuns.queryDebug,
+      })
+      .from(retrievalRuns)
+      .where(inArray(retrievalRuns.id, runIds));
+
+    const withHits = await Promise.all(runs.map(async (run) => {
+      const hits = await knowledge.listRetrievalRunHits(run.id);
+      return {
+        run: {
+          id: run.id,
+          actorRole: run.actorRole,
+          eventType: run.eventType,
+          queryDebug: asRecord(run.queryDebug),
+        },
+        hits,
+        runProjectId:
+          readString(asRecord(run.queryDebug).issueProjectId)
+          ?? null,
+      };
+    }));
+
+    return withHits;
+  }
+
+  async function rebuildProfileScopes(input: {
+    companyId: string;
+    projectId: string | null;
+    role: string;
+    eventType: string;
+  }) {
+    await rebuildRoleProfile({
+      companyId: input.companyId,
+      projectId: null,
+      role: input.role,
+      eventType: input.eventType,
+    });
+    if (input.projectId) {
+      await rebuildRoleProfile({
+        companyId: input.companyId,
+        projectId: input.projectId,
+        role: input.role,
+        eventType: input.eventType,
+      });
+    }
+  }
+
   async function resolveFeedbackRunIds(input: {
     issueId: string;
     currentMessageSeq: number;
@@ -548,6 +700,160 @@ export function retrievalPersonalizationService(db: Db) {
         .filter((value): value is string => typeof value === "string" && value.length > 0),
     ));
     return uniqueRunIds.slice(0, 1);
+  }
+
+  function buildManualTargetEvents(input: {
+    companyId: string;
+    issueId: string;
+    projectId: string | null;
+    retrievalRunId: string;
+    actorRole: string;
+    eventType: string;
+    feedbackType: RetrievalFeedbackType;
+    baseWeight: number;
+    targetType: RetrievalFeedbackTargetType;
+    targetIds: string[];
+    hits: Array<{
+      chunkId: string;
+      sourceType: string;
+      documentPath: string | null;
+      symbolName: string | null;
+      finalRank: number | null;
+      rationale: string | null;
+      fusedScore: number | null;
+    }>;
+    feedbackMessageId: string | null;
+    noteBody?: string | null;
+  }) {
+    if (input.targetIds.length === 0) return [] as Array<typeof retrievalFeedbackEvents.$inferInsert>;
+
+    const metadata = {
+      targetIds: input.targetIds,
+      noteBody: input.noteBody ?? null,
+      manualFeedback: true,
+    };
+
+    if (input.targetType === "chunk") {
+      const targetSet = new Set(input.targetIds);
+      return buildFeedbackEvents({
+        companyId: input.companyId,
+        projectId: input.projectId,
+        issueId: input.issueId,
+        retrievalRunId: input.retrievalRunId,
+        feedbackMessageId: input.feedbackMessageId,
+        actorRole: input.actorRole,
+        eventType: input.eventType,
+        feedbackType: input.feedbackType,
+        baseWeight: input.baseWeight,
+        hits: input.hits.filter((hit) => targetSet.has(hit.chunkId)),
+      }).map((event) => ({
+        ...event,
+        metadata: {
+          ...(event.metadata ?? {}),
+          ...metadata,
+        },
+      }));
+    }
+
+    const normalizedTargetIds =
+      input.targetType === "path"
+        ? input.targetIds.map((targetId) => normalizePath(targetId)).filter((value): value is string => value != null)
+        : input.targetIds;
+    return buildDirectTargetFeedbackEvents({
+      companyId: input.companyId,
+      projectId: input.projectId,
+      issueId: input.issueId,
+      retrievalRunId: input.retrievalRunId,
+      feedbackMessageId: input.feedbackMessageId,
+      actorRole: input.actorRole,
+      eventType: input.eventType,
+      feedbackType: input.feedbackType,
+      baseWeight: input.baseWeight,
+      targetType: input.targetType,
+      targetIds: normalizedTargetIds,
+      metadata,
+    });
+  }
+
+  async function recordRunFeedback(input: {
+    companyId: string;
+    issueId: string;
+    feedbackMessageId: string | null;
+    feedbackActorRole: string;
+    descriptor: RetrievalFeedbackDescriptor;
+    runs: Array<{
+      run: RetrievalRunFeedbackContext;
+      hits: Awaited<ReturnType<typeof knowledge.listRetrievalRunHits>>;
+      runProjectId: string | null;
+    }>;
+    manualTargetsByRunId?: Map<string, Array<typeof retrievalFeedbackEvents.$inferInsert>>;
+    debugMetadata?: Record<string, unknown>;
+    includeSelectedHits?: boolean;
+  }) {
+    let feedbackEventCount = 0;
+    let profiledRunCount = 0;
+    const retrievalRunIds: string[] = [];
+
+    for (const entry of input.runs) {
+      retrievalRunIds.push(entry.run.id);
+      const selectedHits = entry.hits
+        .filter((hit) => hit.selected)
+        .map((hit) => ({
+          chunkId: hit.chunkId,
+          finalRank: hit.finalRank ?? null,
+          sourceType: hit.sourceType,
+          documentPath: hit.documentPath,
+          symbolName: hit.symbolName,
+          rationale: hit.rationale ?? null,
+          fusedScore: hit.fusedScore ?? null,
+        }));
+
+      const events = [
+        ...(input.includeSelectedHits === false
+          ? []
+          : buildFeedbackEvents({
+            companyId: input.companyId,
+            projectId: entry.runProjectId,
+            issueId: input.issueId,
+            retrievalRunId: entry.run.id,
+            feedbackMessageId: input.feedbackMessageId,
+            actorRole: entry.run.actorRole,
+            eventType: entry.run.eventType,
+            feedbackType: input.descriptor.feedbackType,
+            baseWeight: input.descriptor.baseWeight,
+            hits: selectedHits,
+          })),
+        ...(input.manualTargetsByRunId?.get(entry.run.id) ?? []),
+      ];
+      if (events.length === 0) continue;
+
+      await db.insert(retrievalFeedbackEvents).values(events);
+      feedbackEventCount += events.length;
+
+      await rebuildProfileScopes({
+        companyId: input.companyId,
+        projectId: entry.runProjectId,
+        role: entry.run.actorRole,
+        eventType: entry.run.eventType,
+      });
+      profiledRunCount += 1;
+
+      await updateRunFeedbackDebug({
+        retrievalRunId: entry.run.id,
+        feedbackType: input.descriptor.feedbackType,
+        feedbackMessageId: input.feedbackMessageId,
+        feedbackActorRole: input.feedbackActorRole,
+        feedbackEventCount: events.length,
+        metadata: input.debugMetadata,
+      });
+    }
+
+    return {
+      ok: feedbackEventCount > 0,
+      feedbackEventCount,
+      profiledRunCount,
+      retrievalRunIds,
+    };
   }
 
   async function recordProtocolFeedbackInternal(input: {
@@ -582,85 +888,19 @@ export function retrievalPersonalizationService(db: Db) {
       };
     }
 
-    const runs = await db
-      .select({
-        id: retrievalRuns.id,
-        actorRole: retrievalRuns.actorRole,
-        eventType: retrievalRuns.eventType,
-        queryDebug: retrievalRuns.queryDebug,
-      })
-      .from(retrievalRuns)
-      .where(inArray(retrievalRuns.id, runIds));
+    const runs = (await loadRunsWithHits(runIds)).map((entry) => ({
+      ...entry,
+      runProjectId: entry.runProjectId ?? input.issueProjectId ?? null,
+    }));
 
-    let feedbackEventCount = 0;
-    let profiledRunCount = 0;
-    for (const run of runs) {
-      const hits = await knowledge.listRetrievalRunHits(run.id);
-      if (hits.length === 0) continue;
-      const runProjectId =
-        readString(asRecord(run.queryDebug).issueProjectId)
-        ?? input.issueProjectId
-        ?? null;
-      const events = buildFeedbackEvents({
-        companyId: input.companyId,
-        projectId: runProjectId,
-        issueId: input.issueId,
-        retrievalRunId: run.id,
-        feedbackMessageId: input.feedbackMessageId,
-        actorRole: run.actorRole,
-        eventType: run.eventType,
-        feedbackType: descriptor.feedbackType,
-        baseWeight: descriptor.baseWeight,
-        hits: hits
-          .filter((hit) => hit.selected)
-          .map((hit) => ({
-            chunkId: hit.chunkId,
-            finalRank: hit.finalRank ?? null,
-            sourceType: hit.sourceType,
-            documentPath: hit.documentPath,
-            symbolName: hit.symbolName,
-            rationale: hit.rationale ?? null,
-            fusedScore: hit.fusedScore ?? null,
-          })),
-      });
-      if (events.length === 0) continue;
-
-      await db.insert(retrievalFeedbackEvents).values(events);
-      feedbackEventCount += events.length;
-
-      await rebuildRoleProfile({
-        companyId: input.companyId,
-        projectId: null,
-        role: run.actorRole,
-        eventType: run.eventType,
-      });
-      if (runProjectId) {
-        await rebuildRoleProfile({
-          companyId: input.companyId,
-          projectId: runProjectId,
-          role: run.actorRole,
-          eventType: run.eventType,
-        });
-      }
-      profiledRunCount += 1;
-
-      await knowledge.updateRetrievalRunDebug(run.id, {
-        feedback: {
-          lastFeedbackMessageId: input.feedbackMessageId,
-          lastFeedbackType: descriptor.feedbackType,
-          lastFeedbackActorRole: input.message.sender.role,
-          lastFeedbackAt: new Date().toISOString(),
-          feedbackEventCount: events.length,
-        },
-      });
-    }
-
-    return {
-      ok: feedbackEventCount > 0,
-      feedbackEventCount,
-      profiledRunCount,
-      retrievalRunIds: runs.map((run) => run.id),
-    };
+    return recordRunFeedback({
+      companyId: input.companyId,
+      issueId: input.issueId,
+      feedbackMessageId: input.feedbackMessageId,
+      feedbackActorRole: input.message.sender.role,
+      descriptor,
+      runs,
+    });
   }
 
   return {
@@ -698,10 +938,197 @@ export function retrievalPersonalizationService(db: Db) {
 
     recordProtocolFeedback: recordProtocolFeedbackInternal,
 
+    recordManualFeedback: async (input: {
+      companyId: string;
+      issueId: string;
+      issueProjectId: string | null;
+      retrievalRunId: string;
+      feedbackType: "operator_pin" | "operator_hide";
+      targetType: RetrievalFeedbackTargetType;
+      targetIds: string[];
+      actorRole?: string;
+      noteBody?: string | null;
+    }) => {
+      const descriptor = describeManualFeedback(input.feedbackType);
+      const runs = await loadRunsWithHits([input.retrievalRunId]);
+      if (runs.length === 0) {
+        return {
+          ok: false,
+          feedbackEventCount: 0,
+          profiledRunCount: 0,
+          retrievalRunIds: [],
+        };
+      }
+
+      const manualTargetsByRunId = new Map<string, Array<typeof retrievalFeedbackEvents.$inferInsert>>();
+      for (const entry of runs) {
+        const targetEvents = buildManualTargetEvents({
+          companyId: input.companyId,
+          issueId: input.issueId,
+          projectId: entry.runProjectId ?? input.issueProjectId ?? null,
+          retrievalRunId: entry.run.id,
+          actorRole: entry.run.actorRole,
+          eventType: entry.run.eventType,
+          feedbackType: descriptor.feedbackType,
+          baseWeight: descriptor.baseWeight,
+          targetType: input.targetType,
+          targetIds: input.targetIds,
+          hits: entry.hits
+            .filter((hit) => hit.selected)
+            .map((hit) => ({
+              chunkId: hit.chunkId,
+              sourceType: hit.sourceType,
+              documentPath: hit.documentPath,
+              symbolName: hit.symbolName,
+              finalRank: hit.finalRank ?? null,
+              rationale: hit.rationale ?? null,
+              fusedScore: hit.fusedScore ?? null,
+            })),
+          feedbackMessageId: null,
+          noteBody: input.noteBody ?? null,
+        });
+        if (targetEvents.length > 0) {
+          manualTargetsByRunId.set(entry.run.id, targetEvents);
+        }
+      }
+
+      return recordRunFeedback({
+        companyId: input.companyId,
+        issueId: input.issueId,
+        feedbackMessageId: null,
+        feedbackActorRole: input.actorRole ?? "human_board",
+        descriptor,
+        runs: runs.map((entry) => ({
+          ...entry,
+          runProjectId: entry.runProjectId ?? input.issueProjectId ?? null,
+        })),
+        manualTargetsByRunId,
+        debugMetadata: {
+          manualFeedback: true,
+          manualTargetType: input.targetType,
+          manualTargetIds: input.targetIds,
+          noteBody: input.noteBody ?? null,
+        },
+        includeSelectedHits: false,
+      });
+    },
+
+    recordMergeCandidateOutcomeFeedback: async (input: {
+      companyId: string;
+      issueId: string;
+      issueProjectId: string | null;
+      closeMessageId: string | null;
+      outcome: "merge_completed" | "merge_rejected";
+      changedFiles?: string[];
+      noteBody?: string | null;
+      actorRole?: string;
+      mergeCommitSha?: string | null;
+      mergeStatus?: string | null;
+    }) => {
+      const descriptor = describeMergeOutcomeFeedback(input.outcome);
+      if (input.closeMessageId) {
+        const existingCount = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(retrievalFeedbackEvents)
+          .where(and(
+            eq(retrievalFeedbackEvents.companyId, input.companyId),
+            eq(retrievalFeedbackEvents.issueId, input.issueId),
+            eq(retrievalFeedbackEvents.feedbackMessageId, input.closeMessageId),
+            eq(retrievalFeedbackEvents.feedbackType, descriptor.feedbackType),
+          ))
+          .then((rows) => rows[0]?.count ?? 0);
+        if (existingCount > 0) {
+          return {
+            ok: false,
+            feedbackEventCount: 0,
+            profiledRunCount: 0,
+            retrievalRunIds: [],
+          };
+        }
+      }
+
+      const runs = await db
+        .select({
+          id: retrievalRuns.id,
+        })
+        .from(retrievalRuns)
+        .where(and(
+          eq(retrievalRuns.companyId, input.companyId),
+          eq(retrievalRuns.issueId, input.issueId),
+        ))
+        .orderBy(desc(retrievalRuns.createdAt))
+        .limit(24)
+        .then((rows) => rows.map((row) => row.id));
+      const runsWithHits = await loadRunsWithHits(runs);
+      if (runsWithHits.length === 0) {
+        return {
+          ok: false,
+          feedbackEventCount: 0,
+          profiledRunCount: 0,
+          retrievalRunIds: [],
+        };
+      }
+
+      const normalizedChangedFiles = Array.from(new Set(
+        (input.changedFiles ?? [])
+          .map((value) => normalizePath(value))
+          .filter((value): value is string => value != null),
+      ));
+      const manualTargetsByRunId = new Map<string, Array<typeof retrievalFeedbackEvents.$inferInsert>>();
+      for (const entry of runsWithHits) {
+        if (normalizedChangedFiles.length === 0) continue;
+        const targetEvents = buildDirectTargetFeedbackEvents({
+          companyId: input.companyId,
+          projectId: entry.runProjectId ?? input.issueProjectId ?? null,
+          issueId: input.issueId,
+          retrievalRunId: entry.run.id,
+          feedbackMessageId: input.closeMessageId,
+          actorRole: entry.run.actorRole,
+          eventType: entry.run.eventType,
+          feedbackType: descriptor.feedbackType,
+          baseWeight: descriptor.baseWeight * 0.88,
+          targetType: "path",
+          targetIds: normalizedChangedFiles,
+          metadata: {
+            mergeOutcome: input.outcome,
+            mergeCommitSha: input.mergeCommitSha ?? null,
+            mergeStatus: input.mergeStatus ?? null,
+            noteBody: input.noteBody ?? null,
+            source: "merge_candidate_resolution",
+          },
+        });
+        if (targetEvents.length > 0) {
+          manualTargetsByRunId.set(entry.run.id, targetEvents);
+        }
+      }
+
+      return recordRunFeedback({
+        companyId: input.companyId,
+        issueId: input.issueId,
+        feedbackMessageId: input.closeMessageId,
+        feedbackActorRole: input.actorRole ?? "human_board",
+        descriptor,
+        runs: runsWithHits.map((entry) => ({
+          ...entry,
+          runProjectId: entry.runProjectId ?? input.issueProjectId ?? null,
+        })),
+        manualTargetsByRunId,
+        debugMetadata: {
+          mergeOutcome: input.outcome,
+          mergeCommitSha: input.mergeCommitSha ?? null,
+          mergeStatus: input.mergeStatus ?? null,
+          changedFiles: normalizedChangedFiles,
+          noteBody: input.noteBody ?? null,
+        },
+      });
+    },
+
     backfillProtocolFeedback: async (input: {
       companyId: string;
+      projectIds?: string[];
       limit?: number;
     }) => {
+      const selectedProjectIds = Array.from(new Set((input.projectIds ?? []).filter(Boolean)));
       const processedMessageIds = new Set(
         await db
           .select({ feedbackMessageId: retrievalFeedbackEvents.feedbackMessageId })
@@ -734,6 +1161,7 @@ export function retrievalPersonalizationService(db: Db) {
         .innerJoin(issues, eq(issueProtocolMessages.issueId, issues.id))
         .where(and(
           eq(issueProtocolMessages.companyId, input.companyId),
+          selectedProjectIds.length > 0 ? inArray(issues.projectId, selectedProjectIds) : sql`true`,
           inArray(issueProtocolMessages.messageType, ["REQUEST_CHANGES", "APPROVE_IMPLEMENTATION", "CLOSE_TASK"]),
         ))
         .orderBy(issueProtocolMessages.createdAt)

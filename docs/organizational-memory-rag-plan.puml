@@ -1,0 +1,58 @@
+@startuml
+title Organizational Memory RAG Plan
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultFontName Noto Sans CJK KR
+
+package "Completed Foundation" {
+  [Knowledge Setup UI]
+  [18-Agent Org Sync]
+  [Graph + Temporal Retrieval]
+  [Cache + Incremental Reindex]
+  [Role Personalization]
+  [Real-Org RAG E2E]
+}
+
+package "P0 Memory Ingest" {
+  [Issue Artifact Ingest]
+  [Protocol / Review Ingest]
+  [Source Linkage / Backfill]
+}
+
+package "P1 Retrieval Quality" {
+  [Operator Pin / Hide UI]
+  [Candidate / Final-Hit Cache]
+  [Chunk-Link Multi-Hop]
+  [External Agent Feedback]
+}
+
+package "P2 Learning Surface" {
+  [Quality Trend Surface]
+  [Cross-Issue Memory]
+}
+
+[Knowledge Setup UI] --> [Issue Artifact Ingest]
+[18-Agent Org Sync] --> [Issue Artifact Ingest]
+[Graph + Temporal Retrieval] --> [Chunk-Link Multi-Hop]
+[Cache + Incremental Reindex] --> [Candidate / Final-Hit Cache]
+[Role Personalization] --> [Operator Pin / Hide UI]
+[Real-Org RAG E2E] --> [Issue Artifact Ingest]
+
+[Issue Artifact Ingest] --> [Protocol / Review Ingest]
+[Protocol / Review Ingest] --> [Source Linkage / Backfill]
+[Source Linkage / Backfill] --> [Operator Pin / Hide UI]
+[Source Linkage / Backfill] --> [Candidate / Final-Hit Cache]
+[Source Linkage / Backfill] --> [Chunk-Link Multi-Hop]
+[Operator Pin / Hide UI] --> [Quality Trend Surface]
+[Candidate / Final-Hit Cache] --> [Quality Trend Surface]
+[Chunk-Link Multi-Hop] --> [Cross-Issue Memory]
+[External Agent Feedback] --> [Cross-Issue Memory]
+
+note bottom
+Priority order:
+P0 Memory Ingest -> P1 Retrieval Quality -> P2 Learning Surface
+end note
+
+@enduml

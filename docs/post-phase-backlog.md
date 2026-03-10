@@ -82,6 +82,36 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 - 사용자가 issue detail만 보고도 변경 파일, 검증 결과, branch/worktree를 파악한다.
 - hidden worktree 경로를 직접 찾지 않아도 된다.
 
+### P0. Knowledge Setup / Sync UI
+
+목표: 운영자가 UI에서 `어느 프로젝트를 knowledge에 넣을지`, `무엇이 drift 상태인지`, `무엇을 다시 sync해야 하는지` 바로 판단하고 실행하게 만든다.
+
+핵심 문제:
+
+- 현재 Knowledge는 explorer 중심이라 setup 작업에 불편하다.
+- live `cloud-swiftsight`는 아직 13-agent 상태이고 canonical 18-agent와 drift가 있다.
+- knowledge import는 project 단위 route만 있어 company-level orchestration이 없다.
+
+범위:
+
+- `Knowledge / Explore`와 `Knowledge / Setup` 분리
+- company readiness header
+- org drift summary
+- project sync table
+- active job / failure drilldown
+- `Sync selected`, `Sync all`, `Repair org drift`
+
+구현 경계:
+
+- UI가 주 경로
+- API가 source of truth
+- CLI는 나중에 nightly/ops wrapper로만 추가
+
+참고:
+
+- [knowledge-setup-sync-ui-first-spec.md](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.md)
+- [knowledge-setup-sync-ui-first-spec.puml](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.puml)
+
 ### P0. Merge Candidate Flow
 
 목표: `pending_external_merge`에서 멈춘 delivery를 실제 반영 단계까지 자연스럽게 연결한다.

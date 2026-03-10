@@ -26,6 +26,7 @@ export {
 } from "./issue-merge-automation.js";
 export { buildIssueChangeSurface } from "./issue-change-surface.js";
 export { knowledgeService } from "./knowledge.js";
+export { knowledgeSetupService, buildOrgSyncView, buildProjectSyncIssues } from "./knowledge-setup.js";
 export { knowledgeEmbeddingService, normalizeEmbeddingInput } from "./knowledge-embeddings.js";
 export { knowledgeRerankingService } from "./knowledge-reranking.js";
 export { knowledgeBackfillService, needsEmbeddingRefresh, buildEmbeddingMetadata } from "./knowledge-backfill.js";

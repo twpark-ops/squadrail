@@ -3,6 +3,7 @@ import {
   applyModelRerankOrder,
   buildQueryEmbeddingCacheKey,
   buildGraphExpansionSeeds,
+  buildSymbolGraphExpandedHits,
   buildSymbolGraphExpansionSeeds,
   buildRetrievalQueryText,
   computeCosineSimilarity,
@@ -682,6 +683,83 @@ describe("issue retrieval helpers", () => {
     expect(merged).toHaveLength(2);
     expect(merged[0]?.chunkId).toBe("chunk-2");
     expect(merged[0]?.graphMetadata?.entityTypes).toContain("symbol");
+  });
+
+  it("expands symbol graph hits across two hops with decay", () => {
+    const result = buildSymbolGraphExpandedHits({
+      symbolSeeds: [
+        {
+          symbolId: "seed-retry",
+          chunkId: "chunk-seed",
+          path: "src/retry.ts",
+          symbolName: "retryWorker",
+          seedBoost: 1.4,
+          seedReasons: ["top_hit_symbol"],
+        },
+      ],
+      edgeRows: [
+        {
+          fromSymbolId: "seed-retry",
+          toSymbolId: "helper",
+          edgeType: "calls",
+          weight: 0.9,
+        },
+        {
+          fromSymbolId: "helper",
+          toSymbolId: "test-helper",
+          edgeType: "tests",
+          weight: 0.75,
+        },
+      ],
+      targetSymbols: [
+        {
+          symbolId: "helper",
+          chunkId: "chunk-helper",
+          path: "src/helper.ts",
+          symbolName: "retryHelper",
+          documentId: "doc-helper",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          title: "Retry helper",
+          headingPath: null,
+          textContent: "retry helper implementation",
+          documentMetadata: {},
+          chunkMetadata: {},
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          symbolId: "test-helper",
+          chunkId: "chunk-test",
+          path: "tests/retry_helper.test.ts",
+          symbolName: "retryHelperTest",
+          documentId: "doc-test",
+          sourceType: "test_report",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          title: "Retry helper tests",
+          headingPath: null,
+          textContent: "retry helper tests",
+          documentMetadata: {},
+          chunkMetadata: {},
+          updatedAt: new Date("2026-03-10T01:00:00Z"),
+        },
+      ],
+      limit: 4,
+      maxDepth: 2,
+    });
+
+    expect(result.hits).toHaveLength(2);
+    expect(result.graphMaxDepth).toBe(2);
+    expect(result.graphHopDepthCounts["1"]).toBe(1);
+    expect(result.graphHopDepthCounts["2"]).toBe(1);
+    expect(result.hits.map((hit) => hit.chunkId)).toEqual(["chunk-test", "chunk-helper"]);
+    expect(result.hits[0]?.graphMetadata?.hopDepth).toBe(2);
+    expect(result.hits[1]?.graphMetadata?.hopDepth).toBe(1);
+    expect(result.edgeTypeCounts.calls).toBeGreaterThan(0);
+    expect(result.edgeTypeCounts.tests).toBeGreaterThan(0);
   });
 
   it("derives dynamic retrieval signals from review payloads", () => {
