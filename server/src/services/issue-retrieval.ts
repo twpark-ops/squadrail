@@ -19,6 +19,11 @@ import { knowledgeRerankingService } from "./knowledge-reranking.js";
 import { knowledgeService } from "./knowledge.js";
 import { logActivity } from "./activity-log.js";
 import { publishLiveEvent } from "./live-events.js";
+import {
+  computeRetrievalPersonalizationBoost,
+  retrievalPersonalizationService,
+  type RetrievalPersonalizationProfile,
+} from "./retrieval-personalization.js";
 
 const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
   ASSIGN_TASK: "on_assignment",
@@ -101,6 +106,16 @@ interface RetrievalHitView {
     matchType: "exact_commit" | "same_branch_head" | "same_branch_stale" | "default_branch_head" | "foreign_branch" | "none";
     score: number;
     stale: boolean;
+  } | null;
+  personalizationMetadata?: {
+    totalBoost: number;
+    sourceTypeBoost: number;
+    pathBoost: number;
+    symbolBoost: number;
+    scopes: string[];
+    matchedSourceType: string | null;
+    matchedPath: string | null;
+    matchedSymbol: string | null;
   } | null;
 }
 
@@ -214,6 +229,9 @@ interface BriefQualitySummary {
   branchAlignedTopHitCount: number;
   staleVersionPenaltyCount: number;
   exactCommitMatchCount: number;
+  personalizationApplied: boolean;
+  personalizedHitCount: number;
+  averagePersonalizationBoost: number;
   sourceDiversity: number;
   degradedReasons: string[];
 }
@@ -333,6 +351,12 @@ function summarizeBriefQuality(input: {
   }
 
   const temporalHitCount = input.finalHits.filter((hit) => (hit.temporalMetadata?.score ?? 0) > 0).length;
+  const personalizedHits = input.finalHits.filter((hit) => (hit.personalizationMetadata?.totalBoost ?? 0) !== 0);
+  const averagePersonalizationBoost =
+    personalizedHits.length > 0
+      ? personalizedHits.reduce((total, hit) => total + Math.abs(hit.personalizationMetadata?.totalBoost ?? 0), 0)
+        / personalizedHits.length
+      : 0;
   const branchAlignedTopHitCount = input.finalHits
     .slice(0, 3)
     .filter((hit) =>
@@ -377,6 +401,9 @@ function summarizeBriefQuality(input: {
     branchAlignedTopHitCount,
     staleVersionPenaltyCount,
     exactCommitMatchCount,
+    personalizationApplied: personalizedHits.length > 0,
+    personalizedHitCount: personalizedHits.length,
+    averagePersonalizationBoost,
     sourceDiversity,
     degradedReasons,
   };
@@ -912,6 +939,11 @@ export function renderRetrievedBriefMarkdown(input: {
           `   - version: ${hit.temporalMetadata.matchType} (${hit.temporalMetadata.branchName ?? hit.temporalMetadata.defaultBranchName ?? "-"})`,
         ]
         : []),
+      ...(hit.personalizationMetadata && hit.personalizationMetadata.totalBoost !== 0
+        ? [
+          `   - personalization: ${hit.personalizationMetadata.totalBoost.toFixed(3)} (${hit.personalizationMetadata.scopes.join(", ")})`,
+        ]
+        : []),
       `   - excerpt: ${compactWhitespace(hit.textContent)}`,
     );
   });
@@ -1418,6 +1450,7 @@ export function rerankRetrievalHits(input: {
   documentVersionMap?: Map<string, RetrievalDocumentVersionView[]>;
   finalK: number;
   rerankConfig?: RetrievalPolicyRerankConfig;
+  personalizationProfile?: RetrievalPersonalizationProfile | null;
 }) {
   const rerankConfig = input.rerankConfig ?? resolveRetrievalPolicyRerankConfig({
     allowedSourceTypes: input.signals.preferredSourceTypes,
@@ -1451,11 +1484,31 @@ export function rerankRetrievalHits(input: {
           signals: input.signals,
           weights: rerankConfig.weights,
         });
+      const personalization = computeRetrievalPersonalizationBoost({
+        hit: {
+          sourceType: hit.sourceType,
+          path: hit.path,
+          symbolName: hit.symbolName,
+        },
+        profile: input.personalizationProfile ?? null,
+      });
       return {
         ...hit,
         temporalMetadata: temporal.metadata,
-        rerankScore,
-        fusedScore: hit.fusedScore + rerankScore,
+        personalizationMetadata: personalization.applied
+          ? {
+            totalBoost: personalization.totalBoost,
+            sourceTypeBoost: personalization.sourceTypeBoost,
+            pathBoost: personalization.pathBoost,
+            symbolBoost: personalization.symbolBoost,
+            scopes: personalization.scopes,
+            matchedSourceType: personalization.matchedSourceType,
+            matchedPath: personalization.matchedPath,
+            matchedSymbol: personalization.matchedSymbol,
+          }
+          : null,
+        rerankScore: rerankScore + personalization.totalBoost,
+        fusedScore: hit.fusedScore + rerankScore + personalization.totalBoost,
       };
     })
     .sort((left, right) => {
@@ -1713,6 +1766,9 @@ function buildHitRationale(input: {
   for (const edgeType of uniqueNonEmpty(input.hit.graphMetadata?.edgeTypes ?? [])) {
     reasons.push(`graph_edge_${edgeType}`);
   }
+  if ((input.hit.personalizationMetadata?.sourceTypeBoost ?? 0) !== 0) reasons.push("personalized_source_type");
+  if ((input.hit.personalizationMetadata?.pathBoost ?? 0) !== 0) reasons.push("personalized_path");
+  if ((input.hit.personalizationMetadata?.symbolBoost ?? 0) !== 0) reasons.push("personalized_symbol");
   switch (input.hit.temporalMetadata?.matchType) {
     case "exact_commit":
       reasons.push("exact_commit_match");
@@ -1739,6 +1795,7 @@ export function issueRetrievalService(db: Db) {
   const knowledge = knowledgeService(db);
   const embeddings = knowledgeEmbeddingService();
   const modelReranker = knowledgeRerankingService();
+  const personalization = retrievalPersonalizationService(db);
   let vectorExtensionInstalledPromise: Promise<boolean> | null = null;
 
   async function hasDbVectorSupport() {
@@ -2429,6 +2486,12 @@ export function issueRetrievalService(db: Db) {
           allowedSourceTypes: policy.allowedSourceTypes,
           metadata: policy.metadata,
         });
+        const personalizationProfile = await personalization.loadProfile({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          role: recipient.role,
+          eventType,
+        });
 
         const queryText = buildRetrievalQueryText({
           issue: input.issue,
@@ -2578,6 +2641,16 @@ export function issueRetrievalService(db: Db) {
             cache: {
               embeddingHit: queryEmbeddingDebug.embeddingCacheHit === true,
             },
+            personalization: {
+              applied: personalizationProfile.applied,
+              scopes: personalizationProfile.scopes,
+              feedbackCount: personalizationProfile.feedbackCount,
+              positiveFeedbackCount: personalizationProfile.positiveFeedbackCount,
+              negativeFeedbackCount: personalizationProfile.negativeFeedbackCount,
+              sourceTypeKeyCount: Object.keys(personalizationProfile.sourceTypeBoosts).length,
+              pathKeyCount: Object.keys(personalizationProfile.pathBoosts).length,
+              symbolKeyCount: Object.keys(personalizationProfile.symbolBoosts).length,
+            },
             ...queryEmbeddingDebug,
           },
         });
@@ -2653,6 +2726,7 @@ export function issueRetrievalService(db: Db) {
           documentVersionMap: initialDocumentVersionMap,
           finalK: policy.finalK,
           rerankConfig,
+          personalizationProfile,
         });
         const graphSeeds = buildGraphExpansionSeeds({
           hits: initialRerankedHits,
@@ -2703,6 +2777,7 @@ export function issueRetrievalService(db: Db) {
             }),
             finalK: policy.finalK,
             rerankConfig,
+            personalizationProfile,
           })
           : initialRerankedHits;
         const chunkSymbolMap = await listChunkSymbols(rerankedHits.map((hit) => hit.chunkId));
@@ -2751,6 +2826,7 @@ export function issueRetrievalService(db: Db) {
             }),
             finalK: policy.finalK,
             rerankConfig,
+            personalizationProfile,
           })
           : rerankedHits;
         let finalHits: RetrievalHitView[] = symbolExpandedHits;
@@ -2864,6 +2940,7 @@ export function issueRetrievalService(db: Db) {
               fusedScore: hit.fusedScore,
               graphMetadata: hit.graphMetadata ?? null,
               temporalMetadata: hit.temporalMetadata ?? null,
+              personalizationMetadata: hit.personalizationMetadata ?? null,
             })),
           },
           retrievalRunId: retrievalRun.id,
@@ -2901,6 +2978,18 @@ export function issueRetrievalService(db: Db) {
               const candidatePath = hit.path ? normalizeHintPath(hit.path) : null;
               return candidatePath != null && dynamicSignals.exactPaths.includes(candidatePath);
             }),
+          personalization: {
+            applied: personalizationProfile.applied,
+            scopes: personalizationProfile.scopes,
+            feedbackCount: personalizationProfile.feedbackCount,
+            positiveFeedbackCount: personalizationProfile.positiveFeedbackCount,
+            negativeFeedbackCount: personalizationProfile.negativeFeedbackCount,
+            sourceTypeKeyCount: Object.keys(personalizationProfile.sourceTypeBoosts).length,
+            pathKeyCount: Object.keys(personalizationProfile.pathBoosts).length,
+            symbolKeyCount: Object.keys(personalizationProfile.symbolBoosts).length,
+            personalizedHitCount: briefQuality.personalizedHitCount,
+            averagePersonalizationBoost: briefQuality.averagePersonalizationBoost,
+          },
         });
 
         await logActivity(db, {

@@ -33,11 +33,14 @@ B8의 목적은 RAG를 `문서 검색기`에서 `코드베이스 reasoning engin
 - Slice 1: graph-assisted linked chunk expansion 완료
 - Slice 2: symbol / dependency graph foundation 완료
 - Slice 3: version-aware retrieval 완료
+- Slice 4: retrieval cache + incremental reindex 완료
+- Slice 5: role-specific personalization 완료
 
 다음 우선순위:
 
-1. Slice 4: retrieval cache + incremental reindex
-2. Slice 5: role-specific personalization
+1. operator pin/hide feedback surface
+2. merge outcome feedback refinement
+3. deeper multi-hop graph traversal
 
 ## 현재 한계
 
@@ -241,7 +244,7 @@ B8의 목적은 RAG를 `문서 검색기`에서 `코드베이스 reasoning engin
 
 ### Slice 4. Retrieval Cache + Incremental Reindex
 
-상태: 진행 중
+상태: 완료
 
 세 번째로 해야 한다.
 
@@ -304,6 +307,8 @@ B8의 목적은 RAG를 `문서 검색기`에서 `코드베이스 reasoning engin
 - workspace import가 unchanged tree에서 skip되고 changed path 중심으로 줄어든다.
 
 ### Slice 5. Role-Specific Personalization
+
+상태: 완료
 
 마지막에 해야 한다.
 
@@ -399,15 +404,15 @@ cache는 품질 함수 자체보다 비용 함수 최적화다.
 
 ## 권장 다음 작업
 
-내 추천은 명확하다.
+planned Slice 1~5는 모두 구현됐다.
 
-다음 구현은 `Slice 4. Retrieval Cache + Incremental Reindex`다.
+다음 구현은 새 B8 후속 심화 항목으로 가는 게 맞다.
 
-이유:
+우선순위:
 
-- 지금 graph-assisted expansion을 진짜 semantic graph로 발전시킬 수 있다.
-- 현재 사용자가 느끼는 `연결성 부족`을 가장 직접적으로 해결한다.
-- 이후 retrieval cache와 personalization 설계의 anchor가 된다.
+1. operator pin/hide feedback surface
+2. merge outcome feedback refinement
+3. deeper multi-hop graph traversal
 
 ## Slice 2 구현 체크리스트
 
@@ -442,3 +447,5 @@ cache는 품질 함수 자체보다 비용 함수 최적화다.
 이유:
 
 - 아직 semantic graph와 temporal context가 부족한 상태라 편향만 강화될 수 있다.
+
+단, 이 비권장 순서는 planned Slice를 시작하기 전의 원칙이었고, 현재 Slice 5 구현은 semantic/temporal foundation이 닫힌 이후에 수행됐다.

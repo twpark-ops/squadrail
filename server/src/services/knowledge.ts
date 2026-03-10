@@ -10,6 +10,8 @@ import {
   knowledgeDocumentVersions,
   projectKnowledgeRevisions,
   retrievalCacheEntries,
+  retrievalFeedbackEvents,
+  retrievalRoleProfiles,
   projects,
   retrievalPolicies,
   retrievalRunHits,
@@ -1468,6 +1470,9 @@ export function knowledgeService(db: Db) {
       let edgeTraversalCountTotal = 0;
       let temporalHitCountTotal = 0;
       let branchAlignedTopHitCountTotal = 0;
+      let personalizedRunCount = 0;
+      let personalizedHitCountTotal = 0;
+      let averagePersonalizationBoostTotal = 0;
       let embeddingCacheHitCount = 0;
       let lowConfidenceRuns = 0;
       let exactPathMissCount = 0;
@@ -1511,6 +1516,9 @@ export function knowledgeService(db: Db) {
         const cache = debug.cache && typeof debug.cache === "object"
           ? debug.cache as Record<string, unknown>
           : {};
+        const personalization = debug.personalization && typeof debug.personalization === "object"
+          ? debug.personalization as Record<string, unknown>
+          : {};
         const exactPathSatisfied = debug.exactPathSatisfied === true;
         const topHitProjectId = typeof debug.topHitProjectId === "string" ? debug.topHitProjectId : null;
         const issueProjectId = typeof debug.issueProjectId === "string" ? debug.issueProjectId : null;
@@ -1530,6 +1538,13 @@ export function knowledgeService(db: Db) {
         edgeTraversalCountTotal += edgeTraversalCount;
         temporalHitCountTotal += temporalHitCount;
         branchAlignedTopHitCountTotal += branchAlignedTopHitCount;
+        if (personalization.applied === true) personalizedRunCount += 1;
+        personalizedHitCountTotal += typeof personalization.personalizedHitCount === "number"
+          ? personalization.personalizedHitCount
+          : 0;
+        averagePersonalizationBoostTotal += typeof personalization.averagePersonalizationBoost === "number"
+          ? personalization.averagePersonalizationBoost
+          : 0;
         if (cache.embeddingHit === true) embeddingCacheHitCount += 1;
         staleVersionPenaltyCount += staleVersionPenaltyCountForRun;
         exactCommitMatchCount += exactCommitMatchCountForRun;
@@ -1607,6 +1622,27 @@ export function knowledgeService(db: Db) {
         }
       }
 
+      const feedbackStats = await db
+        .select({
+          eventCount: sql<number>`count(*)`,
+          positiveCount: sql<number>`coalesce(sum(case when ${retrievalFeedbackEvents.weight} > 0 then 1 else 0 end), 0)`,
+          negativeCount: sql<number>`coalesce(sum(case when ${retrievalFeedbackEvents.weight} < 0 then 1 else 0 end), 0)`,
+        })
+        .from(retrievalFeedbackEvents)
+        .where(
+          and(
+            eq(retrievalFeedbackEvents.companyId, input.companyId),
+            gte(retrievalFeedbackEvents.createdAt, since),
+          ),
+        )
+        .then((result) => result[0] ?? { eventCount: 0, positiveCount: 0, negativeCount: 0 });
+
+      const profileCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(retrievalRoleProfiles)
+        .where(eq(retrievalRoleProfiles.companyId, input.companyId))
+        .then((result) => result[0]?.count ?? 0);
+
       return {
         companyId: input.companyId,
         windowDays: days,
@@ -1622,9 +1658,17 @@ export function knowledgeService(db: Db) {
         averageEdgeTraversalCount: totalRuns > 0 ? edgeTraversalCountTotal / totalRuns : 0,
         averageTemporalHitCount: totalRuns > 0 ? temporalHitCountTotal / totalRuns : 0,
         averageBranchAlignedTopHitCount: totalRuns > 0 ? branchAlignedTopHitCountTotal / totalRuns : 0,
+        profileAppliedRunCount: personalizedRunCount,
+        averagePersonalizedHitCount: totalRuns > 0 ? personalizedHitCountTotal / totalRuns : 0,
+        averagePersonalizationBoost: totalRuns > 0 ? averagePersonalizationBoostTotal / totalRuns : 0,
         cacheHitRate: totalRuns > 0 ? embeddingCacheHitCount / totalRuns : 0,
         embeddingCacheHitRate: totalRuns > 0 ? embeddingCacheHitCount / totalRuns : 0,
         candidateCacheHitRate: 0,
+        feedbackEventCount: feedbackStats.eventCount,
+        positiveFeedbackCount: feedbackStats.positiveCount,
+        negativeFeedbackCount: feedbackStats.negativeCount,
+        feedbackCoverageRate: totalRuns > 0 ? personalizedRunCount / totalRuns : 0,
+        profileCount,
         staleVersionPenaltyCount,
         exactCommitMatchCount,
         graphExpandedRuns,

@@ -15,6 +15,13 @@ database "PostgreSQL" as db {
   rectangle "knowledge_documents" as documents
   rectangle "knowledge_chunks" as chunks
   rectangle "knowledge_chunk_links" as links
+  rectangle "code_symbols" as symbols_table
+  rectangle "code_symbol_edges" as symbol_edges
+  rectangle "knowledge_document_versions" as versions
+  rectangle "project_knowledge_revisions" as revisions
+  rectangle "retrieval_cache_entries" as cache
+  rectangle "retrieval_feedback_events" as feedback
+  rectangle "retrieval_role_profiles" as profiles
   rectangle "retrieval_policies" as policies
   rectangle "retrieval_runs" as runs
   rectangle "retrieval_run_hits" as hits
@@ -25,7 +32,8 @@ package "Retrieval Pipeline" {
   rectangle "Sparse Search\nPostgreSQL FTS" as sparse
   rectangle "Path Match" as path
   rectangle "Symbol Match" as symbol
-  rectangle "Fusion + Signal Rerank\nsource / authority / freshness / links" as rerank
+  rectangle "Graph Expansion\nlinks + symbol edges" as graph
+  rectangle "Fusion + Signal Rerank\nsource / authority / freshness / links /\ntemporal / personalization" as rerank
   rectangle "Optional Model Rerank\nOpenAI Responses API" as model
   rectangle "Brief Builder\nquality + degraded reasons" as brief
 }
@@ -37,7 +45,12 @@ chunker --> embed
 chunker --> documents
 chunker --> chunks
 chunker --> links
+chunker --> symbols_table
+chunker --> symbol_edges
+chunker --> versions
+chunker --> revisions
 embed --> chunks
+actor --> cache
 
 actor --> policies
 actor --> dense
@@ -54,12 +67,20 @@ chunks --> path
 documents --> symbol
 chunks --> symbol
 links --> rerank
+symbols_table --> graph
+symbol_edges --> graph
+versions --> rerank
+profiles --> rerank
 policies --> rerank
+feedback --> profiles
 
 dense --> rerank
 sparse --> rerank
 path --> rerank
 symbol --> rerank
+path --> graph
+symbol --> graph
+graph --> rerank
 rerank --> model
 rerank --> brief
 model --> brief
@@ -68,8 +89,9 @@ brief --> runs
 brief --> hits
 
 note right of chunker
-Current symbol awareness lives in chunk metadata.
-There is no separate code_symbols table yet.
+Chunk metadata still keeps symbol hints,
+but the runtime also persists code_symbols
+and code_symbol_edges for graph expansion.
 end note
 
 note right of model
@@ -78,11 +100,16 @@ Current provider implementation is OpenAI-centric.
 end note
 
 note bottom of db
-Future-only items, not implemented today:
-- code graph tables
-- temporal code versions
-- personalization feedback tables
-- retrieval cache layers
+Current runtime includes:
+- symbol graph tables
+- document version snapshots
+- query embedding cache
+- personalization feedback/profile tables
+
+Still future:
+- deeper multi-hop graph traversal
+- candidate/final-hit cache layers
+- per-agent black-box memory
 end note
 
 @enduml

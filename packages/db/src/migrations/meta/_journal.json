@@ -260,6 +260,13 @@
       "when": 1773162000000,
       "tag": "0036_brave_retrieval_cache_and_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1773172800000,
+      "tag": "0037_mellow_retrieval_personalization",
+      "breakpoints": true
     }
   ]
 }

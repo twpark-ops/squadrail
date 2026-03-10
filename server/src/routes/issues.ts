@@ -26,6 +26,7 @@ import {
   issueProtocolExecutionService,
   issueRetrievalService,
   issueProtocolService,
+  retrievalPersonalizationService,
   issueService,
   knowledgeService,
   logActivity,
@@ -155,6 +156,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
   const protocolExecution = issueProtocolExecutionService(db);
   const issueRetrieval = issueRetrievalService(db);
   const protocolSvc = issueProtocolService(db);
+  const retrievalPersonalization = retrievalPersonalizationService(db);
   const mergeCandidatesSvc = issueMergeCandidateService(db);
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -563,6 +565,33 @@ export function issueRoutes(db: Db, storage: StorageService) {
       message: effectiveMessage,
       persistedMessageId: result.message.id,
     });
+
+    if (
+      effectiveMessage.messageType === "REQUEST_CHANGES"
+      || effectiveMessage.messageType === "APPROVE_IMPLEMENTATION"
+      || effectiveMessage.messageType === "CLOSE_TASK"
+    ) {
+      try {
+        await retrievalPersonalization.recordProtocolFeedback({
+          companyId: input.issue.companyId,
+          issueId: input.issue.id,
+          issueProjectId: input.issue.projectId ?? null,
+          feedbackMessageId: result.message.id,
+          currentMessageSeq: result.message.seq,
+          message: effectiveMessage,
+        });
+      } catch (err) {
+        logger.error(
+          {
+            err,
+            issueId: input.issue.id,
+            protocolMessageId: result.message.id,
+            messageType: effectiveMessage.messageType,
+          },
+          "Retrieval personalization feedback recording failed",
+        );
+      }
+    }
 
     if (effectiveMessage.messageType === "CANCEL_TASK") {
       try {

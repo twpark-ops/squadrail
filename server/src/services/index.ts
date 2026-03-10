@@ -35,6 +35,12 @@ export {
   chunkWorkspaceFile,
   buildCodeGraphForWorkspaceFile,
 } from "./knowledge-import.js";
+export {
+  retrievalPersonalizationService,
+  aggregateRetrievalFeedbackProfile,
+  mergeRetrievalPersonalizationProfiles,
+  computeRetrievalPersonalizationBoost,
+} from "./retrieval-personalization.js";
 export { setupProgressService, buildSetupProgressSteps, deriveSetupProgressState } from "./setup-progress.js";
 export { rolePackService, buildDefaultRolePackFiles } from "./role-packs.js";
 export { doctorService } from "./doctor.js";
