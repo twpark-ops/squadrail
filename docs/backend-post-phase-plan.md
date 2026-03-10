@@ -201,12 +201,17 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - workspace import / backfill 시 branch/head snapshot 영속화
   - retrieval의 temporal context / branch alignment scoring 추가
   - quality metric에 temporal hit 계열 추가
+- Slice 4. retrieval cache + incremental reindex
+  - `project_knowledge_revisions`, `retrieval_cache_entries` 추가
+  - query embedding cache 추가
+  - workspace import incremental / unchanged skip 추가
 
 후속 설계 문서:
 
 - [b8-deep-rag-hardening-plan.md](/home/taewoong/company-project/squadall/docs/b8-deep-rag-hardening-plan.md)
 - [b8-symbol-dependency-graph-foundation.md](/home/taewoong/company-project/squadall/docs/b8-symbol-dependency-graph-foundation.md)
 - [b8-version-aware-retrieval.md](/home/taewoong/company-project/squadall/docs/b8-version-aware-retrieval.md)
+- [b8-retrieval-cache-incremental-reindex.md](/home/taewoong/company-project/squadall/docs/b8-retrieval-cache-incremental-reindex.md)
 
 완료 기준:
 

@@ -7,7 +7,7 @@ import { logActivity } from "./activity-log.js";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
 import { knowledgeService } from "./knowledge.js";
 import { projectService } from "./projects.js";
-import { inspectWorkspaceVersionContext } from "./workspace-git-snapshot.js";
+import { inspectWorkspaceVersionContext, listWorkspaceChangedPaths } from "./workspace-git-snapshot.js";
 
 const runtimeRequire = createRequire(import.meta.url);
 
@@ -1886,6 +1886,66 @@ export async function walkWorkspaceFiles(input: {
     .map((relativePath) => path.join(input.cwd, relativePath));
 }
 
+function normalizeWorkspaceRelativePath(relativePath: string) {
+  return relativePath.split(path.sep).join("/").replace(/^\.\/+/u, "");
+}
+
+export function normalizeChangedWorkspacePaths(paths: string[]) {
+  return prioritizeWorkspaceImportPaths(
+    Array.from(new Set(
+      paths
+        .map((relativePath) => relativePath.split(" -> ").at(-1) ?? relativePath)
+        .map((relativePath) => normalizeWorkspaceRelativePath(relativePath.trim()))
+        .filter((relativePath) => relativePath.length > 0)
+        .filter((relativePath) => shouldIncludeWorkspacePath({ relativePath })),
+    )),
+  );
+}
+
+export function selectWorkspaceImportPlan(input: {
+  allRelativePaths: string[];
+  changedRelativePaths?: string[];
+  maxFiles: number;
+  forceFull?: boolean;
+}) {
+  const allRelativePaths = prioritizeWorkspaceImportPaths(
+    Array.from(new Set(input.allRelativePaths.map((relativePath) => normalizeWorkspaceRelativePath(relativePath)))),
+  );
+  if (input.forceFull || !input.changedRelativePaths || input.changedRelativePaths.length === 0) {
+    return {
+      importMode: "full" as const,
+      selectedRelativePaths: allRelativePaths.slice(0, input.maxFiles),
+      changedPathCount: 0,
+    };
+  }
+
+  const existingPathSet = new Set(allRelativePaths);
+  const incrementalCandidates = normalizeChangedWorkspacePaths(input.changedRelativePaths)
+    .filter((relativePath) => existingPathSet.has(relativePath));
+
+  if (incrementalCandidates.length === 0) {
+    return {
+      importMode: "incremental" as const,
+      selectedRelativePaths: [],
+      changedPathCount: input.changedRelativePaths.length,
+    };
+  }
+
+  if (incrementalCandidates.length >= allRelativePaths.length) {
+    return {
+      importMode: "full" as const,
+      selectedRelativePaths: allRelativePaths.slice(0, input.maxFiles),
+      changedPathCount: input.changedRelativePaths.length,
+    };
+  }
+
+  return {
+    importMode: "incremental" as const,
+    selectedRelativePaths: incrementalCandidates.slice(0, input.maxFiles),
+    changedPathCount: input.changedRelativePaths.length,
+  };
+}
+
 async function readWorkspaceTextFile(filePath: string) {
   const buffer = await readFile(filePath);
   if (buffer.byteLength > DEFAULT_MAX_FILE_BYTES) return null;
@@ -1903,6 +1963,7 @@ export function knowledgeImportService(db: Db) {
       projectId: string;
       workspaceId?: string;
       maxFiles?: number;
+      forceFull?: boolean;
     }) {
       const providerInfo = embeddings.getProviderInfo();
       if (!providerInfo.available || !providerInfo.provider || !providerInfo.model) {
@@ -1923,14 +1984,60 @@ export function knowledgeImportService(db: Db) {
 
       const workspaceRoot = await resolveWorkspaceImportRoot({ cwd: workspace.cwd });
       const workspaceVersion = await inspectWorkspaceVersionContext({ cwd: workspaceRoot });
-
-      const filePaths = await walkWorkspaceFiles({
+      const fullFilePaths = await walkWorkspaceFiles({
         cwd: workspaceRoot,
         maxFiles: input.maxFiles ?? DEFAULT_MAX_FILES,
       });
+      const allRelativePaths = fullFilePaths.map((filePath) => normalizeWorkspaceRelativePath(path.relative(workspaceRoot, filePath)));
+      const currentRevision = await knowledge.getProjectKnowledgeRevision({
+        companyId: project.companyId,
+        projectId: project.id,
+      });
+      const changedRelativePaths =
+        !input.forceFull
+        && currentRevision?.lastHeadSha
+        && workspaceVersion?.headSha
+        && currentRevision.lastHeadSha !== workspaceVersion.headSha
+          ? normalizeChangedWorkspacePaths(await listWorkspaceChangedPaths({
+            cwd: workspaceRoot,
+            baseRef: currentRevision.lastHeadSha,
+            headRef: workspaceVersion.headSha,
+          }))
+          : [];
+      const importPlan = selectWorkspaceImportPlan({
+        allRelativePaths,
+        changedRelativePaths,
+        maxFiles: input.maxFiles ?? DEFAULT_MAX_FILES,
+        forceFull: input.forceFull,
+      });
+      const filePaths = importPlan.selectedRelativePaths.map((relativePath) => path.join(workspaceRoot, relativePath));
+      const deletedChangedPaths = changedRelativePaths.filter((relativePath) => !allRelativePaths.includes(relativePath));
+
+      if (
+        !input.forceFull
+        && currentRevision?.lastTreeSignature
+        && workspaceVersion?.treeSignature
+        && currentRevision.lastTreeSignature === workspaceVersion.treeSignature
+      ) {
+        return {
+          projectId: project.id,
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          cwd: workspace.cwd,
+          scannedFiles: allRelativePaths.length,
+          importedFiles: 0,
+          skippedFiles: 0,
+          deprecatedFiles: 0,
+          documents: [],
+          importMode: "skipped_unchanged" as const,
+          changedPathCount: 0,
+          knowledgeRevision: currentRevision.revision,
+        };
+      }
 
       let importedFiles = 0;
       let skippedFiles = 0;
+      let deprecatedFiles = 0;
       const documents: Array<{
         documentId: string;
         path: string;
@@ -1938,7 +2045,7 @@ export function knowledgeImportService(db: Db) {
       }> = [];
 
       for (const filePath of filePaths) {
-        const relativePath = path.relative(workspaceRoot, filePath).split(path.sep).join("/");
+        const relativePath = normalizeWorkspaceRelativePath(path.relative(workspaceRoot, filePath));
         const rawContent = await readWorkspaceTextFile(filePath);
         if (rawContent == null) {
           skippedFiles += 1;
@@ -2121,6 +2228,41 @@ export function knowledgeImportService(db: Db) {
         });
       }
 
+      if (deletedChangedPaths.length > 0) {
+        deprecatedFiles += await knowledge.deprecateDocumentsByPaths({
+          companyId: project.companyId,
+          projectId: project.id,
+          repoRef: workspace.repoRef,
+          paths: deletedChangedPaths,
+          reason: "workspace_path_removed",
+          metadata: {
+            importSource: "workspace",
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+            lastImportedAt: new Date().toISOString(),
+          },
+        });
+      }
+
+      const revision = await knowledge.touchProjectKnowledgeRevision({
+        companyId: project.companyId,
+        projectId: project.id,
+        bump: importedFiles > 0 || deprecatedFiles > 0,
+        headSha: workspaceVersion?.headSha ?? null,
+        treeSignature: workspaceVersion?.treeSignature ?? null,
+        importMode: importPlan.importMode,
+        importedAt: workspaceVersion?.capturedAt ?? new Date(),
+        metadata: {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          scannedFiles: allRelativePaths.length,
+          importedFiles,
+          skippedFiles,
+          deprecatedFiles,
+          changedPathCount: importPlan.changedPathCount,
+        },
+      });
+
       await logActivity(db, {
         companyId: project.companyId,
         actorType: "system",
@@ -2132,9 +2274,13 @@ export function knowledgeImportService(db: Db) {
           projectId: project.id,
           workspaceId: workspace.id,
           workspaceName: workspace.name,
-          scannedFiles: filePaths.length,
+          scannedFiles: allRelativePaths.length,
           importedFiles,
           skippedFiles,
+          deprecatedFiles,
+          importMode: importPlan.importMode,
+          changedPathCount: importPlan.changedPathCount,
+          knowledgeRevision: revision?.revision ?? currentRevision?.revision ?? 0,
         },
       });
 
@@ -2143,10 +2289,14 @@ export function knowledgeImportService(db: Db) {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         cwd: workspace.cwd,
-        scannedFiles: filePaths.length,
+        scannedFiles: allRelativePaths.length,
         importedFiles,
         skippedFiles,
+        deprecatedFiles,
         documents,
+        importMode: importPlan.importMode,
+        changedPathCount: importPlan.changedPathCount,
+        knowledgeRevision: revision?.revision ?? currentRevision?.revision ?? 0,
       };
     },
   };

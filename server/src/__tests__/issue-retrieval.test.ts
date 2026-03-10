@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyModelRerankOrder,
+  buildQueryEmbeddingCacheKey,
   buildGraphExpansionSeeds,
   buildSymbolGraphExpansionSeeds,
   buildRetrievalQueryText,
@@ -17,6 +18,24 @@ import {
 } from "../services/issue-retrieval.js";
 
 describe("issue retrieval helpers", () => {
+  it("builds a stable query embedding cache key", () => {
+    const first = buildQueryEmbeddingCacheKey({
+      queryText: "Find retry worker implementation",
+      embeddingFingerprint: "openai:text-embedding-3-small:1536",
+    });
+    const second = buildQueryEmbeddingCacheKey({
+      queryText: "Find retry worker implementation",
+      embeddingFingerprint: "openai:text-embedding-3-small:1536",
+    });
+    const different = buildQueryEmbeddingCacheKey({
+      queryText: "Find retry worker tests",
+      embeddingFingerprint: "openai:text-embedding-3-small:1536",
+    });
+
+    expect(first).toBe(second);
+    expect(first).not.toBe(different);
+  });
+
   it("maps protocol messages to retrieval events", () => {
     expect(deriveRetrievalEventType("ASSIGN_TASK")).toBe("on_assignment");
     expect(deriveRetrievalEventType("REASSIGN_TASK")).toBe("on_assignment");

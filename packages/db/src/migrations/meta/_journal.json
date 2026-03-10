@@ -253,6 +253,13 @@
       "when": 1773158400000,
       "tag": "0035_swift_knowledge_document_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1773162000000,
+      "tag": "0036_brave_retrieval_cache_and_revisions",
+      "breakpoints": true
     }
   ]
 }

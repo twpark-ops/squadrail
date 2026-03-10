@@ -241,7 +241,7 @@ B8의 목적은 RAG를 `문서 검색기`에서 `코드베이스 reasoning engin
 
 ### Slice 4. Retrieval Cache + Incremental Reindex
 
-상태: 다음 우선순위
+상태: 진행 중
 
 세 번째로 해야 한다.
 
@@ -300,6 +300,8 @@ B8의 목적은 RAG를 `문서 검색기`에서 `코드베이스 reasoning engin
 #### 완료 기준
 
 - retrieval 비용과 latency가 대형 repo에서도 예측 가능해진다.
+- query embedding cache hit가 quality metric에 반영된다.
+- workspace import가 unchanged tree에서 skip되고 changed path 중심으로 줄어든다.
 
 ### Slice 5. Role-Specific Personalization
 

@@ -25,6 +25,7 @@ export type WorkspaceVersionContext = {
   defaultBranchName: string | null;
   headSha: string | null;
   parentCommitSha: string | null;
+  treeSignature: string | null;
   isDefaultBranch: boolean;
   capturedAt: string;
 };
@@ -127,10 +128,11 @@ export async function inspectWorkspaceVersionContext(input: {
   if (!input.cwd) return null;
   if (!(await isGitWorkTree(input.cwd))) return null;
 
-  const [branchResult, headResult, parentResult, remoteHeadResult] = await Promise.all([
+  const [branchResult, headResult, parentResult, treeResult, remoteHeadResult] = await Promise.all([
     runGit(["branch", "--show-current"], input.cwd).catch(() => ({ stdout: "" })),
     runGit(["rev-parse", "HEAD"], input.cwd).catch(() => ({ stdout: "" })),
     runGit(["rev-parse", "HEAD^"], input.cwd).catch(() => ({ stdout: "" })),
+    runGit(["rev-parse", "HEAD^{tree}"], input.cwd).catch(() => ({ stdout: "" })),
     runGit(["symbolic-ref", "refs/remotes/origin/HEAD"], input.cwd).catch(() => ({ stdout: "" })),
   ]);
 
@@ -142,7 +144,29 @@ export async function inspectWorkspaceVersionContext(input: {
     defaultBranchName,
     headSha: readFirstLine(headResult.stdout),
     parentCommitSha: readFirstLine(parentResult.stdout),
+    treeSignature: readFirstLine(treeResult.stdout),
     isDefaultBranch: Boolean(branchName && defaultBranchName && branchName === defaultBranchName),
     capturedAt: new Date().toISOString(),
   };
+}
+
+export async function listWorkspaceChangedPaths(input: {
+  cwd: string | null;
+  baseRef: string | null;
+  headRef: string | null;
+}) {
+  if (!input.cwd || !input.baseRef || !input.headRef) return [];
+  if (!(await isGitWorkTree(input.cwd))) return [];
+  if (input.baseRef === input.headRef) return [];
+
+  const diffResult = await runGit(
+    ["diff", "--name-only", "--find-renames", input.baseRef, input.headRef],
+    input.cwd,
+  ).catch(() => ({ stdout: "" }));
+
+  return Array.from(new Set(
+    readLines(diffResult.stdout, 10_000)
+      .map((line) => line.split(" -> ").at(-1)?.trim() ?? null)
+      .filter((value): value is string => Boolean(value)),
+  ));
 }

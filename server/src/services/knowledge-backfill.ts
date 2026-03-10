@@ -414,6 +414,7 @@ export function knowledgeBackfillService(db: Db) {
 
         const versionContext = await inspectWorkspaceVersionContext({ cwd: workspace.cwd });
         if (!versionContext?.branchName && !versionContext?.headSha) continue;
+        let processedForProject = 0;
 
         const documents = await db
           .select({
@@ -470,6 +471,24 @@ export function knowledgeBackfillService(db: Db) {
             },
           });
           processed += 1;
+          processedForProject += 1;
+        }
+
+        if (processedForProject > 0) {
+          await knowledge.touchProjectKnowledgeRevision({
+            companyId: input.companyId,
+            projectId: project.id,
+            bump: true,
+            headSha: versionContext.headSha,
+            treeSignature: versionContext.treeSignature,
+            importMode: "version_backfill",
+            importedAt: versionContext.capturedAt,
+            metadata: {
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+              processedDocuments: processedForProject,
+            },
+          });
         }
       }
 
