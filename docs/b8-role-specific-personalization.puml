@@ -1,0 +1,40 @@
+@startuml B8 Role-Specific Personalization
+title B8 Slice 5 - Role-Specific Personalization
+
+actor "Reviewer / QA / Tech Lead" as Actor
+rectangle "Protocol Message\nREQUEST_CHANGES / APPROVE_IMPLEMENTATION / CLOSE_TASK" as Message
+rectangle "Feedback Recorder" as Recorder
+database "retrieval_feedback_events" as Feedback
+database "retrieval_role_profiles" as Profiles
+rectangle "Retrieval Rerank\nsource/path/symbol boost" as Rerank
+database "retrieval_runs" as Runs
+database "retrieval_run_hits" as Hits
+
+Actor --> Message
+Message --> Recorder
+Recorder --> Runs
+Recorder --> Hits
+Recorder --> Feedback
+Feedback --> Profiles
+Profiles --> Rerank
+Rerank --> Runs
+
+note right of Profiles
+Scope merge:
+- global company profile
+- project profile
+
+Applied by:
+- role
+- eventType
+- sourceType
+- path
+- symbol
+end note
+
+note bottom of Rerank
+Explainable additive boost only.
+Does not replace hybrid + graph + temporal scoring.
+end note
+
+@enduml

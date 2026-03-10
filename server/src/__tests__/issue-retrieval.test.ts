@@ -986,6 +986,80 @@ describe("issue retrieval helpers", () => {
     expect(reranked[1]?.temporalMetadata?.matchType).toBe("default_branch_head");
   });
 
+  it("applies role-specific personalization boosts during rerank", () => {
+    const reranked = rerankRetrievalHits({
+      issueId: "issue-1",
+      projectId: "project-1",
+      finalK: 2,
+      signals: {
+        exactPaths: [],
+        fileNames: [],
+        symbolHints: [],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "adr"],
+        blockerCode: null,
+        questionType: null,
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-agent"],
+      },
+      personalizationProfile: {
+        applied: true,
+        scopes: ["global", "project"],
+        feedbackCount: 8,
+        positiveFeedbackCount: 6,
+        negativeFeedbackCount: 2,
+        sourceTypeBoosts: { code: 0.2 },
+        pathBoosts: { "src/retry.ts": 0.45 },
+        symbolBoosts: { retryWorker: 0.18 },
+      },
+      hits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "adr",
+          authorityLevel: "canonical",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "docs/adr/retries.md",
+          title: "Retry ADR",
+          headingPath: "Decision",
+          symbolName: null,
+          textContent: "Bounded retry guidance",
+          documentMetadata: { isLatestForScope: true },
+          chunkMetadata: {},
+          denseScore: 0.8,
+          sparseScore: 0.8,
+          rerankScore: null,
+          fusedScore: 2.95,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+        },
+        {
+          chunkId: "chunk-2",
+          documentId: "doc-2",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "retry.ts",
+          headingPath: "src/retry.ts",
+          symbolName: "retryWorker",
+          textContent: "function retryWorker() {}",
+          documentMetadata: { isLatestForScope: true },
+          chunkMetadata: {},
+          denseScore: 0.3,
+          sparseScore: 0.2,
+          rerankScore: null,
+          fusedScore: 2.0,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(reranked[0]?.chunkId).toBe("chunk-2");
+    expect(reranked[0]?.personalizationMetadata?.totalBoost).toBeGreaterThan(0.7);
+  });
+
   it("applies policy-configured rerank weights and source preferences", () => {
     const rerankConfig = resolveRetrievalPolicyRerankConfig({
       allowedSourceTypes: ["adr", "code", "review"],

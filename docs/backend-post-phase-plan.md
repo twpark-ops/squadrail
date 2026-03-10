@@ -170,7 +170,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ### B8. Deep RAG Hardening
 
-상태: 진행 중
+상태: 완료
 
 목표:
 
@@ -205,6 +205,11 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - `project_knowledge_revisions`, `retrieval_cache_entries` 추가
   - query embedding cache 추가
   - workspace import incremental / unchanged skip 추가
+- Slice 5. role-specific personalization
+  - `retrieval_feedback_events`, `retrieval_role_profiles` 추가
+  - protocol outcome 기반 feedback recording 추가
+  - role / project / eventType explainable boost 적용
+  - quality summary personalization metric 추가
 
 후속 설계 문서:
 
@@ -212,6 +217,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 - [b8-symbol-dependency-graph-foundation.md](/home/taewoong/company-project/squadall/docs/b8-symbol-dependency-graph-foundation.md)
 - [b8-version-aware-retrieval.md](/home/taewoong/company-project/squadall/docs/b8-version-aware-retrieval.md)
 - [b8-retrieval-cache-incremental-reindex.md](/home/taewoong/company-project/squadall/docs/b8-retrieval-cache-incremental-reindex.md)
+- [b8-role-specific-personalization.md](/home/taewoong/company-project/squadall/docs/b8-role-specific-personalization.md)
 
 완료 기준:
 
@@ -222,15 +228,19 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 완료:
 
 1. B1. E2E Cleanup / Isolation Foundation
-2. B4. Nightly Real-Org E2E
-3. B5. RAG Quality Instrumentation
-4. B6. Cross-Project Retrieval Improvement
-5. B2. Git Visibility Read Model
-6. B3. Merge Candidate Backend Flow
+2. B2. Git Visibility Read Model
+3. B3. Merge Candidate Backend Flow
+4. B4. Nightly Real-Org E2E
+5. B5. RAG Quality Instrumentation
+6. B6. Cross-Project Retrieval Improvement
+7. B7. Merge Automation
+8. B8. Deep RAG Hardening
 
 다음 우선순위:
 
-1. B8. Deep RAG Hardening
+1. operator pin/hide feedback surface
+2. merge outcome feedback refinement
+3. deeper multi-hop graph traversal
 
 ## 완료 증거
 

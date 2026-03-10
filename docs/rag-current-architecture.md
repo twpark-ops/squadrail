@@ -12,7 +12,7 @@ Squadrail's RAG layer provides task-scoped context for protocol-driven agent wor
 - hybrid retrieval for issue and protocol workflows
 - brief generation with evidence quality metadata
 
-It is not yet a graph-backed code intelligence system. Symbol graphs, agent personalization tables, and retrieval caches are future expansion areas, not part of the current runtime.
+It is now a graph-assisted, temporal, and role-aware retrieval runtime. The current system already includes symbol graph tables, document version snapshots, query embedding cache, and explainable role-specific personalization. It is not yet a deep call-graph or full historical code intelligence system.
 
 ## Current Data Model
 
@@ -27,6 +27,20 @@ It is not yet a graph-backed code intelligence system. Symbol graphs, agent pers
 - `knowledge_chunk_links`
   - lightweight link table used for rerank boosts
   - current entity types are primarily `project`, `workspace`, `path`, and `symbol`
+- `code_symbols`
+  - canonical symbol registry extracted during workspace import for TypeScript / JavaScript, Go, and Python
+- `code_symbol_edges`
+  - symbol graph edges used for 1-hop semantic expansion
+- `knowledge_document_versions`
+  - branch / commit / head snapshot metadata for imported document versions
+- `project_knowledge_revisions`
+  - per-project knowledge revision and import anchor for incremental reindex
+- `retrieval_cache_entries`
+  - retrieval cache storage; current runtime uses it for query embedding cache
+- `retrieval_feedback_events`
+  - protocol outcome feedback linked back to retrieval runs
+- `retrieval_role_profiles`
+  - explainable role/project/event personalization profiles derived from feedback
 - `retrieval_policies`
   - per company / role / event / workflow policy for `topKDense`, `topKSparse`, `rerankK`, `finalK`, and source filters
 - `retrieval_runs`
@@ -38,11 +52,10 @@ It is not yet a graph-backed code intelligence system. Symbol graphs, agent pers
 
 The current implementation does not have dedicated tables for:
 
-- symbol registry (`code_symbols`)
-- relationship graph (`code_relationships`)
-- temporal code versions (`code_versions`)
-- agent learning feedback (`agent_knowledge_feedback`, `agent_chunk_rankings`)
-- retrieval cache layers (`retrieval_cache`, `retrieval_stage_cache`)
+- deep multi-hop relationship graph (`code_relationships`)
+- full repository history index over arbitrary commit ranges (`code_versions`)
+- per-agent black-box memory tables
+- candidate / final-hit retrieval stage cache layers
 
 ## Ingestion Pipeline
 
@@ -111,6 +124,9 @@ Candidate sets are merged and fused. Current scoring includes:
 - tag match boost
 - latest and freshness boosts
 - issue / project / path link boosts through `knowledge_chunk_links`
+- symbol graph traversal boosts through `code_symbol_edges`
+- temporal branch / commit alignment scoring through `knowledge_document_versions`
+- role-specific additive personalization boosts through `retrieval_role_profiles`
 - penalties for expired, superseded, or future-invalid documents
 
 ### Stage 3: optional model rerank
@@ -132,6 +148,16 @@ Brief output includes quality metadata:
 - `symbolHitCount`
 - `sourceDiversity`
 - `degradedReasons`
+- `graphSeedCount`
+- `graphHitCount`
+- `graphEntityTypes`
+- `temporalContextAvailable`
+- `temporalHitCount`
+- `branchAlignedTopHitCount`
+- `exactCommitMatchCount`
+- `personalizationApplied`
+- `personalizedHitCount`
+- `averagePersonalizationBoost`
 
 This metadata is important because the system allows degraded retrieval to continue instead of hard-failing the workflow.
 
@@ -140,6 +166,10 @@ This metadata is important because the system allows degraded retrieval to conti
 ### Current strengths
 
 - retrieval is already code-aware, not plain document RAG
+- retrieval can expand through `knowledge_chunk_links` and 1-hop symbol graph edges
+- retrieval can prefer branch / commit aligned evidence when temporal context exists
+- retrieval can reuse query embeddings and skip unchanged workspace imports
+- retrieval can apply explainable role/project/event personalization boosts
 - embeddings are optional at runtime because sparse/path/symbol retrieval still works
 - repository import is scoped and noise-filtered
 - retrieval results are traceable through `retrieval_runs` and `retrieval_run_hits`
@@ -147,18 +177,17 @@ This metadata is important because the system allows degraded retrieval to conti
 
 ### Current limits
 
-- no persistent code graph traversal
-- no dedicated symbol registry outside chunk metadata
-- no temporal version retrieval over code history
-- no agent-personalized ranking memory
-- no explicit retrieval cache layers
+- symbol graph traversal is intentionally shallow and centered on 1-hop expansion
+- temporal retrieval is anchored to imported branch/head snapshots, not full historical replay
+- personalization is role/project/event scoped and explainable, not per-agent adaptive memory
+- only query embedding cache is active today; candidate/final-hit cache is still future work
 - rerank provider support is currently OpenAI-centric
 
 ## Design Decisions
 
-### Why chunks still carry symbol metadata
+### Why chunks still carry symbol metadata even with symbol tables
 
-Instead of maintaining separate symbol tables today, the system keeps symbol-aware retrieval lightweight by storing `symbolName` and parser metadata directly on chunks. This reduces migration cost and keeps import throughput simple while still enabling symbol-targeted retrieval.
+The runtime now has `code_symbols` and `code_symbol_edges`, but chunks still keep `symbolName` and parser metadata. This preserves fast symbol-targeted retrieval and keeps fallback behavior simple when graph expansion is unavailable or filtered out.
 
 ### Why degraded retrieval is allowed
 
@@ -168,14 +197,18 @@ The protocol pipeline prioritizes execution continuity. If embeddings are unavai
 
 The runtime supports environments where pgvector is not installed. When available, it accelerates dense retrieval. When unavailable, retrieval still works with application-side similarity scoring.
 
+### Why personalization is explainable
+
+Role-specific personalization is derived from protocol outcomes such as `REQUEST_CHANGES`, `APPROVE_IMPLEMENTATION`, and `CLOSE_TASK`. The runtime stores boosts by source type, path, and symbol so the effect can be audited instead of hidden behind opaque agent memory.
+
 ## Recommended Next RAG Expansions
 
 These are valid future improvements, but they are not part of the current implementation:
 
-1. Dedicated symbol registry and relationship graph
-2. Temporal code version indexing with commit-aware retrieval
-3. Agent feedback accumulation and personalization boosts
-4. Retrieval cache layers for hot queries and intermediate stages
+1. Deeper multi-hop graph traversal and richer edge extraction
+2. Full historical version retrieval across broader commit windows
+3. Candidate / final-hit cache layers for hot retrieval stages
+4. Operator-driven manual pin/hide feedback surfaces on top of personalization
 5. Multi-provider rerank support with stronger verification and cost controls
 
 ## Source of Truth
@@ -185,10 +218,18 @@ For current implementation details, use these code paths as the primary referenc
 - `server/src/services/knowledge-import.ts`
 - `server/src/services/knowledge-embeddings.ts`
 - `server/src/services/issue-retrieval.ts`
+- `server/src/services/retrieval-personalization.ts`
 - `server/src/services/knowledge-reranking.ts`
 - `packages/db/src/schema/knowledge_documents.ts`
 - `packages/db/src/schema/knowledge_chunks.ts`
 - `packages/db/src/schema/knowledge_chunk_links.ts`
+- `packages/db/src/schema/code_symbols.ts`
+- `packages/db/src/schema/code_symbol_edges.ts`
+- `packages/db/src/schema/knowledge_document_versions.ts`
+- `packages/db/src/schema/project_knowledge_revisions.ts`
+- `packages/db/src/schema/retrieval_cache_entries.ts`
+- `packages/db/src/schema/retrieval_feedback_events.ts`
+- `packages/db/src/schema/retrieval_role_profiles.ts`
 - `packages/db/src/schema/retrieval_policies.ts`
 - `packages/db/src/schema/retrieval_runs.ts`
 - `packages/db/src/schema/retrieval_run_hits.ts`

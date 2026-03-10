@@ -26,6 +26,7 @@ const {
   mockProtocolCreateViolation,
   mockProtocolDispatchMessage,
   mockIssueRetrievalHandleProtocolMessage,
+  mockRetrievalPersonalizationRecordProtocolFeedback,
   mockMergeCandidateGetByIssueId,
   mockMergeCandidateUpsertDecision,
   mockMergeCandidatePatchAutomationMetadata,
@@ -59,6 +60,7 @@ const {
   mockProtocolCreateViolation: vi.fn(),
   mockProtocolDispatchMessage: vi.fn(),
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
+  mockRetrievalPersonalizationRecordProtocolFeedback: vi.fn(),
   mockMergeCandidateGetByIssueId: vi.fn(),
   mockMergeCandidateUpsertDecision: vi.fn(),
   mockMergeCandidatePatchAutomationMetadata: vi.fn(),
@@ -102,6 +104,11 @@ vi.mock("../services/index.js", () => ({
     buildBrief: vi.fn(),
     listBriefs: vi.fn(),
     handleProtocolMessage: mockIssueRetrievalHandleProtocolMessage,
+  }),
+  retrievalPersonalizationService: () => ({
+    recordProtocolFeedback: mockRetrievalPersonalizationRecordProtocolFeedback,
+    loadProfile: vi.fn(),
+    backfillProtocolFeedback: vi.fn(),
   }),
   issueProtocolService: () => ({
     getState: mockProtocolGetState,

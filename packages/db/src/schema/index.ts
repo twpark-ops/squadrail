@@ -44,6 +44,8 @@ export { retrievalPolicies } from "./retrieval_policies.js";
 export { retrievalRuns } from "./retrieval_runs.js";
 export { retrievalRunHits } from "./retrieval_run_hits.js";
 export { retrievalCacheEntries } from "./retrieval_cache_entries.js";
+export { retrievalFeedbackEvents } from "./retrieval_feedback_events.js";
+export { retrievalRoleProfiles } from "./retrieval_role_profiles.js";
 export { assets } from "./assets.js";
 export { issueAttachments } from "./issue_attachments.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
