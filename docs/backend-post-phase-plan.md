@@ -170,7 +170,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ### B8. Deep RAG Hardening
 
-상태: 계측 기반 후속 단계
+상태: 진행 중
 
 목표:
 
@@ -183,6 +183,14 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 - retrieval cache
 - incremental reindex
 - role-specific personalization
+
+현재 완료 슬라이스:
+
+- Slice 1. graph-assisted retrieval expansion
+  - top hit의 `knowledge_chunk_links`를 seed로 사용
+  - `symbol`, `path`, `project` link를 따라 linked chunk를 retrieval 후보로 확장
+  - brief / retrieval debug에 `graphSeedCount`, `graphHitCount`, `graphEntityTypes` 기록
+  - cross-project 이슈에서 graph expansion이 비어 있으면 `cross_project_graph_empty` degraded reason 부여
 
 완료 기준:
 

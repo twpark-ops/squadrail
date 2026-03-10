@@ -18,7 +18,7 @@ rectangle "B6\nCross-Project\nRetrieval\nCOMPLETED" as B6 #1D4D31
 rectangle "B2\nGit Visibility\nRead Model\nCOMPLETED" as B2 #1D4D31
 rectangle "B3\nMerge Candidate\nBackend Flow\nCOMPLETED" as B3 #1D4D31
 rectangle "B7\nMerge Automation\nCOMPLETED" as B7 #1D4D31
-rectangle "B8\nDeep RAG\nHardening\nLATER" as B8 #2B3348
+rectangle "B8\nDeep RAG\nHardening\nIN PROGRESS" as B8 #5A4520
 
 B1 --> B4
 B4 --> B5
@@ -49,6 +49,14 @@ operator actions
 branch push
 PR export
 merge helper
+end note
+
+note right of B8
+slice 1 complete:
+graph-assisted retrieval
+linked chunk expansion
+graph quality signals
+cross-project graph degrade
 end note
 
 @enduml
