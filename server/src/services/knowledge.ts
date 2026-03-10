@@ -3,7 +3,9 @@ import type { Db } from "@squadrail/db";
 import {
   codeSymbolEdges,
   codeSymbols,
+  issueProtocolMessages,
   issueTaskBriefs,
+  issues,
   knowledgeChunkLinks,
   knowledgeChunks,
   knowledgeDocuments,
@@ -17,6 +19,10 @@ import {
   retrievalRunHits,
   retrievalRuns,
 } from "@squadrail/db";
+import {
+  ORGANIZATIONAL_MEMORY_PROTOCOL_MESSAGE_TYPES,
+  ORGANIZATIONAL_MEMORY_REVIEW_MESSAGE_TYPES,
+} from "./organizational-memory-shared.js";
 
 type ReplaceDocumentChunksCodeGraph = {
   symbols: Array<{
@@ -1673,6 +1679,139 @@ export function knowledgeService(db: Db) {
         .where(eq(retrievalRoleProfiles.companyId, input.companyId))
         .then((result) => result[0]?.count ?? 0);
 
+      const [
+        issueTotalItems,
+        issueActiveDocumentCount,
+        issueLinkedDocumentCount,
+        issueMissingIssueLinkCount,
+        protocolTotalItems,
+        protocolActiveDocumentCount,
+        protocolLinkedDocumentCount,
+        protocolMissingMessageLinkCount,
+        reviewTotalItems,
+        reviewActiveDocumentCount,
+        reviewLinkedDocumentCount,
+        reviewMissingMessageLinkCount,
+      ] = await Promise.all([
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(issues)
+          .where(eq(issues.companyId, input.companyId))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.issueId})` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "issue"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.issueId})` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "issue"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`${knowledgeDocuments.issueId} is not null`,
+            sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "issue"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`${knowledgeDocuments.issueId} is null`,
+            sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(issueProtocolMessages)
+          .where(and(
+            eq(issueProtocolMessages.companyId, input.companyId),
+            inArray(
+              issueProtocolMessages.messageType,
+              [...ORGANIZATIONAL_MEMORY_PROTOCOL_MESSAGE_TYPES] as typeof issueProtocolMessages.$inferSelect.messageType[],
+            ),
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "protocol_message"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "protocol_message"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`${knowledgeDocuments.messageId} is not null`,
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "protocol_message"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`${knowledgeDocuments.messageId} is null`,
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(issueProtocolMessages)
+          .where(and(
+            eq(issueProtocolMessages.companyId, input.companyId),
+            inArray(
+              issueProtocolMessages.messageType,
+              [...ORGANIZATIONAL_MEMORY_REVIEW_MESSAGE_TYPES] as typeof issueProtocolMessages.$inferSelect.messageType[],
+            ),
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "review"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "review"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`${knowledgeDocuments.messageId} is not null`,
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(knowledgeDocuments)
+          .where(and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            eq(knowledgeDocuments.sourceType, "review"),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            sql`${knowledgeDocuments.messageId} is null`,
+          ))
+          .then((rows) => rows[0]?.count ?? 0),
+      ]);
+
       return {
         companyId: input.companyId,
         windowDays: days,
@@ -1711,6 +1850,38 @@ export function knowledgeService(db: Db) {
         edgeTypeCounts,
         graphHopDepthCounts,
         feedbackTypeCounts,
+        organizationalMemoryCoverage: {
+          issue: {
+            totalItems: issueTotalItems,
+            activeDocumentCount: issueActiveDocumentCount,
+            linkedDocumentCount: issueLinkedDocumentCount,
+            missingLinkCount: issueMissingIssueLinkCount,
+            coverageRate:
+              issueTotalItems > 0
+                ? issueLinkedDocumentCount / issueTotalItems
+                : 0,
+          },
+          protocol: {
+            totalItems: protocolTotalItems,
+            activeDocumentCount: protocolActiveDocumentCount,
+            linkedDocumentCount: protocolLinkedDocumentCount,
+            missingLinkCount: protocolMissingMessageLinkCount,
+            coverageRate:
+              protocolTotalItems > 0
+                ? protocolLinkedDocumentCount / protocolTotalItems
+                : 0,
+          },
+          review: {
+            totalItems: reviewTotalItems,
+            activeDocumentCount: reviewActiveDocumentCount,
+            linkedDocumentCount: reviewLinkedDocumentCount,
+            missingLinkCount: reviewMissingMessageLinkCount,
+            coverageRate:
+              reviewTotalItems > 0
+                ? reviewLinkedDocumentCount / reviewTotalItems
+                : 0,
+          },
+        },
         perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         samples: {

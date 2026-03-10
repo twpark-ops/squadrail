@@ -89,8 +89,8 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 핵심 문제:
 
 - 현재 Knowledge는 explorer 중심이라 setup 작업에 불편하다.
-- live `cloud-swiftsight`는 아직 13-agent 상태이고 canonical 18-agent와 drift가 있다.
-- knowledge import는 project 단위 route만 있어 company-level orchestration이 없다.
+- live `cloud-swiftsight`는 canonical 18-agent로 정렬됐지만, 이후 drift를 설명하고 repair하는 operator surface가 아직 약하다.
+- knowledge import는 project 단위 route만 있던 구조에서 company-level orchestration으로 넘어가는 과도기다.
 
 범위:
 

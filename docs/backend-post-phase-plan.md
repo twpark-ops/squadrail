@@ -253,7 +253,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 4. deeper chunk-link multi-hop traversal
 5. cross-issue memory / quality trend surface
 
-상세 우선순위와 단계별 계획은 [organizational-memory-rag-plan.md](/home/taewoong/company-project/squadall/docs/organizational-memory-rag-plan.md) 참조.
+상세 우선순위와 단계별 계획은 [organizational-memory-rag-plan.md](/home/taewoong/company-project/squadall/docs/organizational-memory-rag-plan.md), 전체 조직 풀루프 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/autonomous-org-full-loop-plan.md) 참조.
 
 ## 완료 증거
 
