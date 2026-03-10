@@ -13,6 +13,7 @@ export interface RunLogHandle {
 export interface RunLogReadOptions {
   offset?: number;
   limitBytes?: number;
+  tailBytes?: number;
 }
 
 export interface RunLogReadResult {
@@ -55,11 +56,23 @@ function createLocalFileRunLogStore(basePath: string): RunLogStore {
     await fs.mkdir(dir, { recursive: true });
   }
 
-  async function readFileRange(filePath: string, offset: number, limitBytes: number): Promise<RunLogReadResult> {
+  async function readFileRange(
+    filePath: string,
+    offset: number,
+    limitBytes: number,
+    tailBytes?: number,
+  ): Promise<RunLogReadResult> {
     const stat = await fs.stat(filePath).catch(() => null);
     if (!stat) throw notFound("Run log not found");
 
-    const start = Math.max(0, Math.min(offset, stat.size));
+    const normalizedTailBytes =
+      typeof tailBytes === "number" && Number.isFinite(tailBytes)
+        ? Math.max(0, Math.trunc(tailBytes))
+        : 0;
+    const start =
+      normalizedTailBytes > 0
+        ? Math.max(0, stat.size - normalizedTailBytes)
+        : Math.max(0, Math.min(offset, stat.size));
     const end = Math.max(start, Math.min(start + limitBytes - 1, stat.size - 1));
 
     if (start > end) {
@@ -143,7 +156,7 @@ function createLocalFileRunLogStore(basePath: string): RunLogStore {
       const absPath = resolveWithin(basePath, handle.logRef);
       const offset = opts?.offset ?? 0;
       const limitBytes = opts?.limitBytes ?? 256_000;
-      return readFileRange(absPath, offset, limitBytes);
+      return readFileRange(absPath, offset, limitBytes, opts?.tailBytes);
     },
   };
 }
@@ -156,4 +169,3 @@ export function getRunLogStore() {
   cachedStore = createLocalFileRunLogStore(basePath);
   return cachedStore;
 }
-

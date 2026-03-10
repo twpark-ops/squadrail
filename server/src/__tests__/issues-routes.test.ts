@@ -620,6 +620,84 @@ describe("issue routes wakeup handling", () => {
     expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("allows supervisory agent protocol routing without board-level tasks:assign permission", async () => {
+    mockAccessHasPermission.mockResolvedValue(false);
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-170",
+      title: "PM-routed issue",
+      description: null,
+      projectId: null,
+      labels: [],
+      status: "todo",
+      assigneeAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      assigneeUserId: null,
+      createdByUserId: "user-1",
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      role: "pm",
+      status: "active",
+      title: "PM",
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-2", seq: 2 },
+      state: { workflowState: "assigned" },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+      body: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          role: "pm",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            role: "tech_lead",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "PM routes the issue into the project TL lane",
+        requiresAck: false,
+        payload: {
+          reason: "Product scope is clarified and ready for TL staffing.",
+          newAssigneeAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          newReviewerAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "11111111-1111-4111-8111-111111111111",
+        message: expect.objectContaining({
+          messageType: "REASSIGN_TASK",
+          sender: expect.objectContaining({
+            role: "pm",
+          }),
+        }),
+      }),
+    );
+  });
+
   it("rejects internal work items when assignee cannot act as engineer or tech lead", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
@@ -937,6 +1015,121 @@ describe("issue routes wakeup handling", () => {
 
     expect(response.statusCode).toBe(201);
     expect(mockProtocolAppendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips retrieval brief generation for ACK_ASSIGNMENT while still dispatching", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-200",
+      title: "Protocol issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      body: {
+        messageType: "ACK_ASSIGNMENT",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "Assignment acknowledged",
+        payload: {
+          accepted: true,
+          understoodScope: "Implement SafeJoin fix",
+          initialRisks: ["Need filesystem-safe path handling"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockIssueRetrievalHandleProtocolMessage).not.toHaveBeenCalled();
+    expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps retrieval brief generation for SUBMIT_FOR_REVIEW handoff messages", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-201",
+      title: "Protocol issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [
+          { kind: "diff", uri: "run://run-1/workspace-diff", label: "Workspace diff" },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockIssueRetrievalHandleProtocolMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "11111111-1111-4111-8111-111111111111",
+        message: expect.objectContaining({
+          messageType: "SUBMIT_FOR_REVIEW",
+        }),
+      }),
+    );
   });
 
   it("auto-attaches execution run artifacts to agent protocol messages", async () => {

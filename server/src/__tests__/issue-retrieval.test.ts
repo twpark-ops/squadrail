@@ -10,6 +10,7 @@ import {
   resolveRetrievalPolicyRerankConfig,
   rerankRetrievalHits,
   renderRetrievedBriefMarkdown,
+  selectProtocolRetrievalRecipients,
 } from "../services/issue-retrieval.js";
 
 describe("issue retrieval helpers", () => {
@@ -63,6 +64,107 @@ describe("issue retrieval helpers", () => {
     expect(query).toContain("backend");
     expect(query).toContain("Prevent duplicate processing");
     expect(query).toContain("idempotency");
+  });
+
+  it("caps retrieval query text for large issue descriptions", () => {
+    const query = buildRetrievalQueryText({
+      issue: {
+        identifier: "SW-999",
+        title: "Large orchestration issue",
+        description: `Instruction block `.repeat(600),
+        labels: [{ name: "orchestration" }, { name: "e2e" }],
+      },
+      recipientRole: "tech_lead",
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "Route the work to the project lead",
+        payload: {
+          goal: "Keep retrieval focused",
+          acceptanceCriteria: ["brief still generated"],
+          definitionOfDone: ["handoff remains concise"],
+          priority: "high",
+          assigneeAgentId: "00000000-0000-0000-0000-000000000001",
+          reviewerAgentId: "00000000-0000-0000-0000-000000000002",
+          requiredKnowledgeTags: Array.from({ length: 40 }, (_, index) => `signal-${index}`),
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(query.length).toBeLessThanOrEqual(2400);
+    expect(query).toContain("Large orchestration issue");
+    expect(query).toContain("Keep retrieval focused");
+  });
+
+  it("targets the active supervisory assignee for assignment retrieval instead of the reviewer", () => {
+    const recipients = selectProtocolRetrievalRecipients({
+      messageType: "ASSIGN_TASK",
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "pm-1",
+          role: "pm",
+        },
+        {
+          recipientType: "agent",
+          recipientId: "qa-lead-1",
+          role: "reviewer",
+        },
+      ],
+    });
+
+    expect(recipients).toEqual([
+      {
+        recipientType: "agent",
+        recipientId: "pm-1",
+        role: "pm",
+      },
+    ]);
+  });
+
+  it("keeps reviewer retrieval for review submission events", () => {
+    const recipients = selectProtocolRetrievalRecipients({
+      messageType: "SUBMIT_FOR_REVIEW",
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "reviewer-1",
+          role: "reviewer",
+        },
+        {
+          recipientType: "agent",
+          recipientId: "tech-lead-1",
+          role: "tech_lead",
+        },
+      ],
+    });
+
+    expect(recipients).toEqual([
+      {
+        recipientType: "agent",
+        recipientId: "reviewer-1",
+        role: "reviewer",
+      },
+      {
+        recipientType: "agent",
+        recipientId: "tech-lead-1",
+        role: "tech_lead",
+      },
+    ]);
   });
 
   it("computes cosine similarity safely for stored json embeddings", () => {

@@ -304,6 +304,70 @@ PATCH /api/agents/{agentId}/instructions-path
 | Dashboard            | `GET /api/companies/:companyId/dashboard`                                                  |
 | Search issues        | `GET /api/companies/:companyId/issues?q=search+term`                                       |
 
+## Manager Routing Notes
+
+- `GET /api/companies/{companyId}/agents` returns a plain JSON array. Do not expect `{ "agents": [...] }`.
+- In the default SwiftSight bootstrap, individual contributors use `role: "engineer"` and `title: "Engineer"`. Project leads use the same role with `title: "Tech Lead"`.
+- In `claude_local`, `curl` and `wget` may be blocked by context-mode. Prefer `node --input-type=module -e` with `fetch(...)` for Squadrail API calls.
+- Preferred control-plane helper on this machine: `node /home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs`.
+- Prefer the helper for protocol actions instead of ad-hoc curl, Python, or tool search:
+  - `resolve-agent <slug>`
+  - `get-brief --scope <role>`
+  - `ack-assignment`
+  - `start-implementation`
+  - `report-progress`
+  - `submit-for-review`
+  - `ack-change-request`
+  - `reassign-task`
+  - `start-review`
+  - `request-changes`
+  - `request-human-decision`
+  - `approve-implementation`
+  - `close-task`
+- Do not handcraft Python/curl POST bodies for `/protocol/messages` when the helper already supports the message you need.
+- Do not handcraft Python/curl/urllib/fetch POSTs to `/protocol/messages` when the helper already supports the transition.
+- Any ad-hoc POST to `/protocol/messages` counts as a workflow failure for the run.
+- If the helper fails or times out for a supported protocol transition, report the blocker and stop instead of retrying with ad-hoc HTTP.
+- If the issue description already gives you the target agent slug and UUID, use that directly instead of listing agents again.
+- Safe jq example for staffing candidates:
+
+```bash
+curl -s -H "Authorization: Bearer $SQUADRAIL_API_KEY" \
+  "$SQUADRAIL_API_URL/api/companies/$SQUADRAIL_COMPANY_ID/agents" \
+  | jq '.[] | select(.role == "engineer" and .title != "Tech Lead" and (.status == "idle" or .status == "running")) | { id, name, role, title, urlKey, status }'
+```
+
+- If the issue is already assigned and you are routing it to another owner, use `REASSIGN_TASK` instead of a new `ASSIGN_TASK`.
+- PM and CTO should route through the project TL lane before implementation starts unless the issue explicitly requires direct company-level intervention.
+- Keep reviewer ownership explicit in every staffing change.
+- Project TLs may appear as `role: "engineer"` with `title: "Tech Lead"`, but protocol sender role is action-specific:
+  - use `tech_lead` for `REASSIGN_TASK` and `CLOSE_TASK`
+  - use `engineer` for `ACK_ASSIGNMENT`, `START_IMPLEMENTATION`, `REPORT_PROGRESS`, and `SUBMIT_FOR_REVIEW`
+- If the work is already in the TL lane and no additional staffing is required, implement directly from that lane instead of PATCHing issue ownership.
+
+Example staffing command:
+
+```bash
+node /home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs reassign-task \
+  --issue "$SQUADRAIL_TASK_ID" \
+  --sender-role tech_lead \
+  --assignee-id "<engineer-uuid>" \
+  --assignee-role engineer \
+  --reviewer-id "<reviewer-uuid>" \
+  --summary "Route implementation to the engineer lane" \
+  --reason "Staffing the focused execution slice"
+```
+
+```bash
+node /home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs get-brief \
+  --issue "$SQUADRAIL_TASK_ID" \
+  --scope pm
+```
+
+- For `pm`, `cto`, and `tech_lead` assignment wakes, the first valid action should normally be `REASSIGN_TASK`, `ASK_CLARIFICATION`, or `ESCALATE_BLOCKER`.
+- Do not inspect repository files before that first routing action is recorded.
+- Once routing is complete and the TL lane owns the work, do not keep searching for another owner unless the issue explicitly requires staffing a separate IC lane.
+
 ## Searching Issues
 
 Use the `q` query parameter on the issues list endpoint to search across titles, identifiers, descriptions, and comments:

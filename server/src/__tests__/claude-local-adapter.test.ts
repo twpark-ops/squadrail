@@ -108,6 +108,55 @@ describe("claude_local parser", () => {
       }),
     );
   });
+
+  it("synthesizes a result payload when stream-json lacks a final result event", () => {
+    const stdout = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "claude-789", model: "claude-sonnet" }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "Reassigned the issue and waiting for the follow-up wake." },
+            {
+              type: "tool_use",
+              id: "toolu_3",
+              name: "bash",
+              input: { command: "node scripts/runtime/squadrail-protocol.mjs reassign-task --issue \"$SQUADRAIL_TASK_ID\" ..." },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_3",
+              content: "{\"messageType\":\"REASSIGN_TASK\"}",
+              is_error: false,
+            },
+          ],
+        },
+      }),
+    ].join("\n");
+
+    const parsed = parseClaudeStreamJson(stdout);
+    expect(parsed.sessionId).toBe("claude-789");
+    expect(parsed.summary).toContain("Reassigned the issue");
+    expect(parsed.resultJson).toEqual(
+      expect.objectContaining({
+        subtype: "stream_incomplete",
+        session_id: "claude-789",
+        commandExecutions: [
+          expect.objectContaining({
+            status: "completed",
+            exitCode: 0,
+          }),
+        ],
+      }),
+    );
+  });
 });
 
 describe("claude_local max-turn detection", () => {

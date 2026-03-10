@@ -158,4 +158,74 @@ describe("claude execute", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("injects supervisor routing guidance for pm assignment wakes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-claude-supervisor-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "claude");
+    const capturePath = path.join(root, "capture.json");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeClaudeCommand(commandPath);
+
+    try {
+      const result = await execute({
+        runId: "run-supervisor",
+        agent: {
+          id: "agent-pm",
+          companyId: "company-1",
+          name: "Product Manager",
+          adapterType: "claude_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Clarify and route the task.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-supervisor",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+          issueId: "issue-supervisor",
+          wakeReason: "issue_assigned",
+          protocolMessageType: "ASSIGN_TASK",
+          protocolWorkflowStateBefore: "backlog",
+          protocolWorkflowStateAfter: "assigned",
+          protocolRecipientRole: "pm",
+          protocolSenderRole: "human_board",
+          protocolSummary: "PM must clarify and route the delivery slice",
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.prompt).toContain("Mandatory protocol gate:");
+      expect(capture.prompt).toContain("REQUIRED WORKFLOW GATE: this wake expects routing, clarification, or escalation.");
+      expect(capture.prompt).toContain("You are explicitly allowed to route this issue with `REASSIGN_TASK`.");
+      expect(capture.prompt).toContain("Do not handcraft Python/curl/urllib/fetch POSTs for protocol messages in this run.");
+      expect(capture.prompt).toContain("Minimal REASSIGN_TASK example");
+      expect(capture.prompt).toContain("Exact helper command form:");
+      expect(capture.prompt).toContain("Required payload keys: reason, newAssigneeAgentId, newReviewerAgentId");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });

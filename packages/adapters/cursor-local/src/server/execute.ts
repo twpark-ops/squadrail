@@ -14,6 +14,7 @@ import {
   ensureAbsoluteDirectory,
   ensureCommandResolvable,
   ensurePathInEnv,
+  withProtocolTransportGuards,
   renderTemplate,
   runChildProcess,
 } from "@squadrail/adapter-utils/server-utils";
@@ -254,7 +255,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     env.SQUADRAIL_API_KEY = authToken;
   }
   const billingType = resolveCursorBillingType(env);
-  const runtimeEnv = ensurePathInEnv({ ...process.env, ...env });
+  const runtimeEnv = await withProtocolTransportGuards(
+    ensurePathInEnv({ ...process.env, ...env }),
+  );
   await ensureCommandResolvable(command, cwd, runtimeEnv);
 
   const timeoutSec = asNumber(config.timeoutSec, 0);

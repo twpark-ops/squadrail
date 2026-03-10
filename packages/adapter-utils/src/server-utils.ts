@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import os from "node:os";
 import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
 import { resolveProtocolRunRequirement, type ProtocolRunRequirement } from "@squadrail/shared";
@@ -28,6 +29,87 @@ export const runningProcesses = new Map<string, RunningProcess>();
 export const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 export const MAX_EXCERPT_BYTES = 32 * 1024;
 const SENSITIVE_ENV_KEY = /(key|token|secret|password|passwd|authorization|cookie)/i;
+const SQUADRAIL_PROTOCOL_HELPER_PATH = "/home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs";
+let protocolTransportGuardDirPromise: Promise<string> | null = null;
+
+function buildPythonProtocolGuardScript() {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_PYTHON="/usr/bin/python3"
+HELPER_PATH="\${SQUADRAIL_PROTOCOL_HELPER_PATH:-${SQUADRAIL_PROTOCOL_HELPER_PATH}}"
+BLOCK_MESSAGE="[squadrail] Direct protocol HTTP via python is blocked. Use: node \${HELPER_PATH} <command> --issue \\"$SQUADRAIL_TASK_ID\\" ..."
+
+block_if_protocol_script() {
+  local content="$1"
+  if printf '%s' "$content" | grep -Eq '/protocol/messages'; then
+    printf '%s\\n' "$BLOCK_MESSAGE" >&2
+    exit 97
+  fi
+}
+
+if [[ "\${1:-}" == "-" ]]; then
+  tmp_file="$(mktemp)"
+  trap 'rm -f "$tmp_file"' EXIT
+  cat >"$tmp_file"
+  block_if_protocol_script "$(cat "$tmp_file")"
+  "$REAL_PYTHON" "$@" <"$tmp_file"
+  exit $?
+fi
+
+if [[ "\${1:-}" == "-c" ]]; then
+  block_if_protocol_script "\${2:-}"
+fi
+
+exec "$REAL_PYTHON" "$@"
+`;
+}
+
+function buildHttpProtocolGuardScript(realBinary: string, toolName: string) {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_BINARY="${realBinary}"
+HELPER_PATH="\${SQUADRAIL_PROTOCOL_HELPER_PATH:-${SQUADRAIL_PROTOCOL_HELPER_PATH}}"
+BLOCK_MESSAGE="[squadrail] Direct protocol HTTP via ${toolName} is blocked. Use: node \${HELPER_PATH} <command> --issue \\"$SQUADRAIL_TASK_ID\\" ..."
+
+if printf '%s' "$*" | grep -Eq '/protocol/messages'; then
+  printf '%s\\n' "$BLOCK_MESSAGE" >&2
+  exit 97
+fi
+
+exec "$REAL_BINARY" "$@"
+`;
+}
+
+async function ensureProtocolTransportGuardDir() {
+  if (!protocolTransportGuardDirPromise) {
+    protocolTransportGuardDirPromise = (async () => {
+      const guardDir = path.join(os.tmpdir(), "squadrail-protocol-guard-bin");
+      await fs.mkdir(guardDir, { recursive: true });
+      await Promise.all([
+        fs.writeFile(path.join(guardDir, "python"), buildPythonProtocolGuardScript(), { mode: 0o755 }),
+        fs.writeFile(path.join(guardDir, "python3"), buildPythonProtocolGuardScript(), { mode: 0o755 }),
+        fs.writeFile(path.join(guardDir, "curl"), buildHttpProtocolGuardScript("/usr/bin/curl", "curl"), { mode: 0o755 }),
+      ]);
+      return guardDir;
+    })();
+  }
+  return protocolTransportGuardDirPromise;
+}
+
+export async function withProtocolTransportGuards(
+  env: NodeJS.ProcessEnv,
+): Promise<NodeJS.ProcessEnv> {
+  const guardDir = await ensureProtocolTransportGuardDir();
+  const currentPath = env.PATH ?? process.env.PATH ?? "";
+  const pathEntries = currentPath.split(":").filter(Boolean);
+  if (pathEntries[0] !== guardDir) {
+    env.PATH = [guardDir, ...pathEntries].join(":");
+  }
+  env.SQUADRAIL_PROTOCOL_HELPER_PATH = SQUADRAIL_PROTOCOL_HELPER_PATH;
+  return env;
+}
 
 export function parseObject(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -127,24 +209,23 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-function buildProtocolTransportSnippet(exampleJson: string) {
-  return [
-    "python - <<'PY'",
-    "import json, os, urllib.request",
-    `payload = json.loads(r'''${exampleJson}''')`,
-    "req = urllib.request.Request(",
-    "    os.environ['SQUADRAIL_API_URL'] + f\"/api/issues/{os.environ['SQUADRAIL_TASK_ID']}/protocol/messages\",",
-    "    data=json.dumps(payload).encode(),",
-    "    headers={",
-    "        'Content-Type': 'application/json',",
-    "        'Authorization': f\"Bearer {os.environ['SQUADRAIL_API_KEY']}\",",
-    "    },",
-    "    method='POST',",
-    ")",
-    "with urllib.request.urlopen(req) as response:",
-    "    print(response.read().decode())",
-    "PY",
-  ].join("\n");
+function buildProtocolHelperSnippet(messageType: string) {
+  const commandByMessageType: Record<string, string> = {
+    REASSIGN_TASK: "reassign-task",
+    ACK_ASSIGNMENT: "ack-assignment",
+    START_IMPLEMENTATION: "start-implementation",
+    REPORT_PROGRESS: "report-progress",
+    SUBMIT_FOR_REVIEW: "submit-for-review",
+    ACK_CHANGE_REQUEST: "ack-change-request",
+    START_REVIEW: "start-review",
+    REQUEST_CHANGES: "request-changes",
+    REQUEST_HUMAN_DECISION: "request-human-decision",
+    APPROVE_IMPLEMENTATION: "approve-implementation",
+    CLOSE_TASK: "close-task",
+  };
+  const command = commandByMessageType[messageType];
+  if (!command) return null;
+  return `node ${SQUADRAIL_PROTOCOL_HELPER_PATH} ${command} --issue "$SQUADRAIL_TASK_ID" ...`;
 }
 
 function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
@@ -162,6 +243,62 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
   ];
 
   switch (requirement.key) {
+    case "assignment_supervisor":
+    case "reassignment_supervisor":
+      return [
+        {
+          label: "Minimal REASSIGN_TASK example",
+          body: {
+            messageType: "REASSIGN_TASK",
+            sender,
+            recipients: [
+              {
+                recipientType: "agent",
+                recipientId: "$TARGET_ASSIGNEE_AGENT_ID",
+                role: "engineer",
+              },
+              {
+                recipientType: "agent",
+                recipientId: "$TARGET_REVIEWER_AGENT_ID",
+                role: "reviewer",
+              },
+            ],
+            workflowStateBefore: "assigned",
+            workflowStateAfter: "assigned",
+            summary: "Route this issue into the correct execution lane.",
+            payload: {
+              reason: "Clarified scope and delegated implementation to the owned project lane.",
+              newAssigneeAgentId: "$TARGET_ASSIGNEE_AGENT_ID",
+              newReviewerAgentId: "$TARGET_REVIEWER_AGENT_ID",
+            },
+            artifacts: [],
+          },
+        },
+        {
+          label: "Minimal ESCALATE_BLOCKER example",
+          body: {
+            messageType: "ESCALATE_BLOCKER",
+            sender,
+            recipients: [
+              {
+                recipientType: "role_group",
+                recipientId: "human_board",
+                role: "human_board",
+              },
+            ],
+            workflowStateBefore: "assigned",
+            workflowStateAfter: "blocked",
+            summary: "Escalate because the correct execution owner is still unclear.",
+            payload: {
+              blockerCode: "needs_human_decision",
+              blockingReason: "The issue needs an explicit routing decision before implementation starts.",
+              requestedAction: "Clarify the target owner and reviewer, then reassign the task.",
+              requestedFrom: "human_board",
+            },
+            artifacts: [],
+          },
+        },
+      ];
     case "assignment_engineer":
     case "reassignment_engineer":
       return [
@@ -448,8 +585,22 @@ export function renderSquadrailRuntimeNote(input: {
       `- Before ending this run, you must persist at least one of: ${requiredMessageTypes}.`,
       "- Plain analysis text is not sufficient, and repo inspection does not count as protocol progress.",
       "- If this run ends without the required protocol message, Squadrail will mark the run failed.",
-      "- If you are not using a higher-level Squadrail skill, use Bash or curl with `$SQUADRAIL_API_URL`, `Authorization: Bearer $SQUADRAIL_API_KEY`, and `/api/issues/$SQUADRAIL_TASK_ID/protocol/messages`.",
+      `- Use the local helper for protocol transitions: \`node ${SQUADRAIL_PROTOCOL_HELPER_PATH} <command> --issue "$SQUADRAIL_TASK_ID" ...\`.`,
+      "- Do not handcraft Python/curl/urllib/fetch POSTs for protocol messages in this run.",
+      "- Any ad-hoc POST to `/protocol/messages` counts as a workflow failure when the helper supports that transition.",
+      "- If the helper fails or times out for a supported protocol action, report the blocker and stop instead of retrying with ad-hoc HTTP.",
     ];
+
+    if (
+      protocolRequirement.key === "assignment_supervisor"
+      || protocolRequirement.key === "reassignment_supervisor"
+    ) {
+      lines.splice(3, 0, "- You are explicitly allowed to route this issue with `REASSIGN_TASK`.");
+      lines.splice(4, 0, "- Do not inspect repository files, search the codebase, or draft implementation notes before the first routing action is recorded.");
+      lines.push("- Prefer `REASSIGN_TASK` when the correct execution owner and reviewer are already named in the issue, brief, or assignment payload.");
+      lines.push("- Use the local helper command shown in the issue description when available; it is safer than ad-hoc API calls.");
+      lines.push("- If ownership is genuinely unclear, use `ASK_CLARIFICATION` or `ESCALATE_BLOCKER` with the missing decision called out explicitly.");
+    }
 
     if (
       protocolRequirement.key === "assignment_engineer"
@@ -564,19 +715,23 @@ export function renderSquadrailRuntimeNote(input: {
     lines.push("Mandatory protocol gate:");
     lines.push(...requiredActionLines);
     lines.push("");
-    lines.push("Use Bash with Python stdlib for protocol POSTs. Avoid curl/wget and avoid permission-gated MCP helpers.");
+    lines.push(`Use \`node ${SQUADRAIL_PROTOCOL_HELPER_PATH} <command> ...\` for protocol transport.`);
+    lines.push("Use the exact helper command forms below; substitute values only and do not handcraft ad-hoc HTTP.");
     for (const example of protocolExamples) {
-      const exampleJson = JSON.stringify(example.body, null, 2);
+      const helperSnippet = buildProtocolHelperSnippet(asString(example.body.messageType, ""));
+      const payload = parseObject(example.body.payload);
+      const payloadKeys = Object.keys(payload);
       lines.push("");
       lines.push(`${example.label}:`);
-      lines.push("Copy this JSON shape exactly; replace values, do not rename fields or introduce nested substitutes.");
-      lines.push("```json");
-      lines.push(JSON.stringify(example.body, null, 2));
-      lines.push("```");
-      lines.push("Python transport example:");
-      lines.push("```bash");
-      lines.push(buildProtocolTransportSnippet(exampleJson));
-      lines.push("```");
+      if (helperSnippet) {
+        lines.push("Exact helper command form:");
+        lines.push("```bash");
+        lines.push(helperSnippet);
+        lines.push("```");
+      }
+      if (payloadKeys.length > 0) {
+        lines.push(`Required payload keys: ${payloadKeys.join(", ")}`);
+      }
     }
     lines.push("");
   }

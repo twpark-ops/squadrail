@@ -179,10 +179,12 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
         "Break work into clear execution units.",
         "Assign tasks with explicit acceptance criteria and reviewer ownership.",
         "Control workflow transitions and close tasks only when closure summary, verification summary, and rollback plan are complete.",
+        "Route assignment wakes into the correct engineer lane before doing repository-level investigation.",
       ],
       rules: [
         "Do not implement unless explicitly acting as an engineer for a specific task.",
         "Do not approve without review evidence.",
+        "Do not inspect code before the first routing or clarification action on a new assignment wake.",
       ],
     },
     cto: {
@@ -191,10 +193,12 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
         "Own cross-project orchestration and final technical judgment for company-level work.",
         "Decompose board requests into project-level review or delivery issues with clear TL ownership.",
         "Consolidate TL and QA outputs into a final technical recommendation for the board.",
+        "Route company-level assignments into the correct TL lane before deeper repository analysis starts.",
       ],
       rules: [
         "Do not bypass project leads for project-scoped execution unless the issue is company-critical.",
         "Do not close cross-project work without explicit per-project evidence.",
+        "Do not inspect repository files before recording the first routing, clarification, or escalation action.",
       ],
     },
     engineer: {
@@ -249,10 +253,12 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
       focus: [
         "Clarify requirements, scope boundaries, acceptance criteria, and documentation gaps.",
         "Convert product intent into issue-ready requirements that TLs can execute against.",
+        "Route clarified delivery slices into the correct project TL before engineer implementation starts.",
       ],
       rules: [
         "Do not approve implementation without technical review.",
         "Do not change scope silently after implementation starts.",
+        "Do not inspect repository files before sending the first routing or clarification protocol action.",
       ],
     },
   };
@@ -337,6 +343,10 @@ function applyPresetOverrides(
         "- Decompose work by product surface and dependency boundary.",
         "- Require explicit file targets, acceptance criteria, and reviewer assignments.",
         "- Gate completion on implementation evidence plus closure summary, verification summary, and rollback plan.",
+        "- On ASSIGN_TASK or REASSIGN_TASK wakes, route the issue first; do not start repository analysis before the routing action is recorded.",
+        "- Use sender role `tech_lead` for TL-only protocol actions such as REASSIGN_TASK and CLOSE_TASK.",
+        "- If the issue is already owned by the TL lane after routing, continue with sender role `engineer` for ACK_ASSIGNMENT, START_IMPLEMENTATION, REPORT_PROGRESS, and SUBMIT_FOR_REVIEW.",
+        "- Never PATCH issue ownership from the repo shell. Either route through protocol or keep the TL as the implementation owner and deliver the slice directly.",
       ].join("\n"));
     } else if (roleKey === "engineer") {
       append("ROLE.md", [
@@ -358,6 +368,8 @@ function applyPresetOverrides(
         "- Route company-wide requests into per-project review or delivery slices with named TL owners.",
         "- Keep final recommendations cross-project and evidence-based.",
         "- Require QA validation before closing organization-wide review or release issues.",
+        "- On direct assignment wakes, send REASSIGN_TASK, ASK_CLARIFICATION, or ESCALATE_BLOCKER before repository inspection.",
+        "- Once the work lands in a project TL lane, do not require a second routing hop unless the TL explicitly needs to staff another engineer.",
       ].join("\n"));
     } else if (roleKey === "qa") {
       append("ROLE.md", [
@@ -370,6 +382,8 @@ function applyPresetOverrides(
         "## Example Large Org PM Addendum",
         "- Translate product intent into acceptance criteria and documentation tasks before implementation begins.",
         "- Track documentation debt for Python-heavy repos with weak canonical guidance.",
+        "- On direct assignment wakes, prefer REASSIGN_TASK into the correct project TL lane instead of code inspection.",
+        "- After routing into the project TL lane, treat staffing as optional. The TL may implement directly if the issue is already execution-ready and QA ownership stays explicit.",
       ].join("\n"));
     }
   }
@@ -680,6 +694,10 @@ function buildSimulationRuntimePrompt(input: {
     input.scenario.reviewFindings.length > 0
       ? `Review findings:\n${input.scenario.reviewFindings.map((item) => `- ${item}`).join("\n")}`
       : null,
+    "Protocol transport rule: use the local helper `node /home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs <command> ...` for every protocol transition.",
+    "Do not handcraft Python/curl/urllib/fetch POST requests to `/protocol/messages` when the helper command exists.",
+    "Any ad-hoc POST to `/protocol/messages` counts as a workflow failure for this run.",
+    "If the helper fails or times out for a supported protocol transition, report the blocker instead of retrying with ad-hoc HTTP.",
   ].filter(Boolean);
 
   return [

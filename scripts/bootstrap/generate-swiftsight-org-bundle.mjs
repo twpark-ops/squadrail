@@ -11,6 +11,7 @@ const COMPANY_COLOR = "#2563eb";
 const DEFAULT_ROLE_PACK_PRESET = "example_large_org_v1";
 const DEFAULT_CLAUDE_TIMEOUT_SEC = 900;
 const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
+const PROTOCOL_HELPER_PATH = "/home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs";
 
 const PROJECT_CATALOG = [
   {
@@ -228,6 +229,33 @@ function buildHandoffChecklist(agent) {
   ];
 }
 
+function buildManagerApiQuickReference(agent) {
+  if (!(agent.title === "Tech Lead" || agent.role === "cto" || agent.role === "pm" || agent.role === "qa")) {
+    return [];
+  }
+
+  return [
+    "## Manager API Quick Reference",
+    "- `GET /api/companies/{companyId}/agents` returns a plain JSON array, not `{ agents: [...] }`.",
+    "- To list candidates, filter the root array by role/title/urlKey. Example jq: `.[] | { id, name, role, title, urlKey, status }`.",
+    "- In this org, individual contributors use `role: \"engineer\"` with `title: \"Engineer\"`. Project leads also use `role: \"engineer\"` but `title: \"Tech Lead\"`.",
+    "- Safe IC staffing filter example: `.[] | select(.role == \"engineer\" and .title != \"Tech Lead\" and (.status == \"idle\" or .status == \"running\")) | { id, name, title, urlKey, status }`.",
+    "- Project TLs still use protocol sender role `tech_lead` for `REASSIGN_TASK` and `CLOSE_TASK`, even though the agent record shows `role: \"engineer\"` with `title: \"Tech Lead\"`.",
+    "- When a Project TL is already the active implementation owner, use sender role `engineer` for `ACK_ASSIGNMENT`, `START_IMPLEMENTATION`, `REPORT_PROGRESS`, and `SUBMIT_FOR_REVIEW`.",
+    "- In `claude_local`, `curl` and `wget` may be blocked by context-mode. Prefer `node --input-type=module -e` with `fetch(...)` for Squadrail API calls.",
+    `- Preferred control-plane helper on this machine: \`node ${PROTOCOL_HELPER_PATH}\`. It already uses \`SQUADRAIL_API_URL\`, \`SQUADRAIL_API_KEY\`, \`SQUADRAIL_AGENT_ID\`, \`SQUADRAIL_RUN_ID\`, and \`SQUADRAIL_TASK_ID\`.`,
+    `- Prefer helper commands over ad-hoc curl/tool search: \`resolve-agent <slug>\`, \`get-brief --scope <role>\`, \`reassign-task\`, \`start-review\`, \`request-changes\`, \`request-human-decision\`, \`approve-implementation\`, \`close-task\`.`,
+    `- Example staffing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue $SQUADRAIL_TASK_ID --sender-role ${resolveBriefScope(agent)} --assignee-id <engineer-uuid> --assignee-role engineer --reviewer-id <reviewer-uuid> --summary "Route implementation" --reason "Staffing the execution lane"\`.`,
+    `- Example brief read: \`node ${PROTOCOL_HELPER_PATH} get-brief --issue $SQUADRAIL_TASK_ID --scope ${resolveBriefScope(agent)}\`.`,
+    "- If the issue description already provides the target agent slug and UUID, reuse that directly instead of listing agents again.",
+    "- When routing work, prefer `REASSIGN_TASK` if the issue is already assigned and you need to transfer ownership.",
+    "- Keep the reviewer explicit in every staffing decision and preserve QA ownership when the board asks for QA review.",
+    "- Route through the project TL lane before implementation when the issue starts at PM or CTO scope.",
+    "- On a fresh assignment wake, route or clarify first. Do not inspect repository files before the first protocol action is recorded.",
+    "- Do not PATCH issue ownership directly from the repo workspace. Move ownership only through protocol messages, or keep the current TL as primary engineer and implement directly.",
+  ];
+}
+
 function agentMarkdown(input) {
   const briefScope = resolveBriefScope(input);
   return `---
@@ -263,6 +291,8 @@ ${buildEscalationRules(input).map((line) => `- ${line}`).join("\n")}
 
 ## Required Handoff Shape
 ${buildHandoffChecklist(input).map((line) => `- ${line}`).join("\n")}
+
+${buildManagerApiQuickReference(input).join("\n")}
 
 ## Operating Rules
 - Use structured protocol messages, not casual chat.

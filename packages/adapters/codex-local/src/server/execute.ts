@@ -15,6 +15,7 @@ import {
   ensureAbsoluteDirectory,
   ensureCommandResolvable,
   ensurePathInEnv,
+  withProtocolTransportGuards,
   renderTemplate,
   runChildProcess,
 } from "@squadrail/adapter-utils/server-utils";
@@ -89,7 +90,22 @@ async function ensureCodexSkillsInjected(onLog: AdapterExecutionContext["onLog"]
     const source = path.join(skillsDir, entry.name);
     const target = path.join(skillsHome, entry.name);
     const existing = await fs.lstat(target).catch(() => null);
-    if (existing) continue;
+    if (existing) {
+      if (existing.isSymbolicLink()) {
+        const resolves = await fs.realpath(target).then(() => true).catch(() => false);
+        if (!resolves) {
+          await fs.rm(target, { force: true });
+          await onLog(
+            "stderr",
+            `[squadrail] Removed broken Codex skill link "${entry.name}" from ${skillsHome}\n`,
+          );
+        } else {
+          continue;
+        }
+      } else {
+        continue;
+      }
+    }
 
     try {
       await fs.symlink(source, target);
@@ -222,7 +238,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     env.SQUADRAIL_API_KEY = authToken;
   }
   const billingType = resolveCodexBillingType(env);
-  const runtimeEnv = ensurePathInEnv({ ...process.env, ...env });
+  const runtimeEnv = await withProtocolTransportGuards(
+    ensurePathInEnv({ ...process.env, ...env }),
+  );
   await ensureCommandResolvable(command, cwd, runtimeEnv);
 
   const timeoutSec = asNumber(config.timeoutSec, 0);

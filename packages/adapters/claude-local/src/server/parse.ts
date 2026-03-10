@@ -139,13 +139,29 @@ export function parseClaudeStreamJson(stdout: string) {
   }
 
   if (!finalResult) {
+    const synthesizedSummary = assistantTexts.join("\n\n").trim();
+    const hasStructuredSignal =
+      sessionId !== null ||
+      model.length > 0 ||
+      synthesizedSummary.length > 0 ||
+      commandExecutions.length > 0;
+
     return {
       sessionId,
       model,
       costUsd: null as number | null,
       usage: null as UsageSummary | null,
-      summary: assistantTexts.join("\n\n").trim(),
-      resultJson: null as Record<string, unknown> | null,
+      summary: synthesizedSummary,
+      resultJson: hasStructuredSignal
+        ? ({
+            type: "result",
+            subtype: "stream_incomplete",
+            ...(sessionId ? { session_id: sessionId } : {}),
+            ...(model ? { model } : {}),
+            ...(synthesizedSummary ? { result: synthesizedSummary } : {}),
+            ...(commandExecutions.length > 0 ? { commandExecutions } : {}),
+          } as Record<string, unknown>)
+        : null,
     };
   }
 
