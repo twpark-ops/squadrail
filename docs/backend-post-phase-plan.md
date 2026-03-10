@@ -265,11 +265,12 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ### 1. Operator Feedback UI Surface
 
-- 현재 pin / hide / merge feedback은 backend와 E2E 경로로만 넣고 있다.
-- 이를 Knowledge / Change 표면에서 직접 조작할 수 있게 올린다.
+- 현재 pin / hide는 `Change View`에는 부분적으로 올라와 있다.
+- 다음 단계는 이를 `Knowledge Explore`와 retrieval quality 요약 표면까지 확장하는 것이다.
 - 목표:
   - operator correction latency 축소
   - retrieval 교정 루프를 제품 기본 기능으로 승격
+  - change-only surface를 knowledge-wide surface로 확장
 
 ### 2. Candidate / Final-Hit Cache
 

@@ -249,7 +249,7 @@
 
 상류 intake, QA 게이트, organizational memory backend 커널이 닫힌 뒤의 다음 우선순위는 아래 8개다.
 
-1. Operator Feedback UI Surface
+1. Operator Feedback UI Surface Expansion
 2. Candidate / Final-Hit Cache
 3. Deeper Chunk-Link Multi-Hop
 4. Retrieval Ranking Stabilization
