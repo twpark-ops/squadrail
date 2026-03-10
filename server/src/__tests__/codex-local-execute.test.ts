@@ -38,6 +38,68 @@ type CapturePayload = {
 };
 
 describe("codex execute", () => {
+  it("repairs broken Codex Squadrail skill links before execution", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-skill-repair-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const codexHome = path.join(root, "codex-home");
+    const skillsHome = path.join(codexHome, "skills");
+    const brokenSkillTarget = path.join(skillsHome, "squadrail");
+    const previousCodexHome = process.env.CODEX_HOME;
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.mkdir(skillsHome, { recursive: true });
+    await writeFakeCodexCommand(commandPath);
+    await fs.symlink(path.join(root, "missing-squadrail-skill"), brokenSkillTarget);
+
+    try {
+      process.env.CODEX_HOME = codexHome;
+      const result = await execute({
+        runId: "run-skill-repair",
+        agent: {
+          id: "agent-skill-repair",
+          companyId: "company-1",
+          name: "Codex Engineer",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          promptTemplate: "Repair Squadrail skills before execution.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-skill-repair",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect((await fs.lstat(brokenSkillTarget)).isSymbolicLink()).toBe(true);
+      expect(await fs.realpath(brokenSkillTarget)).toBe(
+        await fs.realpath(path.resolve(process.cwd(), "skills", "squadrail")),
+      );
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("injects runtime note with protocol wake context", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-execute-"));
     const workspace = path.join(root, "workspace");
@@ -145,6 +207,9 @@ describe("codex execute", () => {
       expect(capture.prompt).toContain("REQUIRED WORKFLOW GATE: this wake expects assignment acceptance or escalation.");
       expect(capture.prompt).toContain("The first protocol action before repository work must be one of: ACK_ASSIGNMENT, ASK_CLARIFICATION, ESCALATE_BLOCKER.");
       expect(capture.prompt).toContain("If this run ends without the required protocol message, Squadrail will mark the run failed.");
+      expect(capture.prompt).toContain("scripts/runtime/squadrail-protocol.mjs");
+      expect(capture.prompt).toContain("Do not handcraft Python/curl/urllib/fetch POSTs for protocol messages in this run.");
+      expect(capture.prompt).toContain("Any ad-hoc POST to `/protocol/messages` counts as a workflow failure when the helper supports that transition.");
       expect(capture.prompt).toContain("Do not start file reads, design notes, or implementation planning before the first protocol action is sent.");
       expect(capture.prompt).toContain("Task brief (auto-generated from Squadrail knowledge):");
       expect(capture.prompt).toContain("# engineer brief");
@@ -374,9 +439,83 @@ describe("codex execute", () => {
 
       const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
       expect(capture.prompt).toContain("Minimal CLOSE_TASK example");
+      expect(capture.prompt).toContain("Exact helper command form:");
+      expect(capture.prompt).toContain("Required payload keys: closeReason, closureSummary, verificationSummary, rollbackPlan, finalArtifacts, finalTestStatus, mergeStatus, remainingRisks");
       expect(capture.prompt).toContain("For `CLOSE_TASK.payload.mergeStatus`, use exactly one of: `merged`, `merge_not_required`, `pending_external_merge`.");
       expect(capture.prompt).toContain("Never invent aliases such as `merge_pending`, `merge_required`, or free-form merge labels.");
-      expect(capture.prompt).toContain('"mergeStatus": "merge_not_required"');
+      expect(capture.prompt).toContain("If code is approved but merge has not happened yet, use `pending_external_merge` and explain the external merge owner in `remainingRisks[]`.");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("injects supervisor routing guidance for pm assignment wakes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-supervisor-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const capturePath = path.join(root, "capture.json");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      const result = await execute({
+        runId: "run-supervisor",
+        agent: {
+          id: "agent-pm",
+          companyId: "company-1",
+          name: "Product Manager",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Clarify and route the task.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-supervisor",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+          issueId: "issue-supervisor",
+          wakeReason: "issue_assigned",
+          protocolMessageType: "ASSIGN_TASK",
+          protocolWorkflowStateBefore: "backlog",
+          protocolWorkflowStateAfter: "assigned",
+          protocolRecipientRole: "pm",
+          protocolSenderRole: "human_board",
+          protocolSummary: "PM must clarify and route the delivery slice",
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.prompt).toContain("Mandatory protocol gate:");
+      expect(capture.prompt).toContain("REQUIRED WORKFLOW GATE: this wake expects routing, clarification, or escalation.");
+      expect(capture.prompt).toContain("You are explicitly allowed to route this issue with `REASSIGN_TASK`.");
+      expect(capture.prompt).toContain("Do not inspect repository files, search the codebase, or draft implementation notes before the first routing action is recorded.");
+      expect(capture.prompt).toContain("Do not handcraft Python/curl/urllib/fetch POSTs for protocol messages in this run.");
+      expect(capture.prompt).toContain("Any ad-hoc POST to `/protocol/messages` counts as a workflow failure when the helper supports that transition.");
+      expect(capture.prompt).toContain("Minimal REASSIGN_TASK example");
+      expect(capture.prompt).toContain("Exact helper command form:");
+      expect(capture.prompt).toContain("Required payload keys: reason, newAssigneeAgentId, newReviewerAgentId");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

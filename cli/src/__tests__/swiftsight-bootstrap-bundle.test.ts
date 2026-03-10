@@ -97,5 +97,11 @@ describe("generate-swiftsight-org-bundle", () => {
     await expect(
       fs.readFile(path.join(out, "agents/swiftsight-cto/AGENTS.md"), "utf8"),
     ).resolves.toContain("Primary project: cross-project");
+    await expect(
+      fs.readFile(path.join(out, "agents/swiftsight-cto/AGENTS.md"), "utf8"),
+    ).resolves.toContain("/scripts/runtime/squadrail-protocol.mjs");
+    await expect(
+      fs.readFile(path.join(out, "agents/swiftsight-cto/AGENTS.md"), "utf8"),
+    ).resolves.toContain("get-brief --scope");
   });
 });

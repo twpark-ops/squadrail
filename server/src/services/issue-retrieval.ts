@@ -236,6 +236,12 @@ function compactWhitespace(value: string, max = 220) {
   return `${compacted.slice(0, max - 1)}...`;
 }
 
+function truncateRetrievalSegment(value: string, max: number) {
+  const compacted = value.replace(/\s+/g, " ").trim();
+  if (compacted.length <= max) return compacted;
+  return `${compacted.slice(0, Math.max(0, max - 3))}...`;
+}
+
 function normalizeHintPath(value: string) {
   const normalized = value.trim().replace(/\\/g, "/").replace(/^\.\//, "");
   return path.posix.normalize(normalized);
@@ -473,6 +479,48 @@ export function deriveBriefScope(input: {
   return "engineer";
 }
 
+export function selectProtocolRetrievalRecipients(input: {
+  messageType: string;
+  recipients: Array<{
+    recipientType: string;
+    recipientId: string;
+    role: string;
+  }>;
+}) {
+  const shouldInclude = (recipientRole: string) => {
+    if (input.messageType === "ASSIGN_TASK" || input.messageType === "REASSIGN_TASK") {
+      return (
+        recipientRole === "engineer"
+        || recipientRole === "tech_lead"
+        || recipientRole === "pm"
+        || recipientRole === "cto"
+        || recipientRole === "qa"
+      );
+    }
+
+    return (
+      recipientRole === "engineer"
+      || recipientRole === "reviewer"
+      || recipientRole === "tech_lead"
+      || recipientRole === "pm"
+      || recipientRole === "cto"
+      || recipientRole === "qa"
+      || recipientRole === "human_board"
+    );
+  };
+
+  return input.recipients.filter(
+    (recipient, index, all) =>
+      shouldInclude(recipient.role)
+      && all.findIndex(
+        (candidate) =>
+          candidate.recipientId === recipient.recipientId
+          && candidate.role === recipient.role
+          && candidate.recipientType === recipient.recipientType,
+      ) === index,
+  );
+}
+
 export function buildRetrievalQueryText(input: {
   issue: {
     title: string;
@@ -484,17 +532,29 @@ export function buildRetrievalQueryText(input: {
   recipientRole: string;
 }) {
   const payloadTerms = extractPayloadTerms(input.message);
-  return uniqueNonEmpty([
-    input.issue.identifier ?? "",
-    input.issue.title,
-    input.issue.description ?? "",
-    input.message.summary,
+  const querySegments = uniqueNonEmpty([
+    truncateRetrievalSegment(input.issue.identifier ?? "", 64),
+    truncateRetrievalSegment(input.issue.title, 180),
+    truncateRetrievalSegment(input.issue.description ?? "", 1200),
+    truncateRetrievalSegment(input.message.summary, 320),
     input.message.messageType,
     input.message.workflowStateAfter,
     input.recipientRole,
-    ...((input.issue.labels ?? []).map((label) => label.name)),
-    ...payloadTerms,
-  ]).join("\n");
+    ...((input.issue.labels ?? []).map((label) => truncateRetrievalSegment(label.name, 64))),
+    ...payloadTerms.slice(0, 16).map((term) => truncateRetrievalSegment(term, 180)),
+  ]);
+
+  const budgetedSegments: string[] = [];
+  let consumed = 0;
+  const maxQueryLength = 2400;
+  for (const segment of querySegments) {
+    const projected = consumed + segment.length + (budgetedSegments.length > 0 ? 1 : 0);
+    if (projected > maxQueryLength) break;
+    budgetedSegments.push(segment);
+    consumed = projected;
+  }
+
+  return budgetedSegments.join("\n");
 }
 
 export function deriveDynamicRetrievalSignals(input: {
@@ -1322,19 +1382,10 @@ export function issueRetrievalService(db: Db) {
 
       console.log("[RETRIEVAL] Event type derived:", eventType);
 
-      const uniqueRecipients = input.message.recipients.filter(
-        (recipient, index, all) =>
-          (recipient.role === "engineer"
-            || recipient.role === "reviewer"
-            || recipient.role === "tech_lead"
-            || recipient.role === "human_board")
-          && all.findIndex(
-            (candidate) =>
-              candidate.recipientId === recipient.recipientId
-              && candidate.role === recipient.role
-              && candidate.recipientType === recipient.recipientType,
-          ) === index,
-      );
+      const uniqueRecipients = selectProtocolRetrievalRecipients({
+        messageType: input.message.messageType,
+        recipients: input.message.recipients,
+      });
 
       const recipientHints: RecipientRetrievalHint[] = [];
       const retrievalRuns: Array<{ retrievalRunId: string; briefId: string; recipientRole: string; recipientId: string }> = [];

@@ -6,7 +6,9 @@ import type {
 export interface ProtocolRunRequirement {
   key:
     | "assignment_engineer"
+    | "assignment_supervisor"
     | "reassignment_engineer"
+    | "reassignment_supervisor"
     | "implementation_engineer"
     | "change_request_engineer"
     | "review_reviewer"
@@ -50,6 +52,20 @@ export function resolveProtocolRunRequirement(input: {
     };
   }
 
+  if (
+    protocolMessageType === "ASSIGN_TASK"
+    && (recipientRole === "tech_lead" || recipientRole === "pm" || recipientRole === "cto")
+  ) {
+    return {
+      key: "assignment_supervisor",
+      protocolMessageType,
+      recipientRole,
+      requiredMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      firstActionMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      description: "routing, clarification, or escalation",
+    };
+  }
+
   if (protocolMessageType === "REASSIGN_TASK" && recipientRole === "engineer") {
     return {
       key: "reassignment_engineer",
@@ -58,6 +74,20 @@ export function resolveProtocolRunRequirement(input: {
       requiredMessageTypes: ["ACK_ASSIGNMENT", "ASK_CLARIFICATION", "ESCALATE_BLOCKER", "START_IMPLEMENTATION"],
       firstActionMessageTypes: ["ACK_ASSIGNMENT", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
       description: "reassignment acceptance or escalation",
+    };
+  }
+
+  if (
+    protocolMessageType === "REASSIGN_TASK"
+    && (recipientRole === "tech_lead" || recipientRole === "pm" || recipientRole === "cto")
+  ) {
+    return {
+      key: "reassignment_supervisor",
+      protocolMessageType,
+      recipientRole,
+      requiredMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      firstActionMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      description: "re-routing, clarification, or escalation",
     };
   }
 
@@ -107,4 +137,3 @@ export function resolveProtocolRunRequirement(input: {
 
   return null;
 }
-

@@ -26,6 +26,18 @@ describe("decideDispatchWatchdogAction", () => {
     ).toBe("noop");
   });
 
+  it("requests redispatch when a queued run never gets claimed", () => {
+    expect(
+      decideDispatchWatchdogAction({
+        runStatus: "queued",
+        leaseStatus: "queued",
+        checkpointPhase: "queue.created",
+        dispatchAttempts: 0,
+        hasRunningProcess: false,
+      }),
+    ).toBe("redispatch");
+  });
+
   it("requests redispatch when a claimed run never entered execution", () => {
     expect(
       decideDispatchWatchdogAction({

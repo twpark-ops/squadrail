@@ -112,7 +112,7 @@ function normalizeMaxConcurrentRuns(value: unknown) {
 
 async function withAgentStartLock<T>(agentId: string, fn: () => Promise<T>) {
   const previous = startLocksByAgent.get(agentId) ?? Promise.resolve();
-  const run = previous.then(fn);
+  const run = previous.then(() => runWithoutDbContext(fn));
   const marker = run.then(
     () => undefined,
     () => undefined,
@@ -396,6 +396,14 @@ export function buildRequiredProtocolProgressError(input: {
   ].join(" ") + retrySuffix;
 }
 
+export function shouldEnqueueProtocolRequiredRetry(input: {
+  protocolRetryCount: number;
+  issueStatus?: string | null;
+}) {
+  if (input.protocolRetryCount >= PROTOCOL_REQUIRED_RETRY_LIMIT) return false;
+  return input.issueStatus !== "done" && input.issueStatus !== "cancelled";
+}
+
 export function shouldReapHeartbeatRun(input: {
   runStatus: string;
   runUpdatedAt: Date | string | null | undefined;
@@ -430,6 +438,20 @@ export function decideDispatchWatchdogAction(input: {
   hasRunningProcess: boolean;
 }) {
   if (input.hasRunningProcess) return "noop" as const;
+  if (input.runStatus === "queued") {
+    if (
+      input.leaseStatus
+      && input.leaseStatus !== "queued"
+      && input.leaseStatus !== "launching"
+    ) {
+      return "noop" as const;
+    }
+    if (input.checkpointPhase !== "queue.created" && input.checkpointPhase !== "dispatch.redispatch") {
+      return "noop" as const;
+    }
+    if (input.dispatchAttempts >= RUN_DISPATCH_RETRY_LIMIT) return "fail" as const;
+    return "redispatch" as const;
+  }
   if (input.runStatus !== "running") return "noop" as const;
   if (input.leaseStatus && input.leaseStatus !== "launching") return "noop" as const;
   if (input.checkpointPhase !== "claim.queued" && input.checkpointPhase !== "dispatch.redispatch") {
@@ -959,7 +981,7 @@ export function heartbeatService(db: Db) {
       const heartbeatAt = new Date();
       await upsertRunLease({
         run,
-        status: "launching",
+        status: run.status === "queued" ? "queued" : "launching",
         checkpointJson: {
           phase: "dispatch.redispatch",
           message: "dispatch watchdog is re-dispatching heartbeat execution",
@@ -983,6 +1005,12 @@ export function heartbeatService(db: Db) {
       scheduleDeferredRunDispatch(() => {
         runWithoutDbContext(() => {
           logger.warn({ runId: run.id, attempt }, "dispatch watchdog re-dispatching heartbeat execution");
+          if (run.status === "queued") {
+            void startNextQueuedRunForAgent(run.agentId).catch((err) => {
+              logger.error({ err, runId: run.id, attempt, agentId: run.agentId }, "redispatched queued heartbeat dispatch failed");
+            });
+            return;
+          }
           void executeRun(run.id).catch((err) => {
             logger.error({ err, runId: run.id, attempt }, "redispatched heartbeat execution failed");
           });
@@ -1701,7 +1729,18 @@ export function heartbeatService(db: Db) {
         };
 
         if (!satisfied) {
-          const retryEnqueued = protocolRetryCount < PROTOCOL_REQUIRED_RETRY_LIMIT;
+          const issueStatus = issueId
+            ? await db
+              .select({ status: issues.status })
+              .from(issues)
+              .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
+              .limit(1)
+              .then((rows) => rows[0]?.status ?? null)
+            : null;
+          const retryEnqueued = shouldEnqueueProtocolRequiredRetry({
+            protocolRetryCount,
+            issueStatus,
+          });
           if (retryEnqueued) {
             const retryContextSnapshot: Record<string, unknown> = {
               ...context,
@@ -2625,6 +2664,17 @@ export function heartbeatService(db: Db) {
       if (outcome.kind === "coalesced") return outcome.run;
 
       const newRun = outcome.run;
+      const queuedAt = new Date();
+      await upsertRunLease({
+        run: newRun,
+        status: "queued",
+        checkpointJson: {
+          phase: "queue.created",
+          message: "run queued for dispatch",
+        },
+        heartbeatAt: queuedAt,
+      });
+      scheduleDispatchWatchdog(newRun.id);
       publishLiveEvent({
         companyId: newRun.companyId,
         type: "heartbeat.run.queued",
@@ -2747,6 +2797,17 @@ export function heartbeatService(db: Db) {
       },
     });
 
+    const queuedAt = new Date();
+    await upsertRunLease({
+      run: newRun,
+      status: "queued",
+      checkpointJson: {
+        phase: "queue.created",
+        message: "run queued for dispatch",
+      },
+      heartbeatAt: queuedAt,
+    });
+    scheduleDispatchWatchdog(newRun.id);
     dispatchAgentQueueStart(agent.id);
 
     return newRun;
@@ -2903,7 +2964,7 @@ export function heartbeatService(db: Db) {
         .orderBy(asc(heartbeatRunEvents.seq))
         .limit(Math.max(1, Math.min(limit, 1000))),
 
-    readLog: async (runId: string, opts?: { offset?: number; limitBytes?: number }) => {
+    readLog: async (runId: string, opts?: { offset?: number; limitBytes?: number; tailBytes?: number }) => {
       const run = await getRun(runId);
       if (!run) throw notFound("Heartbeat run not found");
       if (!run.logStore || !run.logRef) throw notFound("Run log not found");

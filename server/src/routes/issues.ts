@@ -73,6 +73,43 @@ function getAllowedProtocolRoles(agent: {
   return allowed;
 }
 
+function canBypassAssignPermissionForProtocolMessage(message: {
+  messageType: string;
+  sender: { actorType: string; role: string };
+}) {
+  if (message.sender.actorType !== "agent") return false;
+  if (
+    message.sender.role !== "tech_lead"
+    && message.sender.role !== "cto"
+    && message.sender.role !== "pm"
+  ) {
+    return false;
+  }
+
+  return (
+    message.messageType === "REASSIGN_TASK"
+    || message.messageType === "CLOSE_TASK"
+    || message.messageType === "CANCEL_TASK"
+  );
+}
+
+const PROTOCOL_RETRIEVAL_MESSAGE_TYPES = new Set<CreateIssueProtocolMessage["messageType"]>([
+  "ASSIGN_TASK",
+  "REASSIGN_TASK",
+  "ASK_CLARIFICATION",
+  "PROPOSE_PLAN",
+  "ESCALATE_BLOCKER",
+  "SUBMIT_FOR_REVIEW",
+  "REQUEST_CHANGES",
+  "TIMEOUT_ESCALATION",
+]);
+
+function shouldGenerateProtocolRetrievalContext(
+  messageType: CreateIssueProtocolMessage["messageType"],
+) {
+  return PROTOCOL_RETRIEVAL_MESSAGE_TYPES.has(messageType);
+}
+
 export function issueRoutes(db: Db, storage: StorageService) {
   const router = Router();
   const svc = issueService(db);
@@ -303,7 +340,10 @@ export function issueRoutes(db: Db, storage: StorageService) {
         let liveLogContent: string | null = null;
         if (activeRun.status === "running" && activeRun.logStore && activeRun.logRef) {
           try {
-            const liveLog = await heartbeat.readLog(activeRun.id, { limitBytes: 256 * 1024 });
+            const liveLog = await heartbeat.readLog(activeRun.id, {
+              limitBytes: 256 * 1024,
+              tailBytes: 256 * 1024,
+            });
             liveLogContent = liveLog.content;
           } catch (err) {
             logger.warn(
@@ -386,48 +426,58 @@ export function issueRoutes(db: Db, storage: StorageService) {
       briefId: string;
       briefScope: string;
     }> = [];
-    try {
-      const retrieval = await issueRetrieval.handleProtocolMessage({
-        companyId: input.issue.companyId,
-        issueId: input.issue.id,
-        issue: {
-          id: input.issue.id,
-          projectId: input.issue.projectId ?? null,
-          identifier: input.issue.identifier ?? null,
-          title: input.issue.title,
-          description: input.issue.description ?? null,
-          labels: input.issue.labels ?? [],
-        },
-        triggeringMessageId: result.message.id,
-        triggeringMessageSeq: result.message.seq,
-        message: effectiveMessage,
-        actor: {
-          actorType: input.actor.actorType,
-          actorId: input.actor.actorId,
-        },
-      });
-      recipientHints = retrieval.recipientHints;
+    if (shouldGenerateProtocolRetrievalContext(effectiveMessage.messageType)) {
+      try {
+        const retrieval = await issueRetrieval.handleProtocolMessage({
+          companyId: input.issue.companyId,
+          issueId: input.issue.id,
+          issue: {
+            id: input.issue.id,
+            projectId: input.issue.projectId ?? null,
+            identifier: input.issue.identifier ?? null,
+            title: input.issue.title,
+            description: input.issue.description ?? null,
+            labels: input.issue.labels ?? [],
+          },
+          triggeringMessageId: result.message.id,
+          triggeringMessageSeq: result.message.seq,
+          message: effectiveMessage,
+          actor: {
+            actorType: input.actor.actorType,
+            actorId: input.actor.actorId,
+          },
+        });
+        recipientHints = retrieval.recipientHints;
 
-      if (retrieval.retrievalRuns && retrieval.retrievalRuns.length > 0) {
-        logger.info(
+        if (retrieval.retrievalRuns && retrieval.retrievalRuns.length > 0) {
+          logger.info(
+            {
+              issueId: input.issue.id,
+              messageType: effectiveMessage.messageType,
+              retrievalRunCount: retrieval.retrievalRuns.length,
+              retrievalRunIds: retrieval.retrievalRuns.map((run) => run.retrievalRunId),
+            },
+            "Brief(s) generated successfully",
+          );
+        }
+      } catch (err) {
+        logger.error(
           {
+            err,
             issueId: input.issue.id,
             messageType: effectiveMessage.messageType,
-            retrievalRunCount: retrieval.retrievalRuns.length,
-            retrievalRunIds: retrieval.retrievalRuns.map((run) => run.retrievalRunId),
+            errorMessage: err instanceof Error ? err.message : String(err),
           },
-          "Brief(s) generated successfully",
+          "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
         );
       }
-    } catch (err) {
-      logger.error(
+    } else {
+      logger.debug(
         {
-          err,
           issueId: input.issue.id,
           messageType: effectiveMessage.messageType,
-          errorMessage: err instanceof Error ? err.message : String(err),
         },
-        "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
+        "Skipping protocol retrieval context for non-handoff message",
       );
     }
 
@@ -497,10 +547,11 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
 
     if (
-      message.messageType === "ASSIGN_TASK"
-      || message.messageType === "REASSIGN_TASK"
-      || message.messageType === "CANCEL_TASK"
-      || message.messageType === "CLOSE_TASK"
+      (message.messageType === "ASSIGN_TASK"
+        || message.messageType === "REASSIGN_TASK"
+        || message.messageType === "CANCEL_TASK"
+        || message.messageType === "CLOSE_TASK")
+      && !canBypassAssignPermissionForProtocolMessage(message)
     ) {
       try {
         await assertCanAssignTasks(req, issue.companyId);
