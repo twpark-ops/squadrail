@@ -90,6 +90,11 @@ const COMMAND_HELP = {
   ].join("\n"),
   "close-task": [
     "Usage: squadrail-protocol.mjs close-task --issue <issueId> [--sender-role <role>] --summary <text> --closure-summary <text> --verification-summary <text> --rollback-plan <text> --final-artifacts \"item1||item2\" [options]",
+    "",
+    "Supported options:",
+    "  --close-reason <completed|superseded|cancelled_by_decision|moved_to_followup>",
+    "  --final-test-status <passed|passed_with_known_risk|not_applicable>",
+    "                      verbose legacy values are normalized automatically",
   ].join("\n"),
   "reassign-task": [
     "Usage: squadrail-protocol.mjs reassign-task --issue <issueId> --sender-role <role> --assignee-id <agentId> --reviewer-id <agentId> --reason <text> [options]",
@@ -240,6 +245,59 @@ function normalizeApprovalMode(value) {
   }
 }
 
+function normalizeCloseReason(value) {
+  if (!value) return "completed";
+  const normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case "completed":
+    case "superseded":
+    case "cancelled_by_decision":
+    case "moved_to_followup":
+      return normalized;
+    default:
+      if (normalized.includes("follow") || normalized.includes("next issue")) {
+        return "moved_to_followup";
+      }
+      if (normalized.includes("cancel") || normalized.includes("abort") || normalized.includes("reject")) {
+        return "cancelled_by_decision";
+      }
+      if (normalized.includes("supersed")) {
+        return "superseded";
+      }
+      return "completed";
+  }
+}
+
+function normalizeFinalTestStatus(value) {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case "passed":
+    case "passed_with_known_risk":
+    case "not_applicable":
+      return normalized;
+    default:
+      if (normalized.startsWith("passed")) {
+        return normalized.includes("risk") ? "passed_with_known_risk" : "passed";
+      }
+      if (
+        normalized.includes("all green")
+        || normalized.includes("green")
+        || normalized.includes("all tests passed")
+        || normalized.includes("tests passed")
+      ) {
+        return "passed";
+      }
+      if (normalized.includes("known_risk") || normalized.includes("known risk")) {
+        return "passed_with_known_risk";
+      }
+      if (normalized.includes("n/a") || normalized.includes("not applicable")) {
+        return "not_applicable";
+      }
+      return null;
+  }
+}
+
 function parseListOptionOrPayload(options, names, payloadValue, { required = false, requiredLabel = names[0] } = {}) {
   const optionValue = readAliasedOption(options, names);
   const parsed = optionValue ? parseList(optionValue) : parseListLike(payloadValue);
@@ -342,7 +400,17 @@ function inferSenderRoleFromAgent(agent) {
 async function resolveSenderRole(options) {
   const explicitRole = readOption(options, "sender-role");
   if (explicitRole) return explicitRole;
+  const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   const selfAgent = await getSelfAgent();
+  if (issueId) {
+    const issueState = await getIssueState(issueId);
+    if (issueState?.qaAgentId === AGENT_ID) {
+      return "qa";
+    }
+    if (issueState?.reviewerAgentId === AGENT_ID) {
+      return "reviewer";
+    }
+  }
   const inferredRole = inferSenderRoleFromAgent(selfAgent);
   if (inferredRole) return inferredRole;
   fail("Missing required option: --sender-role");
@@ -1152,15 +1220,17 @@ async function closeTaskCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      closeReason: readAliasedOption(options, ["close-reason", "closeReason"], "completed"),
+      closeReason: normalizeCloseReason(
+        readAliasedOption(options, ["close-reason", "closeReason"], "completed"),
+      ),
       mergeStatus: readAliasedOption(options, ["merge-status", "mergeStatus"], "pending_external_merge"),
       closureSummary,
       verificationSummary,
       rollbackPlan,
       finalArtifacts,
       remainingRisks,
-      ...(readAliasedOption(options, ["final-test-status", "finalTestStatus"])
-        ? { finalTestStatus: readAliasedOption(options, ["final-test-status", "finalTestStatus"]) }
+      ...(normalizeFinalTestStatus(readAliasedOption(options, ["final-test-status", "finalTestStatus"]))
+        ? { finalTestStatus: normalizeFinalTestStatus(readAliasedOption(options, ["final-test-status", "finalTestStatus"])) }
         : {}),
     },
     artifacts: [],

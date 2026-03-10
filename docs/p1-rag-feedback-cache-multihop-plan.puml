@@ -1,0 +1,39 @@
+@startuml
+title P1 RAG Feedback / Cache / Multi-Hop Batch
+
+left to right direction
+
+rectangle "Operator Surface" {
+  [Change Surface Read Model]
+  [Pin / Hide UI]
+}
+
+rectangle "Retrieval Runtime" {
+  [Candidate Cache]
+  [Final-Hit Cache]
+  [Cache Invalidation]
+  [Chunk-Link Multi-Hop]
+}
+
+rectangle "Quality Surface" {
+  [Knowledge Quality Trends]
+  [Knowledge Explore Refresh]
+}
+
+rectangle "Validation" {
+  [Real-Agent RAG E2E]
+}
+
+[Change Surface Read Model] --> [Pin / Hide UI]
+[Candidate Cache] --> [Final-Hit Cache]
+[Cache Invalidation] --> [Candidate Cache]
+[Cache Invalidation] --> [Final-Hit Cache]
+[Chunk-Link Multi-Hop] --> [Knowledge Quality Trends]
+[Pin / Hide UI] --> [Knowledge Quality Trends]
+[Final-Hit Cache] --> [Knowledge Quality Trends]
+[Knowledge Quality Trends] --> [Knowledge Explore Refresh]
+[Pin / Hide UI] --> [Real-Agent RAG E2E]
+[Final-Hit Cache] --> [Real-Agent RAG E2E]
+[Chunk-Link Multi-Hop] --> [Real-Agent RAG E2E]
+
+@enduml

@@ -142,6 +142,28 @@ export interface IssueChangeSurfaceArtifact {
   metadata: Record<string, unknown> | null;
 }
 
+export interface IssueChangeSurfaceRetrievalRun {
+  briefScope: string;
+  briefId: string;
+  retrievalRunId: string;
+  createdAt: Date;
+  confidenceLevel: "high" | "medium" | "low" | null;
+  graphHitCount: number;
+  multiHopGraphHitCount: number;
+  personalized: boolean;
+  candidateCacheHit: boolean;
+  finalCacheHit: boolean;
+}
+
+export interface IssueChangeSurfaceFeedbackSummary {
+  positiveCount: number;
+  negativeCount: number;
+  pinnedPathCount: number;
+  hiddenPathCount: number;
+  lastFeedbackAt: Date | null;
+  feedbackTypeCounts: Record<string, number>;
+}
+
 export interface IssueMergeCandidate {
   issueId: string;
   identifier: string | null;
@@ -184,5 +206,9 @@ export interface IssueChangeSurface {
   diffArtifact: IssueChangeSurfaceArtifact | null;
   approvalArtifact: IssueChangeSurfaceArtifact | null;
   verificationArtifacts: IssueChangeSurfaceArtifact[];
+  retrievalContext: {
+    latestRuns: IssueChangeSurfaceRetrievalRun[];
+    feedbackSummary: IssueChangeSurfaceFeedbackSummary;
+  };
   mergeCandidate: IssueMergeCandidate | null;
 }

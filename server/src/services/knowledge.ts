@@ -1480,6 +1480,8 @@ export function knowledgeService(db: Db) {
       let personalizedHitCountTotal = 0;
       let averagePersonalizationBoostTotal = 0;
       let embeddingCacheHitCount = 0;
+      let candidateCacheHitCount = 0;
+      let finalCacheHitCount = 0;
       let lowConfidenceRuns = 0;
       let exactPathMissCount = 0;
       let projectMismatchCount = 0;
@@ -1564,6 +1566,8 @@ export function knowledgeService(db: Db) {
           ? personalization.averagePersonalizationBoost
           : 0;
         if (cache.embeddingHit === true) embeddingCacheHitCount += 1;
+        if (cache.candidateHit === true) candidateCacheHitCount += 1;
+        if (cache.finalHit === true) finalCacheHitCount += 1;
         staleVersionPenaltyCount += staleVersionPenaltyCountForRun;
         exactCommitMatchCount += exactCommitMatchCountForRun;
         if (graphHitCount > 0) graphExpandedRuns += 1;
@@ -1833,10 +1837,11 @@ export function knowledgeService(db: Db) {
         averagePersonalizationBoost: totalRuns > 0 ? averagePersonalizationBoostTotal / totalRuns : 0,
         cacheHitRate: totalRuns > 0 ? embeddingCacheHitCount / totalRuns : 0,
         embeddingCacheHitRate: totalRuns > 0 ? embeddingCacheHitCount / totalRuns : 0,
-        candidateCacheHitRate: 0,
-        feedbackEventCount: feedbackStats.eventCount,
-        positiveFeedbackCount: feedbackStats.positiveCount,
-        negativeFeedbackCount: feedbackStats.negativeCount,
+        candidateCacheHitRate: totalRuns > 0 ? candidateCacheHitCount / totalRuns : 0,
+        finalCacheHitRate: totalRuns > 0 ? finalCacheHitCount / totalRuns : 0,
+        feedbackEventCount: Number(feedbackStats.eventCount ?? 0),
+        positiveFeedbackCount: Number(feedbackStats.positiveCount ?? 0),
+        negativeFeedbackCount: Number(feedbackStats.negativeCount ?? 0),
         feedbackCoverageRate: totalRuns > 0 ? personalizedRunCount / totalRuns : 0,
         profileCount,
         staleVersionPenaltyCount,

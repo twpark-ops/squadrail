@@ -490,6 +490,7 @@ function buildDirectTargetFeedbackEvents(input: {
   metadata: Record<string, unknown>;
 }) {
   const events: Array<typeof retrievalFeedbackEvents.$inferInsert> = [];
+  let emittedCodeSourceType = false;
   for (const targetId of input.targetIds) {
     if (targetId.trim().length === 0) continue;
     events.push({
@@ -506,6 +507,26 @@ function buildDirectTargetFeedbackEvents(input: {
       weight: input.baseWeight,
       metadata: input.metadata,
     });
+    if (input.targetType === "path" && !emittedCodeSourceType) {
+      events.push({
+        companyId: input.companyId,
+        projectId: input.projectId,
+        issueId: input.issueId,
+        retrievalRunId: input.retrievalRunId,
+        feedbackMessageId: input.feedbackMessageId,
+        actorRole: input.actorRole,
+        eventType: input.eventType,
+        feedbackType: input.feedbackType,
+        targetType: "source_type",
+        targetId: "code",
+        weight: input.baseWeight * 0.72,
+        metadata: {
+          ...input.metadata,
+          promotedByPathFeedback: true,
+        },
+      });
+      emittedCodeSourceType = true;
+    }
   }
   return events;
 }
@@ -1121,6 +1142,54 @@ export function retrievalPersonalizationService(db: Db) {
           noteBody: input.noteBody ?? null,
         },
       });
+    },
+
+    summarizeIssueFeedback: async (input: {
+      companyId: string;
+      issueId: string;
+    }) => {
+      const rows = await db
+        .select({
+          feedbackType: retrievalFeedbackEvents.feedbackType,
+          targetType: retrievalFeedbackEvents.targetType,
+          targetId: retrievalFeedbackEvents.targetId,
+          weight: retrievalFeedbackEvents.weight,
+          createdAt: retrievalFeedbackEvents.createdAt,
+        })
+        .from(retrievalFeedbackEvents)
+        .where(and(
+          eq(retrievalFeedbackEvents.companyId, input.companyId),
+          eq(retrievalFeedbackEvents.issueId, input.issueId),
+        ))
+        .orderBy(desc(retrievalFeedbackEvents.createdAt))
+        .limit(500);
+
+      const feedbackTypeCounts: Record<string, number> = {};
+      let positiveCount = 0;
+      let negativeCount = 0;
+      let pinnedPathCount = 0;
+      let hiddenPathCount = 0;
+      let lastFeedbackAt: Date | null = null;
+
+      for (const row of rows) {
+        feedbackTypeCounts[row.feedbackType] = (feedbackTypeCounts[row.feedbackType] ?? 0) + 1;
+        if (row.weight > 0) positiveCount += 1;
+        if (row.weight < 0) negativeCount += 1;
+        if (row.feedbackType === "operator_pin" && row.targetType === "path") pinnedPathCount += 1;
+        if (row.feedbackType === "operator_hide" && row.targetType === "path") hiddenPathCount += 1;
+        if (!lastFeedbackAt || row.createdAt.getTime() > lastFeedbackAt.getTime()) {
+          lastFeedbackAt = row.createdAt;
+        }
+      }
+
+      return {
+        positiveCount,
+        negativeCount,
+        pinnedPathCount,
+        hiddenPathCount,
+        lastFeedbackAt,
+        feedbackTypeCounts,
+      };
     },
 
     backfillProtocolFeedback: async (input: {

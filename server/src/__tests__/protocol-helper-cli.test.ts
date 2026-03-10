@@ -249,7 +249,7 @@ describe("squadrail protocol helper CLI", () => {
         closureSummary: "Closed through automation",
         verificationSummary: "Verified in isolated workspace",
         rollbackPlan: "Revert merge candidate",
-        finalTestStatus: "all green",
+        finalTestStatus: "passed",
         remainingRisks: ["Needs maintainer merge"],
       });
     } finally {

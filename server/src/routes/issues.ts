@@ -238,11 +238,19 @@ export function issueRoutes(db: Db, storage: StorageService) {
     identifier: string | null;
     title: string;
     status?: string | null;
+    companyId?: string | null;
     projectId?: string | null;
   }) {
-    const [messages, mergeCandidateRecord] = await Promise.all([
+    const [messages, mergeCandidateRecord, briefs, retrievalFeedbackSummary] = await Promise.all([
       protocolSvc.listMessages(issue.id),
       mergeCandidatesSvc.getByIssueId(issue.id),
+      knowledge.listTaskBriefs({ issueId: issue.id, limit: 20 }),
+      issue.companyId
+        ? retrievalPersonalization.summarizeIssueFeedback({
+          companyId: issue.companyId,
+          issueId: issue.id,
+        })
+        : Promise.resolve(null),
     ]);
     return buildIssueChangeSurface({
       issue: {
@@ -251,6 +259,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
       },
       messages,
       mergeCandidateRecord,
+      briefs,
+      retrievalFeedbackSummary,
     });
   }
 

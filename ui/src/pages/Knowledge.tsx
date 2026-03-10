@@ -64,6 +64,12 @@ export function Knowledge() {
     },
   });
 
+  const qualityQuery = useQuery({
+    queryKey: ["knowledge", "quality", selectedCompanyId],
+    queryFn: () => knowledgeApi.getQuality(selectedCompanyId!, { days: 14, limit: 2000 }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
   const stats = useMemo(() => {
     const overview = overviewQuery.data;
     const timestamps = (overview?.projectCoverage ?? [])
@@ -91,10 +97,11 @@ export function Knowledge() {
     void documentsQuery.refetch();
     void projectsQuery.refetch();
     void setupQuery.refetch();
+    void qualityQuery.refetch();
   };
 
-  const isLoading = overviewQuery.isLoading || documentsQuery.isLoading || projectsQuery.isLoading || setupQuery.isLoading;
-  const hasError = overviewQuery.error || documentsQuery.error || projectsQuery.error || setupQuery.error;
+  const isLoading = overviewQuery.isLoading || documentsQuery.isLoading || projectsQuery.isLoading || setupQuery.isLoading || qualityQuery.isLoading;
+  const hasError = overviewQuery.error || documentsQuery.error || projectsQuery.error || setupQuery.error || qualityQuery.error;
 
   if (!selectedCompanyId) {
     return (
@@ -160,6 +167,7 @@ export function Knowledge() {
                 || (documentsQuery.error instanceof Error ? documentsQuery.error.message : null)
                 || (projectsQuery.error instanceof Error ? projectsQuery.error.message : null)
                 || (setupQuery.error instanceof Error ? setupQuery.error.message : null)
+                || (qualityQuery.error instanceof Error ? qualityQuery.error.message : null)
                 || "unknown error"}
             </p>
           </div>
@@ -216,6 +224,34 @@ export function Knowledge() {
                       activeProjects={stats.activeProjects}
                       lastSync={stats.lastSync}
                     />
+                    {qualityQuery.data && (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-[1rem] border border-border bg-background/72 px-3 py-3">
+                          <div className="text-xs text-muted-foreground">Candidate cache</div>
+                          <div className="mt-1 text-xl font-semibold text-foreground">
+                            {(qualityQuery.data.candidateCacheHitRate * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                        <div className="rounded-[1rem] border border-border bg-background/72 px-3 py-3">
+                          <div className="text-xs text-muted-foreground">Final cache</div>
+                          <div className="mt-1 text-xl font-semibold text-foreground">
+                            {(qualityQuery.data.finalCacheHitRate * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                        <div className="rounded-[1rem] border border-border bg-background/72 px-3 py-3">
+                          <div className="text-xs text-muted-foreground">Graph-expanded runs</div>
+                          <div className="mt-1 text-xl font-semibold text-foreground">
+                            {qualityQuery.data.graphExpandedRuns}
+                          </div>
+                        </div>
+                        <div className="rounded-[1rem] border border-border bg-background/72 px-3 py-3">
+                          <div className="text-xs text-muted-foreground">Multi-hop runs</div>
+                          <div className="mt-1 text-xl font-semibold text-foreground">
+                            {qualityQuery.data.multiHopGraphExpandedRuns}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </section>

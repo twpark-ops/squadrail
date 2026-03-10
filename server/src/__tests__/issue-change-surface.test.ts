@@ -75,6 +75,36 @@ describe("issue change surface", () => {
           ],
         },
       ],
+      briefs: [
+        {
+          id: "brief-reviewer",
+          briefScope: "reviewer",
+          retrievalRunId: "run-reviewer",
+          createdAt: "2026-03-10T11:04:00Z",
+          contentJson: {
+            quality: {
+              confidenceLevel: "high",
+              graphHitCount: 3,
+              multiHopGraphHitCount: 1,
+              personalizationApplied: true,
+              candidateCacheHit: true,
+              finalCacheHit: false,
+            },
+          },
+        },
+      ],
+      retrievalFeedbackSummary: {
+        positiveCount: 3,
+        negativeCount: 1,
+        pinnedPathCount: 2,
+        hiddenPathCount: 1,
+        lastFeedbackAt: "2026-03-10T11:06:00Z",
+        feedbackTypeCounts: {
+          operator_pin: 2,
+          operator_hide: 1,
+          approved: 1,
+        },
+      },
     });
 
     expect(surface.branchName).toBe("squadrail/test");
@@ -82,6 +112,9 @@ describe("issue change surface", () => {
     expect(surface.changedFiles).toEqual(["src/app.ts"]);
     expect(surface.mergeCandidate?.state).toBe("pending");
     expect(surface.mergeCandidate?.approvalSummary).toBe("Looks good");
+    expect(surface.retrievalContext.latestRuns[0]?.retrievalRunId).toBe("run-reviewer");
+    expect(surface.retrievalContext.latestRuns[0]?.candidateCacheHit).toBe(true);
+    expect(surface.retrievalContext.feedbackSummary.pinnedPathCount).toBe(2);
   });
 
   it("uses persisted merge candidate state when operator already resolved it", () => {

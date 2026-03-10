@@ -41,6 +41,8 @@ const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
 } as const satisfies Partial<Record<CreateIssueProtocolMessage["messageType"], string>>;
 
 const QUERY_EMBEDDING_CACHE_TTL_SECONDS = 24 * 60 * 60;
+const CANDIDATE_HIT_CACHE_TTL_SECONDS = 20 * 60;
+const FINAL_HIT_CACHE_TTL_SECONDS = 10 * 60;
 
 type RetrievalEventType = (typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE)[keyof typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE];
 
@@ -120,6 +122,152 @@ export interface RetrievalHitView {
   } | null;
 }
 
+function serializeRetrievalHit(hit: RetrievalHitView) {
+  return {
+    ...hit,
+    updatedAt: hit.updatedAt.toISOString(),
+  };
+}
+
+function deserializeRetrievalHit(value: unknown): RetrievalHitView | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const chunkId = typeof record.chunkId === "string" ? record.chunkId : null;
+  const documentId = typeof record.documentId === "string" ? record.documentId : null;
+  const sourceType = typeof record.sourceType === "string" ? record.sourceType : null;
+  const authorityLevel = typeof record.authorityLevel === "string" ? record.authorityLevel : null;
+  if (!chunkId || !documentId || !sourceType || !authorityLevel) return null;
+
+  const readNumber = (input: unknown) => (typeof input === "number" && Number.isFinite(input) ? input : null);
+  const updatedAt = typeof record.updatedAt === "string" ? new Date(record.updatedAt) : null;
+  if (!updatedAt || Number.isNaN(updatedAt.getTime())) return null;
+
+  return {
+    chunkId,
+    documentId,
+    sourceType,
+    authorityLevel,
+    documentIssueId: typeof record.documentIssueId === "string" ? record.documentIssueId : null,
+    documentProjectId: typeof record.documentProjectId === "string" ? record.documentProjectId : null,
+    path: typeof record.path === "string" ? record.path : null,
+    title: typeof record.title === "string" ? record.title : null,
+    headingPath: typeof record.headingPath === "string" ? record.headingPath : null,
+    symbolName: typeof record.symbolName === "string" ? record.symbolName : null,
+    textContent: typeof record.textContent === "string" ? record.textContent : "",
+    documentMetadata: (record.documentMetadata && typeof record.documentMetadata === "object" && !Array.isArray(record.documentMetadata))
+      ? record.documentMetadata as Record<string, unknown>
+      : {},
+    chunkMetadata: (record.chunkMetadata && typeof record.chunkMetadata === "object" && !Array.isArray(record.chunkMetadata))
+      ? record.chunkMetadata as Record<string, unknown>
+      : {},
+    denseScore: readNumber(record.denseScore),
+    sparseScore: readNumber(record.sparseScore),
+    rerankScore: readNumber(record.rerankScore),
+    fusedScore: typeof record.fusedScore === "number" ? record.fusedScore : 0,
+    updatedAt,
+    modelRerankRank: readNumber(record.modelRerankRank),
+    graphMetadata: (record.graphMetadata && typeof record.graphMetadata === "object" && !Array.isArray(record.graphMetadata))
+      ? record.graphMetadata as RetrievalHitView["graphMetadata"]
+      : null,
+    temporalMetadata: (record.temporalMetadata && typeof record.temporalMetadata === "object" && !Array.isArray(record.temporalMetadata))
+      ? record.temporalMetadata as RetrievalHitView["temporalMetadata"]
+      : null,
+    personalizationMetadata:
+      (record.personalizationMetadata && typeof record.personalizationMetadata === "object" && !Array.isArray(record.personalizationMetadata))
+        ? record.personalizationMetadata as RetrievalHitView["personalizationMetadata"]
+        : null,
+  };
+}
+
+function readCachedRetrievalHits(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const hits = Array.isArray(record.hits)
+    ? record.hits.map(deserializeRetrievalHit).filter((hit): hit is RetrievalHitView => hit != null)
+    : [];
+  if (hits.length === 0) return null;
+  return {
+    hits,
+    quality:
+      record.quality && typeof record.quality === "object" && !Array.isArray(record.quality)
+        ? record.quality as Record<string, unknown>
+        : null,
+    metadata:
+      record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
+        ? record.metadata as Record<string, unknown>
+        : {},
+  };
+}
+
+interface RetrievalCachePayload {
+  hits: RetrievalHitView[];
+  quality: Record<string, unknown> | null;
+  metadata: Record<string, unknown>;
+}
+
+interface ChunkGraphExpansionResult {
+  hits: RetrievalHitView[];
+  edgeTraversalCount: number;
+  graphMaxDepth: number;
+  graphHopDepthCounts: Record<string, number>;
+  graphEntityTypeCounts: Record<string, number>;
+}
+
+function readRetrievalCachePayload(value: unknown): RetrievalCachePayload | null {
+  const payload = readCachedRetrievalHits(value);
+  if (!payload) return null;
+  return payload;
+}
+
+function serializeRetrievalCachePayload(input: RetrievalCachePayload) {
+  return {
+    hits: input.hits.map((hit) => serializeRetrievalHit(hit)),
+    quality: input.quality ?? null,
+    metadata: input.metadata,
+  };
+}
+
+function readCachedBriefQualitySummary(value: Record<string, unknown> | null | undefined): BriefQualitySummary | null {
+  if (!value) return null;
+  const confidenceLevel = typeof value.confidenceLevel === "string" ? value.confidenceLevel : null;
+  if (confidenceLevel !== "high" && confidenceLevel !== "medium" && confidenceLevel !== "low") return null;
+  return {
+    confidenceLevel,
+    evidenceCount: typeof value.evidenceCount === "number" ? value.evidenceCount : 0,
+    denseEnabled: value.denseEnabled === true,
+    denseHitCount: typeof value.denseHitCount === "number" ? value.denseHitCount : 0,
+    sparseHitCount: typeof value.sparseHitCount === "number" ? value.sparseHitCount : 0,
+    pathHitCount: typeof value.pathHitCount === "number" ? value.pathHitCount : 0,
+    symbolHitCount: typeof value.symbolHitCount === "number" ? value.symbolHitCount : 0,
+    graphSeedCount: typeof value.graphSeedCount === "number" ? value.graphSeedCount : 0,
+    graphHitCount: typeof value.graphHitCount === "number" ? value.graphHitCount : 0,
+    graphEntityTypes: Array.isArray(value.graphEntityTypes) ? value.graphEntityTypes.filter((entry): entry is string => typeof entry === "string") : [],
+    symbolGraphSeedCount: typeof value.symbolGraphSeedCount === "number" ? value.symbolGraphSeedCount : 0,
+    symbolGraphHitCount: typeof value.symbolGraphHitCount === "number" ? value.symbolGraphHitCount : 0,
+    edgeTraversalCount: typeof value.edgeTraversalCount === "number" ? value.edgeTraversalCount : 0,
+    edgeTypeCounts: value.edgeTypeCounts && typeof value.edgeTypeCounts === "object" && !Array.isArray(value.edgeTypeCounts)
+      ? value.edgeTypeCounts as Record<string, number>
+      : {},
+    graphMaxDepth: typeof value.graphMaxDepth === "number" ? value.graphMaxDepth : 0,
+    graphHopDepthCounts: value.graphHopDepthCounts && typeof value.graphHopDepthCounts === "object" && !Array.isArray(value.graphHopDepthCounts)
+      ? value.graphHopDepthCounts as Record<string, number>
+      : {},
+    multiHopGraphHitCount: typeof value.multiHopGraphHitCount === "number" ? value.multiHopGraphHitCount : 0,
+    temporalContextAvailable: value.temporalContextAvailable === true,
+    temporalHitCount: typeof value.temporalHitCount === "number" ? value.temporalHitCount : 0,
+    branchAlignedTopHitCount: typeof value.branchAlignedTopHitCount === "number" ? value.branchAlignedTopHitCount : 0,
+    staleVersionPenaltyCount: typeof value.staleVersionPenaltyCount === "number" ? value.staleVersionPenaltyCount : 0,
+    exactCommitMatchCount: typeof value.exactCommitMatchCount === "number" ? value.exactCommitMatchCount : 0,
+    personalizationApplied: value.personalizationApplied === true,
+    personalizedHitCount: typeof value.personalizedHitCount === "number" ? value.personalizedHitCount : 0,
+    averagePersonalizationBoost: typeof value.averagePersonalizationBoost === "number" ? value.averagePersonalizationBoost : 0,
+    sourceDiversity: typeof value.sourceDiversity === "number" ? value.sourceDiversity : 0,
+    candidateCacheHit: value.candidateCacheHit === true,
+    finalCacheHit: value.finalCacheHit === true,
+    degradedReasons: Array.isArray(value.degradedReasons) ? value.degradedReasons.filter((entry): entry is string => typeof entry === "string") : [],
+  };
+}
+
 interface IssueRetrievalIssueSnapshot {
   id: string;
   projectId: string | null;
@@ -166,6 +314,53 @@ interface RetrievalSignals {
   projectAffinityNames: string[];
   blockerCode: string | null;
   questionType: string | null;
+}
+
+function applyPersonalizationSignals(input: {
+  signals: RetrievalSignals;
+  profile: RetrievalPersonalizationProfile;
+  maxPaths?: number;
+  maxSymbols?: number;
+  maxSourceTypes?: number;
+}) {
+  if (!input.profile.applied) return input.signals;
+
+  const boostedPaths = Object.entries(input.profile.pathBoosts)
+    .filter((entry) => entry[1] > 0.04)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, input.maxPaths ?? 6)
+    .map(([pathValue]) => normalizeHintPath(pathValue));
+  const boostedSymbols = Object.entries(input.profile.symbolBoosts)
+    .filter((entry) => entry[1] > 0.04)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, input.maxSymbols ?? 8)
+    .map(([symbolValue]) => symbolValue.trim())
+    .filter((value) => value.length > 0);
+  const boostedSourceTypes = Object.entries(input.profile.sourceTypeBoosts)
+    .filter((entry) => entry[1] > 0.04)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, input.maxSourceTypes ?? 4)
+    .map(([sourceType]) => sourceType.trim())
+    .filter((value) => value.length > 0);
+
+  return {
+    ...input.signals,
+    exactPaths: uniqueNonEmpty([...boostedPaths, ...input.signals.exactPaths]),
+    fileNames: uniqueNonEmpty([
+      ...boostedPaths.map((value) => path.posix.basename(value)),
+      ...input.signals.fileNames,
+    ]),
+    symbolHints: uniqueNonEmpty([
+      ...boostedSymbols,
+      ...boostedPaths.map(basenameWithoutExtension),
+      ...input.signals.symbolHints,
+    ]),
+    preferredSourceTypes: uniqueNonEmpty([
+      ...(boostedPaths.length > 0 ? ["code"] : []),
+      ...boostedSourceTypes,
+      ...input.signals.preferredSourceTypes,
+    ]),
+  } satisfies RetrievalSignals;
 }
 
 interface RetrievalRerankWeights {
@@ -237,6 +432,8 @@ interface BriefQualitySummary {
   personalizedHitCount: number;
   averagePersonalizationBoost: number;
   sourceDiversity: number;
+  candidateCacheHit: boolean;
+  finalCacheHit: boolean;
   degradedReasons: string[];
 }
 
@@ -334,6 +531,8 @@ function summarizeBriefQuality(input: {
   multiHopGraphHitCount: number;
   temporalContext: RetrievalTemporalContext | null;
   crossProjectRequested: boolean;
+  candidateCacheHit?: boolean;
+  finalCacheHit?: boolean;
 }): BriefQualitySummary {
   const evidenceCount = input.finalHits.length;
   const sourceDiversity = new Set(
@@ -415,6 +614,8 @@ function summarizeBriefQuality(input: {
     personalizedHitCount: personalizedHits.length,
     averagePersonalizationBoost,
     sourceDiversity,
+    candidateCacheHit: input.candidateCacheHit === true,
+    finalCacheHit: input.finalCacheHit === true,
     degradedReasons,
   };
 }
@@ -430,6 +631,106 @@ function uniqueNonEmpty(values: Array<string | null | undefined>) {
     ordered.push(trimmed);
   }
   return ordered;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+  if (!value || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+}
+
+function buildRetrievalStageCacheKey(input: {
+  stage: "candidate_hits" | "final_hits";
+  queryText: string;
+  companyId: string;
+  issueProjectId: string | null;
+  role: string;
+  eventType: string;
+  workflowState: string;
+  allowedSourceTypes: string[];
+  allowedAuthorityLevels: string[];
+  rerankConfig: Record<string, unknown>;
+  dynamicSignals: RetrievalSignals;
+  temporalContext: RetrievalTemporalContext | null;
+  revisionSignature: string;
+  personalizationFingerprint?: string;
+}): string {
+  return sha256(stableJson({
+    stage: input.stage,
+    companyId: input.companyId,
+    issueProjectId: input.issueProjectId,
+    queryText: input.queryText,
+    role: input.role,
+    eventType: input.eventType,
+    workflowState: input.workflowState,
+    allowedSourceTypes: [...input.allowedSourceTypes].sort(),
+    allowedAuthorityLevels: [...input.allowedAuthorityLevels].sort(),
+    rerankConfig: input.rerankConfig,
+    dynamicSignals: {
+      exactPaths: [...input.dynamicSignals.exactPaths].sort(),
+      fileNames: [...input.dynamicSignals.fileNames].sort(),
+      symbolHints: [...input.dynamicSignals.symbolHints].sort(),
+      knowledgeTags: [...input.dynamicSignals.knowledgeTags].sort(),
+      preferredSourceTypes: [...input.dynamicSignals.preferredSourceTypes].sort(),
+      projectAffinityIds: [...input.dynamicSignals.projectAffinityIds].sort(),
+      blockerCode: input.dynamicSignals.blockerCode,
+      questionType: input.dynamicSignals.questionType,
+    },
+    temporalContext: input.temporalContext,
+    revisionSignature: input.revisionSignature,
+    personalizationFingerprint: input.personalizationFingerprint ?? null,
+  }));
+}
+
+function buildPersonalizationFingerprint(profile: RetrievalPersonalizationProfile) {
+  return sha256(stableJson({
+    applied: profile.applied,
+    scopes: profile.scopes,
+    feedbackCount: profile.feedbackCount,
+    positiveFeedbackCount: profile.positiveFeedbackCount,
+    negativeFeedbackCount: profile.negativeFeedbackCount,
+    sourceTypeBoosts: profile.sourceTypeBoosts,
+    pathBoosts: profile.pathBoosts,
+    symbolBoosts: profile.symbolBoosts,
+  }));
+}
+
+function buildKnowledgeRevisionSignature(input: {
+  companyId: string;
+  issueProjectId: string | null;
+  projectAffinityIds: string[];
+  revisions: Array<{
+    projectId: string;
+    revision: number;
+    lastHeadSha: string | null;
+    lastTreeSignature: string | null;
+  }>;
+}): string {
+  const orderedProjectIds = uniqueNonEmpty([
+    input.issueProjectId,
+    ...input.projectAffinityIds,
+  ]);
+  const revisionByProjectId = new Map(
+    input.revisions.map((revision) => [revision.projectId, revision] as const),
+  );
+  return sha256(stableJson({
+    companyId: input.companyId,
+    orderedProjectIds,
+    revisions: orderedProjectIds.map((projectId) => {
+      const revision = revisionByProjectId.get(projectId);
+      return {
+        projectId,
+        revision: revision?.revision ?? 0,
+        lastHeadSha: revision?.lastHeadSha ?? null,
+        lastTreeSignature: revision?.lastTreeSignature ?? null,
+      };
+    }),
+  }));
 }
 
 function compactWhitespace(value: string, max = 220) {
@@ -781,8 +1082,8 @@ export function deriveDynamicRetrievalSignals(input: {
     human_board: ["prd", "adr", "issue", "review", "runbook", "protocol_message"],
   };
   const baselineSourceTypes = uniqueNonEmpty([
-    ...(input.baselineSourceTypes ?? []),
     ...(preferredSourceTypesByRole[input.recipientRole] ?? preferredSourceTypesByRole.engineer),
+    ...(input.baselineSourceTypes ?? []),
   ]);
 
   const exactPaths = uniqueNonEmpty([
@@ -967,7 +1268,7 @@ function defaultPolicyTemplate(input: {
   workflowState: string;
 }) {
   const engineerSources = ["code", "adr", "issue", "review", "test_report", "runbook"];
-  const reviewerSources = ["issue", "review", "code", "test_report", "adr", "runbook"];
+  const reviewerSources = ["code", "test_report", "review", "issue", "adr", "runbook"];
   const leadSources = ["prd", "adr", "runbook", "issue", "protocol_message", "review", "code"];
   const boardSources = ["prd", "adr", "issue", "review", "protocol_message", "runbook"];
   const ctoSources = ["prd", "adr", "runbook", "issue", "review", "protocol_message"];
@@ -2333,121 +2634,229 @@ export function issueRetrievalService(db: Db) {
     excludeChunkIds: string[];
     limit: number;
   }) {
-    if (input.seeds.length === 0) return [];
+    if (input.seeds.length === 0) {
+      return {
+        hits: [] as RetrievalHitView[],
+        edgeTraversalCount: 0,
+        graphMaxDepth: 0,
+        graphHopDepthCounts: {} as Record<string, number>,
+        graphEntityTypeCounts: {} as Record<string, number>,
+      };
+    }
 
     const seedByKey = new Map<string, RetrievalGraphSeed>(
       input.seeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const),
     );
-    const pairConditions = input.seeds.map((seed) =>
-      and(
-        eq(knowledgeChunkLinks.entityType, seed.entityType),
-        eq(knowledgeChunkLinks.entityId, seed.entityId),
-      ),
-    );
-    const conditions = [
-      eq(knowledgeChunkLinks.companyId, input.companyId),
-      inArray(knowledgeDocuments.sourceType, input.allowedSourceTypes),
-      inArray(knowledgeDocuments.authorityLevel, input.allowedAuthorityLevels),
-      or(...pairConditions),
-    ];
-    if (input.excludeChunkIds.length > 0) {
-      conditions.push(not(inArray(knowledgeChunks.id, input.excludeChunkIds)));
-    }
 
-    const rows = await db
-      .select({
-        chunkId: knowledgeChunks.id,
-        documentId: knowledgeDocuments.id,
-        sourceType: knowledgeDocuments.sourceType,
-        authorityLevel: knowledgeDocuments.authorityLevel,
-        documentIssueId: knowledgeDocuments.issueId,
-        documentProjectId: knowledgeDocuments.projectId,
-        path: knowledgeDocuments.path,
-        title: knowledgeDocuments.title,
-        headingPath: knowledgeChunks.headingPath,
-        symbolName: knowledgeChunks.symbolName,
-        textContent: knowledgeChunks.textContent,
-        documentMetadata: knowledgeDocuments.metadata,
-        chunkMetadata: knowledgeChunks.metadata,
-        updatedAt: knowledgeDocuments.updatedAt,
-        entityType: knowledgeChunkLinks.entityType,
-        entityId: knowledgeChunkLinks.entityId,
-        linkReason: knowledgeChunkLinks.linkReason,
-        linkWeight: knowledgeChunkLinks.weight,
-      })
-      .from(knowledgeChunkLinks)
-      .innerJoin(knowledgeChunks, eq(knowledgeChunkLinks.chunkId, knowledgeChunks.id))
-      .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
-      .where(and(...conditions))
-      .orderBy(desc(knowledgeChunkLinks.weight), desc(knowledgeDocuments.updatedAt))
-      .limit(Math.max(input.limit * 10, 60));
+    const queryRowsForSeeds = async (seeds: RetrievalGraphSeed[], excludeChunkIds: string[]) => {
+      const pairConditions = seeds.map((seed) =>
+        and(
+          eq(knowledgeChunkLinks.entityType, seed.entityType),
+          eq(knowledgeChunkLinks.entityId, seed.entityId),
+        ),
+      );
+      if (pairConditions.length === 0) return [];
 
-    const grouped = new Map<string, RetrievalHitView>();
-    for (const row of rows) {
-      const seed = seedByKey.get(`${row.entityType}:${row.entityId}`);
-      if (!seed) continue;
-
-      const existing = grouped.get(row.chunkId);
-      const graphScore = Math.min(4, seed.seedBoost + Math.max(0.2, row.linkWeight * 0.6));
-      if (!existing) {
-        grouped.set(row.chunkId, {
-          chunkId: row.chunkId,
-          documentId: row.documentId,
-          sourceType: row.sourceType,
-          authorityLevel: row.authorityLevel,
-          documentIssueId: row.documentIssueId,
-          documentProjectId: row.documentProjectId,
-          path: row.path,
-          title: row.title,
-          headingPath: row.headingPath,
-          symbolName: row.symbolName,
-          textContent: row.textContent,
-          documentMetadata: row.documentMetadata,
-          chunkMetadata: row.chunkMetadata,
-          denseScore: null,
-          sparseScore: null,
-          rerankScore: graphScore,
-          fusedScore:
-            graphScore
-            + computeScopeBoost({
-              hitIssueId: row.documentIssueId,
-              hitProjectId: row.documentProjectId,
-              issueId: input.issueId,
-              projectId: input.projectId,
-              projectAffinityIds: input.projectAffinityIds,
-            })
-            + computeAuthorityBoost(row.authorityLevel),
-          updatedAt: row.updatedAt,
-          graphMetadata: {
-            entityTypes: [row.entityType],
-            entityIds: [row.entityId],
-            seedReasons: uniqueNonEmpty([...seed.seedReasons, row.linkReason]),
-            graphScore,
-          },
-        });
-        continue;
+      const conditions = [
+        eq(knowledgeChunkLinks.companyId, input.companyId),
+        inArray(knowledgeDocuments.sourceType, input.allowedSourceTypes),
+        inArray(knowledgeDocuments.authorityLevel, input.allowedAuthorityLevels),
+        or(...pairConditions),
+      ];
+      if (excludeChunkIds.length > 0) {
+        conditions.push(not(inArray(knowledgeChunks.id, excludeChunkIds)));
       }
 
-      const nextGraphScore = Math.min(4, (existing.graphMetadata?.graphScore ?? 0) + graphScore);
-      grouped.set(row.chunkId, {
-        ...existing,
-        rerankScore: Math.max(existing.rerankScore ?? 0, nextGraphScore),
-        fusedScore: Math.max(existing.fusedScore, existing.fusedScore + graphScore * 0.25),
-        graphMetadata: {
-          entityTypes: uniqueNonEmpty([...(existing.graphMetadata?.entityTypes ?? []), row.entityType]),
-          entityIds: uniqueNonEmpty([...(existing.graphMetadata?.entityIds ?? []), row.entityId]),
-          seedReasons: uniqueNonEmpty([...(existing.graphMetadata?.seedReasons ?? []), ...seed.seedReasons, row.linkReason]),
-          graphScore: nextGraphScore,
-        },
+      return db
+        .select({
+          chunkId: knowledgeChunks.id,
+          documentId: knowledgeDocuments.id,
+          sourceType: knowledgeDocuments.sourceType,
+          authorityLevel: knowledgeDocuments.authorityLevel,
+          documentIssueId: knowledgeDocuments.issueId,
+          documentProjectId: knowledgeDocuments.projectId,
+          path: knowledgeDocuments.path,
+          title: knowledgeDocuments.title,
+          headingPath: knowledgeChunks.headingPath,
+          symbolName: knowledgeChunks.symbolName,
+          textContent: knowledgeChunks.textContent,
+          documentMetadata: knowledgeDocuments.metadata,
+          chunkMetadata: knowledgeChunks.metadata,
+          updatedAt: knowledgeDocuments.updatedAt,
+          entityType: knowledgeChunkLinks.entityType,
+          entityId: knowledgeChunkLinks.entityId,
+          linkReason: knowledgeChunkLinks.linkReason,
+          linkWeight: knowledgeChunkLinks.weight,
+        })
+        .from(knowledgeChunkLinks)
+        .innerJoin(knowledgeChunks, eq(knowledgeChunkLinks.chunkId, knowledgeChunks.id))
+        .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+        .where(and(...conditions))
+        .orderBy(desc(knowledgeChunkLinks.weight), desc(knowledgeDocuments.updatedAt))
+        .limit(Math.max(input.limit * 10, 60));
+    };
+
+    const buildHits = (
+      rows: Awaited<ReturnType<typeof queryRowsForSeeds>>,
+      seeds: Map<string, RetrievalGraphSeed>,
+      hopDepth: number,
+    ) => {
+      const grouped = new Map<string, RetrievalHitView>();
+      for (const row of rows) {
+        const seed = seeds.get(`${row.entityType}:${row.entityId}`);
+        if (!seed) continue;
+
+        const existing = grouped.get(row.chunkId);
+        const graphScore = Math.min(4, seed.seedBoost + Math.max(0.2, row.linkWeight * 0.6));
+        if (!existing) {
+          grouped.set(row.chunkId, {
+            chunkId: row.chunkId,
+            documentId: row.documentId,
+            sourceType: row.sourceType,
+            authorityLevel: row.authorityLevel,
+            documentIssueId: row.documentIssueId,
+            documentProjectId: row.documentProjectId,
+            path: row.path,
+            title: row.title,
+            headingPath: row.headingPath,
+            symbolName: row.symbolName,
+            textContent: row.textContent,
+            documentMetadata: row.documentMetadata,
+            chunkMetadata: row.chunkMetadata,
+            denseScore: null,
+            sparseScore: null,
+            rerankScore: graphScore,
+            fusedScore:
+              graphScore
+              + computeScopeBoost({
+                hitIssueId: row.documentIssueId,
+                hitProjectId: row.documentProjectId,
+                issueId: input.issueId,
+                projectId: input.projectId,
+                projectAffinityIds: input.projectAffinityIds,
+              })
+              + computeAuthorityBoost(row.authorityLevel),
+            updatedAt: row.updatedAt,
+            graphMetadata: {
+              entityTypes: [row.entityType],
+              entityIds: [row.entityId],
+              seedReasons: uniqueNonEmpty([...seed.seedReasons, row.linkReason]),
+              graphScore,
+              hopDepth,
+            },
+          });
+          continue;
+        }
+
+        const nextGraphScore = Math.min(4, (existing.graphMetadata?.graphScore ?? 0) + graphScore);
+        grouped.set(row.chunkId, {
+          ...existing,
+          rerankScore: Math.max(existing.rerankScore ?? 0, nextGraphScore),
+          fusedScore: Math.max(existing.fusedScore, existing.fusedScore + graphScore * 0.25),
+          graphMetadata: {
+            entityTypes: uniqueNonEmpty([...(existing.graphMetadata?.entityTypes ?? []), row.entityType]),
+            entityIds: uniqueNonEmpty([...(existing.graphMetadata?.entityIds ?? []), row.entityId]),
+            seedReasons: uniqueNonEmpty([
+              ...(existing.graphMetadata?.seedReasons ?? []),
+              ...seed.seedReasons,
+              row.linkReason,
+            ]),
+            graphScore: nextGraphScore,
+            hopDepth: Math.min(existing.graphMetadata?.hopDepth ?? hopDepth, hopDepth),
+          },
+        });
+      }
+      return Array.from(grouped.values());
+    };
+
+    const firstHopRows = await queryRowsForSeeds(input.seeds, input.excludeChunkIds);
+    const firstHopHits = buildHits(firstHopRows, seedByKey, 1);
+
+    const discoveredLinks = firstHopRows.length === 0
+      ? []
+      : await db
+        .select({
+          chunkId: knowledgeChunkLinks.chunkId,
+          entityType: knowledgeChunkLinks.entityType,
+          entityId: knowledgeChunkLinks.entityId,
+          linkReason: knowledgeChunkLinks.linkReason,
+          weight: knowledgeChunkLinks.weight,
+        })
+        .from(knowledgeChunkLinks)
+        .where(and(
+          eq(knowledgeChunkLinks.companyId, input.companyId),
+          inArray(knowledgeChunkLinks.chunkId, firstHopRows.map((row) => row.chunkId)),
+        ))
+        .orderBy(desc(knowledgeChunkLinks.weight))
+        .limit(Math.max(input.limit * 16, 120));
+
+    const secondHopSeedMap = new Map<string, RetrievalGraphSeed>();
+    for (const link of discoveredLinks) {
+      if (link.entityType !== "symbol" && link.entityType !== "path" && link.entityType !== "project") continue;
+      const key = `${link.entityType}:${link.entityId}`;
+      if (seedByKey.has(key)) continue;
+      const current = secondHopSeedMap.get(key);
+      const nextSeed: RetrievalGraphSeed = {
+        entityType: link.entityType,
+        entityId: link.entityId,
+        seedBoost: Math.min(2.8, Math.max(0.5, link.weight * 0.7)),
+        seedReasons: uniqueNonEmpty([`graph_hop:${link.linkReason}`]),
+      };
+      if (!current) {
+        secondHopSeedMap.set(key, nextSeed);
+        continue;
+      }
+      secondHopSeedMap.set(key, {
+        ...current,
+        seedBoost: Math.max(current.seedBoost, nextSeed.seedBoost),
+        seedReasons: uniqueNonEmpty([...current.seedReasons, ...nextSeed.seedReasons]),
       });
     }
 
-    return Array.from(grouped.values())
+    const secondHopSeeds = Array.from(secondHopSeedMap.values());
+    const secondHopRows = secondHopSeeds.length === 0
+      ? []
+      : await queryRowsForSeeds(
+        secondHopSeeds,
+        uniqueNonEmpty([
+          ...input.excludeChunkIds,
+          ...firstHopHits.map((hit) => hit.chunkId),
+        ]),
+      );
+    const secondHopHits = buildHits(
+      secondHopRows,
+      new Map(secondHopSeeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const)),
+      2,
+    );
+
+    const hits = mergeGraphExpandedHits({
+      baseHits: firstHopHits,
+      graphHits: secondHopHits,
+      finalK: Math.max(input.limit, firstHopHits.length + secondHopHits.length),
+    })
       .sort((left, right) => {
         if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
         return right.updatedAt.getTime() - left.updatedAt.getTime();
       })
       .slice(0, input.limit);
+
+    const graphHopDepthCounts: Record<string, number> = {};
+    const graphEntityTypeCounts: Record<string, number> = {};
+    for (const hit of hits) {
+      const hopDepth = hit.graphMetadata?.hopDepth ?? 1;
+      graphHopDepthCounts[String(hopDepth)] = (graphHopDepthCounts[String(hopDepth)] ?? 0) + 1;
+      for (const entityType of hit.graphMetadata?.entityTypes ?? []) {
+        graphEntityTypeCounts[entityType] = (graphEntityTypeCounts[entityType] ?? 0) + 1;
+      }
+    }
+
+    return {
+      hits,
+      edgeTraversalCount: firstHopRows.length + discoveredLinks.length + secondHopRows.length,
+      graphMaxDepth: hits.reduce((max, hit) => Math.max(max, hit.graphMetadata?.hopDepth ?? 1), 0),
+      graphHopDepthCounts,
+      graphEntityTypeCounts,
+    };
   }
 
   async function querySymbolGraphExpansionKnowledge(input: {
@@ -2655,7 +3064,7 @@ export function issueRetrievalService(db: Db) {
           queryLength: queryText.length,
           queryPreview: queryText.substring(0, 100),
         });
-        const dynamicSignals = deriveDynamicRetrievalSignals({
+        const baselineSignals = deriveDynamicRetrievalSignals({
           message: input.message,
           issue: input.issue,
           recipientRole: recipient.role,
@@ -2668,6 +3077,33 @@ export function issueRetrievalService(db: Db) {
           issueId: input.issueId,
           issueProjectId: input.issue.projectId,
           currentMessageSeq: input.triggeringMessageSeq,
+        });
+        const relevantProjectIds = uniqueNonEmpty([
+          input.issue.projectId,
+          ...baselineSignals.projectAffinityIds,
+        ]);
+        const projectRevisions = relevantProjectIds.length === 0
+          ? []
+          : await knowledge.listProjectKnowledgeRevisions({
+            companyId: input.companyId,
+            projectIds: relevantProjectIds,
+          });
+        const revisionSignature = buildKnowledgeRevisionSignature({
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          projectAffinityIds: baselineSignals.projectAffinityIds,
+          revisions: projectRevisions.map((revision) => ({
+            projectId: revision.projectId,
+            revision: revision.revision,
+            lastHeadSha: revision.lastHeadSha ?? null,
+            lastTreeSignature: revision.lastTreeSignature ?? null,
+          })),
+        });
+        const primaryKnowledgeRevision = projectRevisions.find((revision) => revision.projectId === input.issue.projectId)?.revision ?? 0;
+        const personalizationFingerprint = buildPersonalizationFingerprint(personalizationProfile);
+        const dynamicSignals = applyPersonalizationSignals({
+          signals: baselineSignals,
+          profile: personalizationProfile,
         });
 
         let queryEmbedding: number[] | null = null;
@@ -2794,6 +3230,9 @@ export function issueRetrievalService(db: Db) {
             temporalContext,
             cache: {
               embeddingHit: queryEmbeddingDebug.embeddingCacheHit === true,
+              candidateHit: false,
+              finalHit: false,
+              revisionSignature,
             },
             personalization: {
               applied: personalizationProfile.applied,
@@ -2804,213 +3243,427 @@ export function issueRetrievalService(db: Db) {
               sourceTypeKeyCount: Object.keys(personalizationProfile.sourceTypeBoosts).length,
               pathKeyCount: Object.keys(personalizationProfile.pathBoosts).length,
               symbolKeyCount: Object.keys(personalizationProfile.symbolBoosts).length,
+              injectedExactPathCount: Math.max(dynamicSignals.exactPaths.length - baselineSignals.exactPaths.length, 0),
+              injectedSymbolHintCount: Math.max(dynamicSignals.symbolHints.length - baselineSignals.symbolHints.length, 0),
+              injectedSourceTypeCount: Math.max(dynamicSignals.preferredSourceTypes.length - baselineSignals.preferredSourceTypes.length, 0),
             },
             ...queryEmbeddingDebug,
           },
         });
 
-        // Parallelize all knowledge queries to reduce latency (80-300ms -> 50-200ms)
-        const [sparseHits, pathHits, symbolHits, denseHits] = await Promise.all([
-          querySparseKnowledge({
+        const candidateCacheKey = buildRetrievalStageCacheKey({
+          stage: "candidate_hits",
+          queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          allowedSourceTypes: policy.allowedSourceTypes,
+          allowedAuthorityLevels: policy.allowedAuthorityLevels,
+          rerankConfig: {
+            ...rerankConfig,
+            denseEnabled: Boolean(queryEmbedding),
+          },
+          dynamicSignals,
+          temporalContext,
+          revisionSignature,
+          personalizationFingerprint,
+        });
+        const finalCacheKey = buildRetrievalStageCacheKey({
+          stage: "final_hits",
+          queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          allowedSourceTypes: policy.allowedSourceTypes,
+          allowedAuthorityLevels: policy.allowedAuthorityLevels,
+          rerankConfig: {
+            ...rerankConfig,
+            denseEnabled: Boolean(queryEmbedding),
+          },
+          dynamicSignals,
+          temporalContext,
+          revisionSignature,
+          personalizationFingerprint,
+        });
+
+        const cachedCandidatePayload = readRetrievalCachePayload(
+          (await knowledge.getRetrievalCacheEntry({
             companyId: input.companyId,
-            issueId: input.issueId,
             projectId: input.issue.projectId,
-            projectAffinityIds: dynamicSignals.projectAffinityIds,
-            queryText,
-            allowedSourceTypes: policy.allowedSourceTypes,
-            allowedAuthorityLevels: policy.allowedAuthorityLevels,
-            limit: policy.topKSparse,
-          }),
-          queryPathKnowledge({
+            stage: "candidate_hits",
+            cacheKey: candidateCacheKey,
+            knowledgeRevision: primaryKnowledgeRevision,
+          }))?.valueJson,
+        );
+        const cachedFinalPayload = readRetrievalCachePayload(
+          (await knowledge.getRetrievalCacheEntry({
             companyId: input.companyId,
-            exactPaths: dynamicSignals.exactPaths,
-            allowedSourceTypes: policy.allowedSourceTypes,
-            allowedAuthorityLevels: policy.allowedAuthorityLevels,
-            limit: Math.min(policy.rerankK, Math.max(dynamicSignals.exactPaths.length * 2, 6)),
-          }),
-          querySymbolKnowledge({
-            companyId: input.companyId,
-            symbolHints: dynamicSignals.symbolHints,
-            allowedSourceTypes: policy.allowedSourceTypes,
-            allowedAuthorityLevels: policy.allowedAuthorityLevels,
-            limit: Math.min(policy.rerankK, Math.max(dynamicSignals.symbolHints.length, 6)),
-          }),
-          queryEmbedding
-            ? queryDenseKnowledge({
+            projectId: input.issue.projectId,
+            stage: "final_hits",
+            cacheKey: finalCacheKey,
+            knowledgeRevision: primaryKnowledgeRevision,
+          }))?.valueJson,
+        );
+
+        let sparseHits: RetrievalCandidate[] = [];
+        let pathHits: RetrievalCandidate[] = [];
+        let symbolHits: RetrievalCandidate[] = [];
+        let denseHits: RetrievalCandidate[] = [];
+        let sparseHitCount = 0;
+        let pathHitCount = 0;
+        let symbolHitCount = 0;
+        let denseHitCount = 0;
+        let hits: RetrievalHitView[] = [];
+        let candidateCacheHit = false;
+
+        if (cachedCandidatePayload) {
+          candidateCacheHit = true;
+          hits = cachedCandidatePayload.hits;
+          sparseHitCount = Number(cachedCandidatePayload.metadata.sparseHitCount ?? 0);
+          pathHitCount = Number(cachedCandidatePayload.metadata.pathHitCount ?? 0);
+          symbolHitCount = Number(cachedCandidatePayload.metadata.symbolHitCount ?? 0);
+          denseHitCount = Number(cachedCandidatePayload.metadata.denseHitCount ?? 0);
+        } else {
+          [sparseHits, pathHits, symbolHits, denseHits] = await Promise.all([
+            querySparseKnowledge({
               companyId: input.companyId,
               issueId: input.issueId,
               projectId: input.issue.projectId,
               projectAffinityIds: dynamicSignals.projectAffinityIds,
-              queryEmbedding,
+              queryText,
               allowedSourceTypes: policy.allowedSourceTypes,
               allowedAuthorityLevels: policy.allowedAuthorityLevels,
-              limit: policy.topKDense,
-            })
-            : Promise.resolve([]),
-        ]);
+              limit: policy.topKSparse,
+            }),
+            queryPathKnowledge({
+              companyId: input.companyId,
+              exactPaths: dynamicSignals.exactPaths,
+              allowedSourceTypes: policy.allowedSourceTypes,
+              allowedAuthorityLevels: policy.allowedAuthorityLevels,
+              limit: Math.min(policy.rerankK, Math.max(dynamicSignals.exactPaths.length * 2, 6)),
+            }),
+            querySymbolKnowledge({
+              companyId: input.companyId,
+              symbolHints: dynamicSignals.symbolHints,
+              allowedSourceTypes: policy.allowedSourceTypes,
+              allowedAuthorityLevels: policy.allowedAuthorityLevels,
+              limit: Math.min(policy.rerankK, Math.max(dynamicSignals.symbolHints.length, 6)),
+            }),
+            queryEmbedding
+              ? queryDenseKnowledge({
+                companyId: input.companyId,
+                issueId: input.issueId,
+                projectId: input.issue.projectId,
+                projectAffinityIds: dynamicSignals.projectAffinityIds,
+                queryEmbedding,
+                allowedSourceTypes: policy.allowedSourceTypes,
+                allowedAuthorityLevels: policy.allowedAuthorityLevels,
+                limit: policy.topKDense,
+              })
+              : Promise.resolve([]),
+          ]);
 
-        console.log("[RETRIEVAL] Sparse hits:", sparseHits.length);
-        console.log("[RETRIEVAL] Path hits:", pathHits.length);
-        console.log("[RETRIEVAL] Symbol hits:", symbolHits.length);
-        console.log("[RETRIEVAL] Dense hits:", denseHits.length);
+          sparseHitCount = sparseHits.length;
+          pathHitCount = pathHits.length;
+          symbolHitCount = symbolHits.length;
+          denseHitCount = denseHits.length;
+          console.log("[RETRIEVAL] Sparse hits:", sparseHitCount);
+          console.log("[RETRIEVAL] Path hits:", pathHitCount);
+          console.log("[RETRIEVAL] Symbol hits:", symbolHitCount);
+          console.log("[RETRIEVAL] Dense hits:", denseHitCount);
 
-        const hits = fuseRetrievalCandidates({
-          sparseHits: [...sparseHits, ...pathHits, ...symbolHits],
-          denseHits,
-          issueId: input.issueId,
-          projectId: input.issue.projectId,
-          projectAffinityIds: dynamicSignals.projectAffinityIds,
-          finalK: Math.max(policy.rerankK, policy.finalK),
-        });
+          hits = fuseRetrievalCandidates({
+            sparseHits: [...sparseHits, ...pathHits, ...symbolHits],
+            denseHits,
+            issueId: input.issueId,
+            projectId: input.issue.projectId,
+            projectAffinityIds: dynamicSignals.projectAffinityIds,
+            finalK: Math.max(policy.rerankK, policy.finalK),
+          });
+          await knowledge.upsertRetrievalCacheEntry({
+            companyId: input.companyId,
+            projectId: input.issue.projectId,
+            stage: "candidate_hits",
+            cacheKey: candidateCacheKey,
+            knowledgeRevision: primaryKnowledgeRevision,
+            ttlSeconds: CANDIDATE_HIT_CACHE_TTL_SECONDS,
+            valueJson: serializeRetrievalCachePayload({
+              hits,
+              quality: null,
+              metadata: {
+                sparseHitCount,
+                pathHitCount,
+                symbolHitCount,
+                denseHitCount,
+              },
+            }),
+          });
+        }
+
         console.log("[RETRIEVAL] Fused candidates:", hits.length);
-        const linkMap = await listRetrievalLinks(hits.map((hit) => hit.chunkId));
-        const initialDocumentVersionMap = await listDocumentVersionsForRetrieval({
-          db,
-          companyId: input.companyId,
-          documentIds: uniqueNonEmpty(hits.map((hit) => hit.documentId)),
-        });
-        const initialRerankedHits = rerankRetrievalHits({
-          hits,
-          signals: dynamicSignals,
-          issueId: input.issueId,
-          projectId: input.issue.projectId,
-          projectAffinityIds: dynamicSignals.projectAffinityIds,
-          linkMap,
-          temporalContext,
-          documentVersionMap: initialDocumentVersionMap,
-          finalK: policy.finalK,
-          rerankConfig,
-          personalizationProfile,
-        });
-        const graphSeeds = buildGraphExpansionSeeds({
-          hits: initialRerankedHits,
-          linkMap,
-          signals: dynamicSignals,
-        });
-        const legacyGraphHits = await queryGraphExpansionKnowledge({
-          companyId: input.companyId,
-          issueId: input.issueId,
-          projectId: input.issue.projectId,
-          projectAffinityIds: dynamicSignals.projectAffinityIds,
-          seeds: graphSeeds,
-          allowedSourceTypes: policy.allowedSourceTypes,
-          allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          excludeChunkIds: hits.map((hit) => hit.chunkId),
-          limit: Math.min(Math.max(policy.finalK, 6), Math.max(graphSeeds.length * 2, 6)),
-        });
-        const graphLinkMap = legacyGraphHits.length > 0
-          ? await listRetrievalLinks(legacyGraphHits.map((hit) => hit.chunkId))
-          : new Map<string, RetrievalLinkView[]>();
-        const combinedLinkMap = new Map(linkMap);
-        for (const [chunkId, links] of graphLinkMap.entries()) {
-          combinedLinkMap.set(chunkId, links);
-        }
-        const rerankedHits = legacyGraphHits.length > 0
-          ? rerankRetrievalHits({
-            hits: mergeGraphExpandedHits({
-              baseHits: hits,
-              graphHits: legacyGraphHits,
-              finalK: Math.max(policy.rerankK, policy.finalK) + legacyGraphHits.length,
-            }),
+        let finalHits: RetrievalHitView[] = [];
+        let briefQuality: BriefQualitySummary | null = null;
+        let graphSeeds: RetrievalGraphSeed[] = [];
+        let chunkGraphResult: ChunkGraphExpansionResult = {
+          hits: [],
+          edgeTraversalCount: 0,
+          graphMaxDepth: 0,
+          graphHopDepthCounts: {},
+          graphEntityTypeCounts: {},
+        };
+        let symbolGraphSeeds: RetrievalSymbolGraphSeed[] = [];
+        let symbolGraphResult = {
+          hits: [] as RetrievalHitView[],
+          edgeTraversalCount: 0,
+          edgeTypeCounts: {} as Record<string, number>,
+          graphMaxDepth: 0,
+          graphHopDepthCounts: {} as Record<string, number>,
+        };
+        const finalCacheHit = Boolean(cachedFinalPayload);
+
+        if (cachedFinalPayload) {
+          finalHits = cachedFinalPayload.hits;
+          briefQuality = readCachedBriefQualitySummary(cachedFinalPayload.quality);
+        } else {
+          const linkMap = await listRetrievalLinks(hits.map((hit) => hit.chunkId));
+          const initialDocumentVersionMap = await listDocumentVersionsForRetrieval({
+            db,
+            companyId: input.companyId,
+            documentIds: uniqueNonEmpty(hits.map((hit) => hit.documentId)),
+          });
+          const initialRerankedHits = rerankRetrievalHits({
+            hits,
             signals: dynamicSignals,
             issueId: input.issueId,
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
-            linkMap: combinedLinkMap,
+            linkMap,
             temporalContext,
-            documentVersionMap: await listDocumentVersionsForRetrieval({
-              db,
-              companyId: input.companyId,
-              documentIds: uniqueNonEmpty(
-                mergeGraphExpandedHits({
-                  baseHits: hits,
-                  graphHits: legacyGraphHits,
-                  finalK: Math.max(policy.rerankK, policy.finalK) + legacyGraphHits.length,
-                }).map((hit) => hit.documentId),
-              ),
-            }),
+            documentVersionMap: initialDocumentVersionMap,
             finalK: policy.finalK,
             rerankConfig,
             personalizationProfile,
-          })
-          : initialRerankedHits;
-        const chunkSymbolMap = await listChunkSymbols(rerankedHits.map((hit) => hit.chunkId));
-        const symbolGraphSeeds = buildSymbolGraphExpansionSeeds({
-          hits: rerankedHits,
-          chunkSymbolMap,
-        });
-        const symbolGraphResult = await querySymbolGraphExpansionKnowledge({
-          companyId: input.companyId,
-          symbolSeeds: symbolGraphSeeds,
-          excludeChunkIds: rerankedHits.map((hit) => hit.chunkId),
-          allowedSourceTypes: policy.allowedSourceTypes,
-          allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          limit: Math.min(Math.max(policy.finalK, 6), Math.max(symbolGraphSeeds.length * 2, 6)),
-        });
-        const symbolGraphLinkMap = symbolGraphResult.hits.length > 0
-          ? await listRetrievalLinks(symbolGraphResult.hits.map((hit) => hit.chunkId))
-          : new Map<string, RetrievalLinkView[]>();
-        const symbolCombinedLinkMap = new Map(combinedLinkMap);
-        for (const [chunkId, links] of symbolGraphLinkMap.entries()) {
-          symbolCombinedLinkMap.set(chunkId, links);
-        }
-        const symbolExpandedHits = symbolGraphResult.hits.length > 0
-          ? rerankRetrievalHits({
-            hits: mergeGraphExpandedHits({
-              baseHits: rerankedHits,
-              graphHits: symbolGraphResult.hits,
-              finalK: Math.max(policy.rerankK, policy.finalK) + symbolGraphResult.hits.length,
-            }),
+          });
+          graphSeeds = buildGraphExpansionSeeds({
+            hits: initialRerankedHits,
+            linkMap,
             signals: dynamicSignals,
+          });
+          chunkGraphResult = await queryGraphExpansionKnowledge({
+            companyId: input.companyId,
             issueId: input.issueId,
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
-            linkMap: symbolCombinedLinkMap,
-            temporalContext,
-            documentVersionMap: await listDocumentVersionsForRetrieval({
-              db,
-              companyId: input.companyId,
-              documentIds: uniqueNonEmpty(
-                mergeGraphExpandedHits({
-                  baseHits: rerankedHits,
-                  graphHits: symbolGraphResult.hits,
-                  finalK: Math.max(policy.rerankK, policy.finalK) + symbolGraphResult.hits.length,
-                }).map((hit) => hit.documentId),
-              ),
-            }),
-            finalK: policy.finalK,
-            rerankConfig,
-            personalizationProfile,
-          })
-          : rerankedHits;
-        let finalHits: RetrievalHitView[] = symbolExpandedHits;
-        if (rerankConfig.modelRerank.enabled && modelReranker.isConfigured() && symbolExpandedHits.length > 1) {
-          try {
-            const modelResult = await modelReranker.rerankCandidates({
-              queryText,
-              recipientRole: recipient.role,
-              workflowState: input.message.workflowStateAfter,
-              summary: input.message.summary,
-              candidates: symbolExpandedHits.slice(0, rerankConfig.modelRerank.candidateCount).map((hit) => ({
-                chunkId: hit.chunkId,
-                sourceType: hit.sourceType,
-                authorityLevel: hit.authorityLevel,
-                path: hit.path,
-                symbolName: hit.symbolName,
-                title: hit.title,
-                excerpt: hit.textContent,
-                fusedScore: hit.fusedScore,
-              })),
-            });
-            finalHits = applyModelRerankOrder({
-              hits: symbolExpandedHits,
-              rankedChunkIds: modelResult.rankedChunkIds,
-              finalK: policy.finalK,
-              modelRerank: rerankConfig.modelRerank,
-            });
-          } catch {
-            finalHits = symbolExpandedHits;
+            seeds: graphSeeds,
+            allowedSourceTypes: policy.allowedSourceTypes,
+            allowedAuthorityLevels: policy.allowedAuthorityLevels,
+            excludeChunkIds: hits.map((hit) => hit.chunkId),
+            limit: Math.min(Math.max(policy.finalK, 6), Math.max(graphSeeds.length * 2, 6)),
+          });
+          const graphLinkMap = chunkGraphResult.hits.length > 0
+            ? await listRetrievalLinks(chunkGraphResult.hits.map((hit) => hit.chunkId))
+            : new Map<string, RetrievalLinkView[]>();
+          const combinedLinkMap = new Map(linkMap);
+          for (const [chunkId, links] of graphLinkMap.entries()) {
+            combinedLinkMap.set(chunkId, links);
           }
+          const graphExpandedCandidates = chunkGraphResult.hits.length > 0
+            ? mergeGraphExpandedHits({
+              baseHits: hits,
+              graphHits: chunkGraphResult.hits,
+              finalK: Math.max(policy.rerankK, policy.finalK) + chunkGraphResult.hits.length,
+            })
+            : hits;
+          const rerankedHits = chunkGraphResult.hits.length > 0
+            ? rerankRetrievalHits({
+              hits: graphExpandedCandidates,
+              signals: dynamicSignals,
+              issueId: input.issueId,
+              projectId: input.issue.projectId,
+              projectAffinityIds: dynamicSignals.projectAffinityIds,
+              linkMap: combinedLinkMap,
+              temporalContext,
+              documentVersionMap: await listDocumentVersionsForRetrieval({
+                db,
+                companyId: input.companyId,
+                documentIds: uniqueNonEmpty(graphExpandedCandidates.map((hit) => hit.documentId)),
+              }),
+              finalK: policy.finalK,
+              rerankConfig,
+              personalizationProfile,
+            })
+            : initialRerankedHits;
+          const chunkSymbolMap = await listChunkSymbols(rerankedHits.map((hit) => hit.chunkId));
+          symbolGraphSeeds = buildSymbolGraphExpansionSeeds({
+            hits: rerankedHits,
+            chunkSymbolMap,
+          });
+          symbolGraphResult = await querySymbolGraphExpansionKnowledge({
+            companyId: input.companyId,
+            symbolSeeds: symbolGraphSeeds,
+            excludeChunkIds: rerankedHits.map((hit) => hit.chunkId),
+            allowedSourceTypes: policy.allowedSourceTypes,
+            allowedAuthorityLevels: policy.allowedAuthorityLevels,
+            limit: Math.min(Math.max(policy.finalK, 6), Math.max(symbolGraphSeeds.length * 2, 6)),
+          });
+          const symbolGraphLinkMap = symbolGraphResult.hits.length > 0
+            ? await listRetrievalLinks(symbolGraphResult.hits.map((hit) => hit.chunkId))
+            : new Map<string, RetrievalLinkView[]>();
+          const symbolCombinedLinkMap = new Map(combinedLinkMap);
+          for (const [chunkId, links] of symbolGraphLinkMap.entries()) {
+            symbolCombinedLinkMap.set(chunkId, links);
+          }
+          const symbolExpandedHits = symbolGraphResult.hits.length > 0
+            ? rerankRetrievalHits({
+              hits: mergeGraphExpandedHits({
+                baseHits: rerankedHits,
+                graphHits: symbolGraphResult.hits,
+                finalK: Math.max(policy.rerankK, policy.finalK) + symbolGraphResult.hits.length,
+              }),
+              signals: dynamicSignals,
+              issueId: input.issueId,
+              projectId: input.issue.projectId,
+              projectAffinityIds: dynamicSignals.projectAffinityIds,
+              linkMap: symbolCombinedLinkMap,
+              temporalContext,
+              documentVersionMap: await listDocumentVersionsForRetrieval({
+                db,
+                companyId: input.companyId,
+                documentIds: uniqueNonEmpty(
+                  mergeGraphExpandedHits({
+                    baseHits: rerankedHits,
+                    graphHits: symbolGraphResult.hits,
+                    finalK: Math.max(policy.rerankK, policy.finalK) + symbolGraphResult.hits.length,
+                  }).map((hit) => hit.documentId),
+                ),
+              }),
+              finalK: policy.finalK,
+              rerankConfig,
+              personalizationProfile,
+            })
+            : rerankedHits;
+          finalHits = symbolExpandedHits;
+          if (rerankConfig.modelRerank.enabled && modelReranker.isConfigured() && symbolExpandedHits.length > 1) {
+            try {
+              const modelResult = await modelReranker.rerankCandidates({
+                queryText,
+                recipientRole: recipient.role,
+                workflowState: input.message.workflowStateAfter,
+                summary: input.message.summary,
+                candidates: symbolExpandedHits.slice(0, rerankConfig.modelRerank.candidateCount).map((hit) => ({
+                  chunkId: hit.chunkId,
+                  sourceType: hit.sourceType,
+                  authorityLevel: hit.authorityLevel,
+                  path: hit.path,
+                  symbolName: hit.symbolName,
+                  title: hit.title,
+                  excerpt: hit.textContent,
+                  fusedScore: hit.fusedScore,
+                })),
+              });
+              finalHits = applyModelRerankOrder({
+                hits: symbolExpandedHits,
+                rankedChunkIds: modelResult.rankedChunkIds,
+                finalK: policy.finalK,
+                modelRerank: rerankConfig.modelRerank,
+              });
+            } catch {
+              finalHits = symbolExpandedHits;
+            }
+          }
+
+          const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
+          const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
+          briefQuality = summarizeBriefQuality({
+            finalHits,
+            queryEmbedding,
+            sparseHitCount,
+            pathHitCount,
+            symbolHitCount,
+            denseHitCount,
+            graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
+            graphHitCount: graphHits.length,
+            graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+            symbolGraphSeedCount: symbolGraphSeeds.length,
+            symbolGraphHitCount: symbolGraphResult.hits.length,
+            edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
+            edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+            graphMaxDepth: Math.max(chunkGraphResult.graphMaxDepth, symbolGraphResult.graphMaxDepth),
+            graphHopDepthCounts: {
+              ...chunkGraphResult.graphHopDepthCounts,
+              ...Object.fromEntries(
+                Object.entries(symbolGraphResult.graphHopDepthCounts).map(([key, value]) => [
+                  key,
+                  (chunkGraphResult.graphHopDepthCounts[key] ?? 0) + value,
+                ]),
+              ),
+            },
+            multiHopGraphHitCount,
+            temporalContext,
+            crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
+            candidateCacheHit,
+            finalCacheHit: false,
+          });
+
+          await knowledge.upsertRetrievalCacheEntry({
+            companyId: input.companyId,
+            projectId: input.issue.projectId,
+            stage: "final_hits",
+            cacheKey: finalCacheKey,
+            knowledgeRevision: primaryKnowledgeRevision,
+            ttlSeconds: FINAL_HIT_CACHE_TTL_SECONDS,
+            valueJson: serializeRetrievalCachePayload({
+              hits: finalHits,
+              quality: briefQuality as unknown as Record<string, unknown>,
+              metadata: {
+                graphSeedCount: graphSeeds.length,
+                symbolGraphSeedCount: symbolGraphSeeds.length,
+              },
+            }),
+          });
+        }
+
+        if (!briefQuality) {
+          briefQuality = summarizeBriefQuality({
+            finalHits,
+            queryEmbedding,
+            sparseHitCount,
+            pathHitCount,
+            symbolHitCount,
+            denseHitCount,
+            graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
+            graphHitCount: finalHits.filter((hit) => hit.graphMetadata != null).length,
+            graphEntityTypes: uniqueNonEmpty(finalHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+            symbolGraphSeedCount: symbolGraphSeeds.length,
+            symbolGraphHitCount: symbolGraphResult.hits.length,
+            edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
+            edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+            graphMaxDepth: Math.max(chunkGraphResult.graphMaxDepth, symbolGraphResult.graphMaxDepth),
+            graphHopDepthCounts: {
+              ...chunkGraphResult.graphHopDepthCounts,
+              ...Object.fromEntries(
+                Object.entries(symbolGraphResult.graphHopDepthCounts).map(([key, value]) => [
+                  key,
+                  (chunkGraphResult.graphHopDepthCounts[key] ?? 0) + value,
+                ]),
+              ),
+            },
+            multiHopGraphHitCount: finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length,
+            temporalContext,
+            crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
+            candidateCacheHit,
+            finalCacheHit,
+          });
+        } else {
+          briefQuality = {
+            ...briefQuality,
+            candidateCacheHit,
+            finalCacheHit,
+          };
         }
 
         if (finalHits.length > 0) {
@@ -3043,26 +3696,41 @@ export function issueRetrievalService(db: Db) {
         console.log("[RETRIEVAL] Brief scope:", briefScope);
         const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
         const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
-        const briefQuality = summarizeBriefQuality({
-          finalHits,
-          queryEmbedding,
-          sparseHitCount: sparseHits.length,
-          pathHitCount: pathHits.length,
-          symbolHitCount: symbolHits.length,
-          denseHitCount: denseHits.length,
-          graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
-          graphHitCount: graphHits.length,
-          graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
-          symbolGraphSeedCount: symbolGraphSeeds.length,
-          symbolGraphHitCount: symbolGraphResult.hits.length,
-          edgeTraversalCount: symbolGraphResult.edgeTraversalCount,
-          edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
-          graphMaxDepth: symbolGraphResult.graphMaxDepth,
-          graphHopDepthCounts: symbolGraphResult.graphHopDepthCounts,
-          multiHopGraphHitCount,
-          temporalContext,
-          crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
-        });
+        const combinedGraphHopDepthCounts = {
+          ...chunkGraphResult.graphHopDepthCounts,
+          ...Object.fromEntries(
+            Object.entries(symbolGraphResult.graphHopDepthCounts).map(([key, value]) => [
+              key,
+              (chunkGraphResult.graphHopDepthCounts[key] ?? 0) + value,
+            ]),
+          ),
+        };
+        const combinedGraphMaxDepth = Math.max(chunkGraphResult.graphMaxDepth, symbolGraphResult.graphMaxDepth);
+        if (!briefQuality) {
+          briefQuality = summarizeBriefQuality({
+            finalHits,
+            queryEmbedding,
+            sparseHitCount,
+            pathHitCount,
+            symbolHitCount,
+            denseHitCount,
+            graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
+            graphHitCount: graphHits.length,
+            graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+            symbolGraphSeedCount: symbolGraphSeeds.length,
+            symbolGraphHitCount: symbolGraphResult.hits.length,
+            edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
+            edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+            graphMaxDepth: combinedGraphMaxDepth,
+            graphHopDepthCounts: combinedGraphHopDepthCounts,
+            multiHopGraphHitCount,
+            temporalContext,
+            crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
+            candidateCacheHit,
+            finalCacheHit,
+          });
+        }
+        const resolvedBriefQuality = briefQuality;
 
         const latestBrief = await knowledge.getLatestTaskBrief(input.issueId, briefScope);
         const brief = await knowledge.createTaskBrief({
@@ -3115,7 +3783,7 @@ export function issueRetrievalService(db: Db) {
 
         await knowledge.linkRetrievalRunToBrief(retrievalRun.id, brief.id);
         await knowledge.updateRetrievalRunDebug(retrievalRun.id, {
-          quality: briefQuality,
+          quality: resolvedBriefQuality,
           hitProjectIds: uniqueNonEmpty(finalHits.map((hit) => hit.documentProjectId ?? "")),
           topHitProjectId: finalHits[0]?.documentProjectId ?? null,
           topHitPath: finalHits[0]?.path ?? null,
@@ -3128,12 +3796,18 @@ export function issueRetrievalService(db: Db) {
           graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
           symbolGraphSeedCount: symbolGraphSeeds.length,
           symbolGraphHitCount: symbolGraphResult.hits.length,
-          edgeTraversalCount: symbolGraphResult.edgeTraversalCount,
+          edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
           edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
-          graphMaxDepth: symbolGraphResult.graphMaxDepth,
-          graphHopDepthCounts: symbolGraphResult.graphHopDepthCounts,
+          graphMaxDepth: combinedGraphMaxDepth,
+          graphHopDepthCounts: combinedGraphHopDepthCounts,
           multiHopGraphHitCount,
           temporalContext,
+          cache: {
+            embeddingHit: queryEmbeddingDebug.embeddingCacheHit === true,
+            candidateHit: candidateCacheHit,
+            finalHit: finalCacheHit,
+            revisionSignature,
+          },
           exactPathSatisfied: dynamicSignals.exactPaths.length === 0
             ? true
             : finalHits.some((hit) => {
@@ -3149,8 +3823,8 @@ export function issueRetrievalService(db: Db) {
             sourceTypeKeyCount: Object.keys(personalizationProfile.sourceTypeBoosts).length,
             pathKeyCount: Object.keys(personalizationProfile.pathBoosts).length,
             symbolKeyCount: Object.keys(personalizationProfile.symbolBoosts).length,
-            personalizedHitCount: briefQuality.personalizedHitCount,
-            averagePersonalizationBoost: briefQuality.averagePersonalizationBoost,
+            personalizedHitCount: resolvedBriefQuality.personalizedHitCount,
+            averagePersonalizationBoost: resolvedBriefQuality.averagePersonalizationBoost,
           },
         });
 
@@ -3167,8 +3841,8 @@ export function issueRetrievalService(db: Db) {
             recipientRole: recipient.role,
             recipientId: recipient.recipientId,
             hitCount: finalHits.length,
-            briefQuality: briefQuality.confidenceLevel,
-            briefDenseEnabled: briefQuality.denseEnabled,
+            briefQuality: resolvedBriefQuality.confidenceLevel,
+            briefDenseEnabled: resolvedBriefQuality.denseEnabled,
             briefId: brief.id,
             briefScope,
           },
@@ -3183,8 +3857,8 @@ export function issueRetrievalService(db: Db) {
             recipientRole: recipient.role,
             recipientId: recipient.recipientId,
             hitCount: finalHits.length,
-            briefQuality: briefQuality.confidenceLevel,
-            briefDenseEnabled: briefQuality.denseEnabled,
+            briefQuality: resolvedBriefQuality.confidenceLevel,
+            briefDenseEnabled: resolvedBriefQuality.denseEnabled,
           },
         });
 
