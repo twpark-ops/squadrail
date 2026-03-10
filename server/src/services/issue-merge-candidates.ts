@@ -2,6 +2,11 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import { issueMergeCandidates } from "@squadrail/db";
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
 export function issueMergeCandidateService(db: Db) {
   return {
     getByIssueId: async (issueId: string) =>
@@ -22,8 +27,9 @@ export function issueMergeCandidateService(db: Db) {
       diffStat?: string | null;
       targetBaseBranch?: string | null;
       mergeCommitSha?: string | null;
-      operatorActorType: string;
-      operatorActorId: string;
+      automationMetadata?: Record<string, unknown> | null;
+      operatorActorType?: string | null;
+      operatorActorId?: string | null;
       operatorNote?: string | null;
     }) => {
       const existing = await db
@@ -43,8 +49,9 @@ export function issueMergeCandidateService(db: Db) {
         diffStat: input.diffStat ?? null,
         targetBaseBranch: input.targetBaseBranch ?? null,
         mergeCommitSha: input.mergeCommitSha ?? null,
-        operatorActorType: input.operatorActorType,
-        operatorActorId: input.operatorActorId,
+        automationMetadata: input.automationMetadata ?? asRecord(existing?.automationMetadata),
+        operatorActorType: input.operatorActorType ?? null,
+        operatorActorId: input.operatorActorId ?? null,
         operatorNote: input.operatorNote ?? null,
         resolvedAt: input.state === "pending" ? null : new Date(),
         updatedAt: new Date(),
@@ -69,6 +76,36 @@ export function issueMergeCandidateService(db: Db) {
         )
         .returning();
       return updated ?? null;
+    },
+
+    patchAutomationMetadata: async (issueId: string, patch: Record<string, unknown>) => {
+      const existing = await db
+        .select()
+        .from(issueMergeCandidates)
+        .where(eq(issueMergeCandidates.issueId, issueId))
+        .then((rows) => rows[0] ?? null);
+      if (!existing) return null;
+
+      const [updated] = await db
+        .update(issueMergeCandidates)
+        .set({
+          automationMetadata: {
+            ...asRecord(existing.automationMetadata),
+            ...patch,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(issueMergeCandidates.id, existing.id))
+        .returning();
+      return updated ?? null;
+    },
+
+    deleteByIssueId: async (issueId: string) => {
+      const [deleted] = await db
+        .delete(issueMergeCandidates)
+        .where(eq(issueMergeCandidates.issueId, issueId))
+        .returning();
+      return deleted ?? null;
     },
   };
 }

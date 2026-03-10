@@ -32,6 +32,7 @@ type MergeCandidateRecordLike = {
   diffStat: string | null;
   targetBaseBranch: string | null;
   mergeCommitSha: string | null;
+  automationMetadata?: Record<string, unknown> | null;
   operatorNote: string | null;
   resolvedAt: Date | string | null;
 } | null;
@@ -103,12 +104,36 @@ function latestMessage(messages: ProtocolMessageLike[], messageType: string) {
     ?? null;
 }
 
+function findMergeCandidateCloseMessage(input: {
+  messages: ProtocolMessageLike[];
+  mergeCandidateRecord?: MergeCandidateRecordLike;
+}) {
+  if (input.mergeCandidateRecord?.closeMessageId) {
+    const anchored = input.messages.find((message) => message.id === input.mergeCandidateRecord?.closeMessageId);
+    if (anchored) return anchored;
+  }
+
+  return input.messages
+    .filter((message) => {
+      if (message.messageType !== "CLOSE_TASK") return false;
+      const payload = asRecord(message.payload);
+      return readString(payload.mergeStatus) === "pending_external_merge";
+    })
+    .sort((left, right) => normalizeDate(right.createdAt).getTime() - normalizeDate(left.createdAt).getTime())[0]
+    ?? null;
+}
+
 export function buildIssueChangeSurface(input: {
   issue: IssueLike;
   messages: ProtocolMessageLike[];
   mergeCandidateRecord?: MergeCandidateRecordLike;
 }): IssueChangeSurface {
-  const artifacts = flattenArtifacts(input.messages);
+  const mergeCandidateClose = findMergeCandidateCloseMessage(input);
+  const candidateCutoff = mergeCandidateClose ? normalizeDate(mergeCandidateClose.createdAt) : null;
+  const scopedMessages = candidateCutoff
+    ? input.messages.filter((message) => normalizeDate(message.createdAt).getTime() <= candidateCutoff.getTime())
+    : input.messages;
+  const artifacts = flattenArtifacts(scopedMessages);
   const workspaceBinding = firstArtifactBy({
     artifacts,
     predicate: (artifact) => artifact.kind === "doc" && asRecord(artifact.metadata).bindingType === "implementation_workspace",
@@ -132,9 +157,8 @@ export function buildIssueChangeSurface(input: {
 
   const bindingMetadata = asRecord(workspaceBinding?.artifact.metadata);
   const diffMetadata = asRecord(diffArtifact?.artifact.metadata);
-  const latestClose = latestMessage(input.messages, "CLOSE_TASK");
-  const latestApproval = latestMessage(input.messages, "APPROVE_IMPLEMENTATION");
-  const closePayload = asRecord(latestClose?.payload);
+  const latestApproval = latestMessage(scopedMessages, "APPROVE_IMPLEMENTATION");
+  const closePayload = asRecord(mergeCandidateClose?.payload);
   const approvalPayload = asRecord(latestApproval?.payload);
   const sourceBranch =
     readString(diffMetadata.branchName)
@@ -180,11 +204,12 @@ export function buildIssueChangeSurface(input: {
       rollbackPlan: readString(closePayload.rollbackPlan),
       approvalSummary: readString(approvalPayload.approvalSummary),
       remainingRisks: readStringArray(closePayload.remainingRisks),
+      automationMetadata: input.mergeCandidateRecord?.automationMetadata ?? null,
       operatorNote: input.mergeCandidateRecord?.operatorNote ?? null,
       resolvedAt: input.mergeCandidateRecord?.resolvedAt
         ? normalizeDate(input.mergeCandidateRecord.resolvedAt)
         : null,
-      closeMessageId: input.mergeCandidateRecord?.closeMessageId ?? latestClose?.id ?? null,
+      closeMessageId: input.mergeCandidateRecord?.closeMessageId ?? mergeCandidateClose?.id ?? null,
     };
   }
 

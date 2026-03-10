@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { issues } from "./issues.js";
 import { issueProtocolMessages } from "./issue_protocol_messages.js";
@@ -17,6 +17,7 @@ export const issueMergeCandidates = pgTable(
     diffStat: text("diff_stat"),
     targetBaseBranch: text("target_base_branch"),
     mergeCommitSha: text("merge_commit_sha"),
+    automationMetadata: jsonb("automation_metadata").$type<Record<string, unknown>>().notNull().default({}),
     operatorActorType: text("operator_actor_type"),
     operatorActorId: text("operator_actor_id"),
     operatorNote: text("operator_note"),

@@ -147,7 +147,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ### B7. Merge Automation
 
-상태: 다음 단계
+상태: 완료
 
 목표:
 
@@ -159,10 +159,14 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 - PR export
 - merge helper
 - cherry-pick helper
+- pending candidate persistence
+- merge automation preflight / plan
 
 완료 기준:
 
 - operator 개입을 최소화한 반영 경로가 생긴다.
+- integration branch 기반 merge/cherry-pick 보조가 가능하다.
+- merge candidate drift 없이 close evidence가 재사용된다.
 
 ### B8. Deep RAG Hardening
 
@@ -197,8 +201,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 다음 우선순위:
 
-1. B7. Merge Automation
-2. B8. Deep RAG Hardening
+1. B8. Deep RAG Hardening
 
 ## 완료 증거
 

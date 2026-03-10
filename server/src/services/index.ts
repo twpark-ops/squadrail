@@ -19,6 +19,11 @@ export { issueProtocolService } from "./issue-protocol.js";
 export { issueProtocolTimeoutService } from "./issue-protocol-timeouts.js";
 export { issueRetrievalService, deriveRetrievalEventType, deriveBriefScope, buildRetrievalQueryText } from "./issue-retrieval.js";
 export { issueMergeCandidateService } from "./issue-merge-candidates.js";
+export {
+  buildMergeAutomationPlan,
+  runMergeAutomationAction,
+  setIssueMergeAutomationGitExecutorForTests,
+} from "./issue-merge-automation.js";
 export { buildIssueChangeSurface } from "./issue-change-surface.js";
 export { knowledgeService } from "./knowledge.js";
 export { knowledgeEmbeddingService, normalizeEmbeddingInput } from "./knowledge-embeddings.js";
