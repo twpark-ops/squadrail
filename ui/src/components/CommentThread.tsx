@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "@/lib/router";
 import type { IssueComment, Agent } from "@squadrail/shared";
 import { Button } from "@/components/ui/button";
 import { FileText as AttachmentIcon } from "lucide-react";

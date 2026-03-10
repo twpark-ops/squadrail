@@ -147,8 +147,15 @@ export async function createApp(
     ];
     const uiDist = candidates.find((p) => fs.existsSync(path.join(p, "index.html")));
     if (uiDist) {
-      app.use(express.static(uiDist));
+      app.use(express.static(uiDist, {
+        setHeaders(res, filePath) {
+          if (filePath.endsWith(".html")) {
+            res.setHeader("Cache-Control", "no-store");
+          }
+        },
+      }));
       app.get(/.*/, (_req, res) => {
+        res.setHeader("Cache-Control", "no-store");
         res.sendFile(path.join(uiDist, "index.html"));
       });
     } else {

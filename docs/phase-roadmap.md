@@ -158,6 +158,25 @@
   - UI 번들 large chunk 경고는 기능 blocker는 아니지만 후속 최적화 대상이다
   - 장기 SLA trend chart와 adapter별 deep analytics는 후속 개선 여지다
 
+## Post-Phase Backlog
+
+Phase 0~4는 완료됐고, 다음 우선순위는 별도 backlog로 관리한다.
+
+- `P0`: 변경 추적 표면
+  - issue detail에 branch, worktree, changed files, diff stat, verification artifact 노출
+- `P0`: visual rebuild
+  - shell, typography, color system, 핵심 화면 시각언어 재정의
+- `P0`: merge candidate 흐름
+  - `pending_external_merge` 이후 operator 반영 경로 연결
+- `P1`: nightly real-org E2E
+  - 실제 조직 루프 회귀 자동 감시
+- `P2`: RAG quality instrumentation
+  - brief confidence, degraded reason, wrong-project/wrong-file 비율 계측
+- `P3`: deep RAG hardening
+  - version-aware retrieval, graph traversal, cache, personalization
+
+상세 설계는 [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/post-phase-backlog.md), 정보 구조는 [ui-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-rebuild-spec-v1.md), 비주얼 방향은 [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-visual-rebuild-spec-v1.md), 구조 요약은 [post-phase-backlog.puml](/home/taewoong/company-project/squadall/docs/post-phase-backlog.puml) 참조.
+
 ## Phase 1 세부 슬라이스
 
 1. Slice 1 완료

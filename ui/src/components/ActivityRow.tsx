@@ -2,6 +2,7 @@ import { Link } from "@/lib/router";
 import { Identity } from "./Identity";
 import { timeAgo } from "../lib/timeAgo";
 import { cn } from "../lib/utils";
+import { workIssuePath } from "../lib/appRoutes";
 import { deriveProjectUrlKey, type ActivityEvent, type Agent } from "@squadrail/shared";
 
 const ACTION_VERBS: Record<string, string> = {
@@ -67,7 +68,7 @@ function formatVerb(action: string, details?: Record<string, unknown> | null): s
 
 function entityLink(entityType: string, entityId: string, name?: string | null): string | null {
   switch (entityType) {
-    case "issue": return `/issues/${name ?? entityId}`;
+    case "issue": return workIssuePath(name ?? entityId);
     case "agent": return `/agents/${entityId}`;
     case "project": return `/projects/${deriveProjectUrlKey(name, entityId)}`;
     case "goal": return `/goals/${entityId}`;

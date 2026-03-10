@@ -8,10 +8,19 @@ import { timeAgo } from '@/lib/timeAgo';
 
 interface DocumentListProps {
   documents: KnowledgeDocument[];
+  projectNames?: Record<string, string>;
+  selectedProjectId?: string | null;
+  recentMode?: boolean;
   onDocumentClick: (document: KnowledgeDocument) => void;
 }
 
-export function DocumentList({ documents, onDocumentClick }: DocumentListProps) {
+export function DocumentList({
+  documents,
+  projectNames = {},
+  selectedProjectId = null,
+  recentMode = false,
+  onDocumentClick,
+}: DocumentListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSourceType, setFilterSourceType] = useState<string | null>(null);
 
@@ -49,15 +58,16 @@ export function DocumentList({ documents, onDocumentClick }: DocumentListProps) 
       <div className="flex gap-3 flex-wrap">
         <Input
           type="text"
-          placeholder="Search documents..."
+          placeholder={recentMode ? "Search recent documents..." : "Search project documents..."}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-md"
+          className="max-w-md rounded-full"
         />
         <div className="flex gap-2 flex-wrap">
           <Button
             variant={filterSourceType === null ? 'default' : 'outline'}
             size="sm"
+            className="rounded-full"
             onClick={() => setFilterSourceType(null)}
           >
             All ({documents.length})
@@ -69,6 +79,7 @@ export function DocumentList({ documents, onDocumentClick }: DocumentListProps) 
                 key={type}
                 variant={filterSourceType === type ? 'default' : 'outline'}
                 size="sm"
+                className="rounded-full"
                 onClick={() => setFilterSourceType(type)}
               >
                 {type} ({count})
@@ -76,6 +87,14 @@ export function DocumentList({ documents, onDocumentClick }: DocumentListProps) 
             );
           })}
         </div>
+      </div>
+
+      <div className="rounded-[1.15rem] border border-border/80 bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+        {selectedProjectId
+          ? "Project-scoped view. You are browsing the selected project's knowledge slice."
+          : recentMode
+            ? "Company-wide recent view. This list is intentionally capped, so use project coverage above for full distribution."
+            : "Company-wide knowledge view."}
       </div>
 
       <div className="space-y-3">
@@ -88,11 +107,11 @@ export function DocumentList({ documents, onDocumentClick }: DocumentListProps) 
         {filteredDocuments.map((doc, idx) => (
           <AnimatedCard key={doc.id} delay={Math.min(idx * 0.03, 0.5)}>
             <div
-              className="p-4 border rounded-xl hover:border-foreground/20 hover:bg-accent/20 transition-colors cursor-pointer"
+              className="cursor-pointer rounded-[1.2rem] border border-border/80 bg-background/70 p-4 transition-colors hover:border-foreground/20 hover:bg-accent/20"
               onClick={() => onDocumentClick(doc)}
             >
               <div className="flex items-start gap-4">
-                <div className="p-2 bg-muted rounded-lg shrink-0">
+                <div className="shrink-0 rounded-[0.95rem] bg-muted p-2">
                   {getIcon(doc)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -105,6 +124,11 @@ export function DocumentList({ documents, onDocumentClick }: DocumentListProps) 
                     </p>
                   )}
                   <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
+                    {doc.projectId && projectNames[doc.projectId] && (
+                      <span className="flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1">
+                        {projectNames[doc.projectId]}
+                      </span>
+                    )}
                     <span className="flex items-center gap-1">
                       <Code className="h-3 w-3" />
                       {doc.sourceType}

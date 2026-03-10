@@ -1,93 +1,87 @@
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { RefreshCw, Download } from 'lucide-react';
-import { PageTransition } from '@/components/PageTransition';
-import { useCompany } from '@/context/CompanyContext';
-import { useBreadcrumbs } from '@/context/BreadcrumbContext';
-import { Button } from '@/components/ui/button';
-import { knowledgeApi, type KnowledgeDocument } from '@/api/knowledge';
-import { projectsApi } from '@/api/projects';
-import { KnowledgeStats } from '@/components/knowledge/KnowledgeStats';
-import { ProjectDistribution } from '@/components/knowledge/ProjectDistribution';
-import { DocumentList } from '@/components/knowledge/DocumentList';
-import { DocumentDetailModal } from '@/components/knowledge/DocumentDetailModal';
-import { timeAgo } from '@/lib/timeAgo';
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Download, FolderTree, Network, RefreshCw } from "lucide-react";
+import { PageTransition } from "@/components/PageTransition";
+import { useCompany } from "@/context/CompanyContext";
+import { useBreadcrumbs } from "@/context/BreadcrumbContext";
+import { Button } from "@/components/ui/button";
+import { knowledgeApi, type KnowledgeDocument } from "@/api/knowledge";
+import { projectsApi } from "@/api/projects";
+import { KnowledgeStats } from "@/components/knowledge/KnowledgeStats";
+import { ProjectDistribution } from "@/components/knowledge/ProjectDistribution";
+import { DocumentList } from "@/components/knowledge/DocumentList";
+import { DocumentDetailModal } from "@/components/knowledge/DocumentDetailModal";
+import { KnowledgeSignalPanel } from "@/components/knowledge/KnowledgeSignalPanel";
+import { timeAgo } from "@/lib/timeAgo";
 
-/**
- * Knowledge Browser Page
- *
- * Browse and search RAG-indexed knowledge base.
- * View documents, evidence, and embeddings used by agents.
- */
 export function Knowledge() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
-  // Set breadcrumbs
-  setBreadcrumbs([{ label: 'Knowledge' }]);
+  useEffect(() => {
+    setBreadcrumbs([{ label: "Knowledge" }]);
+  }, [setBreadcrumbs]);
 
-  // Fetch documents
+  const overviewQuery = useQuery({
+    queryKey: ["knowledge", "overview", selectedCompanyId],
+    queryFn: () => knowledgeApi.getOverview(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
   const documentsQuery = useQuery({
-    queryKey: ['knowledge', 'documents', selectedCompanyId],
+    queryKey: ["knowledge", "documents", selectedCompanyId, selectedProjectId],
     queryFn: () =>
       knowledgeApi.listDocuments({
         companyId: selectedCompanyId!,
-        limit: 500,
+        projectId: selectedProjectId ?? undefined,
+        limit: selectedProjectId ? 500 : 250,
       }),
     enabled: Boolean(selectedCompanyId),
   });
 
-  // Fetch projects for distribution view
   const projectsQuery = useQuery({
-    queryKey: ['projects', selectedCompanyId],
+    queryKey: ["projects", selectedCompanyId],
     queryFn: () => projectsApi.list(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
 
-  // Calculate statistics
   const stats = useMemo(() => {
-    const documents = documentsQuery.data || [];
-
-    const totalChunks = documents.reduce((sum, doc) => {
-      const chunkCount = doc.metadata?.embeddingChunkCount;
-      return sum + (typeof chunkCount === 'number' ? chunkCount : 0);
-    }, 0);
-
-    const lastSync = documents.length > 0
-      ? timeAgo(
-          new Date(
-            Math.max(...documents.map(d => new Date(d.updatedAt).getTime()))
-          )
-        )
-      : null;
-
-    const embeddedCount = documents.filter(
-      d => d.metadata?.embeddingChunkCount && typeof d.metadata.embeddingChunkCount === 'number' && d.metadata.embeddingChunkCount > 0
-    ).length;
-    const embeddingStatus = documents.length > 0
-      ? `${Math.round((embeddedCount / documents.length) * 100)}% embedded`
-      : 'No data';
+    const overview = overviewQuery.data;
+    const timestamps = (overview?.projectCoverage ?? [])
+      .map((project) => (project.lastUpdatedAt ? new Date(project.lastUpdatedAt).getTime() : 0))
+      .filter((value) => value > 0);
 
     return {
-      totalDocuments: documents.length,
-      totalChunks,
-      lastSync,
-      embeddingStatus,
+      totalDocuments: overview?.totalDocuments ?? 0,
+      totalChunks: overview?.totalChunks ?? 0,
+      totalLinks: overview?.totalLinks ?? 0,
+      connectedDocuments: overview?.connectedDocuments ?? 0,
+      activeProjects: overview?.activeProjects ?? 0,
+      linkedChunks: overview?.linkedChunks ?? 0,
+      lastSync: timestamps.length > 0 ? timeAgo(new Date(Math.max(...timestamps))) : null,
     };
-  }, [documentsQuery.data]);
+  }, [overviewQuery.data]);
+
+  const projectNameMap = useMemo(
+    () => Object.fromEntries((projectsQuery.data ?? []).map((project) => [project.id, project.name])),
+    [projectsQuery.data],
+  );
 
   const handleRefresh = () => {
+    overviewQuery.refetch();
     documentsQuery.refetch();
+    projectsQuery.refetch();
   };
 
-  const isLoading = documentsQuery.isLoading || projectsQuery.isLoading;
-  const hasError = documentsQuery.error || projectsQuery.error;
+  const isLoading = overviewQuery.isLoading || documentsQuery.isLoading || projectsQuery.isLoading;
+  const hasError = overviewQuery.error || documentsQuery.error || projectsQuery.error;
 
   if (!selectedCompanyId) {
     return (
       <PageTransition>
-        <div className="text-center py-12 text-muted-foreground">
+        <div className="py-12 text-center text-muted-foreground">
           Please select a company to view knowledge base
         </div>
       </PageTransition>
@@ -97,14 +91,29 @@ export function Knowledge() {
   return (
     <PageTransition>
       <div className="space-y-8">
-        {/* Hero */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight">Knowledge Base</h1>
-              <p className="text-lg text-muted-foreground mt-2">
-                Browse and search indexed documents used by agents
-              </p>
+        <section className="rounded-[2rem] border border-border bg-[linear-gradient(145deg,color-mix(in_oklab,var(--card)_88%,white),color-mix(in_oklab,var(--primary)_7%,white))] p-6 shadow-card md:p-7">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-3">
+              <div className="inline-flex rounded-full border border-primary/10 bg-primary/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/84">
+                RAG Evidence Browser
+              </div>
+              <div>
+                <h1 className="text-4xl font-semibold tracking-tight text-foreground">Knowledge Base</h1>
+                <p className="mt-2 max-w-3xl text-base text-muted-foreground md:text-lg">
+                  Company-wide retrieval coverage, graph connectivity, and project-scoped knowledge slices for agent briefs.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full border border-border bg-background px-3 py-1.5">
+                  {stats.totalDocuments.toLocaleString()} documents
+                </span>
+                <span className="rounded-full border border-border bg-background px-3 py-1.5">
+                  {stats.totalChunks.toLocaleString()} chunks
+                </span>
+                <span className="rounded-full border border-border bg-background px-3 py-1.5">
+                  {stats.totalLinks.toLocaleString()} graph links
+                </span>
+              </div>
             </div>
             <div className="flex gap-2">
               <Button
@@ -112,82 +121,117 @@ export function Knowledge() {
                 size="sm"
                 onClick={handleRefresh}
                 disabled={isLoading}
+                className="rounded-full border-border bg-background"
               >
-                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
-              <Button variant="outline" size="sm" disabled>
-                <Download className="h-4 w-4 mr-2" />
+              <Button variant="outline" size="sm" disabled className="rounded-full border-border bg-background">
+                <Download className="mr-2 h-4 w-4" />
                 Export
               </Button>
             </div>
           </div>
         </section>
 
-        {/* Error State */}
         {hasError && (
-          <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-center">
+          <div className="rounded-[1.5rem] border border-destructive/50 bg-destructive/10 p-6 text-center">
             <p className="text-destructive">
-              Failed to load knowledge base:{' '}
-              {documentsQuery.error?.message || projectsQuery.error?.message}
+              Failed to load knowledge base:{" "}
+              {(overviewQuery.error instanceof Error ? overviewQuery.error.message : null)
+                || (documentsQuery.error instanceof Error ? documentsQuery.error.message : null)
+                || (projectsQuery.error instanceof Error ? projectsQuery.error.message : null)
+                || "unknown error"}
             </p>
           </div>
         )}
 
-        {/* Loading State */}
-        {isLoading && !documentsQuery.data && (
-          <div className="text-center py-12 text-muted-foreground">
+        {isLoading && !overviewQuery.data && (
+          <div className="rounded-[1.5rem] border border-border/70 bg-card/60 py-12 text-center text-muted-foreground">
             Loading knowledge base...
           </div>
         )}
 
-        {/* Stats */}
-        {!isLoading && documentsQuery.data && (
-          <section>
-            <KnowledgeStats
-              totalDocuments={stats.totalDocuments}
-              totalChunks={stats.totalChunks}
-              lastSync={stats.lastSync}
-              embeddingStatus={stats.embeddingStatus}
-            />
+        {!isLoading && overviewQuery.data && (
+          <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+              <KnowledgeStats
+                totalDocuments={stats.totalDocuments}
+                totalChunks={stats.totalChunks}
+                totalLinks={stats.totalLinks}
+                connectedDocuments={stats.connectedDocuments}
+                activeProjects={stats.activeProjects}
+                lastSync={stats.lastSync}
+              />
+            </div>
+            <div className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+              <KnowledgeSignalPanel
+                sourceTypeDistribution={overviewQuery.data.sourceTypeDistribution}
+                authorityDistribution={overviewQuery.data.authorityDistribution}
+                linkEntityDistribution={overviewQuery.data.linkEntityDistribution}
+              />
+            </div>
           </section>
         )}
 
-        {/* Project Distribution */}
-        {!isLoading && documentsQuery.data && projectsQuery.data && (
-          <section>
+        {!isLoading && overviewQuery.data && (
+          <section className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="rounded-[0.95rem] border border-primary/10 bg-primary/8 p-2 text-primary">
+                <FolderTree className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold">Coverage by Project</h2>
+                <p className="text-sm text-muted-foreground">
+                  Exact project-level knowledge coverage. This is the real company-wide picture, not just the recent document slice.
+                </p>
+              </div>
+            </div>
             <ProjectDistribution
-              documents={documentsQuery.data}
-              projects={projectsQuery.data}
+              coverage={overviewQuery.data.projectCoverage}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={setSelectedProjectId}
             />
           </section>
         )}
 
-        {/* Documents List */}
         {!isLoading && documentsQuery.data && (
-          <section className="space-y-4">
-            <h2 className="text-2xl font-semibold">
-              Documents ({documentsQuery.data.length})
-            </h2>
+          <section className="space-y-4 rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-semibold">
+                  {selectedProjectId ? "Project Slice" : "Recent Company Slice"} ({documentsQuery.data.length})
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedProjectId
+                    ? `${projectNameMap[selectedProjectId] ?? "Selected project"} scoped documents.`
+                    : "Recent documents across all projects. Use the project coverage panel above to inspect full project slices."}
+                </p>
+              </div>
+              <div className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                <Network className="mr-2 inline h-3.5 w-3.5" />
+                {stats.linkedChunks.toLocaleString()} linked chunks
+              </div>
+            </div>
             <DocumentList
               documents={documentsQuery.data}
+              projectNames={projectNameMap}
+              selectedProjectId={selectedProjectId}
+              recentMode={!selectedProjectId}
               onDocumentClick={setSelectedDocument}
             />
           </section>
         )}
 
-        {/* Empty State */}
-        {!isLoading && documentsQuery.data && documentsQuery.data.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-muted/20 p-12 text-center">
-            <h3 className="text-lg font-semibold mb-2">No documents indexed yet</h3>
-            <p className="text-muted-foreground max-w-md mx-auto">
-              Import project workspaces to build your knowledge base. Documents will be
-              automatically chunked and embedded for semantic search.
+        {!isLoading && overviewQuery.data && overviewQuery.data.totalDocuments === 0 && (
+          <div className="rounded-[1.5rem] border border-dashed border-border bg-muted/20 p-12 text-center">
+            <h3 className="mb-2 text-lg font-semibold">No documents indexed yet</h3>
+            <p className="mx-auto max-w-md text-muted-foreground">
+              Import project workspaces to build your knowledge base. Documents will be chunked, embedded, and linked into the retrieval graph.
             </p>
           </div>
         )}
 
-        {/* Document Detail Modal */}
         {selectedDocument && (
           <DocumentDetailModal
             document={selectedDocument}

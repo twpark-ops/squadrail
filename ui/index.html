@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -18,11 +18,11 @@
     <script>
       (() => {
         const primaryKey = "squadrail.theme";
-        const darkThemeColor = "#1A1A1A";
-        const lightThemeColor = "#FCFCFC";
+        const darkThemeColor = "#161a22";
+        const lightThemeColor = "#faf7f2";
         try {
           const stored = window.localStorage.getItem(primaryKey);
-          const theme = stored === "light" || stored === "dark" ? stored : "dark";
+          const theme = stored === "light" || stored === "dark" ? stored : "light";
           const isDark = theme === "dark";
           document.documentElement.classList.toggle("dark", isDark);
           document.documentElement.style.colorScheme = isDark ? "dark" : "light";
@@ -32,8 +32,8 @@
             themeColorMeta.setAttribute("content", isDark ? darkThemeColor : lightThemeColor);
           }
         } catch {
-          document.documentElement.classList.add("dark");
-          document.documentElement.style.colorScheme = "dark";
+          document.documentElement.classList.remove("dark");
+          document.documentElement.style.colorScheme = "light";
         }
       })();
     </script>

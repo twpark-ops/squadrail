@@ -10,6 +10,7 @@ import { authApi } from "../api/auth";
 import { assetsApi } from "../api/assets";
 import { queryKeys } from "../lib/queryKeys";
 import { useProjectOrder } from "../hooks/useProjectOrder";
+import { issueUrl } from "../lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -252,7 +253,7 @@ export function NewIssueDialog() {
         title: `${issue.identifier ?? "Issue"} created`,
         body: issue.title,
         tone: "success",
-        action: { label: `View ${issue.identifier ?? "issue"}`, href: `/issues/${issue.identifier ?? issue.id}` },
+        action: { label: `View ${issue.identifier ?? "issue"}`, href: issueUrl(issue) },
       });
     },
   });

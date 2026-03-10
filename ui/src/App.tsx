@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation } from "@/lib/router";
+import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
@@ -7,7 +7,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { authApi } from "./api/auth";
 import { healthApi } from "./api/health";
 import { companiesApi } from "./api/companies";
-import { DashboardOptimized as Dashboard } from "./pages/DashboardOptimized";
+import { DashboardOptimized as Overview } from "./pages/DashboardOptimized";
 import { Companies } from "./pages/Companies";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
@@ -15,6 +15,9 @@ import { Projects } from "./pages/Projects";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { Issues } from "./pages/Issues";
 import { IssueDetail } from "./pages/IssueDetail";
+import { Changes } from "./pages/Changes";
+import { Runs } from "./pages/Runs";
+import { Team } from "./pages/Team";
 import { Goals } from "./pages/Goals";
 import { GoalDetail } from "./pages/GoalDetail";
 import { Approvals } from "./pages/Approvals";
@@ -33,6 +36,7 @@ import { InviteLandingPage } from "./pages/InviteLanding";
 import { queryKeys } from "./lib/queryKeys";
 import { useCompany } from "./context/CompanyContext";
 import { useDialog } from "./context/DialogContext";
+import { appRoutes, workIssuePath } from "./lib/appRoutes";
 
 function BootstrapPendingPage() {
   return (
@@ -91,15 +95,23 @@ function CloudAccessGate() {
   return <Outlet />;
 }
 
+function LegacyIssueRedirect() {
+  const { issueId } = useParams<{ issueId: string }>();
+  return <Navigate to={workIssuePath(issueId ?? "")} replace />;
+}
+
 function boardRoutes() {
   return (
     <>
-      <Route index element={<Navigate to="dashboard" replace />} />
-      <Route path="dashboard" element={<Dashboard />} />
+      <Route index element={<Navigate to="overview" replace />} />
+      <Route path="overview" element={<Overview />} />
+      <Route path="dashboard" element={<Navigate to="/overview" replace />} />
       <Route path="companies" element={<Companies />} />
-      <Route path="company/settings" element={<CompanySettings />} />
+      <Route path="settings" element={<CompanySettings />} />
+      <Route path="company/settings" element={<Navigate to="/settings" replace />} />
       <Route path="org" element={<OrgChart />} />
-      <Route path="agents" element={<Navigate to="/agents/all" replace />} />
+      <Route path="team" element={<Team />} />
+      <Route path="agents" element={<Navigate to="/team" replace />} />
       <Route path="agents/all" element={<Agents />} />
       <Route path="agents/active" element={<Agents />} />
       <Route path="agents/paused" element={<Agents />} />
@@ -112,13 +124,18 @@ function boardRoutes() {
       <Route path="projects/:projectId/overview" element={<ProjectDetail />} />
       <Route path="projects/:projectId/issues" element={<ProjectDetail />} />
       <Route path="projects/:projectId/issues/:filter" element={<ProjectDetail />} />
-      <Route path="issues" element={<Issues />} />
-      <Route path="issues/all" element={<Navigate to="/issues" replace />} />
-      <Route path="issues/active" element={<Navigate to="/issues" replace />} />
-      <Route path="issues/backlog" element={<Navigate to="/issues" replace />} />
-      <Route path="issues/done" element={<Navigate to="/issues" replace />} />
-      <Route path="issues/recent" element={<Navigate to="/issues" replace />} />
-      <Route path="issues/:issueId" element={<IssueDetail />} />
+      <Route path="work" element={<Issues />} />
+      <Route path="work/:issueId" element={<IssueDetail />} />
+      <Route path="issues" element={<Navigate to="/work" replace />} />
+      <Route path="issues/all" element={<Navigate to="/work" replace />} />
+      <Route path="issues/active" element={<Navigate to="/work" replace />} />
+      <Route path="issues/backlog" element={<Navigate to="/work" replace />} />
+      <Route path="issues/done" element={<Navigate to="/work" replace />} />
+      <Route path="issues/recent" element={<Navigate to="/work" replace />} />
+      <Route path="issues/:issueId" element={<LegacyIssueRedirect />} />
+      <Route path="changes" element={<Changes />} />
+      <Route path="changes/:issueId" element={<IssueDetail />} />
+      <Route path="runs" element={<Runs />} />
       <Route path="goals" element={<Goals />} />
       <Route path="goals/:goalId" element={<GoalDetail />} />
       <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
@@ -165,10 +182,10 @@ function CompanyRootRedirect() {
     return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading...</div>;
   }
   if (setupProgressQuery.data && setupProgressQuery.data.status !== "first_issue_ready") {
-    return <Navigate to={`/${targetCompany.issuePrefix}/company/settings`} replace />;
+    return <Navigate to={`/${targetCompany.issuePrefix}${appRoutes.settings}`} replace />;
   }
 
-  return <Navigate to={`/${targetCompany.issuePrefix}/dashboard`} replace />;
+  return <Navigate to={`/${targetCompany.issuePrefix}${appRoutes.overview}`} replace />;
 }
 
 function UnprefixedBoardRedirect() {
@@ -194,7 +211,7 @@ function UnprefixedBoardRedirect() {
     return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading...</div>;
   }
   if (setupProgressQuery.data && setupProgressQuery.data.status !== "first_issue_ready") {
-    return <Navigate to={`/${targetCompany.issuePrefix}/company/settings`} replace />;
+    return <Navigate to={`/${targetCompany.issuePrefix}${appRoutes.settings}`} replace />;
   }
 
   return (
@@ -241,6 +258,14 @@ export function App() {
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<CompanyRootRedirect />} />
+          <Route path="overview" element={<UnprefixedBoardRedirect />} />
+          <Route path="work" element={<UnprefixedBoardRedirect />} />
+          <Route path="work/:issueId" element={<UnprefixedBoardRedirect />} />
+          <Route path="changes" element={<UnprefixedBoardRedirect />} />
+          <Route path="changes/:issueId" element={<UnprefixedBoardRedirect />} />
+          <Route path="runs" element={<UnprefixedBoardRedirect />} />
+          <Route path="team" element={<UnprefixedBoardRedirect />} />
+          <Route path="settings" element={<UnprefixedBoardRedirect />} />
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
           <Route path="issues" element={<UnprefixedBoardRedirect />} />
           <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
@@ -253,6 +278,14 @@ export function App() {
           <Route path="projects/:projectId/overview" element={<UnprefixedBoardRedirect />} />
           <Route path="projects/:projectId/issues" element={<UnprefixedBoardRedirect />} />
           <Route path="projects/:projectId/issues/:filter" element={<UnprefixedBoardRedirect />} />
+          <Route path="goals" element={<UnprefixedBoardRedirect />} />
+          <Route path="goals/:goalId" element={<UnprefixedBoardRedirect />} />
+          <Route path="knowledge" element={<UnprefixedBoardRedirect />} />
+          <Route path="activity" element={<UnprefixedBoardRedirect />} />
+          <Route path="costs" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals" element={<UnprefixedBoardRedirect />} />
+          <Route path="approvals/:approvalId" element={<UnprefixedBoardRedirect />} />
+          <Route path="inbox" element={<UnprefixedBoardRedirect />} />
           <Route path=":companyPrefix" element={<Layout />}>
             {boardRoutes()}
           </Route>

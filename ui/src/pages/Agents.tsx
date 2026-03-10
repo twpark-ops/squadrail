@@ -17,8 +17,9 @@ import { relativeTime, cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Bot, Plus, List, GitBranch, SlidersHorizontal } from "lucide-react";
+import { Bot, Plus, List, GitBranch, SlidersHorizontal, Cpu, Activity } from "lucide-react";
 import type { Agent } from "@squadrail/shared";
+import { HeroSection } from "../components/HeroSection";
 
 const adapterLabels: Record<string, string> = {
   claude_local: "Claude",
@@ -130,10 +131,57 @@ export function Agents() {
 
   const filtered = filterAgents(agents ?? [], tab, showTerminated);
   const filteredOrg = filterOrgTree(orgTree ?? [], tab, showTerminated);
+  const liveAgentCount = liveRunByAgent.size;
+  const codexCount = (agents ?? []).filter((agent) => agent.adapterType === "codex_local").length;
+  const claudeCount = (agents ?? []).filter((agent) => agent.adapterType === "claude_local").length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <HeroSection
+        title="Agents"
+        subtitle={`${agents?.length ?? 0} agents across execution, review, and escalation lanes.`}
+        actions={
+          <Button size="sm" onClick={openNewAgent}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            New Agent
+          </Button>
+        }
+      />
+
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <Bot className="h-3.5 w-3.5" />
+            Total agents
+          </div>
+          <div className="mt-3 text-3xl font-semibold">{agents?.length ?? 0}</div>
+        </div>
+        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <Activity className="h-3.5 w-3.5" />
+            Live execution
+          </div>
+          <div className="mt-3 text-3xl font-semibold">{liveAgentCount}</div>
+          <div className="mt-1 text-sm text-muted-foreground">Agents with running or queued heartbeat work.</div>
+        </div>
+        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <Cpu className="h-3.5 w-3.5" />
+            Codex lanes
+          </div>
+          <div className="mt-3 text-3xl font-semibold">{codexCount}</div>
+        </div>
+        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <Cpu className="h-3.5 w-3.5" />
+            Claude lanes
+          </div>
+          <div className="mt-3 text-3xl font-semibold">{claudeCount}</div>
+        </div>
+      </div>
+
+      <section className="rounded-[1.8rem] border border-border bg-card px-5 py-5 shadow-card">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={tab} onValueChange={(v) => navigate(`/agents/${v}`)}>
           <PageTabBar
             items={[
@@ -200,16 +248,12 @@ export function Agents() {
               </button>
             </div>
           )}
-          <Button size="sm" variant="outline" onClick={openNewAgent}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" />
-            New Agent
-          </Button>
         </div>
       </div>
-
       {filtered.length > 0 && (
-        <p className="text-xs text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""}</p>
+        <p className="mt-4 text-sm text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""} match the current view.</p>
       )}
+      </section>
 
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 
@@ -224,7 +268,12 @@ export function Agents() {
 
       {/* List view */}
       {effectiveView === "list" && filtered.length > 0 && (
-        <div className="border border-border">
+        <section className="overflow-hidden rounded-[1.8rem] border border-border bg-card shadow-card">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-lg font-semibold">Agent Directory</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Execution lanes ordered for scanning engine, recency, and live run state.</p>
+          </div>
+          <div>
           {filtered.map((agent) => {
             return (
               <EntityRow
@@ -233,10 +282,12 @@ export function Agents() {
                 subtitle={`${agent.role}${agent.title ? ` - ${agent.title}` : ""}`}
                 to={agentUrl(agent)}
                 leading={
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span
-                      className={`absolute inline-flex h-full w-full rounded-full ${agentStatusDot[agent.status] ?? agentStatusDotDefault}`}
-                    />
+                  <span className="grid h-9 w-9 place-items-center rounded-2xl border border-border bg-background">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span
+                        className={`absolute inline-flex h-full w-full rounded-full ${agentStatusDot[agent.status] ?? agentStatusDotDefault}`}
+                      />
+                    </span>
                   </span>
                 }
                 trailing={
@@ -260,7 +311,7 @@ export function Agents() {
                           liveCount={liveRunByAgent.get(agent.id)!.liveCount}
                         />
                       )}
-                      <span className="text-xs text-muted-foreground font-mono w-14 text-right">
+                      <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">
                         {adapterLabels[agent.adapterType] ?? agent.adapterType}
                       </span>
                       <span className="text-xs text-muted-foreground w-16 text-right">
@@ -275,7 +326,8 @@ export function Agents() {
               />
             );
           })}
-        </div>
+          </div>
+        </section>
       )}
 
       {effectiveView === "list" && agents && agents.length > 0 && filtered.length === 0 && (
@@ -286,11 +338,17 @@ export function Agents() {
 
       {/* Org chart view */}
       {effectiveView === "org" && filteredOrg.length > 0 && (
-        <div className="border border-border py-1">
+        <section className="overflow-hidden rounded-[1.8rem] border border-border bg-card shadow-card">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-lg font-semibold">Org Structure</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Command tree with live runtime metadata attached to each node.</p>
+          </div>
+          <div className="py-2">
           {filteredOrg.map((node) => (
             <OrgTreeNode key={node.id} node={node} depth={0} agentMap={agentMap} liveRunByAgent={liveRunByAgent} />
           ))}
-        </div>
+          </div>
+        </section>
       )}
 
       {effectiveView === "org" && orgTree && orgTree.length > 0 && filteredOrg.length === 0 && (
@@ -327,14 +385,16 @@ function OrgTreeNode({
     <div style={{ paddingLeft: depth * 24 }}>
       <Link
         to={agent ? agentUrl(agent) : `/agents/${node.id}`}
-        className="flex items-center gap-3 px-3 py-2 hover:bg-accent/30 transition-colors w-full text-left no-underline text-inherit"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left no-underline text-inherit transition-colors hover:bg-accent/34"
       >
-        <span className="relative flex h-2.5 w-2.5 shrink-0">
-          <span className={`absolute inline-flex h-full w-full rounded-full ${statusColor}`} />
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl border border-border bg-background">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className={`absolute inline-flex h-full w-full rounded-full ${statusColor}`} />
+          </span>
         </span>
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium">{node.name}</span>
-          <span className="text-xs text-muted-foreground ml-2">
+          <span className="text-sm font-semibold">{node.name}</span>
+          <span className="ml-2 text-xs text-muted-foreground">
             {roleLabels[node.role] ?? node.role}
             {agent?.title ? ` - ${agent.title}` : ""}
           </span>
@@ -361,7 +421,7 @@ function OrgTreeNode({
             )}
             {agent && (
               <>
-                <span className="text-xs text-muted-foreground font-mono w-14 text-right">
+                <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">
                   {adapterLabels[agent.adapterType] ?? agent.adapterType}
                 </span>
                 <span className="text-xs text-muted-foreground w-16 text-right">
@@ -376,7 +436,7 @@ function OrgTreeNode({
         </div>
       </Link>
       {node.reports && node.reports.length > 0 && (
-        <div className="border-l border-border/50 ml-4">
+        <div className="ml-5 border-l border-border/60">
           {node.reports.map((child) => (
             <OrgTreeNode key={child.id} node={child} depth={depth + 1} agentMap={agentMap} liveRunByAgent={liveRunByAgent} />
           ))}
@@ -398,7 +458,7 @@ function LiveRunIndicator({
   return (
     <Link
       to={`/agents/${agentRef}/runs/${runId}`}
-      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 transition-colors no-underline"
+      className="flex items-center gap-1.5 rounded-full border border-blue-500/18 bg-blue-500/10 px-2.5 py-1 transition-colors no-underline hover:bg-blue-500/18"
       onClick={(e) => e.stopPropagation()}
     >
       <span className="relative flex h-2 w-2">

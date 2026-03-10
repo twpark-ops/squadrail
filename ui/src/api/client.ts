@@ -32,6 +32,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       errorBody,
     );
   }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(
+      `Expected JSON response for ${path}, received ${contentType || "unknown content type"}`,
+      res.status,
+      {
+        preview: text.slice(0, 200),
+      },
+    );
+  }
+
   return res.json();
 }
 

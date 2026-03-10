@@ -69,7 +69,7 @@ export function RoleSimulationConsole(props: {
   const [taskBrief, setTaskBrief] = useState("Focus on the smallest reversible slice with explicit reviewer ownership.");
   const [retrievalSummary, setRetrievalSummary] = useState("Relevant code and design references have already been gathered.");
   const [acceptanceCriteria, setAcceptanceCriteria] = useState("Evidence attached\nScope unchanged\nNext owner is clear");
-  const [changedFiles, setChangedFiles] = useState("server/src/services/issue-retrieval.ts\nui/src/pages/Dashboard.tsx");
+  const [changedFiles, setChangedFiles] = useState("server/src/services/issue-retrieval.ts\nui/src/pages/DashboardOptimized.tsx");
   const [reviewFindings, setReviewFindings] = useState("");
   const [blockerCode, setBlockerCode] = useState("");
 

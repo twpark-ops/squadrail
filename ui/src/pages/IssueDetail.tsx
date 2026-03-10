@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { issuesApi } from "../api/issues";
 import { activityApi } from "../api/activity";
@@ -37,10 +37,13 @@ import { StatusBadgeV2 } from "../components/StatusBadgeV2";
 import {
   Activity as ActivityIcon,
   BookText,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
   EyeOff,
+  GitBranch,
+  GitCommitHorizontal,
   Hexagon,
   ListTree,
   MessageSquare,
@@ -48,6 +51,7 @@ import {
   FileText as AttachmentIcon,
   ShieldAlert,
   SlidersHorizontal,
+  TestTube2,
   Trash2,
   TriangleAlert,
   Workflow,
@@ -56,6 +60,7 @@ import {
 import type {
   ActivityEvent,
   Agent,
+  DashboardBriefSnapshot,
   IssueAttachment,
   IssueProtocolMessage,
   IssueProtocolState,
@@ -63,6 +68,7 @@ import type {
   IssueReviewCycle,
   IssueTaskBrief,
 } from "@squadrail/shared";
+import { appRoutes } from "../lib/appRoutes";
 
 type CommentReassignment = {
   assigneeAgentId: string | null;
@@ -292,6 +298,7 @@ type ProtocolCloseSnapshot = {
   rollbackPlan: string | null;
   finalArtifacts: string[];
   remainingRisks: string[];
+  mergeStatus: string | null;
 };
 
 function readProtocolClose(message: IssueProtocolMessage): ProtocolCloseSnapshot | null {
@@ -303,6 +310,28 @@ function readProtocolClose(message: IssueProtocolMessage): ProtocolCloseSnapshot
     rollbackPlan: readProtocolString(payload, "rollbackPlan"),
     finalArtifacts: readProtocolStringArray(payload, "finalArtifacts"),
     remainingRisks: readProtocolStringArray(payload, "remainingRisks"),
+    mergeStatus: readProtocolString(payload, "mergeStatus"),
+  };
+}
+
+type ChangeWorkspaceSnapshot = {
+  branchName: string | null;
+  headSha: string | null;
+  changedFiles: string[];
+  diffStat: string | null;
+  workspaceStatus: string | null;
+};
+
+function readChangeWorkspaceSnapshot(resultJson: Record<string, unknown> | null | undefined): ChangeWorkspaceSnapshot | null {
+  const root = asRecord(resultJson);
+  const snapshot = asRecord(root?.workspaceGitSnapshot);
+  if (!snapshot) return null;
+  return {
+    branchName: readProtocolString(snapshot, "branchName"),
+    headSha: readProtocolString(snapshot, "headSha"),
+    changedFiles: readProtocolStringArray(snapshot, "changedFiles"),
+    diffStat: readProtocolString(snapshot, "diffStat"),
+    workspaceStatus: readProtocolString(root ?? {}, "workspaceStatus"),
   };
 }
 
@@ -407,7 +436,7 @@ function buildProtocolRecoveryAlerts(
       detail: message.summary,
       recommendation: timeoutRecommendation(timeoutCode),
       statusLabel: message.messageType === "TIMEOUT_ESCALATION" ? "Escalated" : "Reminder",
-      createdAt: message.createdAt,
+      createdAt: new Date(message.createdAt),
       metadata,
     }];
   });
@@ -431,7 +460,7 @@ function buildProtocolRecoveryAlerts(
       detail: violation.status === "open" ? "Protocol action was rejected and still needs correction." : "Historical protocol violation.",
       recommendation: violationRecommendation(violation.violationCode),
       statusLabel: formatProtocolValue(violation.status),
-      createdAt: violation.createdAt,
+      createdAt: new Date(violation.createdAt),
       metadata,
     };
   });
@@ -514,12 +543,15 @@ function ActorIdentity({ evt, agentMap }: { evt: ActivityEvent; agentMap: Map<st
 
 export function IssueDetail() {
   const { issueId } = useParams<{ issueId: string }>();
+  const location = useLocation();
   const { selectedCompanyId } = useCompany();
   const { pushToast } = useToast();
   const { openPanel, closePanel, panelVisible, setPanelVisible } = usePanel();
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const issueSection = location.pathname.includes("/changes/") ? "Changes" : "Work";
+  const issueBasePath = issueSection === "Changes" ? appRoutes.changes : appRoutes.work;
   const [moreOpen, setMoreOpen] = useState(false);
   const [mobilePropsOpen, setMobilePropsOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("brief");
@@ -764,6 +796,20 @@ export function IssueDetail() {
   }, [activity, comments, linkedRuns]);
 
   const latestBriefs = useMemo(() => latestBriefsByScope(protocolBriefs), [protocolBriefs]);
+  const briefSnapshots = useMemo(() => {
+    return latestBriefs.reduce<Partial<Record<string, DashboardBriefSnapshot>>>((acc, brief) => {
+      acc[brief.briefScope] = {
+        id: brief.id,
+        briefScope: brief.briefScope,
+        briefVersion: brief.briefVersion,
+        workflowState: brief.workflowState,
+        retrievalRunId: brief.retrievalRunId,
+        createdAt: brief.createdAt,
+        preview: truncate(brief.contentMarkdown, 1200),
+      };
+      return acc;
+    }, {});
+  }, [latestBriefs]);
   const protocolTimeline = useMemo(() => [...protocolMessages].slice(-12).reverse(), [protocolMessages]);
   const openViolations = useMemo(
     () => protocolViolations.filter((violation) => violation.status === "open"),
@@ -782,6 +828,48 @@ export function IssueDetail() {
     [protocolMessages],
   );
   const latestReviewCycle = useMemo(() => reviewCycles[0] ?? null, [reviewCycles]);
+  const latestReviewSubmission = useMemo(
+    () => [...protocolMessages].reverse().find((message) => message.messageType === "SUBMIT_FOR_REVIEW") ?? null,
+    [protocolMessages],
+  );
+  const latestApprovalMessage = useMemo(
+    () => [...protocolMessages].reverse().find((message) => message.messageType === "APPROVE_IMPLEMENTATION") ?? null,
+    [protocolMessages],
+  );
+  const latestCloseMessage = useMemo(
+    () => [...protocolMessages].reverse().find((message) => message.messageType === "CLOSE_TASK") ?? null,
+    [protocolMessages],
+  );
+  const latestReviewHandoff = useMemo(
+    () => (latestReviewSubmission ? readProtocolReviewHandoff(latestReviewSubmission) : null),
+    [latestReviewSubmission],
+  );
+  const latestApprovalSnapshot = useMemo(
+    () => (latestApprovalMessage ? readProtocolApproval(latestApprovalMessage) : null),
+    [latestApprovalMessage],
+  );
+  const latestCloseSnapshot = useMemo(
+    () => (latestCloseMessage ? readProtocolClose(latestCloseMessage) : null),
+    [latestCloseMessage],
+  );
+  const latestWorkspaceSnapshot = useMemo(() => {
+    for (const run of linkedRuns ?? []) {
+      const snapshot = readChangeWorkspaceSnapshot(run.resultJson ?? null);
+      if (snapshot) return snapshot;
+    }
+    return null;
+  }, [linkedRuns]);
+  const latestReviewArtifacts = useMemo(() => {
+    const artifacts = latestReviewSubmission?.artifacts ?? [];
+    const diffArtifacts = artifacts.filter((artifact) => artifact.kind === "diff");
+    const verificationArtifacts = artifacts.filter(
+      (artifact) => artifact.kind === "test_run" || artifact.kind === "build_run",
+    );
+    return {
+      diffArtifacts,
+      verificationArtifacts,
+    };
+  }, [latestReviewSubmission]);
 
   const issueCostSummary = useMemo(() => {
     let input = 0;
@@ -854,7 +942,7 @@ export function IssueDetail() {
         title: `${issueRef} updated`,
         body: truncate(updated.title, 96),
         tone: "success",
-        action: { label: `View ${issueRef}`, href: `/issues/${updated.identifier ?? updated.id}` },
+        action: { label: `View ${issueRef}`, href: `${issueBasePath}/${updated.identifier ?? updated.id}` },
       });
     },
   });
@@ -871,7 +959,7 @@ export function IssueDetail() {
         title: `Comment posted on ${issueRef}`,
         body: issue?.title ? truncate(issue.title, 96) : undefined,
         tone: "success",
-        action: issueId ? { label: `View ${issueRef}`, href: `/issues/${issue?.identifier ?? issueId}` } : undefined,
+        action: issueId ? { label: `View ${issueRef}`, href: `${issueBasePath}/${issue?.identifier ?? issueId}` } : undefined,
       });
     },
   });
@@ -901,7 +989,7 @@ export function IssueDetail() {
         title: `${issueRef} reassigned`,
         body: issue?.title ? truncate(issue.title, 96) : undefined,
         tone: "success",
-        action: issueId ? { label: `View ${issueRef}`, href: `/issues/${issue?.identifier ?? issueId}` } : undefined,
+        action: issueId ? { label: `View ${issueRef}`, href: `${issueBasePath}/${issue?.identifier ?? issueId}` } : undefined,
       });
     },
   });
@@ -944,7 +1032,7 @@ export function IssueDetail() {
         title: `Protocol action posted on ${issueRef}`,
         body: issue?.title ? truncate(issue.title, 96) : undefined,
         tone: "success",
-        action: issueId ? { label: `View ${issueRef}`, href: `/issues/${issue?.identifier ?? issueId}` } : undefined,
+        action: issueId ? { label: `View ${issueRef}`, href: `${issueBasePath}/${issue?.identifier ?? issueId}` } : undefined,
       });
     },
     onError: (err) => {
@@ -958,17 +1046,17 @@ export function IssueDetail() {
 
   useEffect(() => {
     setBreadcrumbs([
-      { label: "Issues", href: "/issues" },
+      { label: issueSection, href: issueBasePath },
       { label: issue?.title ?? issueId ?? "Issue" },
     ]);
-  }, [setBreadcrumbs, issue, issueId]);
+  }, [setBreadcrumbs, issue, issueId, issueSection, issueBasePath]);
 
   // Redirect to identifier-based URL if navigated via UUID
   useEffect(() => {
     if (issue?.identifier && issueId !== issue.identifier) {
-      navigate(`/issues/${issue.identifier}`, { replace: true });
+      navigate(`${issueBasePath}/${issue.identifier}`, { replace: true });
     }
-  }, [issue, issueId, navigate]);
+  }, [issue, issueId, navigate, issueBasePath]);
 
   useEffect(() => {
     if (issue) {
@@ -998,7 +1086,7 @@ export function IssueDetail() {
   const isImageAttachment = (attachment: IssueAttachment) => attachment.contentType.startsWith("image/");
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className={cn(issueSection === "Changes" ? "max-w-5xl" : "max-w-2xl", "space-y-6")}>
       {/* Parent chain breadcrumb */}
       {ancestors.length > 0 && (
         <nav className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
@@ -1006,7 +1094,7 @@ export function IssueDetail() {
             <span key={ancestor.id} className="flex items-center gap-1">
               {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" />}
               <Link
-                to={`/issues/${ancestor.identifier ?? ancestor.id}`}
+                to={`${issueBasePath}/${ancestor.identifier ?? ancestor.id}`}
                 className="hover:text-foreground transition-colors truncate max-w-[200px]"
                 title={ancestor.title}
               >
@@ -1024,6 +1112,126 @@ export function IssueDetail() {
           <EyeOff className="h-4 w-4 shrink-0" />
           This issue is hidden
         </div>
+      )}
+
+      {issueSection === "Changes" && (
+        <section className="space-y-4 rounded-[1.8rem] border border-border bg-card px-5 py-5 shadow-card">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                <GitCommitHorizontal className="h-3.5 w-3.5" />
+                Change Review Surface
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold tracking-tight">Change Evidence</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Branch, diff, verification signals, and merge handoff captured from the delivery loop.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {latestCloseSnapshot?.mergeStatus && (
+                <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground">
+                  Merge {formatProtocolValue(latestCloseSnapshot.mergeStatus)}
+                </span>
+              )}
+              {latestWorkspaceSnapshot?.workspaceStatus && (
+                <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                  {latestWorkspaceSnapshot.workspaceStatus.replace(/_/g, " ")}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                <GitBranch className="h-3.5 w-3.5" />
+                Branch
+              </div>
+              <div className="mt-3 text-sm font-semibold text-foreground">
+                {latestWorkspaceSnapshot?.branchName ?? "No implementation branch yet"}
+              </div>
+              {latestWorkspaceSnapshot?.headSha && (
+                <div className="mt-1 font-['IBM_Plex_Mono'] text-xs text-muted-foreground">
+                  {latestWorkspaceSnapshot.headSha.slice(0, 12)}
+                </div>
+              )}
+            </div>
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                <GitCommitHorizontal className="h-3.5 w-3.5" />
+                Diff Coverage
+              </div>
+              <div className="mt-3 text-2xl font-semibold text-foreground">
+                {latestWorkspaceSnapshot?.changedFiles.length ?? latestReviewHandoff?.changedFiles.length ?? 0}
+              </div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {latestWorkspaceSnapshot?.diffStat ?? "Changed files captured from review handoff."}
+              </div>
+            </div>
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                <TestTube2 className="h-3.5 w-3.5" />
+                Verification
+              </div>
+              <div className="mt-3 text-2xl font-semibold text-foreground">
+                {latestReviewArtifacts.verificationArtifacts.length}
+              </div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                Corroborated test/build artifacts attached to the latest review submission.
+              </div>
+            </div>
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                <CheckCheck className="h-3.5 w-3.5" />
+                Approval
+              </div>
+              <div className="mt-3 text-sm font-semibold text-foreground">
+                {latestApprovalSnapshot?.approvalSummary ?? "No approval summary yet"}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Changed Files
+              </div>
+              {((latestWorkspaceSnapshot?.changedFiles.length ?? 0) > 0 || (latestReviewHandoff?.changedFiles.length ?? 0) > 0) ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(latestWorkspaceSnapshot?.changedFiles.length
+                    ? latestWorkspaceSnapshot.changedFiles
+                    : latestReviewHandoff?.changedFiles ?? []
+                  ).slice(0, 10).map((file) => (
+                    <span key={file} className="rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground">
+                      {file}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">No changed file manifest has been attached yet.</p>
+              )}
+            </div>
+            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Merge Handoff
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                {latestCloseSnapshot?.closureSummary && (
+                  <p className="text-foreground">{latestCloseSnapshot.closureSummary}</p>
+                )}
+                {latestCloseSnapshot?.verificationSummary && (
+                  <p>Verification: {latestCloseSnapshot.verificationSummary}</p>
+                )}
+                {latestCloseSnapshot?.rollbackPlan && (
+                  <p>Rollback: {latestCloseSnapshot.rollbackPlan}</p>
+                )}
+                {!latestCloseSnapshot && <p>No close handoff has been recorded yet.</p>}
+              </div>
+            </div>
+          </div>
+        </section>
       )}
 
       <div className="space-y-3">
@@ -1120,7 +1328,7 @@ export function IssueDetail() {
                 onClick={() => {
                   updateIssue.mutate(
                     { hiddenAt: new Date().toISOString() },
-                    { onSuccess: () => navigate("/issues/all") },
+                    { onSuccess: () => navigate(appRoutes.work) },
                   );
                   setMoreOpen(false);
                 }}
@@ -1153,6 +1361,31 @@ export function IssueDetail() {
             return attachment.contentPath;
           }}
         />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            asChild
+            variant={issueSection === "Work" ? "default" : "outline"}
+            size="sm"
+            className="rounded-full"
+          >
+            <Link to={`${appRoutes.work}/${issue.identifier ?? issue.id}`}>
+              <Workflow className="h-3.5 w-3.5" />
+              Work View
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant={issueSection === "Changes" ? "default" : "outline"}
+            size="sm"
+            className="rounded-full"
+          >
+            <Link to={`${appRoutes.changes}/${issue.identifier ?? issue.id}`}>
+              <GitBranch className="h-3.5 w-3.5" />
+              Change View
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {primaryLiveRun && (
@@ -1347,9 +1580,7 @@ export function IssueDetail() {
         </TabsList>
 
         <TabsContent value="brief">
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            Brief panel - Coming soon. Will display task briefs from protocol state.
-          </div>
+          <BriefPanelV2 briefs={briefSnapshots} />
         </TabsContent>
 
         <TabsContent value="protocol">

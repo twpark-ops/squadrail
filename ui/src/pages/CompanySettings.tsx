@@ -7,6 +7,7 @@ import { accessApi } from "../api/access";
 import { knowledgeApi, type RetrievalPolicyRecord } from "../api/knowledge";
 import { projectsApi } from "../api/projects";
 import { queryKeys } from "../lib/queryKeys";
+import { appRoutes } from "../lib/appRoutes";
 import { Button } from "@/components/ui/button";
 import { Settings } from "lucide-react";
 import { CompanyPatternIcon } from "../components/CompanyPatternIcon";
@@ -464,7 +465,7 @@ export function CompanySettings() {
 
   useEffect(() => {
     setBreadcrumbs([
-      { label: selectedCompany?.name ?? "Company", href: "/dashboard" },
+      { label: selectedCompany?.name ?? "Company", href: appRoutes.overview },
       { label: "Settings" },
     ]);
   }, [setBreadcrumbs, selectedCompany?.name]);

@@ -10,6 +10,7 @@ import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Button } from "@/components/ui/button";
 import { Target, Plus } from "lucide-react";
+import { HeroSection } from "../components/HeroSection";
 
 export function Goals() {
   const { selectedCompanyId } = useCompany();
@@ -35,7 +36,18 @@ export function Goals() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
+      <HeroSection
+        title="Goals"
+        subtitle="Long-range objectives that coordinate squads, milestones, and delivery intent."
+        actions={
+          <Button size="sm" onClick={() => openNewGoal()}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            New Goal
+          </Button>
+        }
+      />
+
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 
       {goals && goals.length === 0 && (
@@ -48,15 +60,9 @@ export function Goals() {
       )}
 
       {goals && goals.length > 0 && (
-        <>
-          <div className="flex items-center justify-start">
-            <Button size="sm" variant="outline" onClick={() => openNewGoal()}>
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              New Goal
-            </Button>
-          </div>
+        <section className="rounded-[1.8rem] border border-border bg-card px-4 py-4 shadow-card">
           <GoalTree goals={goals} goalLink={(goal) => `/goals/${goal.id}`} />
-        </>
+        </section>
       )}
     </div>
   );

@@ -127,6 +127,115 @@ export function knowledgeService(db: Db) {
         .limit(input.limit ?? 200);
     },
 
+    getOverview: async (input: {
+      companyId: string;
+    }) => {
+      const [totalsRow, projectRows, sourceRows, authorityRows, languageRows, entityTypeRows] = await Promise.all([
+        db.execute<{
+          totalDocuments: number;
+          totalChunks: number;
+          totalLinks: number;
+          linkedChunks: number;
+          connectedDocuments: number;
+        }>(sql`
+          select
+            (select count(*)::int from knowledge_documents where company_id = ${input.companyId}) as "totalDocuments",
+            (select count(*)::int from knowledge_chunks where company_id = ${input.companyId}) as "totalChunks",
+            (select count(*)::int from knowledge_chunk_links where company_id = ${input.companyId}) as "totalLinks",
+            (select count(distinct chunk_id)::int from knowledge_chunk_links where company_id = ${input.companyId}) as "linkedChunks",
+            (
+              select count(distinct kc.document_id)::int
+              from knowledge_chunk_links kcl
+              join knowledge_chunks kc on kc.id = kcl.chunk_id
+              where kcl.company_id = ${input.companyId}
+            ) as "connectedDocuments"
+        `),
+        db.execute<{
+          projectId: string;
+          projectName: string;
+          documentCount: number;
+          chunkCount: number;
+          linkCount: number;
+          lastUpdatedAt: string | null;
+        }>(sql`
+          select
+            p.id as "projectId",
+            p.name as "projectName",
+            count(distinct d.id)::int as "documentCount",
+            count(distinct kc.id)::int as "chunkCount",
+            count(kcl.id)::int as "linkCount",
+            max(d.updated_at)::text as "lastUpdatedAt"
+          from projects p
+          left join knowledge_documents d
+            on d.project_id = p.id
+            and d.company_id = ${input.companyId}
+          left join knowledge_chunks kc
+            on kc.document_id = d.id
+            and kc.company_id = ${input.companyId}
+          left join knowledge_chunk_links kcl
+            on kcl.chunk_id = kc.id
+            and kcl.company_id = ${input.companyId}
+          where p.company_id = ${input.companyId}
+          group by p.id, p.name
+          order by count(distinct d.id) desc, p.name asc
+        `),
+        db.execute<{ key: string; count: number }>(sql`
+          select
+            source_type as key,
+            count(*)::int as count
+          from knowledge_documents
+          where company_id = ${input.companyId}
+          group by source_type
+          order by count desc, key asc
+        `),
+        db.execute<{ key: string; count: number }>(sql`
+          select
+            authority_level as key,
+            count(*)::int as count
+          from knowledge_documents
+          where company_id = ${input.companyId}
+          group by authority_level
+          order by count desc, key asc
+        `),
+        db.execute<{ key: string; count: number }>(sql`
+          select
+            coalesce(language, 'unknown') as key,
+            count(*)::int as count
+          from knowledge_documents
+          where company_id = ${input.companyId}
+          group by coalesce(language, 'unknown')
+          order by count desc, key asc
+        `),
+        db.execute<{ key: string; count: number }>(sql`
+          select
+            entity_type as key,
+            count(*)::int as count
+          from knowledge_chunk_links
+          where company_id = ${input.companyId}
+          group by entity_type
+          order by count desc, key asc
+        `),
+      ]);
+
+      const totals = totalsRow[0] ?? {
+        totalDocuments: 0,
+        totalChunks: 0,
+        totalLinks: 0,
+        linkedChunks: 0,
+        connectedDocuments: 0,
+      };
+
+      return {
+        ...totals,
+        activeProjects: projectRows.filter((row) => row.documentCount > 0).length,
+        projectCoverage: projectRows,
+        sourceTypeDistribution: sourceRows,
+        authorityDistribution: authorityRows,
+        languageDistribution: languageRows,
+        linkEntityDistribution: entityTypeRows,
+      };
+    },
+
     listDocumentChunks: async (documentId: string) =>
       db
         .select()
