@@ -1,0 +1,52 @@
+@startuml
+title UI Visual Rebuild v1
+skinparam backgroundColor white
+skinparam defaultFontName Pretendard
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "Shell" {
+  rectangle "Company Rail\nsmall company markers\nstatus pulse" as Rail
+  rectangle "Primary Navigation\nOverview / Work / Changes /\nRuns / Knowledge / Team / Settings" as Nav
+  rectangle "Top Bar\ncontext + command + live health" as TopBar
+}
+
+package "Visual System" {
+  rectangle "Typography\nSpace Grotesk\nPretendard Variable\nIBM Plex Mono" as Type
+  rectangle "Color Tokens\nbone / ink / smoke\nsteel / moss / amber / brick" as Color
+  rectangle "Surface Rules\npanel > row > badge\nlight-first\noperational emphasis" as Surface
+}
+
+package "Core Screens" {
+  rectangle "Overview\nsituation board" as Overview
+  rectangle "Work\nqueue + filters + quick insight" as Work
+  rectangle "Changes\ndiff + merge readiness" as Changes
+  rectangle "Runs\nruntime + recovery" as Runs
+  rectangle "Knowledge\nRAG evidence browser" as Knowledge
+  rectangle "Team\nrole + ownership" as Team
+}
+
+Rail --> Nav
+Nav --> TopBar
+TopBar --> Overview
+TopBar --> Work
+TopBar --> Changes
+TopBar --> Runs
+TopBar --> Knowledge
+TopBar --> Team
+
+Type --> Surface
+Color --> Surface
+Surface --> Overview
+Surface --> Work
+Surface --> Changes
+Surface --> Runs
+Surface --> Knowledge
+Surface --> Team
+
+note bottom of Knowledge
+Knowledge is not a document dump.
+It is the operator-facing RAG evidence browser.
+end note
+
+@enduml

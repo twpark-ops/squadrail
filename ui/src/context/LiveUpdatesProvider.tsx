@@ -5,6 +5,7 @@ import { useCompany } from "./CompanyContext";
 import type { ToastInput } from "./ToastContext";
 import { useToast } from "./ToastContext";
 import { queryKeys } from "../lib/queryKeys";
+import { issueUrl } from "../lib/utils";
 
 const TOAST_COOLDOWN_WINDOW_MS = 10_000;
 const TOAST_COOLDOWN_MAX = 3;
@@ -120,7 +121,7 @@ function resolveIssueToastContext(
     ref,
     title,
     label: title ? `${ref} - ${truncate(title, 72)}` : ref,
-    href: `/issues/${cachedIssue?.identifier ?? issueId}`,
+    href: issueUrl({ id: issueId, identifier: cachedIssue?.identifier ?? null }),
   };
 }
 

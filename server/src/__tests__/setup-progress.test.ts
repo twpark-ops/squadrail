@@ -11,6 +11,8 @@ describe("setup progress helpers", () => {
         knowledgeSeeded: true,
       },
       publishedRolePackCount: 3,
+      knowledgeDocumentCount: 5,
+      issueCount: 0,
     });
 
     expect(steps).toEqual({
@@ -62,6 +64,8 @@ describe("setup progress helpers", () => {
         firstIssueReady: true,
       },
       publishedRolePackCount: 3,
+      knowledgeDocumentCount: 5,
+      issueCount: 1,
     });
 
     expect(steps).toEqual({
@@ -73,5 +77,28 @@ describe("setup progress helpers", () => {
       firstIssueReady: false,
     });
     expect(deriveSetupProgressState(steps)).toBe("engine_ready");
+  });
+
+  it("derives knowledge and first issue readiness from live company data", () => {
+    const steps = buildSetupProgressSteps({
+      selectedEngine: "claude_local",
+      selectedWorkspaceId: "workspace-1",
+      metadata: {
+        rolePacksSeeded: true,
+      },
+      publishedRolePackCount: 3,
+      knowledgeDocumentCount: 12,
+      issueCount: 4,
+    });
+
+    expect(steps).toEqual({
+      companyReady: true,
+      squadReady: true,
+      engineReady: true,
+      workspaceConnected: true,
+      knowledgeSeeded: true,
+      firstIssueReady: true,
+    });
+    expect(deriveSetupProgressState(steps)).toBe("first_issue_ready");
   });
 });

@@ -6,6 +6,7 @@ import { Identity } from "./Identity";
 import { StatusBadgeV2 } from "./StatusBadgeV2";
 import type { DashboardProtocolQueueItem } from "@squadrail/shared";
 import { timeAgo } from "@/lib/timeAgo";
+import { workIssuePath } from "@/lib/appRoutes";
 
 interface QueueCardV2Props {
   title: string;
@@ -19,12 +20,12 @@ interface QueueCardV2Props {
 }
 
 const variantStyles = {
-  execution: "border-l-4 border-l-blue-500",
-  review: "border-l-4 border-l-yellow-500",
-  approval: "border-l-4 border-l-purple-500",
-  blocked: "border-l-4 border-l-red-500",
-  idle: "border-l-4 border-l-gray-400",
-  closure: "border-l-4 border-l-emerald-500",
+  execution: "border-t-[3px] border-t-blue-500",
+  review: "border-t-[3px] border-t-yellow-500",
+  approval: "border-t-[3px] border-t-purple-500",
+  blocked: "border-t-[3px] border-t-red-500",
+  idle: "border-t-[3px] border-t-gray-400",
+  closure: "border-t-[3px] border-t-emerald-500",
 } as const;
 
 /**
@@ -47,53 +48,53 @@ export function QueueCardV2({
   return (
     <div
       className={cn(
-        "bg-card border rounded-xl shadow-card overflow-hidden transition-all card-hover hover:shadow-card-hover",
+        "overflow-hidden rounded-[1.5rem] border border-border/85 bg-card/90 shadow-[0_16px_40px_color-mix(in_oklab,var(--foreground)_4%,transparent)] transition-all hover:border-primary/20 hover:shadow-[0_20px_48px_color-mix(in_oklab,var(--primary)_8%,transparent)]",
         variantStyles[variant],
         className
       )}
     >
       {/* Header */}
-      <div className="px-6 py-4 border-b bg-muted/30">
+      <div className="border-b border-border/75 bg-muted/22 px-6 py-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-background border">
-              <Icon className="h-5 w-5 text-muted-foreground" />
+            <div className="inline-flex h-11 w-11 items-center justify-center rounded-[1rem] border border-border/75 bg-background/85">
+              <Icon className="h-5 w-5 text-foreground/72" />
             </div>
             <div>
-              <h3 className="text-base font-semibold">{title}</h3>
-              <p className="text-xs text-muted-foreground">{subtitle}</p>
+              <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+              <p className="text-sm text-muted-foreground">{subtitle}</p>
             </div>
           </div>
-          <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">
+          <div className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-primary px-3 text-sm font-bold text-primary-foreground">
             {items.length}
           </div>
         </div>
       </div>
 
       {/* Body - Issue Previews */}
-      <div className="px-6 py-4">
+      <div className="px-6 py-5">
         {items.length === 0 ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-[1.2rem] border border-dashed border-border/80 bg-background/60 px-5 py-10 text-center text-sm text-muted-foreground">
             {emptyMessage}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {previewItems.map((item) => (
               <Link
                 key={item.issueId}
-                to={`/issues/${item.issueId}`}
+                to={workIssuePath(item.identifier ?? item.issueId)}
                 className="block group"
               >
-                <div className="p-3 rounded-lg border bg-background/50 hover:bg-accent/50 transition-colors">
+                <div className="rounded-[1.15rem] border border-border/80 bg-background/65 p-4 transition-colors hover:bg-accent/48">
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       {/* Issue Title */}
-                      <p className="text-sm font-medium line-clamp-1 group-hover:text-primary transition-colors">
+                      <p className="line-clamp-1 text-[15px] font-semibold text-foreground transition-colors group-hover:text-primary">
                         {item.title}
                       </p>
 
                       {/* Meta */}
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="mt-2 flex items-center gap-2">
                         <StatusBadgeV2
                           state={item.workflowState}
                           showIcon={false}
@@ -123,7 +124,7 @@ export function QueueCardV2({
 
       {/* Footer */}
       {items.length > 0 && to && (
-        <div className="px-6 py-3 border-t bg-muted/20">
+        <div className="border-t border-border/75 bg-muted/18 px-6 py-4">
           <Link
             to={to}
             className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"

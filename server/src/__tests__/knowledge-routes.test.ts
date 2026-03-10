@@ -7,6 +7,10 @@ const {
   mockSetupUpdate,
   mockGetRetrievalRunById,
   mockListRetrievalRunHits,
+  mockGetKnowledgeOverview,
+  mockGetDocumentById,
+  mockListDocumentChunks,
+  mockListDocumentChunksWithLinks,
 } = vi.hoisted(() => ({
   mockProjectGetById: vi.fn(),
   mockEmbeddingsIsConfigured: vi.fn(),
@@ -14,6 +18,10 @@ const {
   mockSetupUpdate: vi.fn(),
   mockGetRetrievalRunById: vi.fn(),
   mockListRetrievalRunHits: vi.fn(),
+  mockGetKnowledgeOverview: vi.fn(),
+  mockGetDocumentById: vi.fn(),
+  mockListDocumentChunks: vi.fn(),
+  mockListDocumentChunksWithLinks: vi.fn(),
 }));
 
 vi.mock("../services/index.js", () => ({
@@ -28,9 +36,11 @@ vi.mock("../services/index.js", () => ({
   }),
   knowledgeService: () => ({
     createDocument: vi.fn(),
-    getDocumentById: vi.fn(),
+    getDocumentById: mockGetDocumentById,
+    getOverview: mockGetKnowledgeOverview,
     getRetrievalRunById: mockGetRetrievalRunById,
-    listDocumentChunks: vi.fn(),
+    listDocumentChunks: mockListDocumentChunks,
+    listDocumentChunksWithLinks: mockListDocumentChunksWithLinks,
     listRetrievalRunHits: mockListRetrievalRunHits,
     replaceDocumentChunks: vi.fn(),
     updateDocumentMetadata: vi.fn(),
@@ -173,6 +183,98 @@ async function invokeRetrievalHitsRoute(input: {
   }
 }
 
+async function invokeKnowledgeOverviewRoute(input: {
+  query: Record<string, string>;
+}) {
+  const router = knowledgeRoutes({} as never) as any;
+  const handlers = findRouteLayer(router, "/knowledge/overview", "get");
+  const req = {
+    query: input.query,
+    actor: buildBoardActor(),
+  };
+  const state: { statusCode: number; body: unknown } = {
+    statusCode: 200,
+    body: undefined,
+  };
+  const res = {
+    status(code: number) {
+      state.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      state.body = payload;
+      return this;
+    },
+  };
+
+  for (const handler of handlers) {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const result = handler(req, res, (error?: unknown) => {
+          if (error) reject(error);
+          else resolve();
+        });
+        if (result && typeof result.then === "function") {
+          result.then(() => resolve(), reject);
+          return;
+        }
+        if (handler.length < 3) resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  return state;
+}
+
+async function invokeDocumentChunksRoute(input: {
+  params: Record<string, string>;
+  query?: Record<string, string>;
+}) {
+  const router = knowledgeRoutes({} as never) as any;
+  const handlers = findRouteLayer(router, "/knowledge/documents/:id/chunks", "get");
+  const req = {
+    params: input.params,
+    query: input.query ?? {},
+    actor: buildBoardActor(),
+  };
+  const state: { statusCode: number; body: unknown } = {
+    statusCode: 200,
+    body: undefined,
+  };
+  const res = {
+    status(code: number) {
+      state.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      state.body = payload;
+      return this;
+    },
+  };
+
+  for (const handler of handlers) {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const result = handler(req, res, (error?: unknown) => {
+          if (error) reject(error);
+          else resolve();
+        });
+        if (result && typeof result.then === "function") {
+          result.then(() => resolve(), reject);
+          return;
+        }
+        if (handler.length < 3) resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  return state;
+}
+
 describe("knowledge routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -249,5 +351,58 @@ describe("knowledge routes", () => {
         },
       ],
     });
+  });
+
+  it("returns knowledge overview for a company", async () => {
+    mockGetKnowledgeOverview.mockResolvedValue({
+      totalDocuments: 12,
+      totalChunks: 48,
+      totalLinks: 96,
+      linkedChunks: 20,
+      connectedDocuments: 7,
+      activeProjects: 2,
+      projectCoverage: [],
+      sourceTypeDistribution: [],
+      authorityDistribution: [],
+      languageDistribution: [],
+      linkEntityDistribution: [],
+    });
+
+    const response = await invokeKnowledgeOverviewRoute({
+      query: { companyId: "11111111-1111-4111-8111-111111111111" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetKnowledgeOverview).toHaveBeenCalledWith({
+      companyId: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
+  it("returns chunk links when includeLinks=true", async () => {
+    mockGetDocumentById.mockResolvedValue({
+      id: "document-1",
+      companyId: "company-1",
+    });
+    mockListDocumentChunksWithLinks.mockResolvedValue([
+      {
+        id: "chunk-1",
+        links: [{ entityType: "symbol", entityId: "pkg.Func", linkReason: "symbol_reference", weight: 0.9 }],
+      },
+    ]);
+
+    const response = await invokeDocumentChunksRoute({
+      params: { id: "document-1" },
+      query: { includeLinks: "true" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListDocumentChunksWithLinks).toHaveBeenCalledWith("document-1");
+    expect(mockListDocumentChunks).not.toHaveBeenCalled();
+    expect(response.body).toEqual([
+      {
+        id: "chunk-1",
+        links: [{ entityType: "symbol", entityId: "pkg.Func", linkReason: "symbol_reference", weight: 0.9 }],
+      },
+    ]);
   });
 });

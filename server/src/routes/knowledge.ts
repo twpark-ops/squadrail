@@ -69,6 +69,14 @@ const listDocumentsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
+const knowledgeOverviewSchema = z.object({
+  companyId: z.string().uuid(),
+});
+
+const listDocumentChunksSchema = z.object({
+  includeLinks: z.coerce.boolean().optional(),
+});
+
 const listRetrievalPoliciesSchema = z.object({
   companyId: z.string().uuid(),
   role: z.string().min(1).optional(),
@@ -110,6 +118,18 @@ export function knowledgeRoutes(db: Db) {
     assertCompanyAccess(req, parsed.data.companyId);
     const documents = await knowledge.listDocuments(parsed.data);
     res.json(documents);
+  });
+
+  router.get("/knowledge/overview", async (req, res) => {
+    const parsed = knowledgeOverviewSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    assertCompanyAccess(req, parsed.data.companyId);
+    const overview = await knowledge.getOverview(parsed.data);
+    res.json(overview);
   });
 
   router.post("/knowledge/documents", async (req, res) => {
@@ -167,8 +187,16 @@ export function knowledgeRoutes(db: Db) {
       return;
     }
 
+    const parsed = listDocumentChunksSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
     assertCompanyAccess(req, document.companyId);
-    const chunks = await knowledge.listDocumentChunks(document.id);
+    const chunks = parsed.data.includeLinks
+      ? await knowledge.listDocumentChunksWithLinks(document.id)
+      : await knowledge.listDocumentChunks(document.id);
     res.json(chunks);
   });
 

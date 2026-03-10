@@ -32,6 +32,14 @@ export interface KnowledgeChunk {
   embedding: number[];
   metadata: Record<string, unknown>;
   createdAt: string;
+  links?: KnowledgeChunkLink[];
+}
+
+export interface KnowledgeChunkLink {
+  entityType: string;
+  entityId: string;
+  linkReason: string;
+  weight: number;
 }
 
 export interface RetrievalRun {
@@ -93,6 +101,27 @@ export interface RetrievalPolicyRecord {
   updatedAt: string;
 }
 
+export interface KnowledgeOverview {
+  totalDocuments: number;
+  totalChunks: number;
+  totalLinks: number;
+  linkedChunks: number;
+  connectedDocuments: number;
+  activeProjects: number;
+  projectCoverage: Array<{
+    projectId: string;
+    projectName: string;
+    documentCount: number;
+    chunkCount: number;
+    linkCount: number;
+    lastUpdatedAt: string | null;
+  }>;
+  sourceTypeDistribution: Array<{ key: string; count: number }>;
+  authorityDistribution: Array<{ key: string; count: number }>;
+  languageDistribution: Array<{ key: string; count: number }>;
+  linkEntityDistribution: Array<{ key: string; count: number }>;
+}
+
 export const knowledgeApi = {
   listDocuments: (params: {
     companyId: string;
@@ -106,10 +135,17 @@ export const knowledgeApi = {
     if (params.limit) queryParams.append("limit", params.limit.toString());
     return api.get<KnowledgeDocument[]>(`/knowledge/documents?${queryParams.toString()}`);
   },
+  getOverview: (companyId: string) =>
+    api.get<KnowledgeOverview>(`/knowledge/overview?companyId=${encodeURIComponent(companyId)}`),
   getDocument: (documentId: string) =>
     api.get<KnowledgeDocument>(`/knowledge/documents/${documentId}`),
-  getDocumentChunks: (documentId: string) =>
-    api.get<KnowledgeChunk[]>(`/knowledge/documents/${documentId}/chunks`),
+  getDocumentChunks: (documentId: string, options?: { includeLinks?: boolean }) => {
+    const query = new URLSearchParams();
+    if (options?.includeLinks) query.set("includeLinks", "true");
+    return api.get<KnowledgeChunk[]>(
+      `/knowledge/documents/${documentId}/chunks${query.size > 0 ? `?${query.toString()}` : ""}`,
+    );
+  },
   getRetrievalRunHits: (runId: string) =>
     api.get<{ retrievalRun: RetrievalRun; hits: RetrievalHit[] }>(`/knowledge/retrieval-runs/${runId}/hits`),
   importProjectWorkspace: (

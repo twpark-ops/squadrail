@@ -7,6 +7,7 @@ import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
 import { queryKeys } from "../lib/queryKeys";
+import { appRoutes, workIssuePath } from "../lib/appRoutes";
 import {
   CommandDialog,
   CommandEmpty,
@@ -20,13 +21,13 @@ import {
   CircleDot,
   Bot,
   Hexagon,
-  Target,
   LayoutDashboard,
-  Inbox,
-  DollarSign,
-  History,
   SquarePen,
   Plus,
+  Workflow,
+  GitBranch,
+  Users,
+  Database,
 } from "lucide-react";
 import { Identity } from "./Identity";
 import { agentUrl, projectUrl } from "../lib/utils";
@@ -132,37 +133,29 @@ export function CommandPalette() {
         <CommandSeparator />
 
         <CommandGroup heading="Pages">
-          <CommandItem onSelect={() => go("/dashboard")}>
+          <CommandItem onSelect={() => go(appRoutes.overview)}>
             <LayoutDashboard className="mr-2 h-4 w-4" />
-            Dashboard
+            Overview
           </CommandItem>
-          <CommandItem onSelect={() => go("/inbox")}>
-            <Inbox className="mr-2 h-4 w-4" />
-            Inbox
+          <CommandItem onSelect={() => go(appRoutes.work)}>
+            <Workflow className="mr-2 h-4 w-4" />
+            Work
           </CommandItem>
-          <CommandItem onSelect={() => go("/issues")}>
-            <CircleDot className="mr-2 h-4 w-4" />
-            Issues
+          <CommandItem onSelect={() => go(appRoutes.changes)}>
+            <GitBranch className="mr-2 h-4 w-4" />
+            Changes
           </CommandItem>
-          <CommandItem onSelect={() => go("/projects")}>
-            <Hexagon className="mr-2 h-4 w-4" />
-            Projects
-          </CommandItem>
-          <CommandItem onSelect={() => go("/goals")}>
-            <Target className="mr-2 h-4 w-4" />
-            Goals
-          </CommandItem>
-          <CommandItem onSelect={() => go("/agents")}>
+          <CommandItem onSelect={() => go(appRoutes.runs)}>
             <Bot className="mr-2 h-4 w-4" />
-            Agents
+            Runs
           </CommandItem>
-          <CommandItem onSelect={() => go("/costs")}>
-            <DollarSign className="mr-2 h-4 w-4" />
-            Costs
+          <CommandItem onSelect={() => go(appRoutes.team)}>
+            <Users className="mr-2 h-4 w-4" />
+            Team
           </CommandItem>
-          <CommandItem onSelect={() => go("/activity")}>
-            <History className="mr-2 h-4 w-4" />
-            Activity
+          <CommandItem onSelect={() => go(appRoutes.knowledge)}>
+            <Database className="mr-2 h-4 w-4" />
+            Knowledge
           </CommandItem>
         </CommandGroup>
 
@@ -178,7 +171,7 @@ export function CommandPalette() {
                       ? `${searchQuery} ${issue.identifier ?? ""} ${issue.title}`
                       : undefined
                   }
-                  onSelect={() => go(`/issues/${issue.identifier ?? issue.id}`)}
+                  onSelect={() => go(workIssuePath(issue.identifier ?? issue.id))}
                 >
                   <CircleDot className="mr-2 h-4 w-4" />
                   <span className="text-muted-foreground mr-2 font-mono text-xs">

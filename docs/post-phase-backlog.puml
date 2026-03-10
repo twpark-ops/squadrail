@@ -1,0 +1,57 @@
+@startuml
+title Post-Phase Backlog Focus
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "P0 User Surface" {
+  [Issue Detail Git Card]
+  [Merge Candidate Card]
+}
+
+package "Current Runtime" {
+  [Protocol Artifacts]
+  [Workspace Git Snapshot]
+  [Isolated Worktree]
+  [Verification Signals]
+}
+
+package "P1 Operations" {
+  [Nightly Real-Org E2E]
+  [Prompt Quality Tightening]
+}
+
+package "P2/P3 RAG" {
+  [RAG Metrics]
+  [Cross-Project Retrieval]
+  [Deep RAG Hardening]
+}
+
+[Isolated Worktree] --> [Workspace Git Snapshot]
+[Isolated Worktree] --> [Verification Signals]
+[Verification Signals] --> [Protocol Artifacts]
+[Workspace Git Snapshot] --> [Issue Detail Git Card]
+[Protocol Artifacts] --> [Issue Detail Git Card]
+[Workspace Git Snapshot] --> [Merge Candidate Card]
+[Protocol Artifacts] --> [Merge Candidate Card]
+
+[Nightly Real-Org E2E] --> [Issue Detail Git Card]
+[Nightly Real-Org E2E] --> [Merge Candidate Card]
+[Nightly Real-Org E2E] --> [RAG Metrics]
+
+[RAG Metrics] --> [Cross-Project Retrieval]
+[Cross-Project Retrieval] --> [Deep RAG Hardening]
+
+note right of [Issue Detail Git Card]
+Show branch, worktree, changed files,
+diff stat, test/build artifacts,
+and review evidence.
+end note
+
+note right of [Merge Candidate Card]
+Bridge pending_external_merge
+to operator approval and
+later PR/merge automation.
+end note
+
+@enduml

@@ -12,6 +12,7 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { formatDate, projectUrl } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Hexagon, Plus } from "lucide-react";
+import { HeroSection } from "../components/HeroSection";
 
 export function Projects() {
   const { selectedCompanyId } = useCompany();
@@ -37,13 +38,17 @@ export function Projects() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-end">
-        <Button size="sm" variant="outline" onClick={openNewProject}>
-          <Plus className="h-4 w-4 mr-1" />
-          Add Project
-        </Button>
-      </div>
+    <div className="space-y-8">
+      <HeroSection
+        title="Projects"
+        subtitle="Workspace binding, delivery scope, and the product surfaces currently operated by this company."
+        actions={
+          <Button size="sm" onClick={openNewProject}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add Project
+          </Button>
+        }
+      />
 
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 
@@ -57,26 +62,34 @@ export function Projects() {
       )}
 
       {projects && projects.length > 0 && (
-        <div className="border border-border">
-          {projects.map((project) => (
-            <EntityRow
-              key={project.id}
-              title={project.name}
-              subtitle={project.description ?? undefined}
-              to={projectUrl(project)}
-              trailing={
-                <div className="flex items-center gap-3">
-                  {project.targetDate && (
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(project.targetDate)}
-                    </span>
-                  )}
-                  <StatusBadge status={project.status} />
-                </div>
-              }
-            />
-          ))}
-        </div>
+        <section className="overflow-hidden rounded-[1.8rem] border border-border bg-card shadow-card">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-lg font-semibold">Project Directory</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Follow workspace ownership, schedule targets, and project delivery status.
+            </p>
+          </div>
+          <div>
+            {projects.map((project) => (
+              <EntityRow
+                key={project.id}
+                title={project.name}
+                subtitle={project.description ?? `${project.workspaces.length} workspace${project.workspaces.length === 1 ? "" : "s"} connected`}
+                to={projectUrl(project)}
+                trailing={
+                  <div className="flex items-center gap-3">
+                    {project.targetDate && (
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(project.targetDate)}
+                      </span>
+                    )}
+                    <StatusBadge status={project.status} />
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type UIEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type UIEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Moon, Sun } from "lucide-react";
 import { Outlet, useLocation, useNavigate, useParams } from "@/lib/router";
 import { CompanyRail } from "./CompanyRail";
 import { Sidebar } from "./Sidebar";
-import { SidebarNavItem } from "./SidebarNavItem";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { CommandPalette } from "./CommandPalette";
@@ -18,7 +16,6 @@ import { useDialog } from "../context/DialogContext";
 import { usePanel } from "../context/PanelContext";
 import { useCompany } from "../context/CompanyContext";
 import { useSidebar } from "../context/SidebarContext";
-import { useTheme } from "../context/ThemeContext";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { useCompanyPageMemory } from "../hooks/useCompanyPageMemory";
 import { healthApi } from "../api/health";
@@ -26,20 +23,31 @@ import { companiesApi } from "../api/companies";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
+import { appRoutes } from "../lib/appRoutes";
 
 export function Layout() {
-  const { sidebarOpen, setSidebarOpen, toggleSidebar, isMobile } = useSidebar();
+  const {
+    sidebarOpen,
+    setSidebarOpen,
+    toggleSidebar,
+    isMobile,
+    sidebarWidth,
+    setSidebarWidth,
+    minSidebarWidth,
+    maxSidebarWidth,
+  } = useSidebar();
   const { openNewIssue, openOnboarding } = useDialog();
   const { togglePanelVisible } = usePanel();
   const { companies, loading: companiesLoading, selectedCompanyId, setSelectedCompanyId } = useCompany();
-  const { theme, toggleTheme } = useTheme();
   const { companyPrefix } = useParams<{ companyPrefix: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const onboardingTriggered = useRef(false);
   const lastMainScrollTop = useRef(0);
+  const desktopSidebarShellRef = useRef<HTMLDivElement | null>(null);
+  const companyRailRef = useRef<HTMLDivElement | null>(null);
+  const isResizingSidebarRef = useRef(false);
   const [mobileNavVisible, setMobileNavVisible] = useState(true);
-  const nextTheme = theme === "dark" ? "light" : "dark";
   const { data: health } = useQuery({
     queryKey: queryKeys.health,
     queryFn: () => healthApi.get(),
@@ -72,7 +80,7 @@ export function Layout() {
       const fallback =
         (selectedCompanyId ? companies.find((company) => company.id === selectedCompanyId) : null)
         ?? companies[0]!;
-      navigate(`/${fallback.issuePrefix}/dashboard`, { replace: true });
+      navigate(`/${fallback.issuePrefix}${appRoutes.overview}`, { replace: true });
       return;
     }
 
@@ -125,6 +133,36 @@ export function Layout() {
     lastMainScrollTop.current = 0;
     setMobileNavVisible(true);
   }, [isMobile]);
+
+  useEffect(() => {
+    if (isMobile) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!isResizingSidebarRef.current) return;
+      const shellRect = desktopSidebarShellRef.current?.getBoundingClientRect();
+      const railRect = companyRailRef.current?.getBoundingClientRect();
+      if (!shellRect) return;
+      const railWidth = railRect?.width ?? 88;
+      const nextWidth = event.clientX - shellRect.left - railWidth;
+      setSidebarWidth(nextWidth);
+    };
+
+    const stopResize = () => {
+      if (!isResizingSidebarRef.current) return;
+      isResizingSidebarRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", stopResize);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", stopResize);
+      stopResize();
+    };
+  }, [isMobile, setSidebarWidth]);
 
   // Swipe gesture to open/close sidebar on mobile
   useEffect(() => {
@@ -191,6 +229,14 @@ export function Layout() {
     [isMobile],
   );
 
+  const startSidebarResize = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (isMobile || !sidebarOpen) return;
+    event.preventDefault();
+    isResizingSidebarRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [isMobile, sidebarOpen]);
+
   const selectedCompany =
     selectedCompanyId
       ? companies.find((company) => company.id === selectedCompanyId) ?? null
@@ -199,10 +245,10 @@ export function Layout() {
     Boolean(selectedCompany) &&
     Boolean(setupProgress) &&
     setupProgress?.status !== "first_issue_ready" &&
-    !location.pathname.endsWith("/company/settings");
+    !(location.pathname.endsWith("/company/settings") || location.pathname.endsWith("/settings"));
 
   return (
-    <div className="flex h-dvh bg-background text-foreground overflow-hidden pt-[env(safe-area-inset-top)]">
+    <div className="flex h-dvh overflow-hidden bg-background text-foreground pt-[env(safe-area-inset-top)]">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[200] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -223,98 +269,68 @@ export function Layout() {
       {isMobile ? (
         <div
           className={cn(
-            "fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] transition-transform duration-100 ease-out",
+            "fixed inset-y-0 left-0 z-50 flex overflow-hidden pt-[env(safe-area-inset-top)] transition-transform duration-100 ease-out",
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           )}
         >
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            <CompanyRail />
-            <Sidebar />
-          </div>
-          <div className="border-t border-r border-border px-3 py-2 bg-background">
-            <div className="flex items-center gap-1">
-              <SidebarNavItem
-                to="/docs"
-                label="Documentation"
-                icon={BookOpen}
-                className="flex-1 min-w-0"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground shrink-0"
-                onClick={toggleTheme}
-                aria-label={`Switch to ${nextTheme} mode`}
-                title={`Switch to ${nextTheme} mode`}
-              >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
+          <CompanyRail />
+          <Sidebar width={sidebarWidth} />
         </div>
       ) : (
-        <div className="flex flex-col shrink-0 h-full">
-          <div className="flex flex-1 min-h-0">
+        <div ref={desktopSidebarShellRef} className="relative flex h-full shrink-0">
+          <div ref={companyRailRef}>
             <CompanyRail />
-            <div
-              className={cn(
-                "overflow-hidden transition-[width] duration-100 ease-out",
-                sidebarOpen ? "w-60" : "w-0"
-              )}
+          </div>
+          <div
+            className={cn(
+              "overflow-hidden border-r border-sidebar-border/0 transition-[width] duration-150 ease-out",
+              sidebarOpen ? "opacity-100" : "w-0 opacity-0"
+            )}
+            style={{ width: sidebarOpen ? sidebarWidth : 0 }}
+          >
+            <Sidebar width={sidebarWidth} />
+          </div>
+          {sidebarOpen && (
+            <button
+              type="button"
+              className="absolute right-0 top-0 z-20 hidden h-full w-3 -translate-x-1/2 cursor-col-resize bg-transparent md:block"
+              onMouseDown={startSidebarResize}
+              aria-label="Resize sidebar"
+              title={`Resize sidebar (${minSidebarWidth}-${maxSidebarWidth}px)`}
             >
-              <Sidebar />
-            </div>
-          </div>
-          <div className="border-t border-r border-border px-3 py-2">
-            <div className="flex items-center gap-1">
-              <SidebarNavItem
-                to="/docs"
-                label="Documentation"
-                icon={BookOpen}
-                className="flex-1 min-w-0"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground shrink-0"
-                onClick={toggleTheme}
-                aria-label={`Switch to ${nextTheme} mode`}
-                title={`Switch to ${nextTheme} mode`}
-              >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
+              <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors hover:bg-primary" />
+            </button>
+          )}
         </div>
       )}
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      <div className="flex min-w-0 flex-1 flex-col">
         <BreadcrumbBar />
-        <div className="flex flex-1 min-h-0">
+        <div className="flex min-h-0 flex-1">
           <main
             id="main-content"
             tabIndex={-1}
-            className={cn("flex-1 overflow-auto p-4 md:p-6", isMobile && "pb-[calc(5rem+env(safe-area-inset-bottom))]")}
+            className={cn(
+              "flex-1 overflow-auto px-4 pb-6 pt-5 md:px-6 md:pb-8 md:pt-6",
+              isMobile && "pb-[calc(5.75rem+env(safe-area-inset-bottom))]",
+            )}
             onScroll={handleMainScroll}
           >
             {showSetupGate && selectedCompany && setupProgress && (
-              <div className="mb-4 rounded-lg border border-amber-300/70 bg-amber-50/60 px-4 py-3">
+              <div className="mb-6 rounded-[1.5rem] border border-amber-300/22 bg-[color-mix(in_oklab,var(--card)_96%,#f4e4b9)] px-5 py-4 shadow-[0_10px_22px_rgba(180,129,18,0.05)] dark:border-amber-300/14 dark:bg-[linear-gradient(180deg,rgba(52,42,24,0.72),rgba(37,30,20,0.72))]">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-amber-950">
+                    <div className="text-sm font-semibold text-amber-950 dark:text-amber-100">
                       Setup is still in progress for {selectedCompany.name}
                     </div>
-                    <div className="mt-1 text-xs text-amber-900/90">
+                    <div className="mt-1 text-sm text-amber-900/90 dark:text-amber-100/82">
                       Current status: {setupProgress.status}. Finish engine, workspace, knowledge, and first-issue readiness in the setup console.
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
-                      onClick={() => navigate(`/${selectedCompany.issuePrefix}/company/settings`)}
+                      onClick={() => navigate(`/${selectedCompany.issuePrefix}${appRoutes.settings}`)}
                     >
                       Resume Setup
                     </Button>

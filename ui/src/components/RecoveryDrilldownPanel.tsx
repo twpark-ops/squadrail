@@ -6,6 +6,7 @@ import { dashboardApi } from "../api/dashboard";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
 import { timeAgo } from "../lib/timeAgo";
+import { workIssuePath } from "../lib/appRoutes";
 import type { DashboardRecoveryCase } from "@squadrail/shared";
 
 function formatProtocolLabel(value: string | null | undefined) {
@@ -175,7 +176,7 @@ export function RecoveryDrilldownPanel({
             {filteredItems.map((item) => (
               <Link
                 key={recoveryCaseKey(item)}
-                to={`/issues/${item.identifier ?? item.issueId}`}
+                to={workIssuePath(item.identifier ?? item.issueId)}
                 className={cn(
                   "block rounded-lg border p-4 transition-colors hover:border-foreground/20 hover:bg-accent/20",
                   item.recoveryType === "violation"

@@ -21,6 +21,7 @@ import { StatusIcon } from "./StatusIcon";
 import { PriorityIcon } from "./PriorityIcon";
 import { Identity } from "./Identity";
 import type { Issue } from "@squadrail/shared";
+import { issueUrl } from "../lib/utils";
 
 const boardStatuses = [
   "backlog",
@@ -64,10 +65,10 @@ function KanbanColumn({
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
   return (
-    <div className="flex flex-col min-w-[260px] w-[260px] shrink-0">
-      <div className="flex items-center gap-2 px-2 py-2 mb-1">
+    <div className="flex w-[286px] min-w-[286px] shrink-0 flex-col rounded-[1.5rem] border border-border bg-card/72 p-3">
+      <div className="mb-2 flex items-center gap-2 px-1 py-1">
         <StatusIcon status={status} />
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           {statusLabel(status)}
         </span>
         <span className="text-xs text-muted-foreground/60 ml-auto tabular-nums">
@@ -76,8 +77,8 @@ function KanbanColumn({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex-1 min-h-[120px] rounded-md p-1 space-y-1 transition-colors ${
-          isOver ? "bg-accent/40" : "bg-muted/20"
+        className={`flex-1 min-h-[140px] rounded-[1.1rem] p-2 space-y-2 transition-colors ${
+          isOver ? "bg-accent/40" : "bg-muted/28"
         }`}
       >
         <SortableContext
@@ -136,12 +137,12 @@ function KanbanCard({
       style={style}
       {...attributes}
       {...listeners}
-      className={`rounded-md border bg-card p-2.5 cursor-grab active:cursor-grabbing transition-shadow ${
+      className={`cursor-grab rounded-[1.1rem] border border-border/85 bg-background p-3 active:cursor-grabbing transition-shadow ${
         isDragging && !isOverlay ? "opacity-30" : ""
-      } ${isOverlay ? "shadow-lg ring-1 ring-primary/20" : "hover:shadow-sm"}`}
+      } ${isOverlay ? "shadow-lg ring-1 ring-primary/20" : "hover:shadow-sm hover:border-primary/18"}`}
     >
       <Link
-        to={`/issues/${issue.identifier ?? issue.id}`}
+        to={issueUrl(issue)}
         className="block no-underline text-inherit"
         onClick={(e) => {
           // Prevent navigation during drag
@@ -159,7 +160,7 @@ function KanbanCard({
             </span>
           )}
         </div>
-        <p className="text-sm leading-snug line-clamp-2 mb-2">{issue.title}</p>
+        <p className="mb-2 text-sm font-medium leading-snug line-clamp-2">{issue.title}</p>
         <div className="flex items-center gap-2">
           <PriorityIcon priority={issue.priority} />
           {issue.assigneeAgentId && (() => {
@@ -253,7 +254,7 @@ export function KanbanBoard({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-3 overflow-x-auto pb-4 -mx-2 px-2">
+      <div className="-mx-2 flex gap-4 overflow-x-auto px-2 pb-4">
         {boardStatuses.map((status) => (
           <KanbanColumn
             key={status}

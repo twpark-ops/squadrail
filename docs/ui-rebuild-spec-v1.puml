@@ -1,0 +1,77 @@
+@startuml
+title Squadrail UI Rebuild v1
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Navigation" {
+  [Overview]
+  [Work]
+  [Changes]
+  [Runs]
+  [Knowledge]
+  [Team]
+  [Settings]
+}
+
+package "Primary Runtime Data" {
+  [Issues]
+  [Protocol Timeline]
+  [Run Events]
+  [Workspace Git Snapshot]
+  [Verification Artifacts]
+  [Brief / Retrieval Evidence]
+}
+
+package "Decision Surfaces" {
+  [Work Detail]
+  [Change Detail]
+  [Run Detail]
+  [Merge Candidate]
+}
+
+[Overview] --> [Issues]
+[Overview] --> [Run Events]
+
+[Work] --> [Issues]
+[Work] --> [Protocol Timeline]
+[Work] --> [Work Detail]
+
+[Changes] --> [Workspace Git Snapshot]
+[Changes] --> [Verification Artifacts]
+[Changes] --> [Change Detail]
+[Changes] --> [Merge Candidate]
+
+[Runs] --> [Run Events]
+[Runs] --> [Run Detail]
+
+[Knowledge] --> [Brief / Retrieval Evidence]
+[Knowledge] --> [Work Detail]
+
+[Work Detail] --> [Protocol Timeline]
+[Work Detail] --> [Brief / Retrieval Evidence]
+[Work Detail] --> [Change Detail]
+[Work Detail] --> [Run Detail]
+
+[Change Detail] --> [Workspace Git Snapshot]
+[Change Detail] --> [Verification Artifacts]
+[Change Detail] --> [Merge Candidate]
+
+note right of [Work Detail]
+Protocol-first issue view:
+summary, child work, brief,
+change summary, next action.
+end note
+
+note right of [Change Detail]
+User-facing replacement for
+manual worktree inspection.
+end note
+
+note right of [Merge Candidate]
+Bridge pending_external_merge
+to human review and later
+PR/merge automation.
+end note
+
+@enduml

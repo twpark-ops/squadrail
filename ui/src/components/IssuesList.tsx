@@ -21,6 +21,7 @@ import { CircleDot, Plus, Filter, ArrowUpDown, Layers, Check, X, ChevronRight, L
 import { KanbanBoard } from "./KanbanBoard";
 import type { Issue } from "@squadrail/shared";
 import { readJsonStorageAlias, writeJsonStorageAlias } from "../lib/storage-aliases";
+import { workIssuePath } from "../lib/appRoutes";
 
 /* ── Helpers ── */
 
@@ -265,11 +266,11 @@ export function IssuesList({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3">
+      <div className="flex flex-col gap-3 rounded-[1.6rem] border border-border bg-background/72 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <Button size="sm" variant="outline" onClick={() => openNewIssue(newIssueDefaults())}>
+          <Button size="sm" onClick={() => openNewIssue(newIssueDefaults())}>
             <Plus className="h-4 w-4 sm:mr-1" />
             <span className="hidden sm:inline">New Issue</span>
           </Button>
@@ -554,10 +555,10 @@ export function IssuesList({
             }}
           >
             {group.label && (
-              <div className="flex items-center py-1.5 pl-1 pr-3">
+              <div className="flex items-center rounded-[1.1rem] bg-background/72 py-2 pl-3 pr-3">
                 <CollapsibleTrigger className="flex items-center gap-1.5">
                   <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform [[data-state=open]>&]:rotate-90" />
-                  <span className="text-sm font-semibold uppercase tracking-wide">
+                  <span className="text-sm font-semibold uppercase tracking-[0.16em]">
                     {group.label}
                   </span>
                 </CollapsibleTrigger>
@@ -575,8 +576,8 @@ export function IssuesList({
               {group.items.map((issue) => (
                 <Link
                   key={issue.id}
-                  to={`/issues/${issue.identifier ?? issue.id}`}
-                  className="flex items-center gap-2 py-2 pl-1 pr-3 text-sm border-b border-border last:border-b-0 cursor-pointer hover:bg-accent/50 transition-colors no-underline text-inherit"
+                  to={workIssuePath(issue.identifier ?? issue.id)}
+                  className="flex cursor-pointer items-center gap-2 border-b border-border/85 py-3 pl-3 pr-4 text-sm text-inherit no-underline transition-colors last:border-b-0 hover:bg-accent/50"
                 >
                   {/* Spacer matching caret width so status icon aligns with group title (hidden on mobile) */}
                   <div className="w-3.5 shrink-0 hidden sm:block" />
@@ -589,7 +590,7 @@ export function IssuesList({
                   <span className="text-sm text-muted-foreground font-mono shrink-0">
                     {issue.identifier ?? issue.id.slice(0, 8)}
                   </span>
-                  <span className="truncate flex-1 min-w-0">{issue.title}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{issue.title}</span>
                   {(issue.labels ?? []).length > 0 && (
                     <div className="hidden md:flex items-center gap-1 max-w-[240px] overflow-hidden">
                       {(issue.labels ?? []).slice(0, 3).map((label) => (

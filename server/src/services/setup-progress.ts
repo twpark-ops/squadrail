@@ -1,6 +1,6 @@
 import { and, count, eq } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
-import { rolePackSets, setupProgress } from "@squadrail/db";
+import { issues, knowledgeDocuments, rolePackSets, setupProgress } from "@squadrail/db";
 import {
   SETUP_PROGRESS_STATES,
   type AgentAdapterType,
@@ -35,13 +35,19 @@ export function buildSetupProgressSteps(input: {
   selectedWorkspaceId: string | null;
   metadata: Record<string, unknown>;
   publishedRolePackCount: number;
+  knowledgeDocumentCount?: number;
+  issueCount?: number;
 }): SetupStepFlags {
   const squadReady =
     input.publishedRolePackCount > 0 || readBooleanMetadata(input.metadata, "rolePacksSeeded");
   const engineReady = Boolean(input.selectedEngine);
   const workspaceConnected = Boolean(input.selectedWorkspaceId);
-  const knowledgeSeeded = workspaceConnected && readBooleanMetadata(input.metadata, "knowledgeSeeded");
-  const firstIssueReady = knowledgeSeeded && readBooleanMetadata(input.metadata, "firstIssueReady");
+  const knowledgeSeeded =
+    workspaceConnected &&
+    (readBooleanMetadata(input.metadata, "knowledgeSeeded") || (input.knowledgeDocumentCount ?? 0) > 0);
+  const firstIssueReady =
+    knowledgeSeeded &&
+    (readBooleanMetadata(input.metadata, "firstIssueReady") || (input.issueCount ?? 0) > 0);
 
   return {
     companyReady: true,
@@ -78,6 +84,22 @@ async function countPublishedRolePacks(db: Db, companyId: string) {
   return Number(rows[0]?.count ?? 0);
 }
 
+async function countKnowledgeDocuments(db: Db, companyId: string) {
+  const rows = await db
+    .select({ count: count() })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.companyId, companyId));
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function countCompanyIssues(db: Db, companyId: string) {
+  const rows = await db
+    .select({ count: count() })
+    .from(issues)
+    .where(eq(issues.companyId, companyId));
+  return Number(rows[0]?.count ?? 0);
+}
+
 export function setupProgressService(db: Db) {
   async function getRaw(companyId: string) {
     return db
@@ -88,9 +110,11 @@ export function setupProgressService(db: Db) {
   }
 
   async function getView(companyId: string): Promise<SetupProgressView> {
-    const [row, publishedRolePackCount] = await Promise.all([
+    const [row, publishedRolePackCount, knowledgeDocumentCount, issueCount] = await Promise.all([
       getRaw(companyId),
       countPublishedRolePacks(db, companyId),
+      countKnowledgeDocuments(db, companyId),
+      countCompanyIssues(db, companyId),
     ]);
     const base = toSetupProgressRow(companyId, row);
     const steps = buildSetupProgressSteps({
@@ -98,6 +122,8 @@ export function setupProgressService(db: Db) {
       selectedWorkspaceId: base.selectedWorkspaceId,
       metadata: base.metadata,
       publishedRolePackCount,
+      knowledgeDocumentCount,
+      issueCount,
     });
     const derivedStatus = deriveSetupProgressState(steps);
     return {
@@ -109,7 +135,11 @@ export function setupProgressService(db: Db) {
 
   async function update(companyId: string, patch: UpdateSetupProgress): Promise<SetupProgressView> {
     const current = await getView(companyId);
-    const publishedRolePackCount = await countPublishedRolePacks(db, companyId);
+    const [publishedRolePackCount, knowledgeDocumentCount, issueCount] = await Promise.all([
+      countPublishedRolePacks(db, companyId),
+      countKnowledgeDocuments(db, companyId),
+      countCompanyIssues(db, companyId),
+    ]);
     const nextMetadata = patch.metadata
       ? {
           ...current.metadata,
@@ -124,6 +154,8 @@ export function setupProgressService(db: Db) {
       selectedWorkspaceId: nextSelectedWorkspaceId,
       metadata: nextMetadata,
       publishedRolePackCount,
+      knowledgeDocumentCount,
+      issueCount,
     });
     const derivedStatus = deriveSetupProgressState(nextSteps);
     const nextStatus = maxSetupProgressState(

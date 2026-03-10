@@ -39,18 +39,18 @@ export function MetricCardV2({
   const inner = (
     <div
       className={cn(
-        "h-full px-6 py-5 rounded-xl border bg-card shadow-card transition-all",
-        isClickable && "cursor-pointer card-hover hover:shadow-card-hover",
+        "h-full rounded-[1.55rem] border border-border bg-card px-6 py-5 shadow-card transition-all",
+        isClickable && "cursor-pointer hover:-translate-y-0.5 hover:border-primary/18 hover:shadow-card-hover",
         className
       )}
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0 space-y-2">
+        <div className="min-w-0 flex-1 space-y-3">
           {/* Value - Large and prominent */}
           <div className="flex items-baseline gap-3">
-            <p className="text-3xl sm:text-4xl font-bold tracking-tight">
-              {value}
-            </p>
+              <p className="text-[2.3rem] font-semibold tracking-[-0.05em] text-foreground sm:text-[2.8rem]">
+                {value}
+              </p>
             {trend && (
               <div
                 className={cn(
@@ -69,20 +69,21 @@ export function MetricCardV2({
           </div>
 
           {/* Label */}
-          <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
             {label}
           </p>
 
           {/* Description */}
           {description && (
-            <div className="text-xs text-muted-foreground/80 leading-relaxed">
+            <div className="text-sm leading-relaxed text-muted-foreground">
               {description}
             </div>
           )}
         </div>
 
-        {/* Icon */}
-        <Icon className="h-5 w-5 text-muted-foreground/40 shrink-0 mt-1" />
+        <div className="rounded-[1rem] border border-primary/10 bg-primary/8 p-2.5">
+          <Icon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+        </div>
       </div>
     </div>
   );

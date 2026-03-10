@@ -8,6 +8,7 @@ import { getUIAdapter } from "../adapters";
 import type { TranscriptEntry } from "../adapters";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
+import { workIssuePath } from "../lib/appRoutes";
 import { ExternalLink } from "lucide-react";
 import { Identity } from "./Identity";
 
@@ -321,15 +322,15 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+      <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
         Agents
       </h3>
       {runs.length === 0 ? (
-        <div className="border border-border rounded-lg p-4">
+        <div className="rounded-[1.3rem] border border-dashed border-border/80 bg-card/70 p-8">
           <p className="text-sm text-muted-foreground">No recent agent runs.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
           {runs.map((run) => (
             <AgentRunCard
               key={run.id}
@@ -367,13 +368,13 @@ function AgentRunCard({
 
   return (
     <div className={cn(
-      "flex flex-col rounded-lg border overflow-hidden min-h-[200px]",
+      "flex min-h-[240px] flex-col overflow-hidden rounded-[1.35rem] border",
       isActive
-        ? "border-blue-500/30 bg-background/80 shadow-[0_0_12px_rgba(59,130,246,0.08)]"
-        : "border-border bg-background/50",
+        ? "border-blue-500/24 bg-card/92 shadow-[0_16px_34px_rgba(59,130,246,0.08)]"
+        : "border-border/85 bg-card/78",
     )}>
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
+      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
         <div className="flex items-center gap-2 min-w-0">
           {isActive ? (
             <span className="relative flex h-2 w-2 shrink-0">
@@ -400,9 +401,9 @@ function AgentRunCard({
 
       {/* Issue context */}
       {run.issueId && (
-        <div className="px-3 py-1.5 border-b border-border/40 text-xs flex items-center gap-1 min-w-0">
+        <div className="flex min-w-0 items-center gap-1 border-b border-border/50 px-4 py-2 text-xs">
           <Link
-            to={`/issues/${issue?.identifier ?? run.issueId}`}
+            to={workIssuePath(issue?.identifier ?? run.issueId)}
             className={cn(
               "hover:underline min-w-0 truncate",
               isActive ? "text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300" : "text-muted-foreground hover:text-foreground",
@@ -416,7 +417,7 @@ function AgentRunCard({
       )}
 
       {/* Feed body */}
-      <div ref={bodyRef} className="flex-1 max-h-[140px] overflow-y-auto p-2 font-mono text-[11px] space-y-1">
+      <div ref={bodyRef} className="flex-1 space-y-2 overflow-y-auto p-4 font-mono text-[11px]">
         {isActive && recent.length === 0 && (
           <div className="text-xs text-muted-foreground">Waiting for output...</div>
         )}
@@ -429,18 +430,18 @@ function AgentRunCard({
           <div
             key={item.id}
             className={cn(
-              "flex gap-2 items-start",
+              "flex items-start gap-3",
               index === recent.length - 1 && isActive && "animate-in fade-in slide-in-from-bottom-1 duration-300",
             )}
           >
-            <span className="text-[10px] text-muted-foreground shrink-0">{relativeTime(item.ts)}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">{relativeTime(item.ts)}</span>
             <span className={cn(
-              "min-w-0 break-words",
+              "min-w-0 break-words leading-5",
               item.tone === "error" && "text-red-600 dark:text-red-300",
               item.tone === "warn" && "text-amber-600 dark:text-amber-300",
               item.tone === "assistant" && "text-emerald-700 dark:text-emerald-200",
               item.tone === "tool" && "text-cyan-600 dark:text-cyan-300",
-              item.tone === "info" && "text-foreground/80",
+              item.tone === "info" && "text-foreground/86",
             )}>
               {item.text}
             </span>

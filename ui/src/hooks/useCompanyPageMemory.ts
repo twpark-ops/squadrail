@@ -29,7 +29,7 @@ function isRememberableCompanyPath(path: string): boolean {
 
 /**
  * Remembers the last visited page per company and navigates to it on company switch.
- * Falls back to /dashboard if no page was previously visited for a company.
+ * Falls back to /overview if no page was previously visited for a company.
  */
 export function useCompanyPageMemory() {
   const { selectedCompanyId, selectedCompany, selectionSource } = useCompany();
@@ -60,8 +60,8 @@ export function useCompanyPageMemory() {
       if (selectionSource !== "route_sync" && selectedCompany) {
         const paths = getCompanyPaths();
         const savedPath = paths[selectedCompanyId];
-        const relativePath = savedPath ? toCompanyRelativePath(savedPath) : "/dashboard";
-        const targetPath = isRememberableCompanyPath(relativePath) ? relativePath : "/dashboard";
+        const relativePath = savedPath ? toCompanyRelativePath(savedPath) : "/overview";
+        const targetPath = isRememberableCompanyPath(relativePath) ? relativePath : "/overview";
         navigate(`/${selectedCompany.issuePrefix}${targetPath}`, { replace: true });
       }
     }

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AdapterEnvironmentTestResult, RolePackPresetDescriptor, RolePackPresetKey } from "@squadrail/shared";
 import { useDialog } from "../context/DialogContext";
@@ -11,6 +11,7 @@ import { issuesApi } from "../api/issues";
 import { projectsApi } from "../api/projects";
 import { knowledgeApi } from "../api/knowledge";
 import { queryKeys } from "../lib/queryKeys";
+import { appRoutes } from "../lib/appRoutes";
 import { Dialog, DialogPortal } from "@/components/ui/dialog";
 import {
   Popover,
@@ -568,14 +569,14 @@ export function OnboardingWizard() {
     reset();
     closeOnboarding();
     if (createdCompanyPrefix && createdIssueRef) {
-      navigate(`/${createdCompanyPrefix}/issues/${createdIssueRef}`);
+      navigate(`/${createdCompanyPrefix}${appRoutes.work}/${createdIssueRef}`);
       return;
     }
     if (createdCompanyPrefix) {
-      navigate(`/${createdCompanyPrefix}/dashboard`);
+      navigate(`/${createdCompanyPrefix}${appRoutes.overview}`);
       return;
     }
-    navigate("/dashboard");
+    navigate(appRoutes.overview);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -1244,7 +1245,7 @@ export function OnboardingWizard() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => navigate(`/${createdCompanyPrefix}/company/settings`)}
+                          onClick={() => navigate(`/${createdCompanyPrefix}${appRoutes.settings}`)}
                         >
                           Open Setup Console
                         </Button>

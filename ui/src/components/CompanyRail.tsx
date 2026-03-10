@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Sparkles, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useQueries } from "@tanstack/react-query";
 import {
   DndContext,
@@ -93,39 +93,45 @@ function SortableCompanyItem({
     opacity: isDragging ? 0.8 : 1,
   };
 
+  const healthHint = hasLiveAgents
+    ? hasUnreadInbox
+      ? "Live runs and inbox activity"
+      : "Live runs active"
+    : hasUnreadInbox
+      ? "Inbox waiting"
+      : "Idle";
+
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="overflow-visible">
       <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
           <a
-            href={`/${company.issuePrefix}/dashboard`}
-            onClick={(e) => {
-              e.preventDefault();
-              onSelect();
-            }}
-            className="relative flex items-center justify-center group overflow-visible"
+            href={`/${company.issuePrefix}/overview`}
+            onClick={() => onSelect()}
+            className="group relative flex flex-col items-center gap-1.5 rounded-[1.4rem] px-1.5 py-2 overflow-visible"
           >
-            {/* Selection indicator pill */}
             <div
               className={cn(
-                "absolute left-[-14px] w-1 rounded-r-full bg-foreground transition-[height] duration-150",
+                "absolute right-[-6px] top-3 bottom-3 w-[3px] rounded-full transition-all duration-200",
                 isSelected
-                  ? "h-5"
-                  : "h-0 group-hover:h-2"
+                  ? "bg-primary opacity-100"
+                  : "bg-primary/0 opacity-0 group-hover:bg-primary/45 group-hover:opacity-100"
               )}
             />
             <div
-              className={cn("relative overflow-visible transition-transform duration-150", isDragging && "scale-105")}
+              className={cn(
+                "relative overflow-visible rounded-[1.35rem] border p-1.5 transition-[transform,border-color,background-color,box-shadow] duration-200",
+                isSelected
+                  ? "border-primary/35 bg-white/7 shadow-[0_18px_30px_rgba(23,40,74,0.35)]"
+                  : "border-transparent bg-transparent group-hover:border-white/10 group-hover:bg-white/6",
+                isDragging && "scale-105 shadow-lg",
+              )}
             >
               <CompanyPatternIcon
                 companyName={company.name}
                 brandColor={company.brandColor}
-                className={cn(
-                  isSelected
-                    ? "rounded-[14px]"
-                    : "rounded-[22px] group-hover:rounded-[14px]",
-                  isDragging && "shadow-lg",
-                )}
+                label={company.issuePrefix}
+                className={cn(isDragging && "shadow-lg")}
               />
               {hasLiveAgents && (
                 <span className="pointer-events-none absolute -right-0.5 -top-0.5 z-10">
@@ -139,10 +145,22 @@ function SortableCompanyItem({
                 <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-background" />
               )}
             </div>
+            <span
+              className={cn(
+                "max-w-full truncate px-1 text-[9px] font-semibold uppercase tracking-[0.18em]",
+                isSelected ? "text-white" : "text-slate-300 group-hover:text-white",
+              )}
+            >
+              {company.issuePrefix}
+            </span>
           </a>
         </TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8}>
-          <p>{company.name}</p>
+        <TooltipContent side="right" sideOffset={10} className="space-y-1 rounded-2xl border-border/80 bg-card px-3 py-2">
+          <p className="text-sm font-semibold">{company.name}</p>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+            {company.issuePrefix}
+          </p>
+          <p className="text-xs text-muted-foreground">{healthHint}</p>
         </TooltipContent>
       </Tooltip>
     </div>
@@ -259,14 +277,21 @@ export function CompanyRail() {
   );
 
   return (
-    <div className="flex flex-col items-center w-[72px] shrink-0 h-full bg-background border-r border-border">
-      {/* Product badge aligned with top sections. */}
-      <div className="flex items-center justify-center h-12 w-full shrink-0">
-        <Sparkles className="h-5 w-5 text-foreground" />
+    <div className="flex w-[88px] shrink-0 flex-col overflow-hidden border-r border-slate-900/80 bg-[linear-gradient(180deg,#0b1220,#10192b_48%,#0c1424_100%)] text-white">
+      <div className="flex w-full shrink-0 flex-col items-center gap-3 overflow-hidden border-b border-white/8 px-3 py-4">
+        <div className="flex h-11 w-11 items-center justify-center rounded-[1.25rem] border border-white/10 bg-white/6 shadow-[0_14px_28px_rgba(0,0,0,0.24)]">
+          <div className="relative h-6 w-6 overflow-hidden rounded-full bg-[linear-gradient(160deg,#1d4ed8,#60a5fa)]">
+            <span className="absolute left-1.5 top-1.5 h-1.5 w-3.5 rounded-full bg-white/92" />
+            <span className="absolute left-1.5 top-1.5 h-3.5 w-1.5 rounded-full bg-white/82" />
+            <span className="absolute right-1.5 bottom-1.5 h-1.5 w-3.5 rounded-full bg-cyan-200/92" />
+          </div>
+        </div>
+        <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.28em] text-slate-300">
+          Orgs
+        </div>
       </div>
 
-      {/* Company list */}
-      <div className="flex-1 flex flex-col items-center gap-2 py-3 w-full overflow-y-auto overflow-x-hidden scrollbar-none">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-4 scrollbar-none">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -276,33 +301,32 @@ export function CompanyRail() {
             items={orderedCompanies.map((c) => c.id)}
             strategy={verticalListSortingStrategy}
           >
-            {orderedCompanies.map((company) => (
-              <SortableCompanyItem
-                key={company.id}
-                company={company}
-                isSelected={company.id === selectedCompanyId}
-                hasLiveAgents={hasLiveAgentsByCompanyId.get(company.id) ?? false}
-                hasUnreadInbox={hasUnreadInboxByCompanyId.get(company.id) ?? false}
-                onSelect={() => setSelectedCompanyId(company.id)}
-              />
-            ))}
+            <div className="flex flex-col items-center gap-3">
+              {orderedCompanies.map((company) => (
+                <SortableCompanyItem
+                  key={company.id}
+                  company={company}
+                  isSelected={company.id === selectedCompanyId}
+                  hasLiveAgents={hasLiveAgentsByCompanyId.get(company.id) ?? false}
+                  hasUnreadInbox={hasUnreadInboxByCompanyId.get(company.id) ?? false}
+                  onSelect={() => setSelectedCompanyId(company.id)}
+                />
+              ))}
+            </div>
           </SortableContext>
         </DndContext>
       </div>
 
-      {/* Separator before add button */}
-      <div className="w-8 h-px bg-border mx-auto shrink-0" />
-
-      {/* Add company button */}
-      <div className="flex items-center justify-center py-2 shrink-0">
+      <div className="border-t border-white/8 px-3 py-4">
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <button
               onClick={() => openOnboarding()}
-              className="flex items-center justify-center w-11 h-11 rounded-[22px] hover:rounded-[14px] border-2 border-dashed border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground transition-[border-color,color,border-radius] duration-150"
+              className="flex w-full flex-col items-center justify-center gap-1 rounded-[1.35rem] border border-dashed border-white/14 bg-white/5 px-2 py-3 text-slate-300 transition-[border-color,color,background-color,transform] duration-200 hover:-translate-y-0.5 hover:border-white/24 hover:bg-white/8 hover:text-white"
               aria-label="Add company"
             >
-              <Plus className="h-5 w-5" />
+              <Plus className="h-4 w-4" />
+              <span className="text-[9px] font-semibold uppercase tracking-[0.22em]">Add</span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
