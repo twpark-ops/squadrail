@@ -158,6 +158,7 @@ export interface IssueMergeCandidate {
   rollbackPlan: string | null;
   approvalSummary: string | null;
   remainingRisks: string[];
+  automationMetadata: Record<string, unknown> | null;
   operatorNote: string | null;
   resolvedAt: Date | null;
   closeMessageId: string | null;

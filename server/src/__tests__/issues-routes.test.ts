@@ -19,6 +19,7 @@ const {
   mockHeartbeatGetRun,
   mockHeartbeatCancelIssueScope,
   mockAgentGetById,
+  mockProjectGetById,
   mockProtocolGetState,
   mockProtocolListMessages,
   mockProtocolAppendMessage,
@@ -27,6 +28,10 @@ const {
   mockIssueRetrievalHandleProtocolMessage,
   mockMergeCandidateGetByIssueId,
   mockMergeCandidateUpsertDecision,
+  mockMergeCandidatePatchAutomationMetadata,
+  mockMergeCandidateDeleteByIssueId,
+  mockBuildMergeAutomationPlan,
+  mockRunMergeAutomationAction,
   mockLogActivity,
 } = vi.hoisted(() => ({
   mockEnsureMembership: vi.fn(),
@@ -47,6 +52,7 @@ const {
   mockHeartbeatGetRun: vi.fn(),
   mockHeartbeatCancelIssueScope: vi.fn(),
   mockAgentGetById: vi.fn(),
+  mockProjectGetById: vi.fn(),
   mockProtocolGetState: vi.fn(),
   mockProtocolListMessages: vi.fn(),
   mockProtocolAppendMessage: vi.fn(),
@@ -55,6 +61,10 @@ const {
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
   mockMergeCandidateGetByIssueId: vi.fn(),
   mockMergeCandidateUpsertDecision: vi.fn(),
+  mockMergeCandidatePatchAutomationMetadata: vi.fn(),
+  mockMergeCandidateDeleteByIssueId: vi.fn(),
+  mockBuildMergeAutomationPlan: vi.fn(),
+  mockRunMergeAutomationAction: vi.fn(),
   mockLogActivity: vi.fn(),
 }));
 
@@ -104,6 +114,8 @@ vi.mock("../services/index.js", () => ({
   issueMergeCandidateService: () => ({
     getByIssueId: mockMergeCandidateGetByIssueId,
     upsertDecision: mockMergeCandidateUpsertDecision,
+    patchAutomationMetadata: mockMergeCandidatePatchAutomationMetadata,
+    deleteByIssueId: mockMergeCandidateDeleteByIssueId,
   }),
   issueService: () => ({
     create: mockIssueCreate,
@@ -135,9 +147,11 @@ vi.mock("../services/index.js", () => ({
   }),
   projectService: () => ({
     list: vi.fn(),
-    getById: vi.fn(),
+    getById: mockProjectGetById,
     listByIds: vi.fn(),
   }),
+  buildMergeAutomationPlan: mockBuildMergeAutomationPlan,
+  runMergeAutomationAction: mockRunMergeAutomationAction,
   logActivity: mockLogActivity,
 }));
 
@@ -145,6 +159,8 @@ vi.mock("../services/issue-merge-candidates.js", () => ({
   issueMergeCandidateService: () => ({
     getByIssueId: mockMergeCandidateGetByIssueId,
     upsertDecision: mockMergeCandidateUpsertDecision,
+    patchAutomationMetadata: mockMergeCandidatePatchAutomationMetadata,
+    deleteByIssueId: mockMergeCandidateDeleteByIssueId,
   }),
 }));
 
@@ -317,8 +333,57 @@ describe("issue routes wakeup handling", () => {
     });
     mockProtocolDispatchMessage.mockResolvedValue(undefined);
     mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({ recipientHints: [] });
+    mockProjectGetById.mockResolvedValue(null);
     mockMergeCandidateGetByIssueId.mockResolvedValue(null);
     mockMergeCandidateUpsertDecision.mockResolvedValue(null);
+    mockMergeCandidatePatchAutomationMetadata.mockResolvedValue(null);
+    mockMergeCandidateDeleteByIssueId.mockResolvedValue(null);
+    mockBuildMergeAutomationPlan.mockResolvedValue({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      identifier: "CLO-000",
+      title: "Plan",
+      candidateState: "pending",
+      projectId: "project-1",
+      projectName: "Project",
+      sourceBranch: "squadrail/test",
+      sourceHeadSha: "abc123",
+      sourceWorkspacePath: "/tmp/source",
+      sourceHeadCurrent: "abc123",
+      baseWorkspaceId: "workspace-1",
+      baseWorkspaceName: "Base",
+      baseWorkspacePath: "/tmp/base",
+      targetBaseBranch: "main",
+      targetStartRef: "main",
+      integrationBranchName: "squadrail/merge/clo-000",
+      automationWorktreePath: "/tmp/merge-worktree",
+      remoteName: "origin",
+      remoteUrl: "git@example.com:repo.git",
+      checks: {
+        hasPendingCandidate: true,
+        hasProject: true,
+        hasBaseWorkspace: true,
+        baseWorkspaceIsGit: true,
+        hasSourceWorkspace: true,
+        sourceWorkspaceIsGit: true,
+        hasSourceBranch: true,
+        sourceHeadMatches: true,
+        hasTargetBaseBranch: true,
+        hasRemote: true,
+      },
+      warnings: [],
+      canAutomate: true,
+      automationMetadata: {},
+    });
+    mockRunMergeAutomationAction.mockResolvedValue({
+      actionType: "prepare_merge",
+      ok: true,
+      plan: {
+        issueId: "11111111-1111-4111-8111-111111111111",
+      },
+      automationMetadataPatch: {
+        lastAutomationAction: "prepare_merge",
+      },
+    });
   });
 
   it("awaits assignee wakeup on issue create", async () => {
@@ -1388,6 +1453,144 @@ describe("issue routes wakeup handling", () => {
     );
   });
 
+  it("builds a merge automation plan for a pending candidate", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-222",
+      title: "Merge plan issue",
+      status: "done",
+      projectId: "project-1",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for automation",
+          verificationSummary: "Tests passed",
+          rollbackPlan: "Revert",
+        },
+        artifacts: [],
+      },
+    ]);
+    mockProjectGetById.mockResolvedValue({
+      id: "project-1",
+      name: "Project One",
+      primaryWorkspace: {
+        id: "workspace-1",
+        name: "Base",
+        cwd: "/tmp/base",
+        repoRef: "main",
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/merge-candidate/plan",
+      method: "get",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockBuildMergeAutomationPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issue: expect.objectContaining({
+          id: "11111111-1111-4111-8111-111111111111",
+          projectId: "project-1",
+        }),
+        project: expect.objectContaining({
+          id: "project-1",
+        }),
+      }),
+    );
+    expect(response.body).toEqual(expect.objectContaining({
+      issueId: "11111111-1111-4111-8111-111111111111",
+      targetBaseBranch: "main",
+    }));
+  });
+
+  it("runs merge automation and stores automation metadata", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-223",
+      title: "Merge automation issue",
+      status: "done",
+      projectId: "project-1",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for automation",
+          verificationSummary: "Tests passed",
+          rollbackPlan: "Revert",
+        },
+        artifacts: [],
+      },
+    ]);
+    mockProjectGetById.mockResolvedValue({
+      id: "project-1",
+      name: "Project One",
+      primaryWorkspace: {
+        id: "workspace-1",
+        name: "Base",
+        cwd: "/tmp/base",
+        repoRef: "main",
+      },
+    });
+    mockRunMergeAutomationAction.mockResolvedValue({
+      actionType: "export_patch",
+      ok: true,
+      plan: {
+        issueId: "11111111-1111-4111-8111-111111111111",
+        targetBaseBranch: "main",
+      },
+      patchPath: "/tmp/export.patch",
+      automationMetadataPatch: {
+        lastAutomationAction: "export_patch",
+        lastPatchPath: "/tmp/export.patch",
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/merge-candidate/automation",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        actionType: "export_patch",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockRunMergeAutomationAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "export_patch",
+      }),
+    );
+    expect(mockMergeCandidatePatchAutomationMetadata).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        lastAutomationAction: "export_patch",
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          actionType: "export_patch",
+          patchPath: "/tmp/export.patch",
+        }),
+      }),
+    );
+  });
+
   it("auto-attaches execution run artifacts to agent protocol messages", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
@@ -1761,6 +1964,131 @@ describe("issue routes wakeup handling", () => {
       reason: "Issue cancelled via protocol",
     });
     expect(mockProtocolDispatchMessage).not.toHaveBeenCalled();
+  });
+
+  it("persists a pending merge candidate when CLOSE_TASK requests external merge", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-230",
+      title: "Pending merge issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+      status: "done",
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "lead-1",
+      companyId: "company-1",
+      role: "tech_lead",
+      title: "Cloud Tech Lead",
+      permissions: {},
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "close-1", seq: 7 },
+      state: { workflowState: "done" },
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "approve-1",
+        messageType: "APPROVE_IMPLEMENTATION",
+        summary: "Approved",
+        createdAt: "2026-03-10T11:00:00.000Z",
+        payload: {
+          approvalSummary: "Approved for merge",
+        },
+        artifacts: [
+          {
+            kind: "approval",
+            uri: "approval://1",
+            label: "Approval artifact",
+            metadata: {},
+          },
+        ],
+      },
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for external merge",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the patch",
+        },
+        artifacts: [
+          {
+            kind: "doc",
+            uri: "workspace://binding",
+            label: "Workspace binding",
+            metadata: {
+              bindingType: "implementation_workspace",
+              cwd: "/tmp/worktree",
+              branchName: "squadrail/clo-230",
+              headSha: "abc123",
+              source: "project_isolated",
+              workspaceState: "fresh",
+            },
+          },
+          {
+            kind: "diff",
+            uri: "run://diff",
+            label: "Diff artifact",
+            metadata: {
+              branchName: "squadrail/clo-230",
+              headSha: "abc123",
+              changedFiles: ["src/merge.ts"],
+              statusEntries: ["M src/merge.ts"],
+              diffStat: "1 file changed, 4 insertions(+)",
+            },
+          },
+        ],
+      },
+    ]);
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("lead-1"),
+      body: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "lead-1", role: "tech_lead" },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "Close pending merge",
+        payload: {
+          closeReason: "completed",
+          finalTestStatus: "passed",
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for external merge",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the patch",
+          finalArtifacts: ["Diff prepared for external merge"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockMergeCandidateUpsertDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "11111111-1111-4111-8111-111111111111",
+        state: "pending",
+        closeMessageId: "close-1",
+        sourceBranch: "squadrail/clo-230",
+        workspacePath: "/tmp/worktree",
+        headSha: "abc123",
+      }),
+    );
   });
 
   it("returns immediately for async agent protocol dispatch mode", async () => {

@@ -19,6 +19,7 @@ import { validate } from "../middleware/validate.js";
 import {
   accessService,
   agentService,
+  buildMergeAutomationPlan,
   goalService,
   heartbeatService,
   issueApprovalService,
@@ -29,6 +30,7 @@ import {
   knowledgeService,
   logActivity,
   projectService,
+  runMergeAutomationAction,
 } from "../services/index.js";
 import { buildIssueChangeSurface } from "../services/issue-change-surface.js";
 import { issueMergeCandidateService } from "../services/issue-merge-candidates.js";
@@ -114,10 +116,30 @@ const mergeCandidateActionSchema = z.object({
   mergeCommitSha: z.string().trim().max(255).nullable().optional(),
 }).strict();
 
+const mergeCandidateAutomationSchema = z.object({
+  actionType: z.enum([
+    "prepare_merge",
+    "export_patch",
+    "export_pr_bundle",
+    "merge_local",
+    "cherry_pick_local",
+    "push_branch",
+  ]),
+  targetBaseBranch: z.string().trim().max(255).nullable().optional(),
+  integrationBranchName: z.string().trim().max(255).nullable().optional(),
+  remoteName: z.string().trim().max(255).nullable().optional(),
+  branchName: z.string().trim().max(255).nullable().optional(),
+  pushAfterAction: z.boolean().optional(),
+}).strict();
+
 function shouldGenerateProtocolRetrievalContext(
   messageType: CreateIssueProtocolMessage["messageType"],
 ) {
   return PROTOCOL_RETRIEVAL_MESSAGE_TYPES.has(messageType);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 export function issueRoutes(db: Db, storage: StorageService) {
@@ -150,17 +172,75 @@ export function issueRoutes(db: Db, storage: StorageService) {
     id: string;
     identifier: string | null;
     title: string;
-    status: string;
+    status?: string | null;
+    projectId?: string | null;
   }) {
     const [messages, mergeCandidateRecord] = await Promise.all([
       protocolSvc.listMessages(issue.id),
       mergeCandidatesSvc.getByIssueId(issue.id),
     ]);
     return buildIssueChangeSurface({
-      issue,
+      issue: {
+        ...issue,
+        status: issue.status ?? "done",
+      },
       messages,
       mergeCandidateRecord,
     });
+  }
+
+  async function syncMergeCandidateFromProtocolMessage(input: {
+    issue: {
+      id: string;
+      companyId: string;
+      identifier: string | null;
+      title: string;
+      status?: string | null;
+      projectId: string | null;
+    };
+    actor: ReturnType<typeof getActorInfo>;
+    message: CreateIssueProtocolMessage;
+    persistedMessageId: string;
+  }) {
+    if (input.message.messageType === "CANCEL_TASK") {
+      await mergeCandidatesSvc.deleteByIssueId(input.issue.id);
+      return;
+    }
+    if (input.message.messageType !== "CLOSE_TASK") return;
+
+    const payload = (input.message.payload ?? {}) as Record<string, unknown>;
+    const mergeStatus = readString(payload.mergeStatus);
+    if (mergeStatus === "pending_external_merge") {
+      const surface = await loadIssueChangeSurface(input.issue);
+      if (!surface.mergeCandidate) return;
+      await mergeCandidatesSvc.upsertDecision({
+        companyId: input.issue.companyId,
+        issueId: input.issue.id,
+        closeMessageId: input.persistedMessageId,
+        state: "pending",
+        sourceBranch: surface.mergeCandidate.sourceBranch,
+        workspacePath: surface.mergeCandidate.workspacePath,
+        headSha: surface.mergeCandidate.headSha,
+        diffStat: surface.mergeCandidate.diffStat,
+        targetBaseBranch:
+          readString(payload.targetBaseBranch)
+          ?? surface.mergeCandidate.targetBaseBranch
+          ?? null,
+        automationMetadata: {
+          ...(surface.mergeCandidate.automationMetadata ?? {}),
+          pendingCreatedAt: new Date().toISOString(),
+          lastCloseMessageId: input.persistedMessageId,
+        },
+        operatorActorType: input.actor.actorType,
+        operatorActorId: input.actor.actorId,
+        operatorNote: null,
+      });
+      return;
+    }
+
+    if (mergeStatus === "merged" || mergeStatus === "merge_not_required") {
+      await mergeCandidatesSvc.deleteByIssueId(input.issue.id);
+    }
   }
 
   async function runSingleFileUpload(req: Request, res: Response) {
@@ -475,6 +555,13 @@ export function issueRoutes(db: Db, storage: StorageService) {
         workflowStateAfter: effectiveMessage.workflowStateAfter,
         summary: effectiveMessage.summary,
       },
+    });
+
+    await syncMergeCandidateFromProtocolMessage({
+      issue: input.issue,
+      actor: input.actor,
+      message: effectiveMessage,
+      persistedMessageId: result.message.id,
     });
 
     if (effectiveMessage.messageType === "CANCEL_TASK") {
@@ -1709,6 +1796,64 @@ export function issueRoutes(db: Db, storage: StorageService) {
     res.json(surface.mergeCandidate);
   });
 
+  router.get("/issues/:id/merge-candidate/plan", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    const surface = await loadIssueChangeSurface(issue);
+    if (!surface.mergeCandidate) {
+      res.status(404).json({ error: "Merge candidate not found" });
+      return;
+    }
+
+    const project = issue.projectId ? await projectsSvc.getById(issue.projectId) : null;
+    const targetBaseBranch =
+      typeof req.query.targetBaseBranch === "string" && req.query.targetBaseBranch.trim().length > 0
+        ? req.query.targetBaseBranch.trim()
+        : null;
+    const integrationBranchName =
+      typeof req.query.integrationBranchName === "string" && req.query.integrationBranchName.trim().length > 0
+        ? req.query.integrationBranchName.trim()
+        : null;
+    const remoteName =
+      typeof req.query.remoteName === "string" && req.query.remoteName.trim().length > 0
+        ? req.query.remoteName.trim()
+        : null;
+
+    const plan = await buildMergeAutomationPlan({
+      issue: {
+        id: issue.id,
+        identifier: issue.identifier ?? null,
+        title: issue.title,
+        projectId: issue.projectId ?? null,
+      },
+      project: project
+        ? {
+            id: project.id,
+            name: project.name,
+            primaryWorkspace: project.primaryWorkspace
+              ? {
+                  id: project.primaryWorkspace.id,
+                  name: project.primaryWorkspace.name,
+                  cwd: project.primaryWorkspace.cwd,
+                  repoRef: project.primaryWorkspace.repoRef,
+                }
+              : null,
+          }
+        : null,
+      candidate: surface.mergeCandidate,
+      targetBaseBranch,
+      integrationBranchName,
+      remoteName,
+    });
+
+    res.json(plan);
+  });
+
   router.post("/issues/:id/merge-candidate/actions", async (req, res) => {
     const id = req.params.id as string;
     const issue = await svc.getById(id);
@@ -1770,6 +1915,102 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     const refreshed = await loadIssueChangeSurface(issue);
     res.json(refreshed.mergeCandidate);
+  });
+
+  router.post("/issues/:id/merge-candidate/automation", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Only board users can automate merge candidates" });
+      return;
+    }
+
+    const parsed = mergeCandidateAutomationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    const surface = await loadIssueChangeSurface(issue);
+    if (!surface.mergeCandidate) {
+      res.status(409).json({ error: "Issue has no merge candidate" });
+      return;
+    }
+
+    const project = issue.projectId ? await projectsSvc.getById(issue.projectId) : null;
+    const plan = await buildMergeAutomationPlan({
+      issue: {
+        id: issue.id,
+        identifier: issue.identifier ?? null,
+        title: issue.title,
+        projectId: issue.projectId ?? null,
+      },
+      project: project
+        ? {
+            id: project.id,
+            name: project.name,
+            primaryWorkspace: project.primaryWorkspace
+              ? {
+                  id: project.primaryWorkspace.id,
+                  name: project.primaryWorkspace.name,
+                  cwd: project.primaryWorkspace.cwd,
+                  repoRef: project.primaryWorkspace.repoRef,
+                }
+              : null,
+          }
+        : null,
+      candidate: surface.mergeCandidate,
+      targetBaseBranch: parsed.data.targetBaseBranch ?? null,
+      integrationBranchName: parsed.data.integrationBranchName ?? null,
+      remoteName: parsed.data.remoteName ?? null,
+    });
+
+    const actor = getActorInfo(req);
+    const result = await runMergeAutomationAction({
+      actionType: parsed.data.actionType,
+      plan,
+      candidate: surface.mergeCandidate,
+      targetBaseBranch: parsed.data.targetBaseBranch ?? null,
+      integrationBranchName: parsed.data.integrationBranchName ?? null,
+      remoteName: parsed.data.remoteName ?? null,
+      branchName: parsed.data.branchName ?? null,
+      pushAfterAction: parsed.data.pushAfterAction === true,
+    });
+
+    if (result.automationMetadataPatch) {
+      await mergeCandidatesSvc.patchAutomationMetadata(issue.id, result.automationMetadataPatch);
+    }
+
+    await logActivity(db, {
+      companyId: issue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.merge_candidate.automation",
+      entityType: "issue",
+      entityId: issue.id,
+      details: {
+        actionType: parsed.data.actionType,
+        targetBaseBranch: result.plan.targetBaseBranch,
+        targetBranch: result.targetBranch ?? null,
+        pushed: result.pushed ?? false,
+        patchPath: result.patchPath ?? null,
+        prBundlePath: result.prBundlePath ?? null,
+        mergeCommitSha: result.mergeCommitSha ?? null,
+      },
+    });
+
+    const refreshed = await loadIssueChangeSurface(issue);
+    res.json({
+      result,
+      mergeCandidate: refreshed.mergeCandidate,
+    });
   });
 
   router.post("/issues/:id/protocol/messages", async (req, res, next) => {

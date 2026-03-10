@@ -232,6 +232,13 @@
       "when": 1773146400000,
       "tag": "0032_crisp_merge_candidates",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1773151200000,
+      "tag": "0033_grand_merge_automation",
+      "breakpoints": true
     }
   ]
 }
