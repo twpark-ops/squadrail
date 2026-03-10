@@ -1,6 +1,8 @@
 import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import {
+  codeSymbolEdges,
+  codeSymbols,
   issueTaskBriefs,
   knowledgeChunkLinks,
   knowledgeChunks,
@@ -10,6 +12,74 @@ import {
   retrievalRunHits,
   retrievalRuns,
 } from "@squadrail/db";
+
+type ReplaceDocumentChunksCodeGraph = {
+  symbols: Array<{
+    chunkIndex: number;
+    symbolKey: string;
+    symbolName: string;
+    symbolKind: string;
+    receiverType?: string | null;
+    startLine?: number | null;
+    endLine?: number | null;
+    metadata?: Record<string, unknown>;
+  }>;
+  edges: Array<{
+    fromSymbolKey: string;
+    targetSymbolKey?: string | null;
+    targetSymbolName?: string | null;
+    targetPath?: string | null;
+    edgeType: string;
+    weight?: number;
+    metadata?: Record<string, unknown>;
+  }>;
+  stats?: Record<string, unknown>;
+};
+
+function buildMinimalCodeGraphFromChunks(input: {
+  chunks: Array<{
+    chunkIndex: number;
+    symbolName?: string | null;
+    metadata?: Record<string, unknown>;
+  }>;
+}) {
+  const symbols = input.chunks
+    .filter((chunk): chunk is typeof chunk & { symbolName: string } => (
+      typeof chunk.symbolName === "string"
+      && chunk.symbolName.trim().length > 0
+      && typeof chunk.metadata?.lineStart === "number"
+      && typeof chunk.metadata?.lineEnd === "number"
+    ))
+    .map((chunk) => ({
+      chunkIndex: chunk.chunkIndex,
+      symbolKey: [
+        String(chunk.metadata?.receiverType ?? ""),
+        String(chunk.metadata?.symbolKind ?? "symbol"),
+        chunk.symbolName.trim(),
+        String(chunk.metadata?.lineStart ?? ""),
+      ].join(":"),
+      symbolName: chunk.symbolName.trim(),
+      symbolKind: String(chunk.metadata?.symbolKind ?? "symbol"),
+      receiverType: typeof chunk.metadata?.receiverType === "string" ? chunk.metadata.receiverType : null,
+      startLine: typeof chunk.metadata?.lineStart === "number" ? chunk.metadata.lineStart : null,
+      endLine: typeof chunk.metadata?.lineEnd === "number" ? chunk.metadata.lineEnd : null,
+      metadata: {
+        parser: chunk.metadata?.parser,
+        chunkKind: chunk.metadata?.chunkKind,
+        exported: chunk.metadata?.exported === true,
+        isTestFile: chunk.metadata?.isTestFile === true,
+      },
+    }));
+
+  if (symbols.length === 0) return null;
+  return {
+    symbols,
+    edges: [],
+    stats: {
+      mode: "minimal",
+    },
+  } satisfies ReplaceDocumentChunksCodeGraph;
+}
 
 export function knowledgeService(db: Db) {
   function eqNullable<TColumn>(column: TColumn, value: string | null | undefined) {
@@ -40,6 +110,156 @@ export function knowledgeService(db: Db) {
         WHERE id = ${chunk.id}
       `);
     }
+  }
+
+  async function replaceDocumentCodeGraph(input: {
+    tx: Db;
+    companyId: string;
+    documentId: string;
+    projectId: string | null;
+    documentPath: string | null;
+    documentLanguage: string | null;
+    chunkIdByIndex: Map<number, string>;
+    codeGraph: ReplaceDocumentChunksCodeGraph | null;
+  }) {
+    if (!input.projectId || !input.documentPath || !input.documentLanguage || !input.codeGraph) {
+      return { symbolCount: 0, edgeCount: 0 };
+    }
+    const documentPath = input.documentPath;
+    const documentLanguage = input.documentLanguage;
+    const projectId = input.projectId;
+
+    const symbolValues = input.codeGraph.symbols
+      .map((symbol) => {
+        const chunkId = input.chunkIdByIndex.get(symbol.chunkIndex);
+        if (!chunkId) return null;
+        return {
+          companyId: input.companyId,
+          projectId,
+          documentId: input.documentId,
+          chunkId,
+          path: documentPath,
+          language: documentLanguage,
+          symbolKey: symbol.symbolKey,
+          symbolName: symbol.symbolName,
+          symbolKind: symbol.symbolKind,
+          receiverType: symbol.receiverType ?? null,
+          startLine: symbol.startLine ?? null,
+          endLine: symbol.endLine ?? null,
+          metadata: symbol.metadata ?? {},
+        };
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+
+    if (symbolValues.length === 0) {
+      return { symbolCount: 0, edgeCount: 0 };
+    }
+
+    const insertedSymbols = await input.tx
+      .insert(codeSymbols)
+      .values(symbolValues)
+      .returning({
+        id: codeSymbols.id,
+        path: codeSymbols.path,
+        symbolKey: codeSymbols.symbolKey,
+        symbolName: codeSymbols.symbolName,
+        metadata: codeSymbols.metadata,
+      });
+
+    const insertedByKey = new Map(insertedSymbols.map((symbol) => [symbol.symbolKey, symbol] as const));
+    const targetNames = Array.from(new Set(
+      input.codeGraph.edges
+        .map((edge) => edge.targetSymbolName?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ));
+    const targetPaths = Array.from(new Set(
+      input.codeGraph.edges
+        .map((edge) => edge.targetPath?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ));
+
+    const candidateSymbols = targetNames.length === 0 && targetPaths.length === 0
+      ? insertedSymbols
+      : await input.tx
+        .select({
+          id: codeSymbols.id,
+          path: codeSymbols.path,
+          symbolKey: codeSymbols.symbolKey,
+          symbolName: codeSymbols.symbolName,
+          metadata: codeSymbols.metadata,
+        })
+        .from(codeSymbols)
+        .where(and(
+          eq(codeSymbols.companyId, input.companyId),
+          eq(codeSymbols.projectId, projectId),
+          or(
+            ...(targetNames.length > 0 ? [inArray(codeSymbols.symbolName, targetNames)] : []),
+            ...(targetPaths.length > 0 ? [inArray(codeSymbols.path, targetPaths)] : []),
+          ),
+        ));
+
+    const byPathAndName = new Map<string, typeof candidateSymbols>();
+    const byName = new Map<string, typeof candidateSymbols>();
+    const byPath = new Map<string, typeof candidateSymbols>();
+
+    for (const symbol of [...candidateSymbols, ...insertedSymbols]) {
+      const pathNameKey = `${symbol.path}:${symbol.symbolName}`;
+      byPathAndName.set(pathNameKey, [...(byPathAndName.get(pathNameKey) ?? []), symbol]);
+      byName.set(symbol.symbolName, [...(byName.get(symbol.symbolName) ?? []), symbol]);
+      byPath.set(symbol.path, [...(byPath.get(symbol.path) ?? []), symbol]);
+    }
+
+    const rankCandidates = (
+      candidates: typeof candidateSymbols,
+      preferredPath?: string | null,
+    ) => [...candidates].sort((left, right) => {
+      const leftExported = left.metadata?.exported === true ? 1 : 0;
+      const rightExported = right.metadata?.exported === true ? 1 : 0;
+      if (preferredPath) {
+        const leftPathMatch = left.path === preferredPath ? 1 : 0;
+        const rightPathMatch = right.path === preferredPath ? 1 : 0;
+        if (rightPathMatch !== leftPathMatch) return rightPathMatch - leftPathMatch;
+      }
+      if (rightExported !== leftExported) return rightExported - leftExported;
+      return left.path.localeCompare(right.path, "en");
+    });
+
+    const edgeValues = input.codeGraph.edges.flatMap((edge) => {
+      const fromSymbol = insertedByKey.get(edge.fromSymbolKey);
+      if (!fromSymbol) return [];
+
+      const exactLocalTarget = edge.targetSymbolKey ? insertedByKey.get(edge.targetSymbolKey) : null;
+      const targetCandidates = exactLocalTarget
+        ? [exactLocalTarget]
+        : edge.targetPath && edge.targetSymbolName
+          ? rankCandidates(byPathAndName.get(`${edge.targetPath}:${edge.targetSymbolName}`) ?? [], edge.targetPath)
+          : edge.targetSymbolName
+            ? rankCandidates(byName.get(edge.targetSymbolName) ?? [], edge.targetPath ?? null)
+            : edge.targetPath
+              ? rankCandidates(byPath.get(edge.targetPath) ?? [], edge.targetPath)
+              : [];
+      const targetSymbol = targetCandidates.find((candidate) => candidate.id !== fromSymbol.id);
+      if (!targetSymbol) return [];
+
+      return [{
+        companyId: input.companyId,
+        projectId,
+        fromSymbolId: fromSymbol.id,
+        toSymbolId: targetSymbol.id,
+        edgeType: edge.edgeType,
+        weight: edge.weight ?? 1,
+        metadata: edge.metadata ?? {},
+      }];
+    });
+
+    if (edgeValues.length > 0) {
+      await input.tx.insert(codeSymbolEdges).values(edgeValues).onConflictDoNothing();
+    }
+
+    return {
+      symbolCount: insertedSymbols.length,
+      edgeCount: edgeValues.length,
+    };
   }
 
   return {
@@ -138,11 +358,15 @@ export function knowledgeService(db: Db) {
           totalLinks: number;
           linkedChunks: number;
           connectedDocuments: number;
+          totalSymbols: number;
+          totalSymbolEdges: number;
         }>(sql`
           select
             (select count(*)::int from knowledge_documents where company_id = ${input.companyId}) as "totalDocuments",
             (select count(*)::int from knowledge_chunks where company_id = ${input.companyId}) as "totalChunks",
             (select count(*)::int from knowledge_chunk_links where company_id = ${input.companyId}) as "totalLinks",
+            (select count(*)::int from code_symbols where company_id = ${input.companyId}) as "totalSymbols",
+            (select count(*)::int from code_symbol_edges where company_id = ${input.companyId}) as "totalSymbolEdges",
             (select count(distinct chunk_id)::int from knowledge_chunk_links where company_id = ${input.companyId}) as "linkedChunks",
             (
               select count(distinct kc.document_id)::int
@@ -224,6 +448,8 @@ export function knowledgeService(db: Db) {
         totalLinks: 0,
         linkedChunks: 0,
         connectedDocuments: 0,
+        totalSymbols: 0,
+        totalSymbolEdges: 0,
       };
 
       return {
@@ -279,6 +505,7 @@ export function knowledgeService(db: Db) {
     replaceDocumentChunks: async (input: {
       companyId: string;
       documentId: string;
+      codeGraph?: ReplaceDocumentChunksCodeGraph | null;
       chunks: Array<{
         chunkIndex: number;
         headingPath?: string | null;
@@ -296,6 +523,17 @@ export function knowledgeService(db: Db) {
         }>;
       }>;
     }) => db.transaction(async (tx) => {
+      const document = await tx
+        .select({
+          id: knowledgeDocuments.id,
+          projectId: knowledgeDocuments.projectId,
+          path: knowledgeDocuments.path,
+          language: knowledgeDocuments.language,
+        })
+        .from(knowledgeDocuments)
+        .where(eq(knowledgeDocuments.id, input.documentId))
+        .then((rows) => rows[0] ?? null);
+
       await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.documentId, input.documentId));
 
       if (input.chunks.length === 0) return [];
@@ -336,6 +574,17 @@ export function knowledgeService(db: Db) {
       if (links.length > 0) {
         await tx.insert(knowledgeChunkLinks).values(links);
       }
+
+      await replaceDocumentCodeGraph({
+        tx: tx as unknown as Db,
+        companyId: input.companyId,
+        documentId: input.documentId,
+        projectId: document?.projectId ?? null,
+        documentPath: document?.path ?? null,
+        documentLanguage: document?.language ?? null,
+        chunkIdByIndex: new Map(insertedChunks.map((chunk) => [chunk.chunkIndex, chunk.id] as const)),
+        codeGraph: input.codeGraph ?? buildMinimalCodeGraphFromChunks({ chunks: input.chunks }),
+      });
 
       await syncChunkEmbeddingVectors(
         tx as unknown as Db,
@@ -824,11 +1073,15 @@ export function knowledgeService(db: Db) {
       let evidenceCountTotal = 0;
       let sourceDiversityTotal = 0;
       let graphHitCountTotal = 0;
+      let symbolGraphHitCountTotal = 0;
+      let edgeTraversalCountTotal = 0;
       let lowConfidenceRuns = 0;
       let exactPathMissCount = 0;
       let projectMismatchCount = 0;
       let graphExpandedRuns = 0;
+      let symbolGraphExpandedRuns = 0;
       const graphEntityTypeCounts: Record<string, number> = {};
+      const edgeTypeCounts: Record<string, number> = {};
 
       for (const row of rows) {
         const debug = (row.queryDebug ?? {}) as Record<string, unknown>;
@@ -837,8 +1090,14 @@ export function knowledgeService(db: Db) {
         const evidenceCount = typeof quality.evidenceCount === "number" ? quality.evidenceCount : 0;
         const sourceDiversity = typeof quality.sourceDiversity === "number" ? quality.sourceDiversity : 0;
         const graphHitCount = typeof quality.graphHitCount === "number" ? quality.graphHitCount : 0;
+        const symbolGraphHitCount = typeof quality.symbolGraphHitCount === "number" ? quality.symbolGraphHitCount : 0;
+        const edgeTraversalCount = typeof quality.edgeTraversalCount === "number" ? quality.edgeTraversalCount : 0;
         const graphEntityTypes = Array.isArray(quality.graphEntityTypes)
           ? quality.graphEntityTypes.filter((value): value is string => typeof value === "string")
+          : [];
+        const edgeTypes = quality.edgeTypeCounts && typeof quality.edgeTypeCounts === "object"
+          ? Object.entries(quality.edgeTypeCounts as Record<string, unknown>)
+            .filter((entry): entry is [string, number] => typeof entry[0] === "string" && typeof entry[1] === "number")
           : [];
         const degradedReasons = Array.isArray(quality.degradedReasons)
           ? quality.degradedReasons.filter((value): value is string => typeof value === "string")
@@ -858,12 +1117,18 @@ export function knowledgeService(db: Db) {
         evidenceCountTotal += evidenceCount;
         sourceDiversityTotal += sourceDiversity;
         graphHitCountTotal += graphHitCount;
+        symbolGraphHitCountTotal += symbolGraphHitCount;
+        edgeTraversalCountTotal += edgeTraversalCount;
         if (graphHitCount > 0) graphExpandedRuns += 1;
+        if (symbolGraphHitCount > 0) symbolGraphExpandedRuns += 1;
         if (confidenceLevel) {
           confidenceCounts[confidenceLevel] = (confidenceCounts[confidenceLevel] ?? 0) + 1;
         }
         for (const entityType of graphEntityTypes) {
           graphEntityTypeCounts[entityType] = (graphEntityTypeCounts[entityType] ?? 0) + 1;
+        }
+        for (const [edgeType, count] of edgeTypes) {
+          edgeTypeCounts[edgeType] = (edgeTypeCounts[edgeType] ?? 0) + count;
         }
         for (const reason of degradedReasons) {
           degradedReasonCounts[reason] = (degradedReasonCounts[reason] ?? 0) + 1;
@@ -939,10 +1204,14 @@ export function knowledgeService(db: Db) {
         averageEvidenceCount: totalRuns > 0 ? evidenceCountTotal / totalRuns : 0,
         averageSourceDiversity: totalRuns > 0 ? sourceDiversityTotal / totalRuns : 0,
         averageGraphHitCount: totalRuns > 0 ? graphHitCountTotal / totalRuns : 0,
+        averageSymbolGraphHitCount: totalRuns > 0 ? symbolGraphHitCountTotal / totalRuns : 0,
+        averageEdgeTraversalCount: totalRuns > 0 ? edgeTraversalCountTotal / totalRuns : 0,
         graphExpandedRuns,
+        symbolGraphExpandedRuns,
         confidenceCounts,
         degradedReasonCounts,
         graphEntityTypeCounts,
+        edgeTypeCounts,
         perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         samples: {

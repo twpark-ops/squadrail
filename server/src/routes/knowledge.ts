@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Db } from "@squadrail/db";
 import { KNOWLEDGE_EMBEDDING_DIMENSIONS } from "@squadrail/db";
 import {
+  buildCodeGraphForWorkspaceFile,
   knowledgeBackfillService,
   knowledgeEmbeddingService,
   knowledgeImportService,
@@ -264,6 +265,19 @@ export function knowledgeRoutes(db: Db) {
       ...chunk,
       metadata: chunk.metadata ?? {},
     }));
+    const preparedChunksForGraph = () => preparedChunks.map((chunk) => ({
+      chunkIndex: chunk.chunkIndex,
+      headingPath: chunk.headingPath ?? null,
+      symbolName: chunk.symbolName ?? null,
+      tokenCount: chunk.tokenCount,
+      textContent: chunk.textContent,
+      searchText: chunk.searchText ?? [
+        chunk.headingPath ?? "",
+        chunk.symbolName ?? "",
+        chunk.textContent,
+      ].filter(Boolean).join("\n"),
+      metadata: chunk.metadata ?? {},
+    }));
 
     if (shouldGenerateEmbeddings) {
       const providerInfo = embeddings.getProviderInfo();
@@ -299,9 +313,19 @@ export function knowledgeRoutes(db: Db) {
       }));
     }
 
+    const codeGraph = document.path && document.language && document.rawContent
+      ? buildCodeGraphForWorkspaceFile({
+        relativePath: document.path,
+        content: document.rawContent,
+        language: document.language,
+        chunks: preparedChunksForGraph(),
+      })
+      : null;
+
     const chunks = await knowledge.replaceDocumentChunks({
       companyId: document.companyId,
       documentId: document.id,
+      codeGraph,
       chunks: preparedChunks.map((chunk) => ({
         ...chunk,
         embedding: chunk.embedding!,
@@ -317,6 +341,8 @@ export function knowledgeRoutes(db: Db) {
         embeddingOrigin: embeddingMetadata.embeddingOrigin,
         embeddingGeneratedAt: embeddingMetadata.embeddingGeneratedAt,
         embeddingChunkCount: chunks.length,
+        codeGraphSymbolCount: codeGraph?.symbols.length ?? 0,
+        codeGraphEdgeCount: codeGraph?.edges.length ?? 0,
       });
     }
 

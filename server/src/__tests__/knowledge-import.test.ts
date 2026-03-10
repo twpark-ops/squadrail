@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildCodeGraphForWorkspaceFile,
   chunkWorkspaceFile,
   classifyWorkspaceDocument,
   detectWorkspaceSecret,
@@ -304,6 +305,30 @@ describe("knowledge import helpers", () => {
     });
     expect(chunks[1]?.symbolName).toBe("run_job");
     expect(chunks[1]?.metadata?.lineEnd).toBe(6);
+  });
+
+  it("builds code graph symbols and edges from workspace chunks", () => {
+    const content = [
+      "import { retryWorker } from './retry-worker';",
+      "",
+      "export function runController() {",
+      "  return retryWorker();",
+      "}",
+    ].join("\n");
+    const chunks = chunkWorkspaceFile({
+      relativePath: "src/controller.ts",
+      content,
+      language: "typescript",
+    });
+    const codeGraph = buildCodeGraphForWorkspaceFile({
+      relativePath: "src/controller.ts",
+      content,
+      language: "typescript",
+      chunks,
+    });
+
+    expect(codeGraph?.symbols.map((symbol) => symbol.symbolName)).toContain("runController");
+    expect(codeGraph?.edges.some((edge) => edge.edgeType === "imports" && edge.targetSymbolName === "retryWorker")).toBe(true);
   });
 
   it("detects secrets in workspace content", () => {

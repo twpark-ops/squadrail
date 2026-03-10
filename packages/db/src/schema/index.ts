@@ -36,6 +36,8 @@ export { rolePackFiles } from "./role_pack_files.js";
 export { knowledgeDocuments } from "./knowledge_documents.js";
 export { knowledgeChunks, KNOWLEDGE_EMBEDDING_DIMENSIONS } from "./knowledge_chunks.js";
 export { knowledgeChunkLinks } from "./knowledge_chunk_links.js";
+export { codeSymbols } from "./code_symbols.js";
+export { codeSymbolEdges } from "./code_symbol_edges.js";
 export { retrievalPolicies } from "./retrieval_policies.js";
 export { retrievalRuns } from "./retrieval_runs.js";
 export { retrievalRunHits } from "./retrieval_run_hits.js";

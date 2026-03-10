@@ -1,0 +1,60 @@
+@startuml
+title B8 Deep RAG Hardening Plan
+
+skinparam backgroundColor #0B1020
+skinparam defaultFontName "Noto Sans CJK KR"
+skinparam ArrowColor #86A8FF
+skinparam RectangleBorderColor #5B6B8C
+skinparam RectangleFontColor #E8ECF8
+skinparam RectangleBackgroundColor #131A2B
+skinparam NoteBackgroundColor #1B2438
+skinparam NoteBorderColor #5B6B8C
+skinparam NoteFontColor #D7DCEC
+
+rectangle "Slice 1\nGraph-Assisted Retrieval\nCOMPLETED" as S1 #1D4D31
+rectangle "Slice 2\nSymbol / Dependency Graph\nNEXT" as S2 #5A4520
+rectangle "Slice 3\nVersion-Aware Retrieval" as S3 #2B3348
+rectangle "Slice 4\nCache + Incremental Reindex" as S4 #2B3348
+rectangle "Slice 5\nRole-Specific Personalization" as S5 #2B3348
+
+rectangle "relevance" as R #17304A
+rectangle "temporal validity" as T #17304A
+rectangle "cost / latency" as C #17304A
+rectangle "adaptation" as A #17304A
+
+S1 --> S2
+S2 --> S3
+S3 --> S4
+S4 --> S5
+
+S2 --> R
+S3 --> T
+S4 --> C
+S5 --> A
+
+note right of S2
+code_symbols
+code_symbol_edges
+TS / Go / Python first
+1-hop traversal
+end note
+
+note right of S3
+knowledge_document_versions
+branch / commit affinity
+stale branch penalty
+end note
+
+note right of S4
+retrieval cache entries
+project knowledge revision
+incremental import
+end note
+
+note right of S5
+retrieval feedback events
+role profiles
+explainable boosts only
+end note
+
+@enduml

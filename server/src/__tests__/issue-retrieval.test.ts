@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyModelRerankOrder,
   buildGraphExpansionSeeds,
+  buildSymbolGraphExpansionSeeds,
   buildRetrievalQueryText,
   computeCosineSimilarity,
   deriveDynamicRetrievalSignals,
@@ -126,6 +127,55 @@ describe("issue retrieval helpers", () => {
     expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("symbol:retryWorker");
     expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("path:worker/retry.ts");
     expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("project:project-worker");
+  });
+
+  it("builds symbol graph seeds from chunk symbol registry", () => {
+    const seeds = buildSymbolGraphExpansionSeeds({
+      hits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-worker",
+          path: "worker/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retryWorker applies idempotency",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.8,
+          sparseScore: 0.3,
+          rerankScore: 0.9,
+          fusedScore: 2.1,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+        },
+      ],
+      chunkSymbolMap: new Map([
+        ["chunk-1", [
+          {
+            symbolId: "symbol-1",
+            chunkId: "chunk-1",
+            path: "worker/retry.ts",
+            symbolKey: "function:retryWorker:1",
+            symbolName: "retryWorker",
+            symbolKind: "function",
+            metadata: {
+              exported: true,
+            },
+          },
+        ]],
+      ]),
+    });
+
+    expect(seeds).toEqual([
+      expect.objectContaining({
+        symbolId: "symbol-1",
+        symbolName: "retryWorker",
+      }),
+    ]);
   });
 
   it("includes mentioned project names in retrieval query text", () => {
@@ -408,6 +458,7 @@ describe("issue retrieval helpers", () => {
             entityIds: ["retryWorker", "worker/retry.ts"],
             seedReasons: ["linked_symbol", "linked_path"],
             graphScore: 1.8,
+            edgeTypes: ["imports", "tests"],
           },
         },
       ],
@@ -415,6 +466,7 @@ describe("issue retrieval helpers", () => {
 
     expect(markdown).toContain("graph: symbol, path");
     expect(markdown).toContain("linked_symbol");
+    expect(markdown).toContain("graph edges: imports, tests");
   });
 
   it("fuses sparse and dense hits while preferring issue-scoped authority", () => {
