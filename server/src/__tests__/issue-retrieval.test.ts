@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   applyModelRerankOrder,
+  buildGraphExpansionSeeds,
   buildRetrievalQueryText,
   computeCosineSimilarity,
   deriveDynamicRetrievalSignals,
   deriveBriefScope,
   deriveRetrievalEventType,
   fuseRetrievalCandidates,
+  mergeGraphExpandedHits,
   resolveRetrievalPolicyRerankConfig,
   rerankRetrievalHits,
   renderRetrievedBriefMarkdown,
@@ -64,6 +66,66 @@ describe("issue retrieval helpers", () => {
     expect(query).toContain("backend");
     expect(query).toContain("Prevent duplicate processing");
     expect(query).toContain("idempotency");
+  });
+
+  it("builds graph expansion seeds from top hits and chunk links", () => {
+    const seeds = buildGraphExpansionSeeds({
+      hits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-worker",
+          path: "worker/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retryWorker applies idempotency",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.8,
+          sparseScore: 0.3,
+          rerankScore: 0.9,
+          fusedScore: 2.1,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+        },
+      ],
+      linkMap: new Map([
+        ["chunk-1", [
+          {
+            chunkId: "chunk-1",
+            entityType: "symbol",
+            entityId: "retryWorker",
+            linkReason: "workspace_import_symbol",
+            weight: 0.8,
+          },
+          {
+            chunkId: "chunk-1",
+            entityType: "project",
+            entityId: "project-worker",
+            linkReason: "workspace_import_project",
+            weight: 1,
+          },
+        ]],
+      ]),
+      signals: {
+        exactPaths: ["worker/retry.ts"],
+        fileNames: ["retry.ts"],
+        symbolHints: ["retryWorker"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "adr"],
+        projectAffinityIds: ["project-primary", "project-worker"],
+        projectAffinityNames: ["swiftsight-worker"],
+        blockerCode: null,
+        questionType: null,
+      },
+    });
+
+    expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("symbol:retryWorker");
+    expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("path:worker/retry.ts");
+    expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("project:project-worker");
   });
 
   it("includes mentioned project names in retrieval query text", () => {
@@ -288,6 +350,73 @@ describe("issue retrieval helpers", () => {
     expect(markdown).toContain("idempotency keys");
   });
 
+  it("renders graph-linked evidence details in brief markdown", () => {
+    const markdown = renderRetrievedBriefMarkdown({
+      briefScope: "engineer",
+      issue: {
+        identifier: "SW-111",
+        title: "Use connected evidence",
+      },
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "Investigate retry worker relationship",
+        payload: {
+          goal: "Trace related retry evidence",
+          priority: "high",
+          assigneeAgentId: "00000000-0000-0000-0000-000000000001",
+          reviewerAgentId: "00000000-0000-0000-0000-000000000002",
+        },
+        artifacts: [],
+      },
+      queryText: "retry worker connected evidence",
+      hits: [
+        {
+          chunkId: "chunk-graph",
+          documentId: "doc-graph",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "worker/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retryWorker references the bounded retry helper.",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.5,
+          sparseScore: 0.4,
+          rerankScore: 0.8,
+          fusedScore: 1.7,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+          graphMetadata: {
+            entityTypes: ["symbol", "path"],
+            entityIds: ["retryWorker", "worker/retry.ts"],
+            seedReasons: ["linked_symbol", "linked_path"],
+            graphScore: 1.8,
+          },
+        },
+      ],
+    });
+
+    expect(markdown).toContain("graph: symbol, path");
+    expect(markdown).toContain("linked_symbol");
+  });
+
   it("fuses sparse and dense hits while preferring issue-scoped authority", () => {
     const fused = fuseRetrievalCandidates({
       issueId: "issue-1",
@@ -422,6 +551,66 @@ describe("issue retrieval helpers", () => {
 
     expect(fused[0]?.chunkId).toBe("chunk-affinity");
     expect((fused[0]?.fusedScore ?? 0)).toBeGreaterThan(fused[1]?.fusedScore ?? 0);
+  });
+
+  it("merges graph expansion hits without losing graph metadata", () => {
+    const merged = mergeGraphExpandedHits({
+      baseHits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retry worker",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.5,
+          sparseScore: 0.2,
+          rerankScore: 0.7,
+          fusedScore: 1.4,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+        },
+      ],
+      graphHits: [
+        {
+          chunkId: "chunk-2",
+          documentId: "doc-2",
+          sourceType: "test_report",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "tests/retry.test.ts",
+          title: "Retry tests",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "covers retryWorker",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: null,
+          sparseScore: null,
+          rerankScore: 1.2,
+          fusedScore: 1.6,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+          graphMetadata: {
+            entityTypes: ["symbol"],
+            entityIds: ["retryWorker"],
+            seedReasons: ["linked_symbol"],
+            graphScore: 1.2,
+          },
+        },
+      ],
+      finalK: 4,
+    });
+
+    expect(merged).toHaveLength(2);
+    expect(merged[0]?.chunkId).toBe("chunk-2");
+    expect(merged[0]?.graphMetadata?.entityTypes).toContain("symbol");
   });
 
   it("derives dynamic retrieval signals from review payloads", () => {

@@ -823,9 +823,12 @@ export function knowledgeService(db: Db) {
       let totalRuns = 0;
       let evidenceCountTotal = 0;
       let sourceDiversityTotal = 0;
+      let graphHitCountTotal = 0;
       let lowConfidenceRuns = 0;
       let exactPathMissCount = 0;
       let projectMismatchCount = 0;
+      let graphExpandedRuns = 0;
+      const graphEntityTypeCounts: Record<string, number> = {};
 
       for (const row of rows) {
         const debug = (row.queryDebug ?? {}) as Record<string, unknown>;
@@ -833,6 +836,10 @@ export function knowledgeService(db: Db) {
         const confidenceLevel = typeof quality.confidenceLevel === "string" ? quality.confidenceLevel : null;
         const evidenceCount = typeof quality.evidenceCount === "number" ? quality.evidenceCount : 0;
         const sourceDiversity = typeof quality.sourceDiversity === "number" ? quality.sourceDiversity : 0;
+        const graphHitCount = typeof quality.graphHitCount === "number" ? quality.graphHitCount : 0;
+        const graphEntityTypes = Array.isArray(quality.graphEntityTypes)
+          ? quality.graphEntityTypes.filter((value): value is string => typeof value === "string")
+          : [];
         const degradedReasons = Array.isArray(quality.degradedReasons)
           ? quality.degradedReasons.filter((value): value is string => typeof value === "string")
           : [];
@@ -850,8 +857,13 @@ export function knowledgeService(db: Db) {
         totalRuns += 1;
         evidenceCountTotal += evidenceCount;
         sourceDiversityTotal += sourceDiversity;
+        graphHitCountTotal += graphHitCount;
+        if (graphHitCount > 0) graphExpandedRuns += 1;
         if (confidenceLevel) {
           confidenceCounts[confidenceLevel] = (confidenceCounts[confidenceLevel] ?? 0) + 1;
+        }
+        for (const entityType of graphEntityTypes) {
+          graphEntityTypeCounts[entityType] = (graphEntityTypeCounts[entityType] ?? 0) + 1;
         }
         for (const reason of degradedReasons) {
           degradedReasonCounts[reason] = (degradedReasonCounts[reason] ?? 0) + 1;
@@ -926,8 +938,11 @@ export function knowledgeService(db: Db) {
         projectMismatchCount,
         averageEvidenceCount: totalRuns > 0 ? evidenceCountTotal / totalRuns : 0,
         averageSourceDiversity: totalRuns > 0 ? sourceDiversityTotal / totalRuns : 0,
+        averageGraphHitCount: totalRuns > 0 ? graphHitCountTotal / totalRuns : 0,
+        graphExpandedRuns,
         confidenceCounts,
         degradedReasonCounts,
+        graphEntityTypeCounts,
         perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         samples: {

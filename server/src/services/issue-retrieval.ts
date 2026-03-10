@@ -1,5 +1,5 @@
 import path from "node:path";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, not, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import { knowledgeChunkLinks, knowledgeChunks, knowledgeDocuments } from "@squadrail/db";
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
@@ -49,6 +49,12 @@ interface RetrievalHitView {
   fusedScore: number;
   updatedAt: Date;
   modelRerankRank?: number | null;
+  graphMetadata?: {
+    entityTypes: string[];
+    entityIds: string[];
+    seedReasons: string[];
+    graphScore: number;
+  } | null;
 }
 
 interface IssueRetrievalIssueSnapshot {
@@ -144,8 +150,18 @@ interface BriefQualitySummary {
   sparseHitCount: number;
   pathHitCount: number;
   symbolHitCount: number;
+  graphSeedCount: number;
+  graphHitCount: number;
+  graphEntityTypes: string[];
   sourceDiversity: number;
   degradedReasons: string[];
+}
+
+interface RetrievalGraphSeed {
+  entityType: "symbol" | "path" | "project";
+  entityId: string;
+  seedBoost: number;
+  seedReasons: string[];
 }
 
 const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
@@ -180,6 +196,10 @@ function summarizeBriefQuality(input: {
   pathHitCount: number;
   symbolHitCount: number;
   denseHitCount: number;
+  graphSeedCount: number;
+  graphHitCount: number;
+  graphEntityTypes: string[];
+  crossProjectRequested: boolean;
 }): BriefQualitySummary {
   const evidenceCount = input.finalHits.length;
   const sourceDiversity = new Set(
@@ -199,11 +219,17 @@ function summarizeBriefQuality(input: {
   if (evidenceCount > 0 && sourceDiversity < 2) {
     degradedReasons.push("narrow_source_diversity");
   }
+  if (input.crossProjectRequested && input.graphHitCount === 0) {
+    degradedReasons.push("cross_project_graph_empty");
+  }
 
   let confidenceLevel: BriefQualitySummary["confidenceLevel"] = "low";
   if (evidenceCount >= 5 && Boolean(input.queryEmbedding) && input.denseHitCount > 0 && sourceDiversity >= 2) {
     confidenceLevel = "high";
   } else if (evidenceCount >= 3) {
+    confidenceLevel = "medium";
+  }
+  if (confidenceLevel === "high" && input.crossProjectRequested && input.graphHitCount === 0) {
     confidenceLevel = "medium";
   }
 
@@ -215,6 +241,9 @@ function summarizeBriefQuality(input: {
     sparseHitCount: input.sparseHitCount,
     pathHitCount: input.pathHitCount,
     symbolHitCount: input.symbolHitCount,
+    graphSeedCount: input.graphSeedCount,
+    graphHitCount: input.graphHitCount,
+    graphEntityTypes: input.graphEntityTypes,
     sourceDiversity,
     degradedReasons,
   };
@@ -732,6 +761,9 @@ export function renderRetrievedBriefMarkdown(input: {
       `   - score: ${hit.fusedScore.toFixed(3)}`,
       `   - lexical: ${(hit.sparseScore ?? 0).toFixed(3)} | semantic: ${(hit.denseScore ?? 0).toFixed(3)}`,
       `   - path: ${hit.path ?? "-"}`,
+      ...(hit.graphMetadata
+        ? [`   - graph: ${hit.graphMetadata.entityTypes.join(", ")} (${hit.graphMetadata.seedReasons.join(", ")})`]
+        : []),
       `   - excerpt: ${compactWhitespace(hit.textContent)}`,
     );
   });
@@ -1000,6 +1032,119 @@ export function rerankRetrievalHits(input: {
     .slice(0, input.finalK);
 }
 
+export function buildGraphExpansionSeeds(input: {
+  hits: RetrievalHitView[];
+  linkMap?: Map<string, RetrievalLinkView[]>;
+  signals: RetrievalSignals;
+  maxSeedHits?: number;
+  maxSeeds?: number;
+}) {
+  const seedMap = new Map<string, RetrievalGraphSeed>();
+  const crossProjectRequested = input.signals.projectAffinityIds.length > 1;
+  const maxSeedHits = input.maxSeedHits ?? 4;
+  const maxSeeds = input.maxSeeds ?? 8;
+
+  const pushSeed = (seed: RetrievalGraphSeed) => {
+    const key = `${seed.entityType}:${seed.entityId}`;
+    const existing = seedMap.get(key);
+    if (!existing) {
+      seedMap.set(key, {
+        ...seed,
+        seedReasons: uniqueNonEmpty(seed.seedReasons),
+      });
+      return;
+    }
+
+    seedMap.set(key, {
+      ...existing,
+      seedBoost: Math.max(existing.seedBoost, seed.seedBoost),
+      seedReasons: uniqueNonEmpty([...existing.seedReasons, ...seed.seedReasons]),
+    });
+  };
+
+  for (const hit of input.hits.slice(0, maxSeedHits)) {
+    if (hit.symbolName) {
+      pushSeed({
+        entityType: "symbol",
+        entityId: hit.symbolName,
+        seedBoost: 1.4,
+        seedReasons: ["top_hit_symbol"],
+      });
+    }
+    if (hit.path) {
+      pushSeed({
+        entityType: "path",
+        entityId: normalizeHintPath(hit.path),
+        seedBoost: 1.05,
+        seedReasons: ["top_hit_path"],
+      });
+    }
+
+    for (const link of input.linkMap?.get(hit.chunkId) ?? []) {
+      if (link.entityType === "symbol") {
+        pushSeed({
+          entityType: "symbol",
+          entityId: link.entityId,
+          seedBoost: Math.max(1, link.weight + 0.45),
+          seedReasons: ["linked_symbol"],
+        });
+      } else if (link.entityType === "path") {
+        pushSeed({
+          entityType: "path",
+          entityId: normalizeHintPath(link.entityId),
+          seedBoost: Math.max(0.8, link.weight),
+          seedReasons: ["linked_path"],
+        });
+      } else if (link.entityType === "project" && crossProjectRequested) {
+        pushSeed({
+          entityType: "project",
+          entityId: link.entityId,
+          seedBoost: Math.max(0.55, link.weight * 0.6),
+          seedReasons: ["project_affinity_link"],
+        });
+      }
+    }
+  }
+
+  return Array.from(seedMap.values())
+    .sort((left, right) => right.seedBoost - left.seedBoost)
+    .slice(0, maxSeeds);
+}
+
+export function mergeGraphExpandedHits(input: {
+  baseHits: RetrievalHitView[];
+  graphHits: RetrievalHitView[];
+  finalK: number;
+}) {
+  const merged = new Map<string, RetrievalHitView>();
+
+  for (const hit of input.baseHits) {
+    merged.set(hit.chunkId, hit);
+  }
+
+  for (const hit of input.graphHits) {
+    const existing = merged.get(hit.chunkId);
+    if (!existing) {
+      merged.set(hit.chunkId, hit);
+      continue;
+    }
+
+    merged.set(hit.chunkId, {
+      ...existing,
+      fusedScore: Math.max(existing.fusedScore, hit.fusedScore),
+      rerankScore: Math.max(existing.rerankScore ?? 0, hit.rerankScore ?? 0),
+      graphMetadata: hit.graphMetadata ?? existing.graphMetadata ?? null,
+    });
+  }
+
+  return Array.from(merged.values())
+    .sort((left, right) => {
+      if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
+      return right.updatedAt.getTime() - left.updatedAt.getTime();
+    })
+    .slice(0, input.finalK);
+}
+
 export function applyModelRerankOrder(input: {
   hits: RetrievalHitView[];
   rankedChunkIds: string[];
@@ -1074,6 +1219,9 @@ function buildHitRationale(input: {
   const freshnessBoost = computeFreshnessBoost(input.hit, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
   if (freshnessBoost > 0) reasons.push("fresh_content");
   if (freshnessBoost < 0) reasons.push("stale_or_invalid");
+  for (const entityType of uniqueNonEmpty(input.hit.graphMetadata?.entityTypes ?? [])) {
+    reasons.push(`graph_${entityType}_link`);
+  }
   return reasons.join(", ") || "ranked";
 }
 
@@ -1398,6 +1546,134 @@ export function issueRetrievalService(db: Db) {
     return linkMap;
   }
 
+  async function queryGraphExpansionKnowledge(input: {
+    companyId: string;
+    issueId: string;
+    projectId: string | null;
+    projectAffinityIds: string[];
+    seeds: RetrievalGraphSeed[];
+    allowedSourceTypes: string[];
+    allowedAuthorityLevels: string[];
+    excludeChunkIds: string[];
+    limit: number;
+  }) {
+    if (input.seeds.length === 0) return [];
+
+    const seedByKey = new Map<string, RetrievalGraphSeed>(
+      input.seeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const),
+    );
+    const pairConditions = input.seeds.map((seed) =>
+      and(
+        eq(knowledgeChunkLinks.entityType, seed.entityType),
+        eq(knowledgeChunkLinks.entityId, seed.entityId),
+      ),
+    );
+    const conditions = [
+      eq(knowledgeChunkLinks.companyId, input.companyId),
+      inArray(knowledgeDocuments.sourceType, input.allowedSourceTypes),
+      inArray(knowledgeDocuments.authorityLevel, input.allowedAuthorityLevels),
+      or(...pairConditions),
+    ];
+    if (input.excludeChunkIds.length > 0) {
+      conditions.push(not(inArray(knowledgeChunks.id, input.excludeChunkIds)));
+    }
+
+    const rows = await db
+      .select({
+        chunkId: knowledgeChunks.id,
+        documentId: knowledgeDocuments.id,
+        sourceType: knowledgeDocuments.sourceType,
+        authorityLevel: knowledgeDocuments.authorityLevel,
+        documentIssueId: knowledgeDocuments.issueId,
+        documentProjectId: knowledgeDocuments.projectId,
+        path: knowledgeDocuments.path,
+        title: knowledgeDocuments.title,
+        headingPath: knowledgeChunks.headingPath,
+        symbolName: knowledgeChunks.symbolName,
+        textContent: knowledgeChunks.textContent,
+        documentMetadata: knowledgeDocuments.metadata,
+        chunkMetadata: knowledgeChunks.metadata,
+        updatedAt: knowledgeDocuments.updatedAt,
+        entityType: knowledgeChunkLinks.entityType,
+        entityId: knowledgeChunkLinks.entityId,
+        linkReason: knowledgeChunkLinks.linkReason,
+        linkWeight: knowledgeChunkLinks.weight,
+      })
+      .from(knowledgeChunkLinks)
+      .innerJoin(knowledgeChunks, eq(knowledgeChunkLinks.chunkId, knowledgeChunks.id))
+      .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+      .where(and(...conditions))
+      .orderBy(desc(knowledgeChunkLinks.weight), desc(knowledgeDocuments.updatedAt))
+      .limit(Math.max(input.limit * 10, 60));
+
+    const grouped = new Map<string, RetrievalHitView>();
+    for (const row of rows) {
+      const seed = seedByKey.get(`${row.entityType}:${row.entityId}`);
+      if (!seed) continue;
+
+      const existing = grouped.get(row.chunkId);
+      const graphScore = Math.min(4, seed.seedBoost + Math.max(0.2, row.linkWeight * 0.6));
+      if (!existing) {
+        grouped.set(row.chunkId, {
+          chunkId: row.chunkId,
+          documentId: row.documentId,
+          sourceType: row.sourceType,
+          authorityLevel: row.authorityLevel,
+          documentIssueId: row.documentIssueId,
+          documentProjectId: row.documentProjectId,
+          path: row.path,
+          title: row.title,
+          headingPath: row.headingPath,
+          symbolName: row.symbolName,
+          textContent: row.textContent,
+          documentMetadata: row.documentMetadata,
+          chunkMetadata: row.chunkMetadata,
+          denseScore: null,
+          sparseScore: null,
+          rerankScore: graphScore,
+          fusedScore:
+            graphScore
+            + computeScopeBoost({
+              hitIssueId: row.documentIssueId,
+              hitProjectId: row.documentProjectId,
+              issueId: input.issueId,
+              projectId: input.projectId,
+              projectAffinityIds: input.projectAffinityIds,
+            })
+            + computeAuthorityBoost(row.authorityLevel),
+          updatedAt: row.updatedAt,
+          graphMetadata: {
+            entityTypes: [row.entityType],
+            entityIds: [row.entityId],
+            seedReasons: uniqueNonEmpty([...seed.seedReasons, row.linkReason]),
+            graphScore,
+          },
+        });
+        continue;
+      }
+
+      const nextGraphScore = Math.min(4, (existing.graphMetadata?.graphScore ?? 0) + graphScore);
+      grouped.set(row.chunkId, {
+        ...existing,
+        rerankScore: Math.max(existing.rerankScore ?? 0, nextGraphScore),
+        fusedScore: Math.max(existing.fusedScore, existing.fusedScore + graphScore * 0.25),
+        graphMetadata: {
+          entityTypes: uniqueNonEmpty([...(existing.graphMetadata?.entityTypes ?? []), row.entityType]),
+          entityIds: uniqueNonEmpty([...(existing.graphMetadata?.entityIds ?? []), row.entityId]),
+          seedReasons: uniqueNonEmpty([...(existing.graphMetadata?.seedReasons ?? []), ...seed.seedReasons, row.linkReason]),
+          graphScore: nextGraphScore,
+        },
+      });
+    }
+
+    return Array.from(grouped.values())
+      .sort((left, right) => {
+        if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
+        return right.updatedAt.getTime() - left.updatedAt.getTime();
+      })
+      .slice(0, input.limit);
+  }
+
   return {
     handleProtocolMessage: async (input: {
       companyId: string;
@@ -1545,6 +1821,8 @@ export function issueRetrievalService(db: Db) {
             preferredSourceTypes: dynamicSignals.preferredSourceTypes,
             policySourcePreferences: rerankConfig.preferredSourceTypes,
             modelRerankEnabled: rerankConfig.modelRerank.enabled,
+            graphSeedCount: 0,
+            graphSeedTypes: [],
             ...queryEmbeddingDebug,
           },
         });
@@ -1604,7 +1882,7 @@ export function issueRetrievalService(db: Db) {
         });
         console.log("[RETRIEVAL] Fused candidates:", hits.length);
         const linkMap = await listRetrievalLinks(hits.map((hit) => hit.chunkId));
-        const rerankedHits = rerankRetrievalHits({
+        const initialRerankedHits = rerankRetrievalHits({
           hits,
           signals: dynamicSignals,
           issueId: input.issueId,
@@ -1614,6 +1892,45 @@ export function issueRetrievalService(db: Db) {
           finalK: policy.finalK,
           rerankConfig,
         });
+        const graphSeeds = buildGraphExpansionSeeds({
+          hits: initialRerankedHits,
+          linkMap,
+          signals: dynamicSignals,
+        });
+        const graphHits = await queryGraphExpansionKnowledge({
+          companyId: input.companyId,
+          issueId: input.issueId,
+          projectId: input.issue.projectId,
+          projectAffinityIds: dynamicSignals.projectAffinityIds,
+          seeds: graphSeeds,
+          allowedSourceTypes: policy.allowedSourceTypes,
+          allowedAuthorityLevels: policy.allowedAuthorityLevels,
+          excludeChunkIds: hits.map((hit) => hit.chunkId),
+          limit: Math.min(Math.max(policy.finalK, 6), Math.max(graphSeeds.length * 2, 6)),
+        });
+        const graphLinkMap = graphHits.length > 0
+          ? await listRetrievalLinks(graphHits.map((hit) => hit.chunkId))
+          : new Map<string, RetrievalLinkView[]>();
+        const combinedLinkMap = new Map(linkMap);
+        for (const [chunkId, links] of graphLinkMap.entries()) {
+          combinedLinkMap.set(chunkId, links);
+        }
+        const rerankedHits = graphHits.length > 0
+          ? rerankRetrievalHits({
+            hits: mergeGraphExpandedHits({
+              baseHits: hits,
+              graphHits,
+              finalK: Math.max(policy.rerankK, policy.finalK) + graphHits.length,
+            }),
+            signals: dynamicSignals,
+            issueId: input.issueId,
+            projectId: input.issue.projectId,
+            projectAffinityIds: dynamicSignals.projectAffinityIds,
+            linkMap: combinedLinkMap,
+            finalK: policy.finalK,
+            rerankConfig,
+          })
+          : initialRerankedHits;
         let finalHits: RetrievalHitView[] = rerankedHits;
         if (rerankConfig.modelRerank.enabled && modelReranker.isConfigured() && rerankedHits.length > 1) {
           try {
@@ -1679,6 +1996,10 @@ export function issueRetrievalService(db: Db) {
           pathHitCount: pathHits.length,
           symbolHitCount: symbolHits.length,
           denseHitCount: denseHits.length,
+          graphSeedCount: graphSeeds.length,
+          graphHitCount: finalHits.filter((hit) => hit.graphMetadata != null).length,
+          graphEntityTypes: uniqueNonEmpty(finalHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+          crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
         });
 
         const latestBrief = await knowledge.getLatestTaskBrief(input.issueId, briefScope);
@@ -1714,6 +2035,7 @@ export function issueRetrievalService(db: Db) {
               sparseScore: hit.sparseScore,
               rerankScore: hit.rerankScore,
               fusedScore: hit.fusedScore,
+              graphMetadata: hit.graphMetadata ?? null,
             })),
           },
           retrievalRunId: retrievalRun.id,
@@ -1733,6 +2055,10 @@ export function issueRetrievalService(db: Db) {
           hitProjectIds: uniqueNonEmpty(finalHits.map((hit) => hit.documentProjectId ?? "")),
           topHitProjectId: finalHits[0]?.documentProjectId ?? null,
           topHitPath: finalHits[0]?.path ?? null,
+          graphSeedCount: graphSeeds.length,
+          graphSeedTypes: uniqueNonEmpty(graphSeeds.map((seed) => seed.entityType)),
+          graphHitCount: finalHits.filter((hit) => hit.graphMetadata != null).length,
+          graphEntityTypes: uniqueNonEmpty(finalHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
           exactPathSatisfied: dynamicSignals.exactPaths.length === 0
             ? true
             : finalHits.some((hit) => {

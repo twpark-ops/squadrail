@@ -1,0 +1,42 @@
+@startuml
+title B8 Slice 1 - Graph-Assisted Retrieval Expansion
+
+skinparam backgroundColor #0B1020
+skinparam defaultFontName "Noto Sans CJK KR"
+skinparam ArrowColor #86A8FF
+skinparam RectangleBorderColor #5B6B8C
+skinparam RectangleFontColor #E8ECF8
+skinparam RectangleBackgroundColor #131A2B
+skinparam NoteBackgroundColor #1B2438
+skinparam NoteBorderColor #5B6B8C
+skinparam NoteFontColor #D7DCEC
+
+rectangle "Hybrid Candidate Generation\nDense + Sparse + Path + Symbol" as Base
+rectangle "Initial Rerank" as Initial
+rectangle "Graph Seed Builder\npath / symbol / project" as Seeds
+rectangle "knowledge_chunk_links\nExpansion Query" as Links
+rectangle "Merged Candidate Set" as Merge
+rectangle "Final Rerank" as Final
+rectangle "Brief + Retrieval Debug\nquality / graph metrics" as Brief
+
+Base --> Initial
+Initial --> Seeds
+Seeds --> Links
+Links --> Merge
+Base --> Merge
+Merge --> Final
+Final --> Brief
+
+note right of Links
+Reuse existing chunk links
+No new graph table yet
+end note
+
+note right of Brief
+graphSeedCount
+graphHitCount
+graphEntityTypes
+cross_project_graph_empty
+end note
+
+@enduml
