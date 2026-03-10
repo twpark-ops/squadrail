@@ -61,6 +61,7 @@ const reembedKnowledgeDocumentSchema = z.object({
 const importProjectWorkspaceSchema = z.object({
   workspaceId: z.string().uuid().optional(),
   maxFiles: z.number().int().min(1).max(500).optional(),
+  forceFull: z.boolean().optional(),
 }).strict().optional();
 
 const listDocumentsSchema = z.object({
@@ -187,6 +188,21 @@ export function knowledgeRoutes(db: Db) {
         source: readString(document.metadata?.importSource) ?? "manual_create",
       },
     });
+    if (document.projectId) {
+      await knowledge.touchProjectKnowledgeRevision({
+        companyId: document.companyId,
+        projectId: document.projectId,
+        bump: true,
+        headSha: readString(document.metadata?.versionCommitSha),
+        treeSignature: null,
+        importMode: "manual_create",
+        importedAt: readString(document.metadata?.versionCapturedAt),
+        metadata: {
+          documentId: document.id,
+          sourceType: document.sourceType,
+        },
+      });
+    }
 
     await logActivity(db, {
       companyId: parsed.data.companyId,
@@ -383,6 +399,21 @@ export function knowledgeRoutes(db: Db) {
         source: readString(document.metadata?.importSource) ?? "manual_replace",
       },
     });
+    if (document.projectId) {
+      await knowledge.touchProjectKnowledgeRevision({
+        companyId: document.companyId,
+        projectId: document.projectId,
+        bump: true,
+        headSha: readString(document.metadata?.versionCommitSha),
+        treeSignature: null,
+        importMode: "manual_replace",
+        importedAt: readString(document.metadata?.versionCapturedAt),
+        metadata: {
+          documentId: document.id,
+          chunkCount: chunks.length,
+        },
+      });
+    }
 
     await logActivity(db, {
       companyId: document.companyId,
@@ -518,6 +549,7 @@ export function knowledgeRoutes(db: Db) {
       projectId,
       workspaceId: parsed.data?.workspaceId,
       maxFiles: parsed.data?.maxFiles,
+      forceFull: parsed.data?.forceFull,
     });
     if (!result) {
       res.status(404).json({ error: "Project not found" });

@@ -1,0 +1,34 @@
+@startuml
+title B8 Slice 4 - Retrieval Cache + Incremental Reindex
+
+actor "Board / Agent Event" as Event
+rectangle "Issue Retrieval" as Retrieval
+database "retrieval_cache_entries" as Cache
+database "project_knowledge_revisions" as Revisions
+database "knowledge_documents\nknowledge_chunks" as Knowledge
+rectangle "Workspace Import" as Import
+
+Event --> Retrieval : queryText
+Retrieval --> Cache : query_embedding lookup
+Cache --> Retrieval : hit / miss
+Retrieval --> Retrieval : dense query embedding
+Retrieval --> Knowledge : hybrid retrieval
+
+Import --> Revisions : read last head/tree
+Import --> Import : compare head/tree
+Import --> Knowledge : incremental changed paths
+Import --> Knowledge : deprecate removed paths
+Import --> Revisions : bump revision
+
+note right of Retrieval
+Query embedding cache is safe because
+it depends only on query text and model fingerprint.
+end note
+
+note right of Import
+Tree unchanged -> skip
+Changed paths only -> incremental
+Deleted path -> deprecate existing documents
+end note
+
+@enduml

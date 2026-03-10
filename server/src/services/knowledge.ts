@@ -8,6 +8,8 @@ import {
   knowledgeChunks,
   knowledgeDocuments,
   knowledgeDocumentVersions,
+  projectKnowledgeRevisions,
+  retrievalCacheEntries,
   projects,
   retrievalPolicies,
   retrievalRunHits,
@@ -771,6 +773,246 @@ export function knowledgeService(db: Db) {
         .limit(input.limit ?? 500);
     },
 
+    getProjectKnowledgeRevision: async (input: {
+      companyId: string;
+      projectId: string;
+    }) => {
+      return db
+        .select()
+        .from(projectKnowledgeRevisions)
+        .where(
+          and(
+            eq(projectKnowledgeRevisions.companyId, input.companyId),
+            eq(projectKnowledgeRevisions.projectId, input.projectId),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+    },
+
+    listProjectKnowledgeRevisions: async (input: {
+      companyId: string;
+      projectIds: string[];
+    }) => {
+      const projectIds = Array.from(new Set(input.projectIds.filter(Boolean)));
+      if (projectIds.length === 0) return [];
+      return db
+        .select()
+        .from(projectKnowledgeRevisions)
+        .where(
+          and(
+            eq(projectKnowledgeRevisions.companyId, input.companyId),
+            inArray(projectKnowledgeRevisions.projectId, projectIds),
+          ),
+        );
+    },
+
+    touchProjectKnowledgeRevision: async (input: {
+      companyId: string;
+      projectId: string;
+      bump?: boolean;
+      headSha?: string | null;
+      treeSignature?: string | null;
+      importMode?: string | null;
+      importedAt?: string | Date | null;
+      metadata?: Record<string, unknown>;
+    }) => {
+      const importedAt = input.importedAt
+        ? (input.importedAt instanceof Date ? input.importedAt : new Date(input.importedAt))
+        : new Date();
+      const existing = await db
+        .select()
+        .from(projectKnowledgeRevisions)
+        .where(
+          and(
+            eq(projectKnowledgeRevisions.companyId, input.companyId),
+            eq(projectKnowledgeRevisions.projectId, input.projectId),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+
+      const revision = existing ? existing.revision + (input.bump ? 1 : 0) : 1;
+      const values = {
+        companyId: input.companyId,
+        projectId: input.projectId,
+        revision,
+        lastHeadSha: input.headSha ?? existing?.lastHeadSha ?? null,
+        lastTreeSignature: input.treeSignature ?? existing?.lastTreeSignature ?? null,
+        lastImportMode: input.importMode ?? existing?.lastImportMode ?? null,
+        lastImportedAt: importedAt,
+        metadata: {
+          ...(existing?.metadata ?? {}),
+          ...(input.metadata ?? {}),
+        },
+        updatedAt: new Date(),
+      };
+
+      if (!existing) {
+        const [created] = await db
+          .insert(projectKnowledgeRevisions)
+          .values({
+            ...values,
+            createdAt: new Date(),
+          })
+          .returning();
+        return created ?? null;
+      }
+
+      const [updated] = await db
+        .update(projectKnowledgeRevisions)
+        .set(values)
+        .where(eq(projectKnowledgeRevisions.id, existing.id))
+        .returning();
+      return updated ?? null;
+    },
+
+    getRetrievalCacheEntry: async (input: {
+      companyId: string;
+      projectId?: string | null;
+      stage: string;
+      cacheKey: string;
+      knowledgeRevision?: number;
+    }) => {
+      const now = new Date();
+      const entry = await db
+        .select()
+        .from(retrievalCacheEntries)
+        .where(
+          and(
+            eq(retrievalCacheEntries.companyId, input.companyId),
+            eqNullable(retrievalCacheEntries.projectId, input.projectId ?? null),
+            eq(retrievalCacheEntries.stage, input.stage),
+            eq(retrievalCacheEntries.cacheKey, input.cacheKey),
+            eq(retrievalCacheEntries.knowledgeRevision, input.knowledgeRevision ?? 0),
+            or(isNull(retrievalCacheEntries.expiresAt), gte(retrievalCacheEntries.expiresAt, now)),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+
+      if (!entry) return null;
+
+      const [updated] = await db
+        .update(retrievalCacheEntries)
+        .set({
+          hitCount: entry.hitCount + 1,
+          lastAccessedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(retrievalCacheEntries.id, entry.id))
+        .returning();
+      return updated ?? entry;
+    },
+
+    upsertRetrievalCacheEntry: async (input: {
+      companyId: string;
+      projectId?: string | null;
+      stage: string;
+      cacheKey: string;
+      knowledgeRevision?: number;
+      valueJson: Record<string, unknown>;
+      ttlSeconds?: number;
+    }) => {
+      const existing = await db
+        .select()
+        .from(retrievalCacheEntries)
+        .where(
+          and(
+            eq(retrievalCacheEntries.companyId, input.companyId),
+            eqNullable(retrievalCacheEntries.projectId, input.projectId ?? null),
+            eq(retrievalCacheEntries.stage, input.stage),
+            eq(retrievalCacheEntries.cacheKey, input.cacheKey),
+            eq(retrievalCacheEntries.knowledgeRevision, input.knowledgeRevision ?? 0),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+
+      const now = new Date();
+      const expiresAt = typeof input.ttlSeconds === "number"
+        ? new Date(now.getTime() + input.ttlSeconds * 1000)
+        : null;
+      const values = {
+        companyId: input.companyId,
+        projectId: input.projectId ?? null,
+        stage: input.stage,
+        cacheKey: input.cacheKey,
+        knowledgeRevision: input.knowledgeRevision ?? 0,
+        valueJson: input.valueJson,
+        expiresAt,
+        updatedAt: now,
+      };
+
+      if (!existing) {
+        const [created] = await db
+          .insert(retrievalCacheEntries)
+          .values({
+            ...values,
+            createdAt: now,
+            lastAccessedAt: now,
+          })
+          .returning();
+        return created ?? null;
+      }
+
+      const [updated] = await db
+        .update(retrievalCacheEntries)
+        .set(values)
+        .where(eq(retrievalCacheEntries.id, existing.id))
+        .returning();
+      return updated ?? null;
+    },
+
+    deprecateDocumentsByPaths: async (input: {
+      companyId: string;
+      projectId?: string | null;
+      repoRef?: string | null;
+      paths: string[];
+      reason: string;
+      metadata?: Record<string, unknown>;
+    }) => {
+      const paths = Array.from(new Set(input.paths.filter(Boolean)));
+      if (paths.length === 0) return 0;
+
+      const candidates = await db
+        .select({
+          id: knowledgeDocuments.id,
+          metadata: knowledgeDocuments.metadata,
+        })
+        .from(knowledgeDocuments)
+        .where(
+          and(
+            eq(knowledgeDocuments.companyId, input.companyId),
+            inArray(knowledgeDocuments.path, paths),
+            eqNullable(knowledgeDocuments.projectId, input.projectId ?? null),
+            eqNullable(knowledgeDocuments.repoRef, input.repoRef ?? null),
+            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+          ),
+        );
+
+      if (candidates.length === 0) return 0;
+
+      let updatedCount = 0;
+      const deprecatedAt = new Date().toISOString();
+      for (const candidate of candidates) {
+        const [updated] = await db
+          .update(knowledgeDocuments)
+          .set({
+            authorityLevel: "deprecated",
+            metadata: {
+              ...(candidate.metadata ?? {}),
+              ...(input.metadata ?? {}),
+              deprecatedReason: input.reason,
+              deprecatedAt,
+              isLatestForScope: false,
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(knowledgeDocuments.id, candidate.id))
+          .returning();
+        if (updated) updatedCount += 1;
+      }
+
+      return updatedCount;
+    },
+
     deprecateSupersededDocuments: async (input: {
       companyId: string;
       sourceType: string;
@@ -1226,6 +1468,7 @@ export function knowledgeService(db: Db) {
       let edgeTraversalCountTotal = 0;
       let temporalHitCountTotal = 0;
       let branchAlignedTopHitCountTotal = 0;
+      let embeddingCacheHitCount = 0;
       let lowConfidenceRuns = 0;
       let exactPathMissCount = 0;
       let projectMismatchCount = 0;
@@ -1265,6 +1508,9 @@ export function knowledgeService(db: Db) {
         const degradedReasons = Array.isArray(quality.degradedReasons)
           ? quality.degradedReasons.filter((value): value is string => typeof value === "string")
           : [];
+        const cache = debug.cache && typeof debug.cache === "object"
+          ? debug.cache as Record<string, unknown>
+          : {};
         const exactPathSatisfied = debug.exactPathSatisfied === true;
         const topHitProjectId = typeof debug.topHitProjectId === "string" ? debug.topHitProjectId : null;
         const issueProjectId = typeof debug.issueProjectId === "string" ? debug.issueProjectId : null;
@@ -1284,6 +1530,7 @@ export function knowledgeService(db: Db) {
         edgeTraversalCountTotal += edgeTraversalCount;
         temporalHitCountTotal += temporalHitCount;
         branchAlignedTopHitCountTotal += branchAlignedTopHitCount;
+        if (cache.embeddingHit === true) embeddingCacheHitCount += 1;
         staleVersionPenaltyCount += staleVersionPenaltyCountForRun;
         exactCommitMatchCount += exactCommitMatchCountForRun;
         if (graphHitCount > 0) graphExpandedRuns += 1;
@@ -1375,6 +1622,9 @@ export function knowledgeService(db: Db) {
         averageEdgeTraversalCount: totalRuns > 0 ? edgeTraversalCountTotal / totalRuns : 0,
         averageTemporalHitCount: totalRuns > 0 ? temporalHitCountTotal / totalRuns : 0,
         averageBranchAlignedTopHitCount: totalRuns > 0 ? branchAlignedTopHitCountTotal / totalRuns : 0,
+        cacheHitRate: totalRuns > 0 ? embeddingCacheHitCount / totalRuns : 0,
+        embeddingCacheHitRate: totalRuns > 0 ? embeddingCacheHitCount / totalRuns : 0,
+        candidateCacheHitRate: 0,
         staleVersionPenaltyCount,
         exactCommitMatchCount,
         graphExpandedRuns,

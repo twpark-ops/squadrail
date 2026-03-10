@@ -9,10 +9,12 @@ import {
   detectWorkspaceSecret,
   extractSemanticTopLevelSymbols,
   extractTypeScriptTopLevelSymbols,
+  normalizeChangedWorkspacePaths,
   normalizeChunksForEmbedding,
   prioritizeWorkspaceImportPaths,
   resolveWorkspaceImportRoot,
   scoreWorkspaceImportPath,
+  selectWorkspaceImportPlan,
   shouldIncludeWorkspacePath,
   walkWorkspaceFiles,
 } from "../services/knowledge-import.js";
@@ -48,6 +50,42 @@ describe("knowledge import helpers", () => {
       "docs/architecture.md",
       "docker/docker-compose.yml",
     ]);
+  });
+
+  it("normalizes changed paths and drops unsupported files", () => {
+    expect(normalizeChangedWorkspacePaths([
+      "./src/app.ts",
+      "docs/adr/001.md",
+      "node_modules/react/index.js",
+      "src/app.ts",
+      "old.txt -> src/new.ts",
+    ])).toEqual([
+      "src/app.ts",
+      "src/new.ts",
+      "docs/adr/001.md",
+    ]);
+  });
+
+  it("selects incremental import candidates when changed paths are narrower than full scan", () => {
+    expect(selectWorkspaceImportPlan({
+      allRelativePaths: [
+        "src/app.ts",
+        "src/worker.ts",
+        "docs/runbook.md",
+      ],
+      changedRelativePaths: [
+        "src/worker.ts",
+        "docs/runbook.md",
+      ],
+      maxFiles: 50,
+    })).toEqual({
+      importMode: "incremental",
+      selectedRelativePaths: [
+        "src/worker.ts",
+        "docs/runbook.md",
+      ],
+      changedPathCount: 2,
+    });
   });
 
   it("classifies workspace documents by path and file role", () => {

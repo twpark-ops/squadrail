@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { and, desc, eq, inArray, not, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
@@ -34,10 +35,37 @@ const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
   CLOSE_TASK: "on_close",
 } as const satisfies Partial<Record<CreateIssueProtocolMessage["messageType"], string>>;
 
+const QUERY_EMBEDDING_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
 type RetrievalEventType = (typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE)[keyof typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE];
 
 type RetrievalTargetRole = "engineer" | "reviewer" | "tech_lead" | "cto" | "pm" | "qa" | "human_board";
 type RetrievalBriefScope = "global" | "engineer" | "reviewer" | "tech_lead" | "cto" | "pm" | "qa" | "closure";
+
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function buildQueryEmbeddingCacheKey(input: {
+  queryText: string;
+  embeddingFingerprint: string;
+}) {
+  return sha256(`${input.embeddingFingerprint}\n${input.queryText}`);
+}
+
+function readCachedEmbedding(entryValue: Record<string, unknown> | null | undefined) {
+  const embedding = Array.isArray(entryValue?.embedding)
+    ? entryValue.embedding.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+    : [];
+  if (embedding.length === 0) return null;
+  return {
+    embedding,
+    provider: typeof entryValue?.provider === "string" ? entryValue.provider : null,
+    model: typeof entryValue?.model === "string" ? entryValue.model : null,
+    dimensions: typeof entryValue?.dimensions === "number" ? entryValue.dimensions : embedding.length,
+    totalTokens: typeof entryValue?.totalTokens === "number" ? entryValue.totalTokens : null,
+  };
+}
 
 interface RetrievalHitView {
   chunkId: string;
@@ -2431,19 +2459,72 @@ export function issueRetrievalService(db: Db) {
         let queryEmbedding: number[] | null = null;
         let queryEmbeddingDebug: Record<string, unknown> = {
           denseEnabled: false,
+          embeddingCacheHit: false,
         };
         try {
           const providerInfo = embeddings.getProviderInfo();
           if (providerInfo.available) {
-            const embeddingResult = await embeddings.generateEmbeddings([queryText]);
-            queryEmbedding = embeddingResult.embeddings[0] ?? null;
-            queryEmbeddingDebug = {
-              denseEnabled: Boolean(queryEmbedding),
-              embeddingProvider: embeddingResult.provider,
-              embeddingModel: embeddingResult.model,
-              embeddingDimensions: embeddingResult.dimensions,
-              embeddingTotalTokens: embeddingResult.usage.totalTokens,
-            };
+            const embeddingFingerprint = embeddings.fingerprint();
+            const cacheKey = embeddingFingerprint
+              ? buildQueryEmbeddingCacheKey({
+                queryText,
+                embeddingFingerprint,
+              })
+              : null;
+            const cachedEmbedding = cacheKey
+              ? readCachedEmbedding(
+                (await knowledge.getRetrievalCacheEntry({
+                  companyId: input.companyId,
+                  projectId: input.issue.projectId,
+                  stage: "query_embedding",
+                  cacheKey,
+                  knowledgeRevision: 0,
+                }))?.valueJson,
+              )
+              : null;
+
+            if (cachedEmbedding) {
+              queryEmbedding = cachedEmbedding.embedding;
+              queryEmbeddingDebug = {
+                denseEnabled: true,
+                embeddingProvider: cachedEmbedding.provider,
+                embeddingModel: cachedEmbedding.model,
+                embeddingDimensions: cachedEmbedding.dimensions,
+                embeddingTotalTokens: cachedEmbedding.totalTokens,
+                embeddingCacheHit: true,
+                embeddingCacheKey: cacheKey,
+              };
+            } else {
+              const embeddingResult = await embeddings.generateEmbeddings([queryText]);
+              queryEmbedding = embeddingResult.embeddings[0] ?? null;
+              queryEmbeddingDebug = {
+                denseEnabled: Boolean(queryEmbedding),
+                embeddingProvider: embeddingResult.provider,
+                embeddingModel: embeddingResult.model,
+                embeddingDimensions: embeddingResult.dimensions,
+                embeddingTotalTokens: embeddingResult.usage.totalTokens,
+                embeddingCacheHit: false,
+                embeddingCacheKey: cacheKey,
+              };
+
+              if (cacheKey && queryEmbedding) {
+                await knowledge.upsertRetrievalCacheEntry({
+                  companyId: input.companyId,
+                  projectId: input.issue.projectId,
+                  stage: "query_embedding",
+                  cacheKey,
+                  knowledgeRevision: 0,
+                  ttlSeconds: QUERY_EMBEDDING_CACHE_TTL_SECONDS,
+                  valueJson: {
+                    embedding: queryEmbedding,
+                    provider: embeddingResult.provider,
+                    model: embeddingResult.model,
+                    dimensions: embeddingResult.dimensions,
+                    totalTokens: embeddingResult.usage.totalTokens,
+                  },
+                });
+              }
+            }
           } else {
             // CRITICAL: Embedding provider not configured
             console.error(
@@ -2494,6 +2575,9 @@ export function issueRetrievalService(db: Db) {
             edgeTraversalCount: 0,
             edgeTypeCounts: {},
             temporalContext,
+            cache: {
+              embeddingHit: queryEmbeddingDebug.embeddingCacheHit === true,
+            },
             ...queryEmbeddingDebug,
           },
         });
