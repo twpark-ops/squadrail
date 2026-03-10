@@ -27,6 +27,7 @@ export { issueProtocolArtifacts } from "./issue_protocol_artifacts.js";
 export { issueReviewCycles } from "./issue_review_cycles.js";
 export { issueProtocolViolations } from "./issue_protocol_violations.js";
 export { issueProtocolState } from "./issue_protocol_state.js";
+export { issueMergeCandidates } from "./issue_merge_candidates.js";
 export { issueTaskBriefs } from "./issue_task_briefs.js";
 export { setupProgress } from "./setup_progress.js";
 export { rolePackSets } from "./role_pack_sets.js";

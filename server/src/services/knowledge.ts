@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import {
   issueTaskBriefs,
   knowledgeChunkLinks,
   knowledgeChunks,
   knowledgeDocuments,
+  projects,
   retrievalPolicies,
   retrievalRunHits,
   retrievalRuns,
@@ -651,6 +652,27 @@ export function knowledgeService(db: Db) {
       return updated ?? null;
     },
 
+    updateRetrievalRunDebug: async (retrievalRunId: string, patch: Record<string, unknown>) => {
+      const existing = await db
+        .select({ queryDebug: retrievalRuns.queryDebug })
+        .from(retrievalRuns)
+        .where(eq(retrievalRuns.id, retrievalRunId))
+        .then((rows) => rows[0] ?? null);
+      if (!existing) return null;
+
+      const [updated] = await db
+        .update(retrievalRuns)
+        .set({
+          queryDebug: {
+            ...(existing.queryDebug ?? {}),
+            ...patch,
+          },
+        })
+        .where(eq(retrievalRuns.id, retrievalRunId))
+        .returning();
+      return updated ?? null;
+    },
+
     getRetrievalRunById: async (retrievalRunId: string) =>
       db
         .select()
@@ -722,6 +744,197 @@ export function knowledgeService(db: Db) {
           })),
         )
         .returning();
+    },
+
+    summarizeRetrievalQuality: async (input: {
+      companyId: string;
+      days?: number;
+      limit?: number;
+    }) => {
+      const days = Math.max(1, Math.min(90, input.days ?? 14));
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const rows = await db
+        .select({
+          id: retrievalRuns.id,
+          issueId: retrievalRuns.issueId,
+          actorRole: retrievalRuns.actorRole,
+          queryDebug: retrievalRuns.queryDebug,
+          createdAt: retrievalRuns.createdAt,
+        })
+        .from(retrievalRuns)
+        .where(
+          and(
+            eq(retrievalRuns.companyId, input.companyId),
+            gte(retrievalRuns.createdAt, since),
+          ),
+        )
+        .orderBy(desc(retrievalRuns.createdAt))
+        .limit(input.limit ?? 1000);
+
+      const projectIds = Array.from(new Set(
+        rows
+          .map((row) => {
+            const debug = (row.queryDebug ?? {}) as Record<string, unknown>;
+            return typeof debug.issueProjectId === "string" ? debug.issueProjectId : null;
+          })
+          .filter((value): value is string => Boolean(value)),
+      ));
+
+      const projectRows = projectIds.length === 0
+        ? []
+        : await db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(inArray(projects.id, projectIds));
+      const projectNameById = new Map(projectRows.map((row) => [row.id, row.name]));
+
+      const confidenceCounts: Record<string, number> = {};
+      const degradedReasonCounts: Record<string, number> = {};
+      const perRole = new Map<string, {
+        role: string;
+        totalRuns: number;
+        lowConfidenceRuns: number;
+        projectMismatchCount: number;
+        exactPathMissCount: number;
+      }>();
+      const perProject = new Map<string, {
+        projectId: string;
+        projectName: string | null;
+        totalRuns: number;
+        lowConfidenceRuns: number;
+        projectMismatchCount: number;
+      }>();
+      const lowConfidenceSamples: Array<{
+        retrievalRunId: string;
+        issueId: string | null;
+        actorRole: string;
+        confidenceLevel: string | null;
+        degradedReasons: string[];
+      }> = [];
+      const projectMismatchSamples: Array<{
+        retrievalRunId: string;
+        issueId: string | null;
+        actorRole: string;
+        issueProjectId: string | null;
+        topHitProjectId: string | null;
+        topHitPath: string | null;
+      }> = [];
+
+      let totalRuns = 0;
+      let evidenceCountTotal = 0;
+      let sourceDiversityTotal = 0;
+      let lowConfidenceRuns = 0;
+      let exactPathMissCount = 0;
+      let projectMismatchCount = 0;
+
+      for (const row of rows) {
+        const debug = (row.queryDebug ?? {}) as Record<string, unknown>;
+        const quality = ((debug.quality ?? {}) as Record<string, unknown>);
+        const confidenceLevel = typeof quality.confidenceLevel === "string" ? quality.confidenceLevel : null;
+        const evidenceCount = typeof quality.evidenceCount === "number" ? quality.evidenceCount : 0;
+        const sourceDiversity = typeof quality.sourceDiversity === "number" ? quality.sourceDiversity : 0;
+        const degradedReasons = Array.isArray(quality.degradedReasons)
+          ? quality.degradedReasons.filter((value): value is string => typeof value === "string")
+          : [];
+        const exactPathSatisfied = debug.exactPathSatisfied === true;
+        const topHitProjectId = typeof debug.topHitProjectId === "string" ? debug.topHitProjectId : null;
+        const issueProjectId = typeof debug.issueProjectId === "string" ? debug.issueProjectId : null;
+        const projectAffinityIds = Array.isArray(debug.projectAffinityIds)
+          ? debug.projectAffinityIds.filter((value): value is string => typeof value === "string")
+          : [];
+        const topHitMatchesAffinity =
+          topHitProjectId != null && (topHitProjectId === issueProjectId || projectAffinityIds.includes(topHitProjectId));
+        const hasProjectMismatch =
+          topHitProjectId != null && issueProjectId != null && !topHitMatchesAffinity;
+
+        totalRuns += 1;
+        evidenceCountTotal += evidenceCount;
+        sourceDiversityTotal += sourceDiversity;
+        if (confidenceLevel) {
+          confidenceCounts[confidenceLevel] = (confidenceCounts[confidenceLevel] ?? 0) + 1;
+        }
+        for (const reason of degradedReasons) {
+          degradedReasonCounts[reason] = (degradedReasonCounts[reason] ?? 0) + 1;
+        }
+
+        if (confidenceLevel === "low") {
+          lowConfidenceRuns += 1;
+          if (lowConfidenceSamples.length < 12) {
+            lowConfidenceSamples.push({
+              retrievalRunId: row.id,
+              issueId: row.issueId ?? null,
+              actorRole: row.actorRole,
+              confidenceLevel,
+              degradedReasons,
+            });
+          }
+        }
+
+        if (!exactPathSatisfied && Number(debug.exactPathCount ?? 0) > 0) {
+          exactPathMissCount += 1;
+        }
+
+        if (hasProjectMismatch) {
+          projectMismatchCount += 1;
+          if (projectMismatchSamples.length < 12) {
+            projectMismatchSamples.push({
+              retrievalRunId: row.id,
+              issueId: row.issueId ?? null,
+              actorRole: row.actorRole,
+              issueProjectId,
+              topHitProjectId,
+              topHitPath: typeof debug.topHitPath === "string" ? debug.topHitPath : null,
+            });
+          }
+        }
+
+        const roleEntry = perRole.get(row.actorRole) ?? {
+          role: row.actorRole,
+          totalRuns: 0,
+          lowConfidenceRuns: 0,
+          projectMismatchCount: 0,
+          exactPathMissCount: 0,
+        };
+        roleEntry.totalRuns += 1;
+        if (confidenceLevel === "low") roleEntry.lowConfidenceRuns += 1;
+        if (hasProjectMismatch) roleEntry.projectMismatchCount += 1;
+        if (!exactPathSatisfied && Number(debug.exactPathCount ?? 0) > 0) roleEntry.exactPathMissCount += 1;
+        perRole.set(row.actorRole, roleEntry);
+
+        if (issueProjectId) {
+          const projectEntry = perProject.get(issueProjectId) ?? {
+            projectId: issueProjectId,
+            projectName: projectNameById.get(issueProjectId) ?? null,
+            totalRuns: 0,
+            lowConfidenceRuns: 0,
+            projectMismatchCount: 0,
+          };
+          projectEntry.totalRuns += 1;
+          if (confidenceLevel === "low") projectEntry.lowConfidenceRuns += 1;
+          if (hasProjectMismatch) projectEntry.projectMismatchCount += 1;
+          perProject.set(issueProjectId, projectEntry);
+        }
+      }
+
+      return {
+        companyId: input.companyId,
+        windowDays: days,
+        generatedAt: new Date().toISOString(),
+        totalRuns,
+        lowConfidenceRuns,
+        exactPathMissCount,
+        projectMismatchCount,
+        averageEvidenceCount: totalRuns > 0 ? evidenceCountTotal / totalRuns : 0,
+        averageSourceDiversity: totalRuns > 0 ? sourceDiversityTotal / totalRuns : 0,
+        confidenceCounts,
+        degradedReasonCounts,
+        perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
+        perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),
+        samples: {
+          lowConfidence: lowConfidenceSamples,
+          projectMismatch: projectMismatchSamples,
+        },
+      };
     },
   };
 }

@@ -1,0 +1,52 @@
+@startuml
+title Backend Post-Phase Plan
+
+skinparam backgroundColor #0B1020
+skinparam defaultFontName "Noto Sans CJK KR"
+skinparam ArrowColor #86A8FF
+skinparam RectangleBorderColor #5B6B8C
+skinparam RectangleFontColor #E8ECF8
+skinparam RectangleBackgroundColor #131A2B
+skinparam NoteBackgroundColor #1B2438
+skinparam NoteBorderColor #5B6B8C
+skinparam NoteFontColor #D7DCEC
+
+rectangle "B1\nE2E Cleanup /\nIsolation Foundation\nCOMPLETED" as B1 #1D4D31
+rectangle "B4\nNightly Real-Org E2E\nCOMPLETED" as B4 #1D4D31
+rectangle "B5\nRAG Quality\nInstrumentation\nCOMPLETED" as B5 #1D4D31
+rectangle "B6\nCross-Project\nRetrieval\nCOMPLETED" as B6 #1D4D31
+rectangle "B2\nGit Visibility\nRead Model\nCOMPLETED" as B2 #1D4D31
+rectangle "B3\nMerge Candidate\nBackend Flow\nCOMPLETED" as B3 #1D4D31
+rectangle "B7\nMerge Automation\nNEXT" as B7 #40331A
+rectangle "B8\nDeep RAG\nHardening\nLATER" as B8 #2B3348
+
+B1 --> B4
+B4 --> B5
+B5 --> B6
+B6 --> B2
+B2 --> B3
+B3 --> B7
+B5 --> B8
+
+note right of B1
+labels
+pre-cleanup
+failure cancellation
+success hide
+end note
+
+note right of B5
+confidence
+degraded reasons
+wrong project/file
+source diversity
+end note
+
+note right of B7
+operator actions
+branch push
+PR export
+merge helper
+end note
+
+@enduml

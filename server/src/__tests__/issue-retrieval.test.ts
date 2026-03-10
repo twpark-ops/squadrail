@@ -66,6 +66,49 @@ describe("issue retrieval helpers", () => {
     expect(query).toContain("idempotency");
   });
 
+  it("includes mentioned project names in retrieval query text", () => {
+    const query = buildRetrievalQueryText({
+      issue: {
+        identifier: "SW-105",
+        title: "Align CLI and worker rollout",
+        description: "Need coordinated change across repos",
+        labels: [{ name: "cross-project" }],
+        mentionedProjects: [
+          { id: "project-worker", name: "swiftsight-worker" },
+          { id: "project-cli", name: "swiftcl" },
+        ],
+      },
+      recipientRole: "tech_lead",
+      message: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "cto-1",
+          role: "cto",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "tl-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "Coordinate cross-project rollout",
+        payload: {
+          reason: "Worker metadata and CLI output must align",
+          newAssigneeAgentId: "tl-1",
+          newReviewerAgentId: "qa-1",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(query).toContain("swiftsight-worker");
+    expect(query).toContain("swiftcl");
+  });
+
   it("caps retrieval query text for large issue descriptions", () => {
     const query = buildRetrievalQueryText({
       issue: {
@@ -324,10 +367,71 @@ describe("issue retrieval helpers", () => {
     expect(fused[0]?.fusedScore).toBeGreaterThan(fused[1]?.fusedScore ?? 0);
   });
 
+  it("boosts project-affinity hits over unrelated projects", () => {
+    const fused = fuseRetrievalCandidates({
+      issueId: "issue-1",
+      projectId: "project-primary",
+      projectAffinityIds: ["project-primary", "project-worker"],
+      finalK: 2,
+      sparseHits: [],
+      denseHits: [
+        {
+          chunkId: "chunk-affinity",
+          documentId: "doc-affinity",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-worker",
+          path: "worker/retry.ts",
+          title: "Worker retry",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "Worker retry policy",
+          documentMetadata: {
+            isLatestForScope: true,
+          },
+          chunkMetadata: {},
+          denseScore: 0.35,
+          sparseScore: null,
+          rerankScore: null,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+        },
+        {
+          chunkId: "chunk-unrelated",
+          documentId: "doc-unrelated",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-other",
+          path: "other/retry.ts",
+          title: "Other retry",
+          headingPath: null,
+          symbolName: "retryOther",
+          textContent: "Other retry policy",
+          documentMetadata: {
+            isLatestForScope: true,
+          },
+          chunkMetadata: {},
+          denseScore: 0.35,
+          sparseScore: null,
+          rerankScore: null,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(fused[0]?.chunkId).toBe("chunk-affinity");
+    expect((fused[0]?.fusedScore ?? 0)).toBeGreaterThan(fused[1]?.fusedScore ?? 0);
+  });
+
   it("derives dynamic retrieval signals from review payloads", () => {
     const signals = deriveDynamicRetrievalSignals({
       recipientRole: "reviewer",
       eventType: "on_review_submit",
+      issue: {
+        projectId: "project-1",
+        mentionedProjects: [{ id: "project-worker", name: "swiftsight-worker" }],
+      },
       baselineSourceTypes: ["adr", "prd", "runbook"],
       message: {
         messageType: "SUBMIT_FOR_REVIEW",

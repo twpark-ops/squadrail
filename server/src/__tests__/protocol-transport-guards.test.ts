@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { withProtocolTransportGuards } from "@squadrail/adapter-utils/server-utils";
 
@@ -9,8 +10,9 @@ describe("protocol transport guard wrappers", () => {
       PATH: process.env.PATH ?? "",
       SQUADRAIL_TASK_ID: "issue-123",
     } as Record<string, string>);
+    const guardPython = path.join((env.PATH ?? "").split(":")[0] ?? "", "python3");
 
-    const safe = execFileSync("python3", ["-"], {
+    const safe = execFileSync(guardPython, ["-"], {
       env,
       input: "print('safe-python')\n",
       encoding: "utf8",
@@ -18,7 +20,7 @@ describe("protocol transport guard wrappers", () => {
     expect(safe.trim()).toBe("safe-python");
 
     try {
-      execFileSync("python3", ["-"], {
+      execFileSync(guardPython, ["-"], {
         env,
         input: "import urllib.request\nprint('/api/issues/issue-123/protocol/messages')\n",
         encoding: "utf8",
@@ -29,8 +31,14 @@ describe("protocol transport guard wrappers", () => {
       const stderr = error instanceof Error && "stderr" in error
         ? String((error as { stderr?: string | Buffer }).stderr ?? "")
         : "";
-      expect(stderr).toContain("Direct protocol HTTP via python is blocked");
-      expect(stderr).toContain("squadrail-protocol.mjs");
+      const message = error instanceof Error ? error.message : "";
+      const combined = `${message}\n${stderr}`;
+      const status = typeof error === "object" && error !== null && "status" in error
+        ? (error as { status?: number }).status
+        : undefined;
+      expect(status).toBe(97);
+      expect(combined).toContain("Direct protocol HTTP via python is blocked");
+      expect(combined).toContain("squadrail-protocol.mjs");
     }
   });
 });

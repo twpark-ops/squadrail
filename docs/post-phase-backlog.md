@@ -35,6 +35,7 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 - [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-visual-rebuild-spec-v1.md)
 - [ui-visual-rebuild-spec-v1.puml](/home/taewoong/company-project/squadall/docs/ui-visual-rebuild-spec-v1.puml)
+- [backend-post-phase-plan.md](/home/taewoong/company-project/squadall/docs/backend-post-phase-plan.md)
 
 ### P0. UI Rebuild Spec
 
@@ -115,6 +116,11 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 목표: 지금 성공한 `cloud-swiftsight` 조직 루프가 계속 유지되는지 자동으로 감시한다.
 
+진행 상태:
+
+- 완료: nightly wrapper, cleanup-before/after, report 저장
+- 결과 경로: `~/.squadrail/reports/nightly/cloud-swiftsight-real-org/latest.json`
+
 범위:
 
 - 대표 시나리오 3개 nightly 실행
@@ -144,6 +150,11 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 ### P2. RAG Quality Instrumentation
 
 목표: 감으로 RAG를 바꾸지 않고, 실제 swiftsight 데이터로 retrieval 품질을 측정한다.
+
+진행 상태:
+
+- 완료: `/api/knowledge/quality` surface
+- 완료: confidence / degraded reason / exact-path miss / project mismatch 집계
 
 수집 항목:
 

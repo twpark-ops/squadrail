@@ -7,7 +7,105 @@ const RUN_ID = process.env.SQUADRAIL_RUN_ID;
 const COMPANY_ID = process.env.SQUADRAIL_COMPANY_ID;
 const DEFAULT_ISSUE_ID = process.env.SQUADRAIL_TASK_ID ?? null;
 const REQUEST_TIMEOUT_MS = Number(process.env.SQUADRAIL_PROTOCOL_TIMEOUT_MS ?? 180_000);
+const DEFAULT_DISPATCH_MODE = process.env.SQUADRAIL_PROTOCOL_DISPATCH_MODE ?? "async";
 let cachedSelfAgent = null;
+
+const COMMAND_HELP = {
+  general:
+    "Usage: squadrail-protocol.mjs <resolve-agent|get-brief|reassign-task|ack-assignment|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
+  "ack-assignment": [
+    "Usage: squadrail-protocol.mjs ack-assignment --issue <issueId> [--sender-role <role>] --summary <text> --understood-scope <text> [options]",
+    "",
+    "Supported options:",
+    "  --accepted <true|false>                           (default: true)",
+    "  --initial-risks \"risk1||risk2\"",
+    "  --workflow-before <state>",
+    "  --payload <json>                                  understoodScope, initialRisks, accepted, summary",
+  ].join("\n"),
+  "start-implementation": [
+    "Usage: squadrail-protocol.mjs start-implementation --issue <issueId> [--sender-role <role>] --summary <text> [options]",
+    "",
+    "Supported options:",
+    "  --implementation-mode <direct|guided>            (default: direct)",
+    "  --active-hypotheses \"item1||item2\"",
+    "  --workflow-before <state>",
+    "  --payload <json>                                  implementationMode, activeHypotheses, summary",
+  ].join("\n"),
+  "report-progress": [
+    "Usage: squadrail-protocol.mjs report-progress --issue <issueId> [--sender-role <role>] --summary <text> --progress-percent <0-100> [options]",
+    "",
+    "Supported options:",
+    "  --completed-items \"item1||item2\"",
+    "  --next-steps \"item1||item2\"",
+    "  --risks \"item1||item2\"",
+    "  --changed-files \"path1||path2\"",
+    "  --test-summary <text>",
+    "  --payload <json>                                  progressPercent, completedItems, nextSteps, risks, changedFiles, testSummary, summary",
+  ].join("\n"),
+  "submit-for-review": [
+    "Usage: squadrail-protocol.mjs submit-for-review --issue <issueId> [--sender-role <role>] --reviewer-id <agentId> --summary <text> --implementation-summary <text> [options]",
+    "",
+    "Required evidence options:",
+    "  --evidence \"item1||item2\"",
+    "  --diff-summary <text>",
+    "  --changed-files \"path1||path2\"",
+    "  --test-results \"cmd1||cmd2\"",
+    "  --review-checklist \"item1||item2\"",
+    "  --residual-risks \"item1||item2\"",
+    "  --payload <json>                                  reviewerId, implementationSummary, evidence, diffSummary, changedFiles, testResults, reviewChecklist, residualRisks, summary",
+  ].join("\n"),
+  "ack-change-request": [
+    "Usage: squadrail-protocol.mjs ack-change-request --issue <issueId> [--sender-role <role>] --summary <text> --change-request-ids \"id1||id2\" --planned-fix-order \"step1||step2\" [--payload <json>]",
+  ].join("\n"),
+  "start-review": [
+    "Usage: squadrail-protocol.mjs start-review --issue <issueId> [--sender-role <role>] --summary <text> --review-focus \"item1||item2\" [options]",
+    "",
+    "Supported options:",
+    "  --review-cycle <number>",
+    "  --blocking-review <true|false>",
+    "  --payload <json>                                  reviewCycle, reviewFocus, blockingReview, summary",
+  ].join("\n"),
+  "request-changes": [
+    "Usage: squadrail-protocol.mjs request-changes --issue <issueId> [--sender-role <role>] --summary <text> --review-summary <text> --required-evidence \"item1||item2\" --change-requests \"title::reason::file1|file2::suggested action\"",
+    "",
+    "Supported options:",
+    "  --severity <high|medium|low>",
+    "  --must-fix-before-approve <true|false>",
+    "  --payload <json>                                  reviewSummary, requiredEvidence, changeRequests, severity",
+  ].join("\n"),
+  "request-human-decision": [
+    "Usage: squadrail-protocol.mjs request-human-decision --issue <issueId> [--sender-role <role>] --summary <text> --decision-type <type> --decision-question <text> --options \"opt1||opt2\" [options]",
+    "",
+    "Supported options:",
+    "  --recommended-option <text>",
+    "  --payload <json>                                  decisionType, decisionQuestion, options, recommendedOption",
+  ].join("\n"),
+  "approve-implementation": [
+    "Usage: squadrail-protocol.mjs approve-implementation --issue <issueId> [--sender-role <role>] --summary <text> --approval-summary <text> --approval-checklist \"item1||item2\" --verified-evidence \"item1||item2\" --residual-risks \"item1||item2\"",
+    "",
+    "Supported options:",
+    "  --approval-mode <agent_review|tech_lead_review|human_override>",
+    "                      legacy aliases `qa_review`, `full`, and `human_board` are normalized automatically",
+    "  --payload <json>                                  approvalSummary, approvalChecklist, verifiedEvidence, residualRisks",
+  ].join("\n"),
+  "close-task": [
+    "Usage: squadrail-protocol.mjs close-task --issue <issueId> [--sender-role <role>] --summary <text> --closure-summary <text> --verification-summary <text> --rollback-plan <text> --final-artifacts \"item1||item2\" [options]",
+  ].join("\n"),
+  "reassign-task": [
+    "Usage: squadrail-protocol.mjs reassign-task --issue <issueId> --sender-role <role> --assignee-id <agentId> --reviewer-id <agentId> --reason <text> [options]",
+    "",
+    "Supported options:",
+    "  --assignee-id / --new-assignee-agent-id / --new-assignee / --assignee",
+    "  --assignee-role / --new-assignee-role             (default: engineer)",
+    "  --reviewer-id / --new-reviewer-agent-id / --new-reviewer / --reviewer",
+    "  --summary / --goal",
+    "  --reason",
+    "  --payload <json>                                  extra payload fields to merge",
+    "  --carry-forward-brief-version <number>",
+    "",
+    "JSON payload may include: reason, newAssigneeAgentId, newReviewerAgentId, acceptanceCriteria, definitionOfDone, implementationGuidance, risks",
+  ].join("\n"),
+};
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -35,7 +133,7 @@ function readArgs(argv) {
     }
     const key = token.slice(2);
     const next = argv[index + 1];
-    if (!next || next.startsWith("--")) {
+    if (next === undefined || next.startsWith("--")) {
       options.set(key, "true");
       continue;
     }
@@ -56,6 +154,31 @@ function requireOption(options, name) {
   return value;
 }
 
+function readAliasedOption(options, names, fallback = null) {
+  for (const name of names) {
+    const value = readOption(options, name);
+    if (value) return value;
+  }
+  return fallback;
+}
+
+function requireAliasedOption(options, names) {
+  const value = readAliasedOption(options, names);
+  if (!value) {
+    fail(`Missing required option: --${names[0]}`);
+  }
+  return value;
+}
+
+function isHelpRequested(options) {
+  return parseBool(readOption(options, "help"), false) || parseBool(readOption(options, "h"), false);
+}
+
+function printHelp(command = "general") {
+  const text = COMMAND_HELP[command] ?? COMMAND_HELP.general;
+  process.stdout.write(`${text}\n`);
+}
+
 function readAnyOption(options, names, fallback = null) {
   for (const name of names) {
     const value = readOption(options, name);
@@ -70,6 +193,60 @@ function parseList(value) {
     .split("||")
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function parseListLike(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return parseList(value);
+  }
+  return [];
+}
+
+function parseJsonOption(options, name) {
+  const raw = readOption(options, name);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      fail(`--${name} must be a JSON object`);
+    }
+    return parsed;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`Invalid JSON for --${name}: ${message}`);
+  }
+}
+
+function normalizeApprovalMode(value) {
+  if (!value) return "agent_review";
+  switch (value) {
+    case "qa_review":
+    case "reviewer_review":
+    case "full":
+      return "agent_review";
+    case "tech_lead":
+    case "lead_review":
+      return "tech_lead_review";
+    case "human_board":
+    case "board_override":
+      return "human_override";
+    default:
+      return value;
+  }
+}
+
+function parseListOptionOrPayload(options, names, payloadValue, { required = false, requiredLabel = names[0] } = {}) {
+  const optionValue = readAliasedOption(options, names);
+  const parsed = optionValue ? parseList(optionValue) : parseListLike(payloadValue);
+  if (required && parsed.length === 0) {
+    fail(`Missing required option: --${requiredLabel}`);
+  }
+  return parsed;
 }
 
 async function api(pathname, input = {}) {
@@ -109,6 +286,9 @@ async function postProtocolMessage(issueId, body) {
   const result = await api(`/api/issues/${issueId}/protocol/messages`, {
     method: "POST",
     body,
+    headers: {
+      "X-Squadrail-Dispatch-Mode": DEFAULT_DISPATCH_MODE,
+    },
   });
   printJson(result);
 }
@@ -269,34 +449,58 @@ async function resolveAgentCommand(slug) {
 }
 
 async function reassignTaskCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("reassign-task");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
   const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const assigneeId = readAnyOption(options, [
     "new-assignee-agent-id",
     "new-assignee",
     "newAssigneeAgentId",
     "assignee-id",
     "assignee",
-  ]);
+  ], payloadPatch.newAssigneeAgentId ?? payloadPatch.assigneeAgentId ?? null);
   if (!assigneeId) fail("Missing required option: --assignee-id");
   const assigneeRole = readAnyOption(options, [
     "new-assignee-role",
     "newAssigneeRole",
     "assignee-role",
-  ], "engineer");
+  ], payloadPatch.newAssigneeRole ?? payloadPatch.assigneeRole ?? "engineer");
   const reviewerId = readAnyOption(options, [
     "new-reviewer-agent-id",
     "new-reviewer",
     "newReviewerAgentId",
     "reviewer-id",
     "reviewer",
-  ]);
+  ], payloadPatch.newReviewerAgentId ?? payloadPatch.reviewerAgentId ?? null);
   if (!reviewerId) fail("Missing required option: --reviewer-id");
-  const summary = readAnyOption(options, ["summary", "goal"], "Route implementation");
-  const reason = requireOption(options, "reason");
-  const carryForwardBriefVersion = readOption(options, "carry-forward-brief-version");
+  const summary = readAnyOption(options, ["summary", "goal"], payloadPatch.goal ?? payloadPatch.summary ?? "Route implementation");
+  const reason = readOption(options, "reason", payloadPatch.reason ?? null);
+  if (!reason) fail("Missing required option: --reason");
+  const carryForwardBriefVersion = readOption(
+    options,
+    "carry-forward-brief-version",
+    payloadPatch.carryForwardBriefVersion == null ? null : String(payloadPatch.carryForwardBriefVersion),
+  );
   const state = await getIssueState(issueId);
+
+  const {
+    reason: _ignoredReason,
+    newAssigneeAgentId: _ignoredAssignee,
+    assigneeAgentId: _ignoredLegacyAssignee,
+    newAssigneeRole: _ignoredAssigneeRole,
+    assigneeRole: _ignoredLegacyAssigneeRole,
+    newReviewerAgentId: _ignoredReviewer,
+    reviewerAgentId: _ignoredLegacyReviewer,
+    carryForwardBriefVersion: _ignoredCarryForward,
+    goal: _ignoredGoal,
+    summary: _ignoredSummary,
+    ...extraPayload
+  } = payloadPatch;
 
   const body = {
     messageType: "REASSIGN_TASK",
@@ -322,6 +526,7 @@ async function reassignTaskCommand(options) {
     summary,
     requiresAck: false,
     payload: {
+      ...extraPayload,
       reason,
       newAssigneeAgentId: assigneeId,
       newReviewerAgentId: reviewerId,
@@ -334,12 +539,27 @@ async function reassignTaskCommand(options) {
 }
 
 async function ackAssignmentCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("ack-assignment");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const understoodScope = requireOption(options, "understood-scope");
-  const initialRisks = parseList(readOption(options, "initial-risks", ""));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const understoodScope = readAliasedOption(
+    options,
+    ["understood-scope", "understoodScope"],
+    payloadPatch.understoodScope ?? null,
+  );
+  if (!understoodScope) fail("Missing required option: --understood-scope");
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? understoodScope);
+  if (!summary) fail("Missing required option: --summary");
+  const initialRisks = parseListOptionOrPayload(
+    options,
+    ["initial-risks", "initialRisks"],
+    payloadPatch.initialRisks,
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -355,7 +575,14 @@ async function ackAssignmentCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      accepted: parseBool(readOption(options, "accepted", "true"), true),
+      accepted: parseBool(
+        readAliasedOption(
+          options,
+          ["accepted"],
+          payloadPatch.accepted == null ? "true" : String(payloadPatch.accepted),
+        ),
+        true,
+      ),
       understoodScope,
       initialRisks,
     },
@@ -366,11 +593,21 @@ async function ackAssignmentCommand(options) {
 }
 
 async function startImplementationCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("start-implementation");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const activeHypotheses = parseList(readOption(options, "active-hypotheses", ""));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? "Start implementation");
+  if (!summary) fail("Missing required option: --summary");
+  const activeHypotheses = parseListOptionOrPayload(
+    options,
+    ["active-hypotheses", "activeHypotheses"],
+    payloadPatch.activeHypotheses,
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -386,7 +623,11 @@ async function startImplementationCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      implementationMode: readOption(options, "implementation-mode", "direct"),
+      implementationMode: readAliasedOption(
+        options,
+        ["implementation-mode", "implementationMode"],
+        payloadPatch.implementationMode ?? "direct",
+      ),
       activeHypotheses,
     },
     artifacts: [],
@@ -396,16 +637,44 @@ async function startImplementationCommand(options) {
 }
 
 async function reportProgressCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("report-progress");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const progressPercent = Number(requireOption(options, "progress-percent"));
-  const completedItems = parseList(readOption(options, "completed-items", ""));
-  const nextSteps = parseList(readOption(options, "next-steps", ""));
-  const risks = parseList(readOption(options, "risks", ""));
-  const changedFiles = parseList(readOption(options, "changed-files", ""));
-  const testSummary = readOption(options, "test-summary");
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? "Report implementation progress");
+  if (!summary) fail("Missing required option: --summary");
+  const progressPercentRaw = readAliasedOption(
+    options,
+    ["progress-percent", "progressPercent"],
+    payloadPatch.progressPercent == null ? null : String(payloadPatch.progressPercent),
+  );
+  if (!progressPercentRaw) fail("Missing required option: --progress-percent");
+  const progressPercent = Number(progressPercentRaw);
+  const completedItems = parseListOptionOrPayload(
+    options,
+    ["completed-items", "completedItems"],
+    payloadPatch.completedItems,
+  );
+  const nextSteps = parseListOptionOrPayload(
+    options,
+    ["next-steps", "nextSteps"],
+    payloadPatch.nextSteps,
+  );
+  const risks = parseListOptionOrPayload(options, ["risks"], payloadPatch.risks);
+  const changedFiles = parseListOptionOrPayload(
+    options,
+    ["changed-files", "changedFiles"],
+    payloadPatch.changedFiles,
+  );
+  const testSummary = readAliasedOption(
+    options,
+    ["test-summary", "testSummary"],
+    payloadPatch.testSummary ?? null,
+  );
   const state = await getIssueState(issueId);
 
   if (!Number.isFinite(progressPercent) || progressPercent < 0 || progressPercent > 100) {
@@ -439,18 +708,62 @@ async function reportProgressCommand(options) {
 }
 
 async function submitForReviewCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("submit-for-review");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const reviewerId = requireOption(options, "reviewer-id");
-  const summary = requireOption(options, "summary");
-  const implementationSummary = requireOption(options, "implementation-summary");
-  const evidence = parseList(requireOption(options, "evidence"));
-  const diffSummary = requireOption(options, "diff-summary");
-  const changedFiles = parseList(requireOption(options, "changed-files"));
-  const testResults = parseList(requireOption(options, "test-results"));
-  const reviewChecklist = parseList(requireOption(options, "review-checklist"));
-  const residualRisks = parseList(requireOption(options, "residual-risks"));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const reviewerId = readAliasedOption(
+    options,
+    ["reviewer-id", "reviewerId"],
+    payloadPatch.reviewerId ?? payloadPatch.newReviewerAgentId ?? null,
+  );
+  if (!reviewerId) fail("Missing required option: --reviewer-id");
+  const implementationSummary = readAliasedOption(
+    options,
+    ["implementation-summary", "implementationSummary"],
+    payloadPatch.implementationSummary ?? null,
+  );
+  if (!implementationSummary) fail("Missing required option: --implementation-summary");
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? implementationSummary);
+  if (!summary) fail("Missing required option: --summary");
+  const evidence = parseListOptionOrPayload(options, ["evidence"], payloadPatch.evidence, {
+    required: true,
+    requiredLabel: "evidence",
+  });
+  const diffSummary = readAliasedOption(
+    options,
+    ["diff-summary", "diffSummary"],
+    payloadPatch.diffSummary ?? null,
+  );
+  if (!diffSummary) fail("Missing required option: --diff-summary");
+  const changedFiles = parseListOptionOrPayload(
+    options,
+    ["changed-files", "changedFiles"],
+    payloadPatch.changedFiles,
+    { required: true, requiredLabel: "changed-files" },
+  );
+  const testResults = parseListOptionOrPayload(
+    options,
+    ["test-results", "testResults"],
+    payloadPatch.testResults,
+    { required: true, requiredLabel: "test-results" },
+  );
+  const reviewChecklist = parseListOptionOrPayload(
+    options,
+    ["review-checklist", "reviewChecklist"],
+    payloadPatch.reviewChecklist,
+    { required: true, requiredLabel: "review-checklist" },
+  );
+  const residualRisks = parseListOptionOrPayload(
+    options,
+    ["residual-risks", "residualRisks"],
+    payloadPatch.residualRisks,
+    { required: true, requiredLabel: "residual-risks" },
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -487,12 +800,32 @@ async function submitForReviewCommand(options) {
 }
 
 async function ackChangeRequestCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("ack-change-request");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const changeRequestIds = parseList(requireOption(options, "change-request-ids"));
-  const plannedFixOrder = parseList(requireOption(options, "planned-fix-order"));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const summary = readAnyOption(
+    options,
+    ["summary"],
+    payloadPatch.summary ?? payloadPatch.reviewSummary ?? "Acknowledge requested changes",
+  );
+  if (!summary) fail("Missing required option: --summary");
+  const changeRequestIds = parseListOptionOrPayload(
+    options,
+    ["change-request-ids", "changeRequestIds"],
+    payloadPatch.changeRequestIds,
+    { required: true, requiredLabel: "change-request-ids" },
+  );
+  const plannedFixOrder = parseListOptionOrPayload(
+    options,
+    ["planned-fix-order", "plannedFixOrder"],
+    payloadPatch.plannedFixOrder,
+    { required: true, requiredLabel: "planned-fix-order" },
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -508,7 +841,10 @@ async function ackChangeRequestCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      acknowledged: parseBool(readOption(options, "acknowledged", "true"), true),
+      acknowledged: parseBool(
+        readAliasedOption(options, ["acknowledged"], payloadPatch.acknowledged == null ? "true" : String(payloadPatch.acknowledged)),
+        true,
+      ),
       changeRequestIds,
       plannedFixOrder,
     },
@@ -519,11 +855,26 @@ async function ackChangeRequestCommand(options) {
 }
 
 async function startReviewCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("start-review");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const reviewFocus = parseList(requireOption(options, "review-focus"));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const reviewFocus = parseListOptionOrPayload(
+    options,
+    ["review-focus", "reviewFocus"],
+    payloadPatch.reviewFocus,
+    { required: true, requiredLabel: "review-focus" },
+  );
+  const summary = readAnyOption(
+    options,
+    ["summary"],
+    payloadPatch.summary ?? `Start review for ${reviewFocus[0] ?? "submitted implementation"}`,
+  );
+  if (!summary) fail("Missing required option: --summary");
   const state = await getIssueState(issueId);
 
   const body = {
@@ -539,9 +890,22 @@ async function startReviewCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      reviewCycle: Number(readOption(options, "review-cycle", String((state.currentReviewCycle ?? 0) + 1))),
+      reviewCycle: Number(
+        readAliasedOption(
+          options,
+          ["review-cycle", "reviewCycle"],
+          payloadPatch.reviewCycle == null ? String((state.currentReviewCycle ?? 0) + 1) : String(payloadPatch.reviewCycle),
+        ),
+      ),
       reviewFocus,
-      blockingReview: readOption(options, "blocking-review", "false") === "true",
+      blockingReview: parseBool(
+        readAliasedOption(
+          options,
+          ["blocking-review", "blockingReview"],
+          payloadPatch.blockingReview == null ? "false" : String(payloadPatch.blockingReview),
+        ),
+        false,
+      ),
     },
     artifacts: [],
   };
@@ -550,14 +914,40 @@ async function startReviewCommand(options) {
 }
 
 async function approveImplementationCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("approve-implementation");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const approvalSummary = requireOption(options, "approval-summary");
-  const approvalChecklist = parseList(requireOption(options, "approval-checklist"));
-  const verifiedEvidence = parseList(requireOption(options, "verified-evidence"));
-  const residualRisks = parseList(requireOption(options, "residual-risks"));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const approvalSummary = readAliasedOption(
+    options,
+    ["approval-summary", "approvalSummary"],
+    payloadPatch.approvalSummary ?? null,
+  );
+  if (!approvalSummary) fail("Missing required option: --approval-summary");
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? approvalSummary);
+  if (!summary) fail("Missing required option: --summary");
+  const approvalChecklist = parseListOptionOrPayload(
+    options,
+    ["approval-checklist", "approvalChecklist"],
+    payloadPatch.approvalChecklist,
+    { required: true, requiredLabel: "approval-checklist" },
+  );
+  const verifiedEvidence = parseListOptionOrPayload(
+    options,
+    ["verified-evidence", "verifiedEvidence"],
+    payloadPatch.verifiedEvidence,
+    { required: true, requiredLabel: "verified-evidence" },
+  );
+  const residualRisks = parseListOptionOrPayload(
+    options,
+    ["residual-risks", "residualRisks"],
+    payloadPatch.residualRisks,
+    { required: true, requiredLabel: "residual-risks" },
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -573,7 +963,13 @@ async function approveImplementationCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      approvalMode: readOption(options, "approval-mode", "agent_review"),
+      approvalMode: normalizeApprovalMode(
+        readAliasedOption(
+          options,
+          ["approval-mode", "approvalMode"],
+          payloadPatch.approvalMode ?? "agent_review",
+        ),
+      ),
       approvalSummary,
       approvalChecklist,
       verifiedEvidence,
@@ -586,13 +982,34 @@ async function approveImplementationCommand(options) {
 }
 
 async function requestChangesCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("request-changes");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const reviewSummary = requireOption(options, "review-summary");
-  const requiredEvidence = parseList(requireOption(options, "required-evidence"));
-  const changeRequests = parseStructuredChangeRequests(requireOption(options, "change-requests"));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const reviewSummary = readAliasedOption(
+    options,
+    ["review-summary", "reviewSummary"],
+    payloadPatch.reviewSummary ?? null,
+  );
+  if (!reviewSummary) fail("Missing required option: --review-summary");
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? reviewSummary);
+  if (!summary) fail("Missing required option: --summary");
+  const requiredEvidence = parseListOptionOrPayload(
+    options,
+    ["required-evidence", "requiredEvidence"],
+    payloadPatch.requiredEvidence,
+    { required: true, requiredLabel: "required-evidence" },
+  );
+  const changeRequestOption = readAliasedOption(options, ["change-requests", "changeRequests"], null);
+  const changeRequests = changeRequestOption
+    ? parseStructuredChangeRequests(changeRequestOption)
+    : Array.isArray(payloadPatch.changeRequests)
+      ? payloadPatch.changeRequests
+      : [];
   const state = await getIssueState(issueId);
 
   if (requiredEvidence.length === 0) {
@@ -622,8 +1039,15 @@ async function requestChangesCommand(options) {
     payload: {
       reviewSummary,
       changeRequests,
-      severity: readOption(options, "severity", "high"),
-      mustFixBeforeApprove: parseBool(readOption(options, "must-fix-before-approve", "true"), true),
+      severity: readAliasedOption(options, ["severity"], payloadPatch.severity ?? "high"),
+      mustFixBeforeApprove: parseBool(
+        readAliasedOption(
+          options,
+          ["must-fix-before-approve", "mustFixBeforeApprove"],
+          payloadPatch.mustFixBeforeApprove == null ? "true" : String(payloadPatch.mustFixBeforeApprove),
+        ),
+        true,
+      ),
       requiredEvidence,
     },
     artifacts: [],
@@ -633,12 +1057,26 @@ async function requestChangesCommand(options) {
 }
 
 async function requestHumanDecisionCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("request-human-decision");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const decisionQuestion = requireOption(options, "decision-question");
-  const optionsList = parseList(requireOption(options, "options"));
+  const senderRole = await resolveSenderRole(options);
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const decisionQuestion = readAliasedOption(
+    options,
+    ["decision-question", "decisionQuestion"],
+    payloadPatch.decisionQuestion ?? null,
+  );
+  if (!decisionQuestion) fail("Missing required option: --decision-question");
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? decisionQuestion);
+  if (!summary) fail("Missing required option: --summary");
+  const optionsList = parseListOptionOrPayload(options, ["options"], payloadPatch.options, {
+    required: true,
+    requiredLabel: "options",
+  });
   const state = await getIssueState(issueId);
 
   if (optionsList.length < 2) {
@@ -658,11 +1096,25 @@ async function requestHumanDecisionCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      decisionType: requireOption(options, "decision-type"),
+      decisionType: readAliasedOption(
+        options,
+        ["decision-type", "decisionType"],
+        payloadPatch.decisionType ?? null,
+      ) ?? fail("Missing required option: --decision-type"),
       decisionQuestion,
       options: optionsList,
-      ...(readOption(options, "recommended-option")
-        ? { recommendedOption: readOption(options, "recommended-option") }
+      ...(readAliasedOption(
+        options,
+        ["recommended-option", "recommendedOption"],
+        payloadPatch.recommendedOption ?? null,
+      )
+        ? {
+            recommendedOption: readAliasedOption(
+              options,
+              ["recommended-option", "recommendedOption"],
+              payloadPatch.recommendedOption ?? null,
+            ),
+          }
         : {}),
     },
     artifacts: [],
@@ -672,15 +1124,19 @@ async function requestHumanDecisionCommand(options) {
 }
 
 async function closeTaskCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("close-task");
+    return;
+  }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = requireOption(options, "sender-role");
-  const summary = requireOption(options, "summary");
-  const closureSummary = requireOption(options, "closure-summary");
-  const verificationSummary = requireOption(options, "verification-summary");
-  const rollbackPlan = requireOption(options, "rollback-plan");
-  const finalArtifacts = parseList(requireOption(options, "final-artifacts"));
-  const remainingRisks = parseList(readOption(options, "remaining-risks", ""));
+  const senderRole = await resolveSenderRole(options);
+  const closureSummary = requireAliasedOption(options, ["closure-summary", "closureSummary"]);
+  const summary = readAliasedOption(options, ["summary"], closureSummary);
+  const verificationSummary = requireAliasedOption(options, ["verification-summary", "verificationSummary"]);
+  const rollbackPlan = requireAliasedOption(options, ["rollback-plan", "rollbackPlan"]);
+  const finalArtifacts = parseList(requireAliasedOption(options, ["final-artifacts", "finalArtifacts"]));
+  const remainingRisks = parseList(readAliasedOption(options, ["remaining-risks", "remainingRisks"], ""));
   const state = await getIssueState(issueId);
 
   const body = {
@@ -696,14 +1152,16 @@ async function closeTaskCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      closeReason: readOption(options, "close-reason", "completed"),
-      mergeStatus: readOption(options, "merge-status", "pending_external_merge"),
+      closeReason: readAliasedOption(options, ["close-reason", "closeReason"], "completed"),
+      mergeStatus: readAliasedOption(options, ["merge-status", "mergeStatus"], "pending_external_merge"),
       closureSummary,
       verificationSummary,
       rollbackPlan,
       finalArtifacts,
       remainingRisks,
-      ...(readOption(options, "final-test-status") ? { finalTestStatus: readOption(options, "final-test-status") } : {}),
+      ...(readAliasedOption(options, ["final-test-status", "finalTestStatus"])
+        ? { finalTestStatus: readAliasedOption(options, ["final-test-status", "finalTestStatus"]) }
+        : {}),
     },
     artifacts: [],
   };
@@ -715,9 +1173,16 @@ async function main() {
   const { positionals, options } = readArgs(process.argv.slice(2));
   const command = positionals[0];
   if (!command) {
-    fail(
-      "Usage: squadrail-protocol.mjs <resolve-agent|get-brief|reassign-task|ack-assignment|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
-    );
+    printHelp("general");
+    process.exit(1);
+  }
+  if ((command === "--help" || command === "help") && positionals[1]) {
+    printHelp(positionals[1]);
+    return;
+  }
+  if (command === "--help" || command === "help") {
+    printHelp("general");
+    return;
   }
 
   switch (command) {
@@ -765,4 +1230,10 @@ async function main() {
   }
 }
 
-await main();
+try {
+  await main();
+  process.exit(0);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  fail(message);
+}

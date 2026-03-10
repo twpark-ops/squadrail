@@ -3,6 +3,12 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import {
+  buildE2eLabelSpecs,
+  collectTaggedIssues,
+  needsE2eCancellation,
+  shouldHideE2eIssue,
+} from "./e2e-issue-utils.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,6 +17,10 @@ const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
 const E2E_TIMEOUT_MS = Number(process.env.SWIFTSIGHT_E2E_TIMEOUT_MS ?? 18 * 60 * 1000);
 const POLL_INTERVAL_MS = Number(process.env.SWIFTSIGHT_E2E_POLL_INTERVAL_MS ?? 5_000);
 const SCENARIO_FILTER = process.env.SWIFTSIGHT_E2E_SCENARIO?.trim() ?? "";
+const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
+const PRE_CLEANUP_ENABLED = process.env.SWIFTSIGHT_E2E_PRE_CLEANUP !== "0";
+const HIDE_COMPLETED_ISSUES = process.env.SWIFTSIGHT_E2E_HIDE_COMPLETED !== "0";
+const E2E_ACTOR_ID = process.env.SWIFTSIGHT_E2E_ACTOR_ID ?? "cloud-swiftsight-e2e-board";
 
 const SWIFTSIGHT_ROOT = "/home/taewoong/workspace/cloud-swiftsight";
 const PROTOCOL_HELPER_PATH = "/home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs";
@@ -86,6 +96,71 @@ async function gitStatus(root) {
   return stdout.trim();
 }
 
+async function ensureCompanyLabels(companyId, specs) {
+  const existing = await api(`/api/companies/${companyId}/labels`);
+  const byName = new Map(existing.map((label) => [label.name, label]));
+
+  for (const spec of specs) {
+    if (byName.has(spec.name)) continue;
+    const created = await api(`/api/companies/${companyId}/labels`, {
+      method: "POST",
+      body: spec,
+    });
+    byName.set(created.name, created);
+  }
+
+  return specs.map((spec) => {
+    const label = byName.get(spec.name);
+    assert(label, `Label not found after ensure: ${spec.name}`);
+    return label;
+  });
+}
+
+async function hideIssue(issueId) {
+  return api(`/api/issues/${issueId}`, {
+    method: "PATCH",
+    body: {
+      hiddenAt: new Date().toISOString(),
+    },
+  });
+}
+
+async function cleanupTaggedIssues(companyId, labelIds) {
+  const issues = await api(`/api/companies/${companyId}/issues`);
+  const taggedIssues = collectTaggedIssues(issues, labelIds);
+  const summary = {
+    scanned: taggedIssues.length,
+    cancelled: 0,
+    hidden: 0,
+  };
+
+  for (const issue of taggedIssues) {
+    if (needsE2eCancellation(issue.status)) {
+      await cancelIssue(
+        issue.id,
+        `Scenario cleanup cancelled lingering E2E issue ${issue.identifier}.`,
+        "Cancel lingering E2E issue before the next scenario run",
+      );
+      summary.cancelled += 1;
+      note(`cleanup cancelled ${issue.identifier}`);
+      if (HIDE_COMPLETED_ISSUES) {
+        await hideIssue(issue.id);
+        summary.hidden += 1;
+        note(`cleanup hid ${issue.identifier}`);
+      }
+      continue;
+    }
+
+    if (HIDE_COMPLETED_ISSUES && shouldHideE2eIssue(issue.status)) {
+      await hideIssue(issue.id);
+      summary.hidden += 1;
+      note(`cleanup hid ${issue.identifier}`);
+    }
+  }
+
+  return summary;
+}
+
 async function resolveContext() {
   const companies = await api("/api/companies");
   const company = companies.find((entry) => entry.name === COMPANY_NAME);
@@ -100,6 +175,58 @@ async function resolveContext() {
   const agentsByUrlKey = new Map(agents.map((agent) => [agent.urlKey, agent]));
 
   return { company, projects, agents, projectsByName, agentsByUrlKey };
+}
+
+async function setAgentPaused(agentId, paused) {
+  const pathname = paused ? `/api/agents/${agentId}/pause` : `/api/agents/${agentId}/resume`;
+  return api(pathname, { method: "POST" });
+}
+
+function collectScenarioParticipantIds(scenarios) {
+  const ids = new Set();
+  for (const scenario of scenarios) {
+    ids.add(scenario.assignee.id);
+    ids.add(scenario.reviewer.id);
+    for (const recipient of scenario.additionalRecipients ?? []) {
+      ids.add(recipient.agent.id);
+    }
+  }
+  return [...ids];
+}
+
+async function restoreAgentStatuses(restores) {
+  for (let index = restores.length - 1; index >= 0; index -= 1) {
+    const entry = restores[index];
+    if (entry.previousStatus !== "paused") continue;
+    await setAgentPaused(entry.agent.id, true);
+    note(`restored paused agent ${entry.agent.urlKey}`);
+  }
+}
+
+async function prepareScenarioAgents(context, scenarios) {
+  const agentsById = new Map(context.agents.map((agent) => [agent.id, agent]));
+  const restores = [];
+
+  try {
+    for (const agentId of collectScenarioParticipantIds(scenarios)) {
+      const agent = agentsById.get(agentId);
+      assert(agent, `Agent not found while preparing scenario participants: ${agentId}`);
+      if (agent.status === "terminated" || agent.status === "pending_approval") {
+        throw new Error(
+          `Scenario participant ${agent.urlKey} is not runnable (status=${agent.status})`,
+        );
+      }
+      if (agent.status !== "paused") continue;
+      await setAgentPaused(agent.id, false);
+      restores.push({ agent, previousStatus: "paused" });
+      note(`resumed paused agent ${agent.urlKey} for E2E scenario execution`);
+    }
+  } catch (error) {
+    await restoreAgentStatuses(restores);
+    throw error;
+  }
+
+  return restores;
 }
 
 function buildScenarioDefinitions(context) {
@@ -515,7 +642,7 @@ function buildScenarioDefinitions(context) {
   ];
 }
 
-async function createIssue(companyId, scenario) {
+async function createIssue(companyId, scenario, labelIds) {
   return api(`/api/companies/${companyId}/issues`, {
     method: "POST",
     body: {
@@ -523,6 +650,7 @@ async function createIssue(companyId, scenario) {
       title: scenario.issue.title,
       description: scenario.issue.description,
       priority: "high",
+      labelIds,
     },
   });
 }
@@ -591,13 +719,14 @@ async function assignIssue(issueId, scenario) {
 
 async function cancelIssue(issueId, reason, summary = "Cancel failed E2E scenario") {
   const state = await api(`/api/issues/${issueId}/protocol/state`);
+  const workflowStateBefore = state?.workflowState ?? "assigned";
   return api(`/api/issues/${issueId}/protocol/messages`, {
     method: "POST",
     body: {
       messageType: "CANCEL_TASK",
       sender: {
         actorType: "user",
-        actorId: "cloud-swiftsight-e2e-board",
+        actorId: E2E_ACTOR_ID,
         role: "human_board",
       },
       recipients: [
@@ -607,7 +736,7 @@ async function cancelIssue(issueId, reason, summary = "Cancel failed E2E scenari
           role: "human_board",
         },
       ],
-      workflowStateBefore: state.workflowState,
+      workflowStateBefore,
       workflowStateAfter: "cancelled",
       summary,
       requiresAck: false,
@@ -668,7 +797,7 @@ async function waitForCompletion(issueId, scenario) {
       note(`[${scenario.key}] ${message.createdAt} ${summarizeMessage(message)}`);
     }
 
-    if (snapshot.state.workflowState === "done") {
+    if (snapshot.state?.workflowState === "done") {
       return snapshot;
     }
 
@@ -681,7 +810,7 @@ async function waitForCompletion(issueId, scenario) {
   throw new Error(
     [
       `Timed out waiting for completion: ${scenario.key}`,
-      `workflowState=${snapshot.state.workflowState}`,
+      `workflowState=${snapshot.state?.workflowState ?? "missing"}`,
       `messages=${trail}`,
       `violations=${violations || "none"}`,
     ].join("\n"),
@@ -700,7 +829,7 @@ function findArtifact(messages, predicate) {
 }
 
 async function assertScenarioSuccess(scenario, snapshot, baselineStatus) {
-  assert.equal(snapshot.state.workflowState, "done", `${scenario.key} did not finish in done state`);
+  assert.equal(snapshot.state?.workflowState, "done", `${scenario.key} did not finish in done state`);
   assert(snapshot.briefs.length > 0, `${scenario.key} should generate at least one brief`);
 
   const submitMessage = latestMessage(snapshot.messages, "SUBMIT_FOR_REVIEW");
@@ -780,7 +909,7 @@ async function runScenario(companyId, scenario) {
   const baselineStatus = await gitStatus(scenario.repoRoot);
   note(`base git status lines=${baselineStatus ? baselineStatus.split("\n").length : 0}`);
 
-  const issue = await createIssue(companyId, scenario);
+  const issue = await createIssue(companyId, scenario, scenario.labelIds ?? []);
   note(`created issue ${issue.identifier} (${issue.id})`);
 
   await assignIssue(issue.id, scenario);
@@ -811,6 +940,11 @@ async function runScenario(companyId, scenario) {
     note(`checkpoints=${JSON.stringify(verified.checkpoints)}`);
   }
 
+  if (HIDE_COMPLETED_ISSUES) {
+    await hideIssue(issue.id);
+    note(`hid ${issue.identifier} after successful verification`);
+  }
+
   return {
     issueId: issue.id,
     identifier: issue.identifier,
@@ -834,14 +968,35 @@ async function main() {
   note(`projects=${context.projects.length}`);
   note(`agents=${context.agents.length}`);
 
+  const e2eLabels = await ensureCompanyLabels(
+    context.company.id,
+    buildE2eLabelSpecs({ nightly: NIGHTLY_MODE }),
+  );
+  const e2eLabelIds = e2eLabels.map((label) => label.id);
+  note(`e2e labels=${e2eLabels.map((label) => label.name).join(", ")}`);
+
+  if (PRE_CLEANUP_ENABLED) {
+    const cleanup = await cleanupTaggedIssues(context.company.id, e2eLabelIds);
+    note(`pre-cleanup=${JSON.stringify(cleanup)}`);
+  }
+
   const scenarios = buildScenarioDefinitions(context);
   const selectedScenarios = SCENARIO_FILTER
     ? scenarios.filter((scenario) => scenario.key === SCENARIO_FILTER)
     : scenarios.filter((scenario) => DEFAULT_ORG_LOOP_SCENARIO_KEYS.includes(scenario.key));
   assert(selectedScenarios.length > 0, `No scenarios selected for filter: ${SCENARIO_FILTER}`);
+
+  const agentStatusRestores = await prepareScenarioAgents(context, selectedScenarios);
   const results = [];
-  for (const scenario of selectedScenarios) {
-    results.push(await runScenario(context.company.id, scenario));
+  try {
+    for (const scenario of selectedScenarios) {
+      results.push(await runScenario(context.company.id, {
+        ...scenario,
+        labelIds: e2eLabelIds,
+      }));
+    }
+  } finally {
+    await restoreAgentStatuses(agentStatusRestores);
   }
 
   section("Summary");

@@ -1,0 +1,221 @@
+# Backend Post-Phase Plan
+
+작성일: 2026-03-10
+
+## 목표
+
+Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
+
+지금부터의 백엔드 작업 목표는 세 가지다.
+
+1. real-org E2E와 운영 큐를 확실히 분리한다.
+2. 실제 조직 루프를 nightly/metric으로 계속 검증한다.
+3. RAG와 merge 흐름을 실측 기반으로 고도화한다.
+
+## 참고 기준
+
+- 현재 완료 상태: [phase-roadmap.md](/home/taewoong/company-project/squadall/docs/phase-roadmap.md)
+- 후속 제품 backlog: [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/post-phase-backlog.md)
+
+## `.paperclip`에서 채택한 백엔드 참고점
+
+전체를 가져오지는 않는다. 아래 두 축만 흡수한다.
+
+1. git visibility
+   - issue / project / agent 단위로 branch, worktree, dirty state, diff, recent commits를 한곳에서 보여주는 read model
+2. release worktree lifecycle
+   - branch 재사용, clean worktree 요구, 경로 충돌 방지, operator가 provenance를 이해할 수 있게 하는 규칙
+
+반대로 execution lock 계열은 이미 현재 runtime에 흡수돼 있다.
+
+## 실행 순서
+
+### B1. E2E Cleanup / Isolation Foundation
+
+상태: 완료
+
+목표:
+
+- real-org E2E issue가 실제 운영 큐를 오염시키지 않게 만든다.
+
+범위:
+
+- E2E 전용 issue label 도입
+- real-org E2E harness가 생성하는 issue에 label 부착
+- 실행 전 lingering E2E issue 정리
+- 실패 시 protocol cancellation
+- 성공 시 운영 화면에서 숨길 수 있는 cleanup 경로 마련
+
+완료 기준:
+
+- QA / reviewer / lead가 예전 E2E 잔재 때문에 임의로 다시 깨어나지 않는다.
+- nightly 실행 전후 큐 상태를 deterministic하게 정리할 수 있다.
+
+### B2. Git Visibility Read Model
+
+상태: 완료
+
+목표:
+
+- issue 기준으로 branch/worktree/diff/verification 정보를 안정적으로 읽을 수 있게 만든다.
+
+범위:
+
+- issue 단위 git execution read model
+- branch name, workspace path, head sha, changed files, diff stat, verification summary 집계
+- 최신 diff / test_run / build_run / approval artifact 정규화
+
+완료 기준:
+
+- UI와 operator tooling이 숨김 worktree 경로를 직접 스캔하지 않고도 변경 provenance를 읽을 수 있다.
+
+### B3. Merge Candidate Backend Flow
+
+상태: 완료
+
+목표:
+
+- `pending_external_merge` 이후의 반영 단계를 backend 계약으로 닫는다.
+
+범위:
+
+- merge candidate read model
+- mark merged / mark rejected action
+- copyable merge or cherry-pick instruction payload
+- source branch / target repo / rollback note provenance 정리
+
+완료 기준:
+
+- operator가 close 이후 별도 수동 추적 없이 반영/폐기 결정을 기록할 수 있다.
+
+### B4. Nightly Real-Org E2E
+
+상태: 완료
+
+목표:
+
+- 실제 조직 루프가 계속 유지되는지 자동으로 감시한다.
+
+범위:
+
+- 대표 시나리오 nightly 실행
+- 성공/실패 요약 저장
+- 실패 시 recovery queue 또는 알림으로 연결
+
+완료 기준:
+
+- real-org 회귀를 하루 단위로 탐지한다.
+
+### B5. RAG Quality Instrumentation
+
+상태: 완료
+
+목표:
+
+- RAG를 감으로 바꾸지 않고 실측으로 다룬다.
+
+수집 항목:
+
+- brief confidence
+- degraded reason 분포
+- retrieval hit count
+- source diversity
+- wrong-project / wrong-file selection
+- review 단계에서 근거 부족으로 되돌아간 비율
+
+완료 기준:
+
+- 역할별 / 프로젝트별 retrieval 품질을 숫자로 설명할 수 있다.
+
+### B6. Cross-Project Retrieval Improvement
+
+상태: 완료
+
+목표:
+
+- CTO / PM / TL이 cross-project 이슈를 던질 때 관련 프로젝트를 더 정확히 찾게 만든다.
+
+범위:
+
+- project affinity scoring
+- cross-project path / symbol weighting
+- multi-project brief shaping
+
+완료 기준:
+
+- cross-project 이슈에서 irrelevant selection 비율이 내려간다.
+
+### B7. Merge Automation
+
+상태: 다음 단계
+
+목표:
+
+- merge candidate를 실제 반영 자동화까지 확장한다.
+
+범위:
+
+- branch push
+- PR export
+- merge helper
+- cherry-pick helper
+
+완료 기준:
+
+- operator 개입을 최소화한 반영 경로가 생긴다.
+
+### B8. Deep RAG Hardening
+
+상태: 계측 기반 후속 단계
+
+목표:
+
+- 대형 repo와 장기 운영에 맞는 retrieval 고도화를 붙인다.
+
+범위:
+
+- version-aware retrieval
+- symbol / dependency graph traversal
+- retrieval cache
+- incremental reindex
+- role-specific personalization
+
+완료 기준:
+
+- 대형 코드베이스에서 retrieval 품질과 비용이 안정화된다.
+
+## 현재 상태 요약
+
+완료:
+
+1. B1. E2E Cleanup / Isolation Foundation
+2. B4. Nightly Real-Org E2E
+3. B5. RAG Quality Instrumentation
+4. B6. Cross-Project Retrieval Improvement
+5. B2. Git Visibility Read Model
+6. B3. Merge Candidate Backend Flow
+
+다음 우선순위:
+
+1. B7. Merge Automation
+2. B8. Deep RAG Hardening
+
+## 완료 증거
+
+- nightly real-org E2E 리포트
+  - `~/.squadrail/reports/nightly/cloud-swiftsight-real-org/latest.json`
+  - 최신 결과: `ok: true`
+- 신규 backend surface
+  - `GET /api/knowledge/quality`
+  - `GET /api/issues/:id/change-surface`
+  - `GET /api/issues/:id/merge-candidate`
+  - `POST /api/issues/:id/merge-candidate/actions`
+- cleanup tooling
+  - `pnpm e2e:cloud-swiftsight-real-org`
+  - `pnpm e2e:cloud-swiftsight-real-org:cleanup`
+
+## 판정
+
+지금 백엔드는 새 엔진을 만드는 단계가 아니다.
+
+운영 자동화, retrieval 계측, merge 반영 흐름을 닫는 단계다.

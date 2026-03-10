@@ -20,9 +20,13 @@ const {
   mockHeartbeatCancelIssueScope,
   mockAgentGetById,
   mockProtocolGetState,
+  mockProtocolListMessages,
   mockProtocolAppendMessage,
+  mockProtocolCreateViolation,
   mockProtocolDispatchMessage,
   mockIssueRetrievalHandleProtocolMessage,
+  mockMergeCandidateGetByIssueId,
+  mockMergeCandidateUpsertDecision,
   mockLogActivity,
 } = vi.hoisted(() => ({
   mockEnsureMembership: vi.fn(),
@@ -44,9 +48,13 @@ const {
   mockHeartbeatCancelIssueScope: vi.fn(),
   mockAgentGetById: vi.fn(),
   mockProtocolGetState: vi.fn(),
+  mockProtocolListMessages: vi.fn(),
   mockProtocolAppendMessage: vi.fn(),
+  mockProtocolCreateViolation: vi.fn(),
   mockProtocolDispatchMessage: vi.fn(),
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
+  mockMergeCandidateGetByIssueId: vi.fn(),
+  mockMergeCandidateUpsertDecision: vi.fn(),
   mockLogActivity: vi.fn(),
 }));
 
@@ -87,10 +95,15 @@ vi.mock("../services/index.js", () => ({
   }),
   issueProtocolService: () => ({
     getState: mockProtocolGetState,
-    listMessages: vi.fn(),
+    listMessages: mockProtocolListMessages,
     listViolations: vi.fn(),
     listReviewCycles: vi.fn(),
     appendMessage: mockProtocolAppendMessage,
+    createViolation: mockProtocolCreateViolation,
+  }),
+  issueMergeCandidateService: () => ({
+    getByIssueId: mockMergeCandidateGetByIssueId,
+    upsertDecision: mockMergeCandidateUpsertDecision,
   }),
   issueService: () => ({
     create: mockIssueCreate,
@@ -126,6 +139,13 @@ vi.mock("../services/index.js", () => ({
     listByIds: vi.fn(),
   }),
   logActivity: mockLogActivity,
+}));
+
+vi.mock("../services/issue-merge-candidates.js", () => ({
+  issueMergeCandidateService: () => ({
+    getByIssueId: mockMergeCandidateGetByIssueId,
+    upsertDecision: mockMergeCandidateUpsertDecision,
+  }),
 }));
 
 import { issueRoutes } from "../routes/issues.js";
@@ -191,6 +211,7 @@ async function invokeRoute(input: {
   params?: Record<string, string>;
   body?: unknown;
   actor?: BoardActor;
+  headers?: Record<string, string>;
 }) {
   const router = createTestRouter();
   const handlers = findRouteLayer(router, input.path, input.method);
@@ -199,6 +220,11 @@ async function invokeRoute(input: {
     body: input.body ?? {},
     query: {},
     actor: input.actor ?? buildBoardActor(),
+    header(name: string) {
+      const headers = input.headers ?? {};
+      const matched = Object.entries(headers).find(([key]) => key.toLowerCase() === name.toLowerCase());
+      return matched?.[1];
+    },
   } as any;
   const state: { statusCode: number; body: unknown } = { statusCode: 200, body: undefined };
   const res = {
@@ -278,12 +304,21 @@ describe("issue routes wakeup handling", () => {
       cancelledRunCount: 0,
     });
     mockProtocolGetState.mockResolvedValue(null);
+    mockProtocolListMessages.mockResolvedValue([]);
     mockProtocolAppendMessage.mockResolvedValue({
       message: { id: "protocol-message-1", seq: 1 },
       state: {},
     });
+    mockProtocolCreateViolation.mockResolvedValue({
+      id: "violation-1",
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      violationCode: "payload_schema_mismatch",
+    });
     mockProtocolDispatchMessage.mockResolvedValue(undefined);
     mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({ recipientHints: [] });
+    mockMergeCandidateGetByIssueId.mockResolvedValue(null);
+    mockMergeCandidateUpsertDecision.mockResolvedValue(null);
   });
 
   it("awaits assignee wakeup on issue create", async () => {
@@ -316,7 +351,7 @@ describe("issue routes wakeup handling", () => {
       },
     });
 
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
     expect(mockHeartbeatWakeup).toHaveBeenCalledWith(
       "22222222-2222-4222-8222-222222222222",
       expect.objectContaining({
@@ -583,7 +618,7 @@ describe("issue routes wakeup handling", () => {
       },
     });
 
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
     expect(response.body).toEqual(
       expect.objectContaining({
         issue: expect.objectContaining({
@@ -684,7 +719,7 @@ describe("issue routes wakeup handling", () => {
       },
     });
 
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
     expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         issueId: "11111111-1111-4111-8111-111111111111",
@@ -1013,7 +1048,7 @@ describe("issue routes wakeup handling", () => {
       },
     });
 
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
     expect(mockProtocolAppendMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -1128,6 +1163,227 @@ describe("issue routes wakeup handling", () => {
         message: expect.objectContaining({
           messageType: "SUBMIT_FOR_REVIEW",
         }),
+      }),
+    );
+  });
+
+  it("returns change surface derived from protocol artifacts", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-220",
+      title: "Change surface issue",
+      status: "done",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "approve-1",
+        messageType: "APPROVE_IMPLEMENTATION",
+        summary: "Approved",
+        createdAt: "2026-03-10T11:00:00.000Z",
+        payload: {
+          approvalSummary: "Approved for merge",
+        },
+        artifacts: [
+          {
+            kind: "approval",
+            uri: "approval://1",
+            label: "Approval artifact",
+            metadata: {},
+          },
+        ],
+      },
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for operator merge",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the commit",
+          remainingRisks: ["Needs external merge"],
+        },
+        artifacts: [
+          {
+            kind: "doc",
+            uri: "workspace://binding",
+            label: "Workspace binding",
+            metadata: {
+              bindingType: "implementation_workspace",
+              cwd: "/tmp/worktree",
+              branchName: "squadrail/clo-220",
+              headSha: "abc123",
+              source: "project_isolated",
+              workspaceState: "fresh",
+            },
+          },
+          {
+            kind: "diff",
+            uri: "run://diff",
+            label: "Diff artifact",
+            metadata: {
+              branchName: "squadrail/clo-220",
+              headSha: "abc123",
+              changedFiles: ["src/change.ts"],
+              statusEntries: ["M src/change.ts"],
+              diffStat: "1 file changed, 8 insertions(+)",
+            },
+          },
+          {
+            kind: "test_run",
+            uri: "run://test",
+            label: "Focused test",
+            metadata: {},
+          },
+        ],
+      },
+    ]);
+
+    const response = await invokeRoute({
+      path: "/issues/:id/change-surface",
+      method: "get",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        branchName: "squadrail/clo-220",
+        workspacePath: "/tmp/worktree",
+        changedFiles: ["src/change.ts"],
+        mergeCandidate: expect.objectContaining({
+          state: "pending",
+          sourceBranch: "squadrail/clo-220",
+        }),
+      }),
+    );
+  });
+
+  it("records merge candidate operator decisions", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-221",
+      title: "Merge candidate issue",
+      status: "done",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "approve-1",
+        messageType: "APPROVE_IMPLEMENTATION",
+        summary: "Approved",
+        createdAt: "2026-03-10T11:00:00.000Z",
+        payload: {
+          approvalSummary: "Approved for merge",
+        },
+        artifacts: [
+          {
+            kind: "approval",
+            uri: "approval://1",
+            label: "Approval artifact",
+            metadata: {},
+          },
+        ],
+      },
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for operator merge",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the commit",
+          remainingRisks: ["Needs external merge"],
+        },
+        artifacts: [
+          {
+            kind: "doc",
+            uri: "workspace://binding",
+            label: "Workspace binding",
+            metadata: {
+              bindingType: "implementation_workspace",
+              cwd: "/tmp/worktree",
+              branchName: "squadrail/clo-221",
+              headSha: "def456",
+              source: "project_isolated",
+              workspaceState: "fresh",
+            },
+          },
+          {
+            kind: "diff",
+            uri: "run://diff",
+            label: "Diff artifact",
+            metadata: {
+              branchName: "squadrail/clo-221",
+              headSha: "def456",
+              changedFiles: ["src/merge.ts"],
+              statusEntries: ["M src/merge.ts"],
+              diffStat: "1 file changed, 12 insertions(+)",
+            },
+          },
+        ],
+      },
+    ]);
+    mockMergeCandidateGetByIssueId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        state: "merged",
+        closeMessageId: "close-1",
+        sourceBranch: "squadrail/clo-221",
+        workspacePath: "/tmp/worktree",
+        headSha: "def456",
+        diffStat: "1 file changed, 12 insertions(+)",
+        targetBaseBranch: "main",
+        mergeCommitSha: "fedcba",
+        operatorNote: "Merged by operator",
+        resolvedAt: "2026-03-10T12:00:00.000Z",
+      });
+    mockMergeCandidateUpsertDecision.mockResolvedValue({
+      id: "merge-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      state: "merged",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/merge-candidate/actions",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        actionType: "mark_merged",
+        targetBaseBranch: "main",
+        mergeCommitSha: "fedcba",
+        noteBody: "Merged by operator",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockMergeCandidateUpsertDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        issueId: "11111111-1111-4111-8111-111111111111",
+        closeMessageId: "close-1",
+        state: "merged",
+        sourceBranch: "squadrail/clo-221",
+        workspacePath: "/tmp/worktree",
+        headSha: "def456",
+        diffStat: "1 file changed, 12 insertions(+)",
+        targetBaseBranch: "main",
+        mergeCommitSha: "fedcba",
+        operatorActorType: "user",
+        operatorActorId: "user-1",
+        operatorNote: "Merged by operator",
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        state: "merged",
+        sourceBranch: "squadrail/clo-221",
+        targetBaseBranch: "main",
+        mergeCommitSha: "fedcba",
       }),
     );
   });
@@ -1505,5 +1761,147 @@ describe("issue routes wakeup handling", () => {
       reason: "Issue cancelled via protocol",
     });
     expect(mockProtocolDispatchMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns immediately for async agent protocol dispatch mode", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-205",
+      title: "Async protocol issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-3", seq: 3 },
+      state: { workflowState: "submitted_for_review" },
+    });
+    let dispatchResolved = false;
+    mockProtocolDispatchMessage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            dispatchResolved = true;
+            resolve(undefined);
+          }, 50);
+        }),
+    );
+
+    const startedAt = Date.now();
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      headers: { "x-squadrail-dispatch-mode": "async" },
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "rev-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["go test ./pkg/foo passed"],
+          diffSummary: "Updated runtime boundary",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["go test ./pkg/foo"],
+          reviewChecklist: ["Protocol post returns quickly"],
+          residualRisks: ["Nightly dispatch still depends on downstream reviewer availability"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+    expect(Date.now() - startedAt).toBeLessThan(50);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          id: "protocol-message-3",
+        }),
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(dispatchResolved).toBe(true);
+  });
+
+  it("normalizes legacy approval mode aliases before protocol validation", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-206",
+      title: "Approval alias issue",
+      description: null,
+      projectId: null,
+      labels: [],
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-4", seq: 4 },
+      state: { workflowState: "approved" },
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "rev-1",
+      companyId: "company-1",
+      role: "qa",
+      title: "QA Reviewer",
+      permissions: {},
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("rev-1"),
+      body: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "approved",
+        summary: "Approve with legacy alias",
+        payload: {
+          approvalMode: "full",
+          approvalSummary: "Legacy alias should be normalized before validation.",
+          approvalChecklist: ["Focused review completed"],
+          verifiedEvidence: ["go test ./pkg/swiftcl -count=1"],
+          residualRisks: ["External merge still pending"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          messageType: "APPROVE_IMPLEMENTATION",
+          payload: expect.objectContaining({
+            approvalMode: "agent_review",
+          }),
+        }),
+      }),
+    );
   });
 });
