@@ -3,7 +3,11 @@
 </p>
 
 <p align="center">
-  <strong>Protocol-first orchestration for autonomous AI agent teams</strong>
+  <a href="#quickstart"><strong>Quickstart</strong></a> &middot;
+  <a href="docs/start/architecture.md"><strong>Architecture</strong></a> &middot;
+  <a href="docs/api/overview.md"><strong>API</strong></a> &middot;
+  <a href="docs/cli/overview.md"><strong>CLI</strong></a> &middot;
+  <a href="doc/DEVELOPING.md"><strong>Development</strong></a>
 </p>
 
 <p align="center">
@@ -15,88 +19,121 @@
   </a>
 </p>
 
----
+<br/>
 
-## Overview
+## What is Squadrail?
 
-Squadrail orchestrates AI agent squads that execute software delivery tasks with structure and precision. Built on protocol-driven workflows, role-based teams, and RAG-powered context retrieval.
+# Open-source orchestration for autonomous software delivery squads
 
-**Core capabilities**
+Squadrail is a protocol-first control plane for AI agent teams working on real software delivery.
 
-- Protocol-driven workflows with state machines and typed messages
-- Role-based agent teams (Tech Lead, Engineer, Reviewer, QA)
-- RAG-powered context with hybrid retrieval and task briefs
-- Multi-tenant isolation using PostgreSQL Row-Level Security
-- Real-time execution monitoring with WebSocket events
+It combines:
 
----
+- issue-driven execution
+- typed protocol messages and state transitions
+- role-based agent coordination
+- graph-assisted, temporal, role-aware retrieval
+- review and approval workflows
+- runtime monitoring and recovery
 
-## Quick Start
+The result is a system that feels less like "a pile of agent terminals" and more like an operating rail for engineering teams.
 
-### One-command setup
+> **Inspiration**
+> Squadrail started from the product framing introduced by **Paperclip**. Paperclip treats AI systems as something closer to a company than a chatbot, and Squadrail takes that same core idea into software delivery: if Paperclip is company-shaped orchestration, Squadrail is the delivery rail for protocol-governed engineering work.
 
-```bash
-npx squadrail onboard --yes
-```
+<br/>
 
-### From source
+## Squadrail is right for you if
 
-```bash
-git clone https://github.com/twpark-ops/squadrail.git
-cd squadrail
-pnpm install
-pnpm dev
-```
+- You want AI agents to work through a defined delivery protocol instead of ad-hoc chat.
+- You need engineers, reviewers, QA, and leads to have distinct roles and handoff rules.
+- You want retrieval-backed task context without dumping an entire codebase into every prompt.
+- You need auditability for approvals, protocol violations, runtime recovery, and task closure.
+- You want one deployment to host multiple companies or teams with strict isolation.
+- You are already using tools like Claude Code, Codex, Cursor, OpenClaw, or local adapters and need an orchestration layer above them.
 
-Open `http://localhost:3100`
+<br/>
 
-**Requirements:** Node.js 20+, pnpm 9.15+
+## Problems Squadrail solves
 
----
+| Without Squadrail | With Squadrail |
+| --- | --- |
+| Agents receive vague tasks and improvise their own workflow. | Delivery is driven by explicit protocol messages, required evidence, and valid state transitions. |
+| Review handoffs are inconsistent and missing critical context. | Review submission is structured around implementation summary, diff summary, tests, checklist, and residual risk. |
+| Every agent session must be manually re-explained after a restart. | Task briefs, protocol history, runtime state, and retrieval context stay attached to the work. |
+| "Knowledge" means pasting large code dumps into prompts. | Retrieval is hybrid, graph-assisted, version-aware, and role-aware. |
+| Runtime failures are hidden inside terminal windows. | Runs, recovery queues, and live squad activity are surfaced in one control plane. |
+| Multi-tenant delivery work becomes a data-isolation risk. | PostgreSQL Row-Level Security keeps company data scoped and isolated. |
 
-## How It Works
+<br/>
 
-```
-Issue Creation
+## Core capabilities
+
+<table>
+<tr>
+<td align="center" width="33%">
+<h3>Protocol-first execution</h3>
+Issues move through typed messages, validated states, role authorization, and evidence-aware transitions.
+</td>
+<td align="center" width="33%">
+<h3>Delivery-specific org model</h3>
+Leads, engineers, reviewers, QA, and board actors each have distinct responsibilities and workflow powers.
+</td>
+<td align="center" width="33%">
+<h3>Knowledge that follows the task</h3>
+Hybrid retrieval generates focused task context instead of broad repository dumps.
+</td>
+</tr>
+<tr>
+<td align="center">
+<h3>Runtime observability</h3>
+Track live runs, queue state, heartbeats, recovery actions, and agent activity from one UI.
+</td>
+<td align="center">
+<h3>Multi-company isolation</h3>
+Run many companies or squads on one deployment with company-scoped resources and RLS enforcement.
+</td>
+<td align="center">
+<h3>Audit and governance</h3>
+Approvals, violations, recovery actions, reviews, and closures remain inspectable and reproducible.
+</td>
+</tr>
+</table>
+
+<br/>
+
+## How a task moves through Squadrail
+
+```text
+Issue Created
     ↓
-ASSIGN_TASK (protocol message)
+ASSIGN_TASK
     ↓
-RAG Retrieval (semantic + keyword)
+Hybrid Retrieval
     ↓
-Task Brief Generation
+Task Brief + Context Pack
     ↓
-Agent Execution (Claude Code / Codex)
+Implementation Run
     ↓
 SUBMIT_FOR_REVIEW
     ↓
-Reviewer Approval
+Approval / Change Request
     ↓
-CLOSE_TASK
+CLOSE_TASK or Recovery
 ```
 
-Each protocol message triggers:
-- State validation
-- Role authorization
-- Context retrieval
-- Evidence requirements
-- Automated dispatch
+Every protocol step can enforce:
 
-`SUBMIT_FOR_REVIEW` now uses a structured handoff contract. Review submission should include:
-- implementation summary
-- diff summary
-- changed files
-- test results
-- review checklist
-- residual risks
-- at least one `diff`, `commit`, or `test_run` artifact
+- state validation
+- recipient and role validation
+- required evidence
+- retrieval refresh
+- runtime dispatch
+- review and closure rules
 
----
+Current core messages include:
 
-## Protocol Messages
-
-Structured communication replaces unstructured chat:
-
-```typescript
+```text
 ASSIGN_TASK
 ACK_ASSIGNMENT
 PROPOSE_PLAN
@@ -109,148 +146,223 @@ APPROVE_IMPLEMENTATION
 CLOSE_TASK
 ```
 
----
+<br/>
 
-## Agent Roles
+## Why Squadrail is technically distinct
 
-**Tech Lead** — Task assignment, blocker resolution, completion
-**Engineer** — Implementation, testing, review submission
-**Reviewer** — Code review, approval, change requests
-**QA** — Quality validation, test execution
-**CTO/PM** — Strategic oversight, budget approval
+- **Protocol over chat.** Work is driven by typed messages and explicit transitions, not loosely-scoped conversation history.
+- **Review handoff is structured.** `SUBMIT_FOR_REVIEW` expects implementation summary, diff summary, changed files, test results, checklist, residual risk, and review artifacts.
+- **Retrieval is not just vector search.** The current stack is graph-assisted, temporal, and role-aware, with document versioning, retrieval cache, incremental reindex, and explainable personalization. See [docs/rag-current-architecture.md](docs/rag-current-architecture.md).
+- **Knowledge stays attached to delivery.** Retrieval is grounded in issues, projects, runs, and evolving repository knowledge instead of being a detached chatbot layer.
+- **Local-first development is practical.** Embedded PostgreSQL is auto-managed in development, and the CLI can bootstrap and diagnose a local instance quickly.
+- **Adapters are pluggable.** The repository already includes adapters for Claude local, Codex local, Cursor local, OpenClaw, and OpenCode local.
 
----
+<br/>
 
-## RAG System
+## Monorepo structure
 
-**Hybrid retrieval pipeline:**
+Squadrail is a `pnpm` workspace with dedicated packages for the control plane, UI, CLI, adapters, and shared contracts.
 
-1. Dense search (vector embeddings via OpenAI)
-2. Sparse search (PostgreSQL full-text)
-3. Fusion ranking
-4. Signal-based reranking (paths, symbols, tags)
-5. Optional LLM reranking
-6. Task brief generation
-
-**Result:** Agents receive relevant context, not entire codebases.
-
-Current implementation details: [docs/rag-current-architecture.md](docs/rag-current-architecture.md)
-
----
-
-## Architecture
-
-**Backend**
-- Express 5.1, TypeScript 5.7
-- Drizzle ORM 0.38, PostgreSQL
-- Better-auth 1.4
-- WebSocket (ws 8.19)
-
-**Frontend**
-- React 19, TypeScript
-- Tailwind CSS v4
-- shadcn/ui, Radix UI
-- Vite 6.1
-
-**AI/ML**
-- Anthropic Claude SDK
-- OpenAI embeddings
-- LangChain (optional)
-
----
-
-## Key Features
-
-**Multi-Tenancy**
-Row-Level Security for data isolation, company-scoped resources, embedded PostgreSQL for local development
-
-**Execution Control**
-Concurrent limits per agent, queue management, timeout handling, execution logs, cost tracking
-
-**Knowledge Management**
-Repository import, automatic chunking and embedding, retrieval policy versioning, authority levels
-
-**Governance**
-Approval workflows, protocol violation tracking, evidence requirements, complete audit trails
-
----
-
-## Development
-
-```bash
-pnpm dev              # Full stack (API + UI)
-pnpm dev:server       # API only
-pnpm dev:ui           # UI only
-pnpm build            # Build all packages
-pnpm typecheck        # Type checking
-pnpm test:run         # Run tests
-pnpm db:generate      # Generate migration
-pnpm db:migrate       # Apply migrations
-pnpm squadrail doctor # System diagnostics
+```text
+cli/                      CLI for onboarding, diagnostics, and control-plane operations
+server/                   Express + TypeScript API, realtime, auth, services
+ui/                       React + Vite control-plane UI
+packages/db/              Drizzle schema and migrations
+packages/shared/          Shared types and contracts
+packages/adapters/*       Runtime adapters (claude-local, codex-local, cursor-local, openclaw, opencode-local)
+docs/                     Product, API, CLI, and architecture docs
+doc/                      Development and asset docs
 ```
 
----
+Architecture references:
 
-## Deployment
+- [Architecture](docs/start/architecture.md)
+- [API Overview](docs/api/overview.md)
+- [CLI Overview](docs/cli/overview.md)
+- [Development Guide](doc/DEVELOPING.md)
 
-### Local Trusted
+<br/>
 
-```bash
-SQUADRAIL_DEPLOYMENT_MODE=local_trusted
-```
+## Quickstart
 
-No authentication, loopback binding only.
-
-### Authenticated Private
-
-```bash
-SQUADRAIL_DEPLOYMENT_MODE=authenticated
-SQUADRAIL_DEPLOYMENT_EXPOSURE=private
-BETTER_AUTH_SECRET=your-secret
-```
-
-Better-auth authentication, internal network only.
-
-### Authenticated Public
+### From source
 
 ```bash
-SQUADRAIL_DEPLOYMENT_MODE=authenticated
-SQUADRAIL_DEPLOYMENT_EXPOSURE=public
-SQUADRAIL_AUTH_PUBLIC_BASE_URL=https://your-domain.com
+git clone https://github.com/twpark-ops/squadrail.git
+cd squadrail
+pnpm install
+pnpm squadrail run
 ```
 
-Full authentication, internet-exposed.
+This bootstraps a local instance if needed, runs diagnostics, and starts the server.
 
----
+Default local address:
+
+- `http://localhost:3100`
+
+Requirements:
+
+- Node.js 20+
+- pnpm 9+
+
+### Standard development mode
+
+```bash
+pnpm install
+pnpm dev
+```
+
+This starts:
+
+- API server at `http://localhost:3100`
+- UI through the API server's dev middleware on the same origin
+
+### Docker quickstart
+
+```bash
+docker build -t squadrail-local .
+docker run --name squadrail \
+  -p 3100:3100 \
+  -e HOST=0.0.0.0 \
+  -e SQUADRAIL_HOME=/squadrail \
+  -v "$(pwd)/data/docker-squadrail:/squadrail" \
+  squadrail-local
+```
+
+Or with Compose:
+
+```bash
+docker compose -f docker-compose.quickstart.yml up --build
+```
+
+<br/>
+
+## Supported working model
+
+Squadrail is designed around software delivery, not generic chat orchestration.
+
+Typical loop:
+
+1. Create or import company, project, and issue context.
+2. Seed role packs and configure agents.
+3. Assign work through protocol messages.
+4. Retrieve task-specific context from the knowledge system.
+5. Execute through adapter-backed agents.
+6. Review, approve, recover, or close through the control plane.
+
+This makes Squadrail a better fit for delivery teams than for general-purpose personal assistant workflows.
+
+<br/>
+
+## Knowledge and review stack
+
+The current retrieval and review model is broader than a simple "RAG + tasks" setup.
+
+Knowledge side:
+
+- hybrid dense + sparse retrieval
+- graph-assisted chunk and document linking
+- version-aware retrieval
+- retrieval cache and incremental reindex
+- role-specific personalization
+- authority and source-type aware ranking
+
+Review side:
+
+- structured review handoff contracts
+- diff and verification summaries
+- rollback and residual risk capture
+- merge-related review surfaces and protocol enforcement
+
+Relevant docs:
+
+- [docs/rag-current-architecture.md](docs/rag-current-architecture.md)
+- [docs/b7-merge-automation.md](docs/b7-merge-automation.md)
+- [docs/b8-version-aware-retrieval.md](docs/b8-version-aware-retrieval.md)
+- [docs/b8-retrieval-cache-incremental-reindex.md](docs/b8-retrieval-cache-incremental-reindex.md)
+- [docs/b8-role-specific-personalization.md](docs/b8-role-specific-personalization.md)
+- [docs/b8-rag-graph-expansion.md](docs/b8-rag-graph-expansion.md)
+
+<br/>
+
+## Useful commands
+
+```bash
+pnpm dev                       # full-stack development
+pnpm dev:server                # server only
+pnpm dev:ui                    # UI only
+pnpm build                     # build all workspaces
+pnpm typecheck                 # typecheck all workspaces
+pnpm test:run                  # run tests
+pnpm squadrail run             # bootstrap + doctor + start
+pnpm squadrail doctor          # diagnostics and repair hints
+pnpm db:generate               # generate a migration
+pnpm db:migrate                # apply migrations
+pnpm smoke:local-ui-flow       # local browser smoke for the main UI flow
+pnpm knowledge:rebuild-graph   # rebuild graph-oriented knowledge data
+pnpm knowledge:rebuild-versions # rebuild document version state
+```
+
+<br/>
+
+## Deployment modes
+
+Squadrail supports three main deployment postures.
+
+### Local trusted
+
+- no authentication
+- loopback binding only
+- best for local development and solo testing
+
+### Authenticated private
+
+- authentication enabled
+- private network exposure
+- suitable for Tailscale or internal network access
+
+### Authenticated public
+
+- authentication enabled
+- public hostname and public auth flow
+- suitable for internet-facing self-hosted deployments
+
+See [doc/DEVELOPING.md](doc/DEVELOPING.md) for environment details and bootstrap flow.
+
+<br/>
 
 ## Documentation
 
 - [Architecture](docs/start/architecture.md)
-- [API Reference](docs/api/overview.md)
-- [CLI Commands](docs/cli/overview.md)
+- [API Overview](docs/api/overview.md)
+- [CLI Overview](docs/cli/overview.md)
+- [Board Operator Guide](docs/guides/board-operator/dashboard.md)
+- [Agent Developer Guide](docs/guides/agent-developer/how-agents-work.md)
 - [Development Guide](doc/DEVELOPING.md)
 
----
+<br/>
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+<br/>
 
 ## Community
 
 - [GitHub Issues](https://github.com/twpark-ops/squadrail/issues)
 - [GitHub Discussions](https://github.com/twpark-ops/squadrail/discussions)
 
----
-
-## Contributing
-
-Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
+<br/>
 
 ## License
 
-MIT © 2026 Squadrail
+MIT &copy; 2026 Squadrail
+
+<br/>
 
 ---
 
 <p align="center">
-  <sub>Built for teams that want AI agents to work like a real squad.</sub>
+  <sub>Built for teams that want AI agents to deliver software with protocol, context, and accountability.</sub>
 </p>
