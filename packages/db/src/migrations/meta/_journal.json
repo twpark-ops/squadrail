@@ -225,6 +225,13 @@
       "when": 1773065400000,
       "tag": "0031_brisk_run_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1773146400000,
+      "tag": "0032_crisp_merge_candidates",
+      "breakpoints": true
     }
   ]
 }

@@ -131,3 +131,57 @@ export interface IssueAttachment {
   updatedAt: Date;
   contentPath: string;
 }
+
+export interface IssueChangeSurfaceArtifact {
+  messageId: string;
+  messageType: string;
+  createdAt: Date;
+  kind: string;
+  uri: string;
+  label: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface IssueMergeCandidate {
+  issueId: string;
+  identifier: string | null;
+  state: "pending" | "merged" | "rejected";
+  sourceBranch: string | null;
+  headSha: string | null;
+  workspacePath: string | null;
+  diffStat: string | null;
+  changedFiles: string[];
+  targetBaseBranch: string | null;
+  mergeCommitSha: string | null;
+  closeSummary: string | null;
+  verificationSummary: string | null;
+  rollbackPlan: string | null;
+  approvalSummary: string | null;
+  remainingRisks: string[];
+  operatorNote: string | null;
+  resolvedAt: Date | null;
+  closeMessageId: string | null;
+}
+
+export interface IssueChangeSurface {
+  issueId: string;
+  identifier: string | null;
+  title: string;
+  issueStatus: IssueStatus;
+  branchName: string | null;
+  headSha: string | null;
+  workspacePath: string | null;
+  workspaceSource: string | null;
+  workspaceState: string | null;
+  changedFiles: string[];
+  statusEntries: string[];
+  diffStat: string | null;
+  verificationSummary: string | null;
+  closureSummary: string | null;
+  latestRunArtifact: IssueChangeSurfaceArtifact | null;
+  workspaceBindingArtifact: IssueChangeSurfaceArtifact | null;
+  diffArtifact: IssueChangeSurfaceArtifact | null;
+  approvalArtifact: IssueChangeSurfaceArtifact | null;
+  verificationArtifacts: IssueChangeSurfaceArtifact[];
+  mergeCandidate: IssueMergeCandidate | null;
+}

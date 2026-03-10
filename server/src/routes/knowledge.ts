@@ -73,6 +73,12 @@ const knowledgeOverviewSchema = z.object({
   companyId: z.string().uuid(),
 });
 
+const knowledgeQualitySchema = z.object({
+  companyId: z.string().uuid(),
+  days: z.coerce.number().int().min(1).max(90).optional(),
+  limit: z.coerce.number().int().min(1).max(5000).optional(),
+});
+
 const listDocumentChunksSchema = z.object({
   includeLinks: z.coerce.boolean().optional(),
 });
@@ -130,6 +136,18 @@ export function knowledgeRoutes(db: Db) {
     assertCompanyAccess(req, parsed.data.companyId);
     const overview = await knowledge.getOverview(parsed.data);
     res.json(overview);
+  });
+
+  router.get("/knowledge/quality", async (req, res) => {
+    const parsed = knowledgeQualitySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    assertCompanyAccess(req, parsed.data.companyId);
+    const summary = await knowledge.summarizeRetrievalQuality(parsed.data);
+    res.json(summary);
   });
 
   router.post("/knowledge/documents", async (req, res) => {

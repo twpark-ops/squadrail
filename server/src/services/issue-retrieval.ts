@@ -58,6 +58,7 @@ interface IssueRetrievalIssueSnapshot {
   title: string;
   description: string | null;
   labels?: Array<{ name: string }>;
+  mentionedProjects?: Array<{ id: string; name: string }>;
 }
 
 interface RecipientRetrievalHint {
@@ -92,6 +93,8 @@ interface RetrievalSignals {
   symbolHints: string[];
   knowledgeTags: string[];
   preferredSourceTypes: string[];
+  projectAffinityIds: string[];
+  projectAffinityNames: string[];
   blockerCode: string | null;
   questionType: string | null;
 }
@@ -322,9 +325,11 @@ function computeScopeBoost(input: {
   hitProjectId: string | null;
   issueId: string;
   projectId: string | null;
+  projectAffinityIds?: string[];
 }) {
   if (input.hitIssueId === input.issueId) return 2;
   if (input.projectId && input.hitProjectId === input.projectId) return 1;
+  if (input.hitProjectId && (input.projectAffinityIds ?? []).includes(input.hitProjectId)) return 0.8;
   return 0;
 }
 
@@ -527,6 +532,7 @@ export function buildRetrievalQueryText(input: {
     description: string | null;
     identifier: string | null;
     labels?: Array<{ name: string }>;
+    mentionedProjects?: Array<{ id: string; name: string }>;
   };
   message: CreateIssueProtocolMessage;
   recipientRole: string;
@@ -541,6 +547,7 @@ export function buildRetrievalQueryText(input: {
     input.message.workflowStateAfter,
     input.recipientRole,
     ...((input.issue.labels ?? []).map((label) => truncateRetrievalSegment(label.name, 64))),
+    ...((input.issue.mentionedProjects ?? []).map((project) => truncateRetrievalSegment(project.name, 96))),
     ...payloadTerms.slice(0, 16).map((term) => truncateRetrievalSegment(term, 180)),
   ]);
 
@@ -559,6 +566,10 @@ export function buildRetrievalQueryText(input: {
 
 export function deriveDynamicRetrievalSignals(input: {
   message: CreateIssueProtocolMessage;
+  issue: {
+    projectId: string | null;
+    mentionedProjects?: Array<{ id: string; name: string }>;
+  };
   recipientRole: string;
   eventType: RetrievalEventType;
   baselineSourceTypes?: string[];
@@ -614,12 +625,22 @@ export function deriveDynamicRetrievalSignals(input: {
     ...baselineSourceTypes,
   ]);
 
+  const projectAffinityIds = uniqueNonEmpty([
+    input.issue.projectId ?? "",
+    ...((input.issue.mentionedProjects ?? []).map((project) => project.id)),
+  ]);
+  const projectAffinityNames = uniqueNonEmpty([
+    ...((input.issue.mentionedProjects ?? []).map((project) => project.name)),
+  ]);
+
   return {
     exactPaths,
     fileNames,
     symbolHints: uniqueNonEmpty([...identifierHints, ...exactPaths.map(basenameWithoutExtension)]),
     knowledgeTags,
     preferredSourceTypes,
+    projectAffinityIds,
+    projectAffinityNames,
     blockerCode: typeof payload.blockerCode === "string" ? payload.blockerCode : null,
     questionType: typeof payload.questionType === "string" ? payload.questionType : null,
   } satisfies RetrievalSignals;
@@ -774,6 +795,7 @@ export function fuseRetrievalCandidates(input: {
   denseHits: RetrievalCandidate[];
   issueId: string;
   projectId: string | null;
+  projectAffinityIds?: string[];
   finalK: number;
 }) {
   const merged = new Map<string, RetrievalCandidate>();
@@ -807,6 +829,7 @@ export function fuseRetrievalCandidates(input: {
         hitProjectId: candidate.documentProjectId,
         issueId: input.issueId,
         projectId: input.projectId,
+        projectAffinityIds: input.projectAffinityIds,
       });
       const authorityBoost = computeAuthorityBoost(candidate.authorityLevel);
       const fusedScore = clampScore(candidate.sparseScore) + clampScore(candidate.denseScore) + scopeBoost + authorityBoost;
@@ -904,6 +927,7 @@ function computeLinkBoost(input: {
   links: RetrievalLinkView[];
   issueId: string;
   projectId: string | null;
+  projectAffinityIds?: string[];
   signals: RetrievalSignals;
   weights: RetrievalRerankWeights;
 }) {
@@ -913,6 +937,12 @@ function computeLinkBoost(input: {
       score += Math.max(input.weights.issueLinkMinBoost, link.weight * input.weights.issueLinkWeightMultiplier);
     }
     if (input.projectId && link.entityType === "project" && link.entityId === input.projectId) {
+      score += Math.max(input.weights.projectLinkMinBoost, link.weight * input.weights.projectLinkWeightMultiplier);
+    }
+    if (
+      link.entityType === "project"
+      && (input.projectAffinityIds ?? []).includes(link.entityId)
+    ) {
       score += Math.max(input.weights.projectLinkMinBoost, link.weight * input.weights.projectLinkWeightMultiplier);
     }
     if (link.entityType === "path" && input.signals.exactPaths.includes(normalizeHintPath(link.entityId))) {
@@ -927,6 +957,7 @@ export function rerankRetrievalHits(input: {
   signals: RetrievalSignals;
   issueId: string;
   projectId: string | null;
+  projectAffinityIds?: string[];
   linkMap?: Map<string, RetrievalLinkView[]>;
   finalK: number;
   rerankConfig?: RetrievalPolicyRerankConfig;
@@ -952,6 +983,7 @@ export function rerankRetrievalHits(input: {
           links: input.linkMap?.get(hit.chunkId) ?? [],
           issueId: input.issueId,
           projectId: input.projectId,
+          projectAffinityIds: input.projectAffinityIds ?? input.signals.projectAffinityIds,
           signals: input.signals,
           weights: rerankConfig.weights,
         });
@@ -1017,6 +1049,7 @@ function buildHitRationale(input: {
   hit: RetrievalHitView;
   issueId: string;
   projectId: string | null;
+  projectAffinityIds?: string[];
   signals: RetrievalSignals;
 }) {
   const reasons: string[] = [];
@@ -1027,9 +1060,11 @@ function buildHitRationale(input: {
     hitProjectId: input.hit.documentProjectId,
     issueId: input.issueId,
     projectId: input.projectId,
+    projectAffinityIds: input.projectAffinityIds,
   });
   if (scopeBoost >= 2) reasons.push("issue_scoped");
   else if (scopeBoost >= 1) reasons.push("project_scoped");
+  else if (scopeBoost > 0) reasons.push("project_affinity");
   if (computeAuthorityBoost(input.hit.authorityLevel) > 0) reasons.push("high_authority");
   if ((input.hit.rerankScore ?? 0) > 0) reasons.push("heuristic_rerank");
   if ((input.hit.modelRerankRank ?? 0) > 0) reasons.push("model_rerank");
@@ -1066,6 +1101,7 @@ export function issueRetrievalService(db: Db) {
     companyId: string;
     issueId: string;
     projectId: string | null;
+    projectAffinityIds: string[];
     queryText: string;
     allowedSourceTypes: string[];
     allowedAuthorityLevels: string[];
@@ -1074,8 +1110,12 @@ export function issueRetrievalService(db: Db) {
     const tsQuery = sql`plainto_tsquery('simple', ${input.queryText})`;
     const sparseScore = sql<number>`ts_rank_cd(${knowledgeChunks.searchTsv}, ${tsQuery})`;
     const lexicalMatch = sql<boolean>`${knowledgeChunks.searchTsv} @@ ${tsQuery}`;
-    const scopeMatch = input.projectId
-      ? or(eq(knowledgeDocuments.issueId, input.issueId), eq(knowledgeDocuments.projectId, input.projectId))
+    const allScopedProjectIds = uniqueNonEmpty([
+      input.projectId ?? "",
+      ...input.projectAffinityIds,
+    ]);
+    const scopeMatch = allScopedProjectIds.length > 0
+      ? or(eq(knowledgeDocuments.issueId, input.issueId), inArray(knowledgeDocuments.projectId, allScopedProjectIds))
       : eq(knowledgeDocuments.issueId, input.issueId);
 
     return db
@@ -1116,21 +1156,27 @@ export function issueRetrievalService(db: Db) {
     companyId: string;
     issueId: string;
     projectId: string | null;
+    projectAffinityIds: string[];
     queryEmbedding: number[];
     allowedSourceTypes: string[];
     allowedAuthorityLevels: string[];
     limit: number;
   }) {
+    const allScopedProjectIds = uniqueNonEmpty([
+      input.projectId ?? "",
+      ...input.projectAffinityIds,
+    ]);
     if (await hasDbVectorSupport()) {
       try {
         const queryVectorLiteral = formatVectorLiteral(input.queryEmbedding);
         const queryVector = sql.raw(`${dbVectorLiteral(queryVectorLiteral)}::vector`);
         const embeddingVectorColumn = sql.raw(`"knowledge_chunks"."embedding_vector"`);
         const denseScore = sql<number>`1 - (${embeddingVectorColumn} <=> ${queryVector})`;
-        const scopeRank = input.projectId
+        const scopeRank = allScopedProjectIds.length > 0
           ? sql<number>`case
               when ${knowledgeDocuments.issueId} = ${input.issueId} then 2
               when ${knowledgeDocuments.projectId} = ${input.projectId} then 1
+              when ${knowledgeDocuments.projectId} in ${sql`(${sql.join(allScopedProjectIds.map((value) => sql`${value}`), sql`, `)})`} then 0.75
               else 0
             end`
           : sql<number>`case when ${knowledgeDocuments.issueId} = ${input.issueId} then 1 else 0 end`;
@@ -1172,10 +1218,11 @@ export function issueRetrievalService(db: Db) {
       }
     }
 
-    const scopeRank = input.projectId
+    const scopeRank = allScopedProjectIds.length > 0
       ? sql<number>`case
           when ${knowledgeDocuments.issueId} = ${input.issueId} then 2
           when ${knowledgeDocuments.projectId} = ${input.projectId} then 1
+          when ${knowledgeDocuments.projectId} in ${sql`(${sql.join(allScopedProjectIds.map((value) => sql`${value}`), sql`, `)})`} then 0.75
           else 0
         end`
       : sql<number>`case when ${knowledgeDocuments.issueId} = ${input.issueId} then 1 else 0 end`;
@@ -1433,6 +1480,7 @@ export function issueRetrievalService(db: Db) {
         });
         const dynamicSignals = deriveDynamicRetrievalSignals({
           message: input.message,
+          issue: input.issue,
           recipientRole: recipient.role,
           eventType,
           baselineSourceTypes: rerankConfig.preferredSourceTypes,
@@ -1488,6 +1536,10 @@ export function issueRetrievalService(db: Db) {
             messageType: input.message.messageType,
             summary: input.message.summary,
             recipientRole: recipient.role,
+            issueProjectId: input.issue.projectId,
+            mentionedProjectIds: (input.issue.mentionedProjects ?? []).map((project) => project.id),
+            mentionedProjectNames: (input.issue.mentionedProjects ?? []).map((project) => project.name),
+            projectAffinityIds: dynamicSignals.projectAffinityIds,
             exactPathCount: dynamicSignals.exactPaths.length,
             symbolHintCount: dynamicSignals.symbolHints.length,
             preferredSourceTypes: dynamicSignals.preferredSourceTypes,
@@ -1503,6 +1555,7 @@ export function issueRetrievalService(db: Db) {
             companyId: input.companyId,
             issueId: input.issueId,
             projectId: input.issue.projectId,
+            projectAffinityIds: dynamicSignals.projectAffinityIds,
             queryText,
             allowedSourceTypes: policy.allowedSourceTypes,
             allowedAuthorityLevels: policy.allowedAuthorityLevels,
@@ -1527,6 +1580,7 @@ export function issueRetrievalService(db: Db) {
               companyId: input.companyId,
               issueId: input.issueId,
               projectId: input.issue.projectId,
+              projectAffinityIds: dynamicSignals.projectAffinityIds,
               queryEmbedding,
               allowedSourceTypes: policy.allowedSourceTypes,
               allowedAuthorityLevels: policy.allowedAuthorityLevels,
@@ -1545,6 +1599,7 @@ export function issueRetrievalService(db: Db) {
           denseHits,
           issueId: input.issueId,
           projectId: input.issue.projectId,
+          projectAffinityIds: dynamicSignals.projectAffinityIds,
           finalK: Math.max(policy.rerankK, policy.finalK),
         });
         console.log("[RETRIEVAL] Fused candidates:", hits.length);
@@ -1554,6 +1609,7 @@ export function issueRetrievalService(db: Db) {
           signals: dynamicSignals,
           issueId: input.issueId,
           projectId: input.issue.projectId,
+          projectAffinityIds: dynamicSignals.projectAffinityIds,
           linkMap,
           finalK: policy.finalK,
           rerankConfig,
@@ -1604,6 +1660,7 @@ export function issueRetrievalService(db: Db) {
                 hit,
                 issueId: input.issueId,
                 projectId: input.issue.projectId,
+                projectAffinityIds: dynamicSignals.projectAffinityIds,
                 signals: dynamicSignals,
               }),
             })),
@@ -1671,6 +1728,18 @@ export function issueRetrievalService(db: Db) {
         });
 
         await knowledge.linkRetrievalRunToBrief(retrievalRun.id, brief.id);
+        await knowledge.updateRetrievalRunDebug(retrievalRun.id, {
+          quality: briefQuality,
+          hitProjectIds: uniqueNonEmpty(finalHits.map((hit) => hit.documentProjectId ?? "")),
+          topHitProjectId: finalHits[0]?.documentProjectId ?? null,
+          topHitPath: finalHits[0]?.path ?? null,
+          exactPathSatisfied: dynamicSignals.exactPaths.length === 0
+            ? true
+            : finalHits.some((hit) => {
+              const candidatePath = hit.path ? normalizeHintPath(hit.path) : null;
+              return candidatePath != null && dynamicSignals.exactPaths.includes(candidatePath);
+            }),
+        });
 
         await logActivity(db, {
           companyId: input.companyId,

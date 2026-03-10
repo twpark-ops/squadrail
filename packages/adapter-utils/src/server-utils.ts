@@ -640,6 +640,7 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- If you need to inspect exact implementation files, use the implementation workspace path from the review submission context rather than assuming the shared workspace contains the patch.");
       lines.push("- For `REQUEST_CHANGES`, keep `payload` flat and use only `severity`, `reviewSummary`, `changeRequests[]`, `requiredEvidence[]`, and `mustFixBeforeApprove`.");
       lines.push("- For `APPROVE_IMPLEMENTATION`, keep `payload` flat and use only `approvalSummary`, `approvalMode`, `approvalChecklist[]`, `verifiedEvidence[]`, and `residualRisks[]`.");
+      lines.push("- Valid `approvalMode` values are exactly: `agent_review`, `tech_lead_review`, or `human_override`.");
     }
 
     if (protocolRequirement.key === "approval_tech_lead") {

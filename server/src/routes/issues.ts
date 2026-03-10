@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
+import { z } from "zod";
 import { runWithoutDbContext, type Db } from "@squadrail/db";
 import {
   addIssueCommentSchema,
@@ -29,6 +30,8 @@ import {
   logActivity,
   projectService,
 } from "../services/index.js";
+import { buildIssueChangeSurface } from "../services/issue-change-surface.js";
+import { issueMergeCandidateService } from "../services/issue-merge-candidates.js";
 import { logger } from "../middleware/logger.js";
 import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -104,6 +107,13 @@ const PROTOCOL_RETRIEVAL_MESSAGE_TYPES = new Set<CreateIssueProtocolMessage["mes
   "TIMEOUT_ESCALATION",
 ]);
 
+const mergeCandidateActionSchema = z.object({
+  actionType: z.enum(["mark_merged", "mark_rejected"]),
+  noteBody: z.string().trim().max(4_000).nullable().optional(),
+  targetBaseBranch: z.string().trim().max(255).nullable().optional(),
+  mergeCommitSha: z.string().trim().max(255).nullable().optional(),
+}).strict();
+
 function shouldGenerateProtocolRetrievalContext(
   messageType: CreateIssueProtocolMessage["messageType"],
 ) {
@@ -123,6 +133,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
   const protocolExecution = issueProtocolExecutionService(db);
   const issueRetrieval = issueRetrievalService(db);
   const protocolSvc = issueProtocolService(db);
+  const mergeCandidatesSvc = issueMergeCandidateService(db);
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
@@ -133,6 +144,23 @@ export function issueRoutes(db: Db, storage: StorageService) {
       ...attachment,
       contentPath: `/api/attachments/${attachment.id}/content`,
     };
+  }
+
+  async function loadIssueChangeSurface(issue: {
+    id: string;
+    identifier: string | null;
+    title: string;
+    status: string;
+  }) {
+    const [messages, mergeCandidateRecord] = await Promise.all([
+      protocolSvc.listMessages(issue.id),
+      mergeCandidatesSvc.getByIssueId(issue.id),
+    ]);
+    return buildIssueChangeSurface({
+      issue,
+      messages,
+      mergeCandidateRecord,
+    });
   }
 
   async function runSingleFileUpload(req: Request, res: Response) {
@@ -286,6 +314,52 @@ export function issueRoutes(db: Db, storage: StorageService) {
     throw forbidden("Agent cannot create internal work items through protocol assignment");
   }
 
+  function normalizeProtocolApprovalModeAlias(value: unknown) {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return value;
+    }
+    switch (value.trim()) {
+      case "qa_review":
+      case "reviewer_review":
+      case "full":
+        return "agent_review";
+      case "tech_lead":
+      case "lead_review":
+        return "tech_lead_review";
+      case "human_board":
+      case "board_override":
+        return "human_override";
+      default:
+        return value;
+    }
+  }
+
+  function normalizeProtocolRequestBodyAliases(body: unknown) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return body;
+    }
+
+    const message = body as Record<string, unknown>;
+    if (message.messageType !== "APPROVE_IMPLEMENTATION") {
+      return body;
+    }
+
+    const payload = message.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return body;
+    }
+
+    return {
+      ...message,
+      payload: {
+        ...(payload as Record<string, unknown>),
+        approvalMode: normalizeProtocolApprovalModeAlias(
+          (payload as Record<string, unknown>).approvalMode,
+        ),
+      },
+    };
+  }
+
   async function appendProtocolMessageAndDispatch(input: {
     issue: {
       id: string;
@@ -295,9 +369,11 @@ export function issueRoutes(db: Db, storage: StorageService) {
       title: string;
       description: string | null;
       labels?: Array<{ id: string; name: string; color: string }>;
+      mentionedProjects?: Array<{ id: string; name: string }>;
     };
     message: CreateIssueProtocolMessage;
     actor: ReturnType<typeof getActorInfo>;
+    asyncDispatch?: boolean;
   }) {
     let effectiveMessage = input.message;
     if (effectiveMessage.messageType === "SUBMIT_FOR_REVIEW") {
@@ -419,82 +495,112 @@ export function issueRoutes(db: Db, storage: StorageService) {
       return { result, warnings: [] as string[] };
     }
 
-    let recipientHints: Array<{
-      recipientId: string;
-      recipientRole: string;
-      retrievalRunId: string;
-      briefId: string;
-      briefScope: string;
-    }> = [];
-    if (shouldGenerateProtocolRetrievalContext(effectiveMessage.messageType)) {
-      try {
-        const retrieval = await issueRetrieval.handleProtocolMessage({
-          companyId: input.issue.companyId,
-          issueId: input.issue.id,
-          issue: {
-            id: input.issue.id,
-            projectId: input.issue.projectId ?? null,
-            identifier: input.issue.identifier ?? null,
-            title: input.issue.title,
-            description: input.issue.description ?? null,
-            labels: input.issue.labels ?? [],
-          },
-          triggeringMessageId: result.message.id,
-          triggeringMessageSeq: result.message.seq,
-          message: effectiveMessage,
-          actor: {
-            actorType: input.actor.actorType,
-            actorId: input.actor.actorId,
-          },
-        });
-        recipientHints = retrieval.recipientHints;
+    const runDispatch = async () => {
+      let recipientHints: Array<{
+        recipientId: string;
+        recipientRole: string;
+        retrievalRunId: string;
+        briefId: string;
+        briefScope: string;
+      }> = [];
+      if (shouldGenerateProtocolRetrievalContext(effectiveMessage.messageType)) {
+        try {
+          const mentionedProjects = input.issue.mentionedProjects ?? await (async () => {
+            const mentionedProjectIds = await svc.findMentionedProjectIds(input.issue.id);
+            if (mentionedProjectIds.length === 0) return [];
+            const projects = await projectsSvc.listByIds(input.issue.companyId, mentionedProjectIds);
+            return projects.map((project) => ({ id: project.id, name: project.name }));
+          })();
+          const retrieval = await issueRetrieval.handleProtocolMessage({
+            companyId: input.issue.companyId,
+            issueId: input.issue.id,
+            issue: {
+              id: input.issue.id,
+              projectId: input.issue.projectId ?? null,
+              identifier: input.issue.identifier ?? null,
+              title: input.issue.title,
+              description: input.issue.description ?? null,
+              labels: input.issue.labels ?? [],
+              mentionedProjects: mentionedProjects.map((project) => ({
+                id: project.id,
+                name: project.name,
+              })),
+            },
+            triggeringMessageId: result.message.id,
+            triggeringMessageSeq: result.message.seq,
+            message: effectiveMessage,
+            actor: {
+              actorType: input.actor.actorType,
+              actorId: input.actor.actorId,
+            },
+          });
+          recipientHints = retrieval.recipientHints;
 
-        if (retrieval.retrievalRuns && retrieval.retrievalRuns.length > 0) {
-          logger.info(
+          if (retrieval.retrievalRuns && retrieval.retrievalRuns.length > 0) {
+            logger.info(
+              {
+                issueId: input.issue.id,
+                messageType: effectiveMessage.messageType,
+                retrievalRunCount: retrieval.retrievalRuns.length,
+                retrievalRunIds: retrieval.retrievalRuns.map((run) => run.retrievalRunId),
+              },
+              "Brief(s) generated successfully",
+            );
+          }
+        } catch (err) {
+          logger.error(
             {
+              err,
               issueId: input.issue.id,
               messageType: effectiveMessage.messageType,
-              retrievalRunCount: retrieval.retrievalRuns.length,
-              retrievalRunIds: retrieval.retrievalRuns.map((run) => run.retrievalRunId),
+              errorMessage: err instanceof Error ? err.message : String(err),
             },
-            "Brief(s) generated successfully",
+            "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
           );
         }
+      } else {
+        logger.debug(
+          {
+            issueId: input.issue.id,
+            messageType: effectiveMessage.messageType,
+          },
+          "Skipping protocol retrieval context for non-handoff message",
+        );
+      }
+
+      try {
+        await protocolExecution.dispatchMessage({
+          issueId: input.issue.id,
+          companyId: input.issue.companyId,
+          protocolMessageId: result.message.id,
+          message: effectiveMessage,
+          recipientHints,
+          actor: input.actor,
+        });
+        return [] as string[];
       } catch (err) {
+        logger.error({ err, issueId: input.issue.id }, "Protocol dispatch failed - agents may not be notified");
+        return ["Wakeup dispatch failed - agents may not be notified"];
+      }
+    };
+
+    if (input.asyncDispatch) {
+      void runDispatch().catch((err) => {
         logger.error(
           {
             err,
             issueId: input.issue.id,
+            protocolMessageId: result.message.id,
             messageType: effectiveMessage.messageType,
-            errorMessage: err instanceof Error ? err.message : String(err),
           },
-          "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
+          "Async protocol dispatch failed after response was returned",
         );
-      }
-    } else {
-      logger.debug(
-        {
-          issueId: input.issue.id,
-          messageType: effectiveMessage.messageType,
-        },
-        "Skipping protocol retrieval context for non-handoff message",
-      );
-    }
-
-    try {
-      await protocolExecution.dispatchMessage({
-        issueId: input.issue.id,
-        companyId: input.issue.companyId,
-        protocolMessageId: result.message.id,
-        message: effectiveMessage,
-        recipientHints,
-        actor: input.actor,
       });
       return { result, warnings: [] as string[] };
-    } catch (err) {
-      logger.error({ err, issueId: input.issue.id }, "Protocol dispatch failed - agents may not be notified");
-      return { result, warnings: ["Wakeup dispatch failed - agents may not be notified"] };
     }
+
+    const warnings = await runDispatch();
+    return { result, warnings };
   }
 
   async function assertCanPostProtocolMessage(
@@ -1575,6 +1681,97 @@ export function issueRoutes(db: Db, storage: StorageService) {
     res.json(violations);
   });
 
+  router.get("/issues/:id/change-surface", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    const surface = await loadIssueChangeSurface(issue);
+    res.json(surface);
+  });
+
+  router.get("/issues/:id/merge-candidate", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    const surface = await loadIssueChangeSurface(issue);
+    if (!surface.mergeCandidate) {
+      res.status(404).json({ error: "Merge candidate not found" });
+      return;
+    }
+    res.json(surface.mergeCandidate);
+  });
+
+  router.post("/issues/:id/merge-candidate/actions", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Only board users can resolve merge candidates" });
+      return;
+    }
+
+    const parsed = mergeCandidateActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    const surface = await loadIssueChangeSurface(issue);
+    if (!surface.mergeCandidate) {
+      res.status(409).json({ error: "Issue has no merge candidate" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const nextState = parsed.data.actionType === "mark_merged" ? "merged" : "rejected";
+    await mergeCandidatesSvc.upsertDecision({
+      companyId: issue.companyId,
+      issueId: issue.id,
+      closeMessageId: surface.mergeCandidate.closeMessageId,
+      state: nextState,
+      sourceBranch: surface.mergeCandidate.sourceBranch,
+      workspacePath: surface.mergeCandidate.workspacePath,
+      headSha: surface.mergeCandidate.headSha,
+      diffStat: surface.mergeCandidate.diffStat,
+      targetBaseBranch: parsed.data.targetBaseBranch ?? surface.mergeCandidate.targetBaseBranch,
+      mergeCommitSha: parsed.data.mergeCommitSha ?? surface.mergeCandidate.mergeCommitSha,
+      operatorActorType: actor.actorType,
+      operatorActorId: actor.actorId,
+      operatorNote: parsed.data.noteBody ?? null,
+    });
+
+    await logActivity(db, {
+      companyId: issue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.merge_candidate.resolved",
+      entityType: "issue",
+      entityId: issue.id,
+      details: {
+        actionType: parsed.data.actionType,
+        targetBaseBranch: parsed.data.targetBaseBranch ?? surface.mergeCandidate.targetBaseBranch,
+        mergeCommitSha: parsed.data.mergeCommitSha ?? surface.mergeCandidate.mergeCommitSha,
+      },
+    });
+
+    const refreshed = await loadIssueChangeSurface(issue);
+    res.json(refreshed.mergeCandidate);
+  });
+
   router.post("/issues/:id/protocol/messages", async (req, res, next) => {
     const id = req.params.id as string;
     const issue = await svc.getById(id);
@@ -1585,7 +1782,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     assertCompanyAccess(req, issue.companyId);
 
-    const parsedMessage = createIssueProtocolMessageSchema.safeParse(req.body);
+    const normalizedBody = normalizeProtocolRequestBodyAliases(req.body);
+    const parsedMessage = createIssueProtocolMessageSchema.safeParse(normalizedBody);
     const actor = getActorInfo(req);
     if (!parsedMessage.success) {
       await recordProtocolViolation({
@@ -1610,6 +1808,9 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     if (!(await assertCanPostProtocolMessage(req, res, issue, message))) return;
 
+    const requestedDispatchMode = req.header("x-squadrail-dispatch-mode")?.toLowerCase();
+    const asyncDispatch = actor.actorType === "agent" && requestedDispatchMode === "async";
+
     let dispatch;
     try {
       dispatch = await appendProtocolMessageAndDispatch({
@@ -1624,6 +1825,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         },
         message,
         actor,
+        asyncDispatch,
       });
     } catch (err) {
       const inferredViolation = inferProtocolViolationFromError(err);

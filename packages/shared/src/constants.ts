@@ -409,6 +409,13 @@ export const ISSUE_PROTOCOL_MERGE_STATUSES = [
 ] as const;
 export type IssueProtocolMergeStatus = (typeof ISSUE_PROTOCOL_MERGE_STATUSES)[number];
 
+export const ISSUE_MERGE_CANDIDATE_STATES = [
+  "pending",
+  "merged",
+  "rejected",
+] as const;
+export type IssueMergeCandidateState = (typeof ISSUE_MERGE_CANDIDATE_STATES)[number];
+
 export const ISSUE_PROTOCOL_CANCEL_TYPES = [
   "obsolete",
   "duplicate",
