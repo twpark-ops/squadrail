@@ -255,6 +255,25 @@
 8. P2-B Cross-Issue Memory
 9. P2-C External Agent Feedback Integration
 
+## 7.2 Run-First Reprioritization
+
+`Human -> PM -> TL -> Engineer -> Reviewer -> QA -> Close -> Knowledge` 전체 루프를 제품 수준으로 증명하려면, 지금 시점에서는 retrieval 미세튜닝보다 `실제 조직 burn-in`이 앞선다.
+
+따라서 delivery runtime이 이미 존재하는 현재 단계의 실행 우선순위는 다음처럼 재정렬한다.
+
+1. replay E2E gate normalization
+2. 18-agent real-org burn-in
+3. blocked timeout + legacy semantics cleanup
+4. retrieval god-file refactor
+5. rerank provider abstraction
+6. execution lane classifier
+7. fast lane optimization
+8. deeper multi-hop
+9. ranking/cache/trend consolidation
+10. cross-issue memory reuse
+
+세부 계획은 [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md) 기준으로 진행한다.
+
 ## 7.1 현재 기준 후속 우선순위
 
 상류 intake, QA 게이트, organizational memory backend 커널이 닫힌 뒤의 다음 우선순위는 아래 8개다.
