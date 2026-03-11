@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDashboardAttentionSummary,
+  buildDashboardKnowledgeSummary,
   buildExecutionReliabilitySummary,
   buildProtocolDashboardBuckets,
   isProtocolDashboardStale,
@@ -130,6 +132,48 @@ describe("dashboard helpers", () => {
       dispatchTimeoutsLast24h: 1,
       processLostLast24h: 0,
       workspaceBlockedLast24h: 2,
+    });
+  });
+
+  it("builds attention rollups for operator-first overview cards", () => {
+    expect(
+      buildDashboardAttentionSummary({
+        blockedQueueCount: 2,
+        awaitingHumanDecisionCount: 1,
+        staleQueueCount: 3,
+        staleTasks: 4,
+        openViolationCount: 5,
+        reviewQueueCount: 6,
+        readyToCloseCount: 2,
+        dispatchTimeoutsLast24h: 1,
+        processLostLast24h: 2,
+        workspaceBlockedLast24h: 3,
+      }),
+    ).toEqual({
+      urgentIssueCount: 14,
+      reviewPressureCount: 8,
+      staleWorkCount: 7,
+      runtimeRiskCount: 6,
+    });
+  });
+
+  it("builds knowledge rollups for company-wide evidence coverage", () => {
+    expect(
+      buildDashboardKnowledgeSummary({
+        totalDocuments: 24,
+        connectedDocuments: 16,
+        linkedChunks: 40,
+        totalLinks: 72,
+        activeProjects: 3,
+        lowConfidenceRuns7d: 5,
+      }),
+    ).toEqual({
+      totalDocuments: 24,
+      connectedDocuments: 16,
+      linkedChunks: 40,
+      totalLinks: 72,
+      activeProjects: 3,
+      lowConfidenceRuns7d: 5,
     });
   });
 });

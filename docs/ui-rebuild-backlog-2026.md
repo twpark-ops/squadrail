@@ -43,7 +43,7 @@ The following feedback is treated as product requirements, not optional polish:
 - `Changes` is not self-explanatory as a tab.
 - `Runs` is too wide and low-signal.
 - `Recovery Queue` is too dense to be operational.
-- `Knowledge` should not be a raw codebase browser; it needs graph-style exploration and an ask/chat surface.
+- `Knowledge` should not be a raw codebase browser; it needs graph-style exploration and stronger retrieval evidence surfaces.
 - `Team` is comparatively acceptable and can be addressed later.
 
 ## Current State Summary
@@ -105,7 +105,9 @@ Impact:
 
 ### What likely needs backend support or API expansion
 
-#### Knowledge ask/chat
+#### Knowledge conversational ask/chat
+
+This is intentionally removed from the near-term roadmap.
 
 Current exposed UI API supports:
 
@@ -115,7 +117,7 @@ Current exposed UI API supports:
 - retrieval run hits by run id
 - retrieval policy CRUD
 
-Current exposed UI API does not expose a user-driven retrieval query or chat endpoint. A true "Ask Knowledge" surface likely needs a new API contract or reuse of an existing internal retrieval flow not yet surfaced in `ui/src/api/knowledge.ts`.
+That is sufficient for graph-read and evidence-oriented exploration. A user-driven conversational ask/chat surface would require a new backend query flow, but it is not required for the current product direction.
 
 #### Knowledge graph at company scale
 
@@ -244,18 +246,6 @@ This category should remain inside the UI worktree unless response shapes need t
 
 These items should be tracked separately and should not silently slip into the UI worktree.
 
-#### Knowledge ask/chat
-
-Needs likely backend work because the current UI knowledge API exposes:
-
-- overview
-- document list
-- document chunks
-- retrieval run hits by run id
-- retrieval policy CRUD
-
-It does not expose a user-driven ask/query endpoint.
-
 #### Knowledge graph at company scale
 
 A real graph explorer across projects and entities is possible in a limited UI-first version, but a scalable company-wide graph explorer likely needs:
@@ -304,10 +294,13 @@ Start with these tickets inside the dedicated UI worktree:
 
 Keep these outside the UI worktree until explicitly scheduled:
 
-1. knowledge ask/chat endpoint
-2. company-wide graph endpoint for knowledge exploration
-3. any new dashboard aggregate metric not derivable client-side
-4. any response-shape or shared-type change required by the redesigned surfaces
+1. any response-shape or shared-type change required by the redesigned surfaces
+
+Completed later in `ui-review-desk-2026`:
+
+- company-wide graph endpoint for knowledge exploration
+- dashboard attention / knowledge aggregate metrics
+- runtime-state concurrency hardening for agent detail
 
 ### Track 3. Shared integration checklist before UI work starts
 
@@ -315,7 +308,7 @@ Before opening the UI worktree for implementation:
 
 1. confirm the backend branch is merged or frozen
 2. confirm whether the UI worktree should base on `master` or on a backend feature branch tip
-3. confirm whether `Knowledge` ask mode is in scope for the first UI pass
+3. confirm whether company-scale knowledge graph work is in scope for the next pass
 4. freeze any planned shared type changes so the shell and page redesign can proceed without churn
 
 ## Priority Model
@@ -680,7 +673,7 @@ Acceptance criteria:
 
 ### P2. Knowledge Redesign
 
-#### P2-3. Redefine `Knowledge` as an exploration and ask surface
+#### P2-3. Redefine `Knowledge` as an exploration surface
 
 Knowledge should answer:
 
@@ -715,32 +708,12 @@ Acceptance criteria:
 
 - the user can visually explore knowledge relationships without opening raw documents one by one
 
-#### P2-5. Add ask mode
-
-Tasks:
-
-- add an ask panel with prompt input, retrieval response, and evidence citations
-- expose the retrieval chain:
-  - query
-  - selected hits
-  - why they ranked
-  - what was finally selected
-
-Dependency:
-
-- likely requires a new query or chat API from the backend
-
-Acceptance criteria:
-
-- asking a question feels native to the knowledge view
-- answers are backed by inspectable evidence, not black-box prose
-
-#### P2-6. Demote vanity stats
+#### P2-5. Demote vanity stats
 
 Tasks:
 
 - move top stats into a quieter summary strip
-- make exploration and question-asking the dominant interaction
+- make exploration the dominant interaction
 - reduce decorative badges and distribution pills
 
 ### P3. Team Polish
@@ -805,7 +778,6 @@ Tasks:
 
 - rebuild `Runs`
 - introduce `Knowledge` graph read surface
-- plan `Knowledge` ask mode with backend contract if needed
 
 ### Workstream D. Finishing pass
 
@@ -845,7 +817,6 @@ Scope:
 
 - Runs redesign
 - Knowledge graph read surface
-- optional start of ask mode if backend is ready
 
 Expected result:
 

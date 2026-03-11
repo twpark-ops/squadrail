@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import {
   codeSymbolEdges,
@@ -83,6 +83,125 @@ export type KnowledgeQualityTrendSample = {
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+type KnowledgeGraphProjectRow = {
+  projectId: string;
+  projectName: string;
+  documentCount: number;
+  linkCount: number;
+};
+
+type KnowledgeGraphDocumentRow = {
+  documentId: string;
+  projectId: string | null;
+  projectName: string | null;
+  title: string | null;
+  path: string | null;
+  sourceType: string;
+  authorityLevel: string;
+  language: string | null;
+  chunkCount: number;
+  linkCount: number;
+};
+
+type KnowledgeGraphEntityEdgeRow = {
+  documentId: string;
+  entityType: string;
+  entityId: string;
+  weight: number;
+};
+
+export function buildKnowledgeGraphView(input: {
+  companyId: string;
+  projectId?: string | null;
+  projects: KnowledgeGraphProjectRow[];
+  documents: KnowledgeGraphDocumentRow[];
+  entityEdges: KnowledgeGraphEntityEdgeRow[];
+  generatedAt?: string;
+}) {
+  const entityStats = new Map<string, { entityType: string; entityId: string; weight: number }>();
+  for (const edge of input.entityEdges) {
+    const key = `${edge.entityType}:${edge.entityId}`;
+    const current = entityStats.get(key) ?? {
+      entityType: edge.entityType,
+      entityId: edge.entityId,
+      weight: 0,
+    };
+    current.weight += edge.weight;
+    entityStats.set(key, current);
+  }
+
+  const projectNodes = input.projects.map((project) => ({
+    id: `project:${project.projectId}`,
+    kind: "project" as const,
+    label: project.projectName,
+    secondaryLabel: `${project.documentCount} docs · ${project.linkCount} links`,
+    projectId: project.projectId,
+    metric: project.documentCount,
+  }));
+
+  const documentNodes = input.documents.map((document) => ({
+    id: `document:${document.documentId}`,
+    kind: "document" as const,
+    label: document.title ?? document.path ?? "Untitled document",
+    secondaryLabel: [
+      document.projectName,
+      document.sourceType,
+      document.language,
+      document.authorityLevel,
+    ].filter(Boolean).join(" · "),
+    projectId: document.projectId,
+    metric: document.linkCount,
+    path: document.path,
+    documentId: document.documentId,
+  }));
+
+  const entityNodes = Array.from(entityStats.values())
+    .sort((left, right) => right.weight - left.weight || left.entityType.localeCompare(right.entityType))
+    .map((entity) => ({
+      id: `entity:${entity.entityType}:${entity.entityId}`,
+      kind: "entity" as const,
+      label: entity.entityId,
+      secondaryLabel: entity.entityType.replaceAll("_", " "),
+      projectId: null,
+      metric: entity.weight,
+    }));
+
+  const edges = [
+    ...input.documents
+      .filter((document) => Boolean(document.projectId))
+      .map((document) => ({
+        id: `project-document:${document.projectId}:${document.documentId}`,
+        from: `project:${document.projectId}`,
+        to: `document:${document.documentId}`,
+        kind: "project_document" as const,
+        label: document.projectName ?? "project",
+        weight: Math.max(1, document.linkCount),
+      })),
+    ...input.entityEdges.map((edge) => ({
+      id: `document-entity:${edge.documentId}:${edge.entityType}:${edge.entityId}`,
+      from: `document:${edge.documentId}`,
+      to: `entity:${edge.entityType}:${edge.entityId}`,
+      kind: "document_entity" as const,
+      label: edge.entityType.replaceAll("_", " "),
+      weight: edge.weight,
+    })),
+  ];
+
+  return {
+    companyId: input.companyId,
+    projectId: input.projectId ?? null,
+    generatedAt: input.generatedAt ?? new Date().toISOString(),
+    summary: {
+      projectNodeCount: projectNodes.length,
+      documentNodeCount: documentNodes.length,
+      entityNodeCount: entityNodes.length,
+      edgeCount: edges.length,
+    },
+    nodes: [...projectNodes, ...documentNodes, ...entityNodes],
+    edges,
+  };
 }
 
 function readString(value: unknown) {
@@ -741,6 +860,97 @@ export function knowledgeService(db: Db) {
         languageDistribution: languageRows,
         linkEntityDistribution: entityTypeRows,
       };
+    },
+
+    getGraph: async (input: {
+      companyId: string;
+      projectId?: string | null;
+      documentLimit?: number;
+      edgeLimit?: number;
+    }) => {
+      const documentRows = await db.execute<KnowledgeGraphDocumentRow>(sql`
+        select
+          d.id as "documentId",
+          d.project_id as "projectId",
+          p.name as "projectName",
+          d.title as title,
+          d.path as path,
+          d.source_type as "sourceType",
+          d.authority_level as "authorityLevel",
+          d.language as language,
+          count(distinct kc.id)::int as "chunkCount",
+          count(kcl.id)::int as "linkCount"
+        from knowledge_documents d
+        left join projects p
+          on p.id = d.project_id
+        left join knowledge_chunks kc
+          on kc.document_id = d.id
+          and kc.company_id = ${input.companyId}
+        left join knowledge_chunk_links kcl
+          on kcl.chunk_id = kc.id
+          and kcl.company_id = ${input.companyId}
+        where d.company_id = ${input.companyId}
+          ${input.projectId ? sql`and d.project_id = ${input.projectId}` : sql``}
+        group by d.id, d.project_id, p.name, d.title, d.path, d.source_type, d.authority_level, d.language, d.updated_at
+        order by count(kcl.id) desc, d.updated_at desc
+        limit ${Math.max(4, Math.min(input.documentLimit ?? 12, 32))}
+      `);
+
+      const projectById = new Map<string, KnowledgeGraphProjectRow>();
+      for (const document of documentRows) {
+        if (!document.projectId) continue;
+        const current = projectById.get(document.projectId) ?? {
+          projectId: document.projectId,
+          projectName: document.projectName ?? "Unnamed project",
+          documentCount: 0,
+          linkCount: 0,
+        };
+        current.documentCount += 1;
+        current.linkCount += Number(document.linkCount ?? 0);
+        projectById.set(document.projectId, current);
+      }
+
+      const documentIds = documentRows.map((document) => document.documentId);
+      const entityWeight = sql<number>`count(*)`;
+      const entityEdges = documentIds.length === 0
+        ? []
+        : await db
+          .select({
+            documentId: knowledgeChunks.documentId,
+            entityType: knowledgeChunkLinks.entityType,
+            entityId: knowledgeChunkLinks.entityId,
+            weight: entityWeight,
+          })
+          .from(knowledgeChunkLinks)
+          .innerJoin(knowledgeChunks, eq(knowledgeChunkLinks.chunkId, knowledgeChunks.id))
+          .where(
+            and(
+              eq(knowledgeChunkLinks.companyId, input.companyId),
+              inArray(knowledgeChunks.documentId, documentIds),
+            ),
+          )
+          .groupBy(
+            knowledgeChunks.documentId,
+            knowledgeChunkLinks.entityType,
+            knowledgeChunkLinks.entityId,
+          )
+          .orderBy(desc(entityWeight), asc(knowledgeChunkLinks.entityType), asc(knowledgeChunkLinks.entityId))
+          .limit(Math.max(8, Math.min(input.edgeLimit ?? 28, 80)));
+
+      return buildKnowledgeGraphView({
+        companyId: input.companyId,
+        projectId: input.projectId ?? null,
+        projects: Array.from(projectById.values()).sort(
+          (left, right) => right.linkCount - left.linkCount || left.projectName.localeCompare(right.projectName),
+        ),
+        documents: documentRows,
+        entityEdges: entityEdges.map((edge) => ({
+          documentId: edge.documentId,
+          entityType: edge.entityType,
+          entityId: edge.entityId,
+          weight: Number(edge.weight ?? 0),
+        })),
+      });
     },
 
     listDocumentChunks: async (documentId: string) =>

@@ -117,6 +117,74 @@ describe("dashboard routes", () => {
     vi.clearAllMocks();
   });
 
+  it("returns summary data with attention and knowledge aggregates", async () => {
+    mockSummary.mockResolvedValue({
+      companyId: "company-1",
+      agents: { active: 3, running: 1, paused: 0, error: 0 },
+      tasks: { open: 4, inProgress: 2, blocked: 1, done: 3 },
+      costs: {
+        monthSpendCents: 100,
+        monthBudgetCents: 500,
+        monthUtilizationPercent: 20,
+      },
+      protocol: {
+        workflowCounts: {},
+        executionQueueCount: 2,
+        reviewQueueCount: 3,
+        handoffBlockerCount: 1,
+        blockedQueueCount: 1,
+        awaitingHumanDecisionCount: 1,
+        readyToCloseCount: 1,
+        staleQueueCount: 1,
+        openViolationCount: 2,
+        protocolMessagesLast24h: 8,
+      },
+      executionReliability: {
+        runningRuns: 1,
+        queuedRuns: 2,
+        dispatchRedispatchesLast24h: 0,
+        dispatchTimeoutsLast24h: 1,
+        processLostLast24h: 0,
+        workspaceBlockedLast24h: 1,
+      },
+      attention: {
+        urgentIssueCount: 5,
+        reviewPressureCount: 4,
+        staleWorkCount: 2,
+        runtimeRiskCount: 2,
+      },
+      knowledge: {
+        totalDocuments: 12,
+        connectedDocuments: 8,
+        linkedChunks: 18,
+        totalLinks: 32,
+        activeProjects: 2,
+        lowConfidenceRuns7d: 3,
+      },
+      pendingApprovals: 1,
+      staleTasks: 1,
+    });
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/dashboard",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSummary).toHaveBeenCalledWith("company-1");
+    expect(response.body).toMatchObject({
+      attention: {
+        urgentIssueCount: 5,
+        reviewPressureCount: 4,
+      },
+      knowledge: {
+        totalDocuments: 12,
+        lowConfidenceRuns7d: 3,
+      },
+    });
+  });
+
   it("returns recovery queue data", async () => {
     mockRecoveryQueue.mockResolvedValue({
       items: [],

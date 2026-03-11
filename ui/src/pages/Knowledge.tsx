@@ -103,6 +103,18 @@ export function Knowledge() {
     enabled: Boolean(selectedCompanyId),
   });
 
+  const graphQuery = useQuery({
+    queryKey: ["knowledge", "graph", selectedCompanyId, selectedProjectId],
+    queryFn: () =>
+      knowledgeApi.getGraph({
+        companyId: selectedCompanyId!,
+        projectId: selectedProjectId ?? undefined,
+        documentLimit: selectedProjectId ? 16 : 12,
+        edgeLimit: 32,
+      }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
   const documentsQuery = useQuery({
     queryKey: ["knowledge", "documents", selectedCompanyId, selectedProjectId],
     queryFn: () =>
@@ -287,6 +299,7 @@ export function Knowledge() {
 
   const handleRefresh = () => {
     void overviewQuery.refetch();
+    void graphQuery.refetch();
     void documentsQuery.refetch();
     void projectsQuery.refetch();
     void setupQuery.refetch();
@@ -296,6 +309,7 @@ export function Knowledge() {
 
   const isLoading =
     overviewQuery.isLoading ||
+    graphQuery.isLoading ||
     documentsQuery.isLoading ||
     projectsQuery.isLoading ||
     setupQuery.isLoading ||
@@ -303,6 +317,7 @@ export function Knowledge() {
     recentRunsQuery.isLoading;
   const hasError =
     overviewQuery.error ||
+    graphQuery.error ||
     documentsQuery.error ||
     projectsQuery.error ||
     setupQuery.error ||
@@ -378,6 +393,9 @@ export function Knowledge() {
               {(overviewQuery.error instanceof Error
                 ? overviewQuery.error.message
                 : null) ||
+                (graphQuery.error instanceof Error
+                  ? graphQuery.error.message
+                  : null) ||
                 (documentsQuery.error instanceof Error
                   ? documentsQuery.error.message
                   : null) ||
@@ -437,6 +455,7 @@ export function Knowledge() {
                 }`}
               >
                 <KnowledgeMapPanel
+                  graph={graphQuery.data}
                   coverage={overviewQuery.data.projectCoverage}
                   documents={documentsQuery.data ?? []}
                   selectedProjectId={selectedProjectId}

@@ -9,6 +9,8 @@ import {
 } from "../services/heartbeat-workspace.js";
 import {
   attachResolvedWorkspaceContextToRunContext,
+  buildTaskSessionUpsertSet,
+  insertOrRefetchSingleton,
   shouldResetTaskSessionForWake,
 } from "../services/heartbeat.ts";
 
@@ -281,5 +283,46 @@ describe("shouldResetTaskSessionForWake", () => {
         wakeTriggerDetail: "callback",
       }),
     ).toBe(false);
+  });
+});
+
+describe("heartbeat singleton helpers", () => {
+  it("returns the inserted singleton when insert succeeds", async () => {
+    const result = await insertOrRefetchSingleton({
+      insert: async () => ({ id: "runtime-1" }),
+      refetch: async () => ({ id: "runtime-2" }),
+    });
+
+    expect(result).toEqual({ id: "runtime-1" });
+  });
+
+  it("refetches the singleton when concurrent insert returns no row", async () => {
+    const result = await insertOrRefetchSingleton({
+      insert: async () => null,
+      refetch: async () => ({ id: "runtime-2" }),
+    });
+
+    expect(result).toEqual({ id: "runtime-2" });
+  });
+
+  it("builds the mutable task session upsert payload", () => {
+    const updatedAt = new Date("2026-03-12T00:00:00.000Z");
+    const payload = buildTaskSessionUpsertSet(
+      {
+        sessionParamsJson: { sessionId: "session-1" },
+        sessionDisplayId: "session-1",
+        lastRunId: "run-1",
+        lastError: "none",
+      },
+      updatedAt,
+    );
+
+    expect(payload).toEqual({
+      sessionParamsJson: { sessionId: "session-1" },
+      sessionDisplayId: "session-1",
+      lastRunId: "run-1",
+      lastError: "none",
+      updatedAt,
+    });
   });
 });

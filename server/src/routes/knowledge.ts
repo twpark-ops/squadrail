@@ -76,6 +76,13 @@ const knowledgeOverviewSchema = z.object({
   companyId: z.string().uuid(),
 });
 
+const knowledgeGraphSchema = z.object({
+  companyId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
+  documentLimit: z.coerce.number().int().min(1).max(32).optional(),
+  edgeLimit: z.coerce.number().int().min(1).max(80).optional(),
+});
+
 const knowledgeQualitySchema = z.object({
   companyId: z.string().uuid(),
   projectId: z.string().uuid().optional(),
@@ -159,6 +166,18 @@ export function knowledgeRoutes(db: Db) {
     assertCompanyAccess(req, parsed.data.companyId);
     const overview = await knowledge.getOverview(parsed.data);
     res.json(overview);
+  });
+
+  router.get("/knowledge/graph", async (req, res) => {
+    const parsed = knowledgeGraphSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    assertCompanyAccess(req, parsed.data.companyId);
+    const graph = await knowledge.getGraph(parsed.data);
+    res.json(graph);
   });
 
   router.get("/knowledge/quality", async (req, res) => {

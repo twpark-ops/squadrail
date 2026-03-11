@@ -3,7 +3,7 @@
 Date: 2026-03-10
 Branch: `ui-rebuild-2026`
 Worktree: `/home/taewoong/company-project/squadall-ui-rebuild-2026`
-Status: UI-only implementation complete, backend-dependent items parked
+Status: UI-only implementation complete; later backend/read-model follow-up completed in `ui-review-desk-2026`
 
 ## Purpose
 
@@ -96,10 +96,9 @@ Every implementation phase must end with:
 
 These stay parked unless explicitly re-opened:
 
-- knowledge ask/chat endpoint
-- company-scale knowledge graph endpoint
-- new backend aggregate metrics
 - shared contract redesign
+- historical note:
+  - company-scale knowledge graph endpoint and dashboard aggregate metrics were implemented later in `ui-review-desk-2026`
 
 ## Phase Overview
 
@@ -407,7 +406,7 @@ Allowed:
 
 Not allowed in this phase:
 
-- true ask/chat workflow that requires a new query endpoint
+- any new conversational query workflow remains intentionally out of scope
 - company-scale graph traversal endpoint work
 
 ### Tasks
@@ -430,7 +429,7 @@ The user should feel that the app is helping explore knowledge structure, not ju
 ### Exit Criteria
 
 - `Knowledge` gains a clear exploratory identity
-- backend-dependent ask mode remains explicitly parked
+- conversational ask mode remains intentionally excluded from this roadmap
 
 ## Phase 7. Team Polish
 
@@ -523,7 +522,6 @@ Do not start `Knowledge` before these three are stable.
 
 Track these separately from this worktree:
 
-- knowledge ask/chat endpoint
 - knowledge graph traversal endpoint
 - new dashboard aggregate metrics not derivable client-side
 - shared type changes for queue, runtime, or knowledge surfaces
