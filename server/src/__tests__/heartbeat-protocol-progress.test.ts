@@ -108,11 +108,55 @@ describe("heartbeat protocol progress helpers", () => {
         protocolRetryCount: 0,
         issueStatus: "in_progress",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldEnqueueProtocolRequiredRetry({
         protocolRetryCount: 1,
         issueStatus: "in_progress",
+      }),
+    ).toBe(false);
+  });
+
+  it("only enqueues protocol-required retry when the workflow state still matches the requirement lane", () => {
+    const reviewRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "SUBMIT_FOR_REVIEW",
+      protocolRecipientRole: "reviewer",
+    });
+    const implementationRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "START_IMPLEMENTATION",
+      protocolRecipientRole: "engineer",
+    });
+
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "submitted_for_review",
+        requirement: reviewRequirement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "qa_pending",
+        requirement: reviewRequirement,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "blocked",
+        requirement: implementationRequirement,
       }),
     ).toBe(false);
   });

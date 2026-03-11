@@ -442,6 +442,7 @@ export const ISSUE_PROTOCOL_TIMEOUT_CODES = [
   "review_start_timeout",
   "review_decision_timeout",
   "changes_ack_timeout",
+  "blocked_resolution_timeout",
   "close_timeout",
   "human_decision_timeout",
 ] as const;

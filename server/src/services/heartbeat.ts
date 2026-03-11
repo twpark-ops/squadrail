@@ -10,6 +10,7 @@ import {
   heartbeatRuns,
   costEvents,
   issueProtocolMessages,
+  issueProtocolState,
   issues,
 } from "@squadrail/db";
 import { resolveProtocolRunRequirement, type ProtocolRunRequirement } from "@squadrail/shared";
@@ -413,9 +414,44 @@ export function buildRequiredProtocolProgressError(input: {
 export function shouldEnqueueProtocolRequiredRetry(input: {
   protocolRetryCount: number;
   issueStatus?: string | null;
+  workflowState?: string | null;
+  requirement?: ProtocolRunRequirement | null;
 }) {
   if (input.protocolRetryCount >= PROTOCOL_REQUIRED_RETRY_LIMIT) return false;
-  return input.issueStatus !== "done" && input.issueStatus !== "cancelled";
+  if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
+  if (!input.requirement || !input.workflowState) return false;
+  return isWorkflowStateEligibleForProtocolRetry({
+    requirement: input.requirement,
+    workflowState: input.workflowState,
+  });
+}
+
+export function isWorkflowStateEligibleForProtocolRetry(input: {
+  requirement: ProtocolRunRequirement;
+  workflowState: string | null | undefined;
+}) {
+  const workflowState = readNonEmptyString(input.workflowState);
+  if (!workflowState) return false;
+
+  switch (input.requirement.key) {
+    case "assignment_engineer":
+    case "assignment_supervisor":
+    case "reassignment_engineer":
+    case "reassignment_supervisor":
+      return workflowState === "assigned";
+    case "implementation_engineer":
+      return workflowState === "implementing";
+    case "change_request_engineer":
+      return workflowState === "changes_requested";
+    case "review_reviewer":
+      return workflowState === "submitted_for_review";
+    case "qa_gate_reviewer":
+      return workflowState === "qa_pending";
+    case "approval_tech_lead":
+      return workflowState === "approved";
+    default:
+      return false;
+  }
 }
 
 export function shouldSkipSupersededProtocolFollowup(input: {
@@ -1819,17 +1855,29 @@ export function heartbeatService(db: Db) {
         };
 
         if (!satisfied) {
-          const issueStatus = issueId
+          const issueStateSnapshot = issueId
             ? await db
-              .select({ status: issues.status })
+              .select({
+                status: issues.status,
+                workflowState: issueProtocolState.workflowState,
+              })
               .from(issues)
+              .leftJoin(
+                issueProtocolState,
+                and(
+                  eq(issueProtocolState.issueId, issues.id),
+                  eq(issueProtocolState.companyId, issues.companyId),
+                ),
+              )
               .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
               .limit(1)
-              .then((rows) => rows[0]?.status ?? null)
+              .then((rows) => rows[0] ?? null)
             : null;
           const retryEnqueued = shouldEnqueueProtocolRequiredRetry({
             protocolRetryCount,
-            issueStatus,
+            issueStatus: issueStateSnapshot?.status ?? null,
+            workflowState: issueStateSnapshot?.workflowState ?? null,
+            requirement: protocolRequirement,
           });
           if (retryEnqueued) {
             const retryContextSnapshot: Record<string, unknown> = {
