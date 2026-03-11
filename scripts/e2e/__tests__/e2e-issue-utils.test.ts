@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildE2eLabelSpecs,
+  collectIssueFamily,
   collectTaggedIssues,
   needsE2eCancellation,
   shouldHideE2eIssue,
@@ -37,5 +38,27 @@ describe("e2e issue utils", () => {
     ];
 
     expect(collectTaggedIssues(issues, ["y", "q"]).map((issue) => issue.id)).toEqual(["a"]);
+  });
+
+  it("collects a full issue family including nested internal work items", () => {
+    const roots = [
+      {
+        id: "root",
+        internalWorkItems: [
+          {
+            id: "child-a",
+            internalWorkItems: [{ id: "grandchild-a1", internalWorkItems: [] }],
+          },
+          { id: "child-b", internalWorkItems: [] },
+        ],
+      },
+    ];
+
+    expect(collectIssueFamily(roots).map((issue) => issue.id).sort()).toEqual([
+      "child-a",
+      "child-b",
+      "grandchild-a1",
+      "root",
+    ]);
   });
 });

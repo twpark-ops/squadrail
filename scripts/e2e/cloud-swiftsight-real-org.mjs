@@ -230,10 +230,10 @@ async function prepareScenarioAgents(context, scenarios) {
           `Scenario participant ${agent.urlKey} is not runnable (status=${agent.status})`,
         );
       }
-      if (agent.status !== "paused") continue;
+      if (agent.status !== "paused" && agent.status !== "error") continue;
       await setAgentPaused(agent.id, false);
-      restores.push({ agent, previousStatus: "paused" });
-      note(`resumed paused agent ${agent.urlKey} for E2E scenario execution`);
+      restores.push({ agent, previousStatus: agent.status });
+      note(`resumed ${agent.status} agent ${agent.urlKey} for E2E scenario execution`);
     }
   } catch (error) {
     await restoreAgentStatuses(restores);

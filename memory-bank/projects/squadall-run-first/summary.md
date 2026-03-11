@@ -40,6 +40,12 @@
   - `CLO-152` swiftsight-cloud child: `in_progress`
   - child lane별 retrieval/brief/heartbeat dispatch는 독립적으로 발생
 - 즉 현 시점 병목은 "fan-out 가능 여부"가 아니라 "child lane completion / timeout / recovery"다.
+- 추가 관측:
+  - coordinating-root drift는 재현되지 않음
+  - 첫 coordinated rerun에서는 hidden child의 lingering active run 때문에 `swiftcl` lane이 `dispatch_timeout`으로 막혔음
+  - cleanup 범위를 `tagged root -> internal child family -> active heartbeat runs`로 넓혀 stale hidden child/run 정리 로직을 넣음
+  - cleanup 후 rerun `CLO-158`은 `CLO-159`, `CLO-160`, `CLO-161` 세 child lane이 모두 `in_progress`까지 올라감
+  - 따라서 현재 실질 우선순위는 `coordinated burn-in completion 관찰` 다음 `blocked / legacy / protocol-required semantics cleanup`이다
 
 ## 현재 활성 슬라이스
 
@@ -51,7 +57,7 @@
 - `2-B coordinating-root drift containment`: `coordinationOnly` projection flag로 root drift 재현 제거
 - `2-C coordinated burn-in completion analysis`: 진행 중
   - 목표: child 3개가 reviewer/QA/close까지 닫히는지 확인
-  - 관찰 포인트: `dispatch_timeout`, `process_lost`, reviewer/QA 병목, root/child aggregation 누락
+  - 관찰 포인트: `dispatch_timeout`, `process_lost`, `protocol_required`, reviewer/QA 병목, root/child aggregation 누락
 
 ## 관련 문서
 
