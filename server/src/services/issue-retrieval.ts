@@ -27,6 +27,11 @@ import {
   stableJson,
 } from "./retrieval-cache.js";
 import {
+  applyExecutionLanePolicy,
+  resolveExecutionLane,
+  type ExecutionLane,
+} from "./execution-lanes.js";
+import {
   appendUniqueRetrievalHits,
   applyEvidenceDiversityGuard,
   applyGraphConnectivityGuard,
@@ -389,6 +394,7 @@ interface IssueRetrievalIssueSnapshot {
 interface RecipientRetrievalHint {
   recipientId: string;
   recipientRole: string;
+  executionLane: ExecutionLane;
   retrievalRunId: string;
   briefId: string;
   briefScope: string;
@@ -422,6 +428,17 @@ export interface RetrievalSignals {
   projectAffinityNames: string[];
   blockerCode: string | null;
   questionType: string | null;
+}
+
+interface LaneAwareRetrievalPolicy {
+  lane: ExecutionLane;
+  topKDense: number;
+  topKSparse: number;
+  rerankK: number;
+  finalK: number;
+  modelRerankCandidateCount: number;
+  chunkGraphMaxHops: number;
+  maxEvidenceItems: number;
 }
 
 export function applyPersonalizationSignals(input: {
@@ -1249,6 +1266,7 @@ export function renderRetrievedBriefMarkdown(input: {
   message: CreateIssueProtocolMessage;
   queryText: string;
   hits: RetrievalHitView[];
+  maxEvidenceItems?: number;
 }) {
   const lines = [
     `# ${input.briefScope} brief`,
@@ -1270,7 +1288,7 @@ export function renderRetrievedBriefMarkdown(input: {
   }
 
   lines.push("", "## Retrieved Evidence", "");
-  input.hits.slice(0, 6).forEach((hit, index) => {
+  input.hits.slice(0, input.maxEvidenceItems ?? 6).forEach((hit, index) => {
     const label = hit.title ?? hit.path ?? hit.symbolName ?? hit.chunkId;
     lines.push(
       `${index + 1}. [${hit.sourceType}/${hit.authorityLevel}] ${label}`,
@@ -1347,6 +1365,26 @@ function defaultPolicyTemplate(input: {
       },
     },
   };
+}
+
+function resolveLaneAwareRetrievalPolicy(input: {
+  lane: ExecutionLane;
+  policy: {
+    topKDense: number;
+    topKSparse: number;
+    rerankK: number;
+    finalK: number;
+  };
+  rerankConfig: RetrievalPolicyRerankConfig;
+}) {
+  return applyExecutionLanePolicy({
+    lane: input.lane,
+    topKDense: input.policy.topKDense,
+    topKSparse: input.policy.topKSparse,
+    rerankK: input.policy.rerankK,
+    finalK: input.policy.finalK,
+    modelRerankCandidateCount: input.rerankConfig.modelRerank.candidateCount,
+  }) satisfies LaneAwareRetrievalPolicy;
 }
 
 function shouldEscalateGraphSeed(input: {
@@ -2166,6 +2204,7 @@ export function issueRetrievalService(db: Db) {
     allowedAuthorityLevels: string[];
     excludeChunkIds: string[];
     limit: number;
+    maxHops?: number;
   }) {
     if (input.seeds.length === 0) {
       return {
@@ -2406,7 +2445,9 @@ export function issueRetrievalService(db: Db) {
     let hits: RetrievalHitView[] = [];
     let edgeTraversalCount = 0;
 
-    for (let hopDepth = 1; hopDepth <= CHUNK_GRAPH_EXPANSION_MAX_HOPS; hopDepth += 1) {
+    const maxGraphHops = Math.max(1, input.maxHops ?? CHUNK_GRAPH_EXPANSION_MAX_HOPS);
+
+    for (let hopDepth = 1; hopDepth <= maxGraphHops; hopDepth += 1) {
       if (frontierSeeds.length === 0) break;
 
       const frontierSeedMap = new Map(frontierSeeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const));
@@ -2434,7 +2475,7 @@ export function issueRetrievalService(db: Db) {
         ...hopHits.map((hit) => hit.chunkId),
       ]);
 
-      if (hopDepth === CHUNK_GRAPH_EXPANSION_MAX_HOPS || hopRows.length === 0) {
+      if (hopDepth === maxGraphHops || hopRows.length === 0) {
         frontierSeeds = [];
         continue;
       }
@@ -2737,6 +2778,34 @@ export function issueRetrievalService(db: Db) {
           eventType,
           baselineSourceTypes: rerankConfig.preferredSourceTypes,
         });
+        const executionLane = resolveExecutionLane({
+          issueProjectId: input.issue.projectId,
+          mentionedProjectCount: (input.issue.mentionedProjects ?? []).length,
+          labelNames: (input.issue.labels ?? []).map((label) => label.name),
+          recipientRole: recipient.role as "engineer" | "reviewer" | "tech_lead" | "pm" | "cto" | "qa" | "human_board",
+          messageType: input.message.messageType,
+          workflowStateAfter: input.message.workflowStateAfter,
+          blockerCode: baselineSignals.blockerCode,
+          questionType: baselineSignals.questionType,
+          exactPaths: baselineSignals.exactPaths,
+          acceptanceCriteriaCount: Array.isArray((input.message.payload as Record<string, unknown>).acceptanceCriteria)
+            ? ((input.message.payload as Record<string, unknown>).acceptanceCriteria as unknown[]).length
+            : 0,
+          symbolHintCount: baselineSignals.symbolHints.length,
+          internalWorkItemKind: null,
+        });
+        const lanePolicy = resolveLaneAwareRetrievalPolicy({
+          lane: executionLane,
+          policy,
+          rerankConfig,
+        });
+        const laneRerankConfig = {
+          ...rerankConfig,
+          modelRerank: {
+            ...rerankConfig.modelRerank,
+            candidateCount: lanePolicy.modelRerankCandidateCount,
+          },
+        } satisfies RetrievalPolicyRerankConfig;
         const temporalContext = await deriveRetrievalTemporalContext({
           db,
           companyId: input.companyId,
@@ -2875,6 +2944,7 @@ export function issueRetrievalService(db: Db) {
             messageType: input.message.messageType,
             summary: input.message.summary,
             recipientRole: recipient.role,
+            executionLane,
             issueProjectId: input.issue.projectId,
             mentionedProjectIds: (input.issue.mentionedProjects ?? []).map((project) => project.id),
             mentionedProjectNames: (input.issue.mentionedProjects ?? []).map((project) => project.name),
@@ -2883,7 +2953,14 @@ export function issueRetrievalService(db: Db) {
             symbolHintCount: dynamicSignals.symbolHints.length,
             preferredSourceTypes: dynamicSignals.preferredSourceTypes,
             policySourcePreferences: rerankConfig.preferredSourceTypes,
-            modelRerankEnabled: rerankConfig.modelRerank.enabled,
+            modelRerankEnabled: laneRerankConfig.modelRerank.enabled,
+            lanePolicy: {
+              topKDense: lanePolicy.topKDense,
+              topKSparse: lanePolicy.topKSparse,
+              rerankK: lanePolicy.rerankK,
+              finalK: lanePolicy.finalK,
+              chunkGraphMaxHops: lanePolicy.chunkGraphMaxHops,
+            },
             graphSeedCount: 0,
             graphSeedTypes: [],
             symbolGraphSeedCount: 0,
@@ -2918,7 +2995,7 @@ export function issueRetrievalService(db: Db) {
         });
 
         const cachePolicyConfig = {
-          ...rerankConfig,
+          ...laneRerankConfig,
           denseEnabled: Boolean(queryEmbedding),
         };
         const candidateCacheIdentity = buildRetrievalCacheIdentity({
@@ -2926,6 +3003,7 @@ export function issueRetrievalService(db: Db) {
           queryText,
           companyId: input.companyId,
           issueProjectId: input.issue.projectId,
+          executionLane,
           role: recipient.role,
           eventType,
           workflowState: input.message.workflowStateAfter,
@@ -2942,6 +3020,7 @@ export function issueRetrievalService(db: Db) {
           queryText,
           companyId: input.companyId,
           issueProjectId: input.issue.projectId,
+          executionLane,
           role: recipient.role,
           eventType,
           workflowState: input.message.workflowStateAfter,
@@ -2958,6 +3037,7 @@ export function issueRetrievalService(db: Db) {
           queryText,
           companyId: input.companyId,
           issueProjectId: input.issue.projectId,
+          executionLane,
           role: recipient.role,
           eventType,
           workflowState: input.message.workflowStateAfter,
@@ -2974,6 +3054,7 @@ export function issueRetrievalService(db: Db) {
           queryText,
           companyId: input.companyId,
           issueProjectId: input.issue.projectId,
+          executionLane,
           role: recipient.role,
           eventType,
           workflowState: input.message.workflowStateAfter,
@@ -3086,21 +3167,21 @@ export function issueRetrievalService(db: Db) {
               queryText,
               allowedSourceTypes: policy.allowedSourceTypes,
               allowedAuthorityLevels: policy.allowedAuthorityLevels,
-              limit: policy.topKSparse,
+              limit: lanePolicy.topKSparse,
             }),
             queryPathKnowledge({
               companyId: input.companyId,
               exactPaths: dynamicSignals.exactPaths,
               allowedSourceTypes: policy.allowedSourceTypes,
               allowedAuthorityLevels: policy.allowedAuthorityLevels,
-              limit: Math.min(policy.rerankK, Math.max(dynamicSignals.exactPaths.length * 2, 6)),
+              limit: Math.min(lanePolicy.rerankK, Math.max(dynamicSignals.exactPaths.length * 2, 6)),
             }),
             querySymbolKnowledge({
               companyId: input.companyId,
               symbolHints: dynamicSignals.symbolHints,
               allowedSourceTypes: policy.allowedSourceTypes,
               allowedAuthorityLevels: policy.allowedAuthorityLevels,
-              limit: Math.min(policy.rerankK, Math.max(dynamicSignals.symbolHints.length, 6)),
+              limit: Math.min(lanePolicy.rerankK, Math.max(dynamicSignals.symbolHints.length, 6)),
             }),
             queryEmbedding
               ? queryDenseKnowledge({
@@ -3111,7 +3192,7 @@ export function issueRetrievalService(db: Db) {
                 queryEmbedding,
                 allowedSourceTypes: policy.allowedSourceTypes,
                 allowedAuthorityLevels: policy.allowedAuthorityLevels,
-                limit: policy.topKDense,
+                limit: lanePolicy.topKDense,
               })
               : Promise.resolve([]),
           ]);
@@ -3131,7 +3212,7 @@ export function issueRetrievalService(db: Db) {
             issueId: input.issueId,
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
-            finalK: Math.max(policy.rerankK, policy.finalK),
+            finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK),
           });
           await knowledge.upsertRetrievalCacheEntry({
             companyId: input.companyId,
@@ -3192,19 +3273,19 @@ export function issueRetrievalService(db: Db) {
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
             linkMap,
-            temporalContext,
-            documentVersionMap: initialDocumentVersionMap,
-            finalK: policy.finalK,
-            rerankConfig,
-            personalizationProfile,
-          });
+              temporalContext,
+              documentVersionMap: initialDocumentVersionMap,
+              finalK: lanePolicy.finalK,
+              rerankConfig: laneRerankConfig,
+              personalizationProfile,
+            });
           graphSeeds = buildGraphExpansionSeeds({
             hits: initialRerankedHits,
             linkMap,
             signals: dynamicSignals,
           });
           const chunkGraphLimit = Math.min(
-            Math.max(policy.finalK * 3, graphSeeds.length * 3, 12),
+            Math.max(lanePolicy.finalK * 3, graphSeeds.length * 3, 12),
             30,
           );
           chunkGraphResult = await queryGraphExpansionKnowledge({
@@ -3217,6 +3298,7 @@ export function issueRetrievalService(db: Db) {
             allowedAuthorityLevels: policy.allowedAuthorityLevels,
             excludeChunkIds: hits.map((hit) => hit.chunkId),
             limit: chunkGraphLimit,
+            maxHops: lanePolicy.chunkGraphMaxHops,
           });
           const graphLinkMap = chunkGraphResult.hits.length > 0
             ? await listRetrievalLinks(chunkGraphResult.hits.map((hit) => hit.chunkId))
@@ -3229,7 +3311,7 @@ export function issueRetrievalService(db: Db) {
             ? mergeGraphExpandedHits({
               baseHits: hits,
               graphHits: chunkGraphResult.hits,
-              finalK: Math.max(policy.rerankK, policy.finalK) + chunkGraphResult.hits.length,
+              finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK) + chunkGraphResult.hits.length,
             })
             : hits;
           const rerankedHits = chunkGraphResult.hits.length > 0
@@ -3246,8 +3328,8 @@ export function issueRetrievalService(db: Db) {
                 companyId: input.companyId,
                 documentIds: uniqueNonEmpty(graphExpandedCandidates.map((hit) => hit.documentId)),
               }),
-              finalK: policy.finalK,
-              rerankConfig,
+              finalK: lanePolicy.finalK,
+              rerankConfig: laneRerankConfig,
               personalizationProfile,
             })
             : initialRerankedHits;
@@ -3257,7 +3339,7 @@ export function issueRetrievalService(db: Db) {
             chunkSymbolMap,
           });
           const symbolGraphLimit = Math.min(
-            Math.max(policy.finalK * 3, symbolGraphSeeds.length * 3, 12),
+            Math.max(lanePolicy.finalK * 3, symbolGraphSeeds.length * 3, 12),
             30,
           );
           symbolGraphResult = await querySymbolGraphExpansionKnowledge({
@@ -3277,11 +3359,11 @@ export function issueRetrievalService(db: Db) {
           }
           const symbolExpandedHits = symbolGraphResult.hits.length > 0
             ? rerankRetrievalHits({
-              hits: mergeGraphExpandedHits({
-                baseHits: rerankedHits,
-                graphHits: symbolGraphResult.hits,
-                finalK: Math.max(policy.rerankK, policy.finalK) + symbolGraphResult.hits.length,
-              }),
+                hits: mergeGraphExpandedHits({
+                  baseHits: rerankedHits,
+                  graphHits: symbolGraphResult.hits,
+                  finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK) + symbolGraphResult.hits.length,
+                }),
               signals: dynamicSignals,
               issueId: input.issueId,
               projectId: input.issue.projectId,
@@ -3295,24 +3377,24 @@ export function issueRetrievalService(db: Db) {
                   mergeGraphExpandedHits({
                     baseHits: rerankedHits,
                     graphHits: symbolGraphResult.hits,
-                    finalK: Math.max(policy.rerankK, policy.finalK) + symbolGraphResult.hits.length,
+                    finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK) + symbolGraphResult.hits.length,
                   }).map((hit) => hit.documentId),
                 ),
               }),
-              finalK: policy.finalK,
-              rerankConfig,
+              finalK: lanePolicy.finalK,
+              rerankConfig: laneRerankConfig,
               personalizationProfile,
             })
             : rerankedHits;
           finalHits = symbolExpandedHits;
-          if (rerankConfig.modelRerank.enabled && modelReranker.isConfigured() && symbolExpandedHits.length > 1) {
+          if (laneRerankConfig.modelRerank.enabled && modelReranker.isConfigured() && symbolExpandedHits.length > 1) {
             try {
               const modelResult = await modelReranker.rerankCandidates({
                 queryText,
                 recipientRole: recipient.role,
                 workflowState: input.message.workflowStateAfter,
                 summary: input.message.summary,
-                candidates: symbolExpandedHits.slice(0, rerankConfig.modelRerank.candidateCount).map((hit) => ({
+                candidates: symbolExpandedHits.slice(0, lanePolicy.modelRerankCandidateCount).map((hit) => ({
                   chunkId: hit.chunkId,
                   sourceType: hit.sourceType,
                   authorityLevel: hit.authorityLevel,
@@ -3326,8 +3408,8 @@ export function issueRetrievalService(db: Db) {
               finalHits = applyModelRerankOrder({
                 hits: symbolExpandedHits,
                 rankedChunkIds: modelResult.rankedChunkIds,
-                finalK: policy.finalK,
-                modelRerank: rerankConfig.modelRerank,
+                finalK: lanePolicy.finalK,
+                modelRerank: laneRerankConfig.modelRerank,
               });
             } catch {
               finalHits = symbolExpandedHits;
@@ -3336,18 +3418,18 @@ export function issueRetrievalService(db: Db) {
             finalHits = symbolExpandedHits;
           }
           finalHits = applyGraphConnectivityGuard({
-            hits: applyOrganizationalBridgeGuard({
-              hits: applyEvidenceDiversityGuard({
-                hits: finalHits,
-                finalK: policy.finalK,
+              hits: applyOrganizationalBridgeGuard({
+                hits: applyEvidenceDiversityGuard({
+                  hits: finalHits,
+                  finalK: lanePolicy.finalK,
+                  signals: dynamicSignals,
+                }),
+                finalK: lanePolicy.finalK,
                 signals: dynamicSignals,
               }),
-              finalK: policy.finalK,
+              finalK: lanePolicy.finalK,
               signals: dynamicSignals,
-            }),
-            finalK: policy.finalK,
-            signals: dynamicSignals,
-          }).slice(0, policy.finalK);
+            }).slice(0, lanePolicy.finalK);
           if (pathHits.length > 0) {
             const exactPathFallbackHits = rerankRetrievalHits({
               hits: pathHits.map((hit) => ({
@@ -3365,19 +3447,19 @@ export function issueRetrievalService(db: Db) {
                 companyId: input.companyId,
                 documentIds: uniqueNonEmpty(pathHits.map((hit) => hit.documentId)),
               }),
-              finalK: Math.max(policy.finalK, pathHits.length),
-              rerankConfig,
+              finalK: Math.max(lanePolicy.finalK, pathHits.length),
+              rerankConfig: laneRerankConfig,
               personalizationProfile,
             }).filter((hit) => isExecutableEvidenceSourceType(hit.sourceType));
             finalHits = applyGraphConnectivityGuard({
               hits: applyEvidenceDiversityGuard({
                 hits: appendUniqueRetrievalHits(finalHits, exactPathFallbackHits),
-                finalK: policy.finalK,
+                finalK: lanePolicy.finalK,
                 signals: dynamicSignals,
               }),
-              finalK: policy.finalK,
+              finalK: lanePolicy.finalK,
               signals: dynamicSignals,
-            }).slice(0, policy.finalK);
+            }).slice(0, lanePolicy.finalK);
           }
 
           const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
@@ -3552,10 +3634,12 @@ export function issueRetrievalService(db: Db) {
             message: input.message,
             queryText,
             hits: finalHits,
+            maxEvidenceItems: lanePolicy.maxEvidenceItems,
           }),
           contentJson: {
             eventType,
             triggeringMessageId: input.triggeringMessageId,
+            executionLane,
             queryText,
             dynamicSignals,
             quality: briefQuality,
@@ -3697,11 +3781,12 @@ export function issueRetrievalService(db: Db) {
         recipientHints.push({
           recipientId: recipient.recipientId,
           recipientRole: recipient.role,
+          executionLane,
           retrievalRunId: retrievalRun.id,
           briefId: brief.id,
           briefScope,
           briefContentMarkdown: brief.contentMarkdown,
-          briefEvidenceSummary: finalHits.slice(0, 6).map((hit, index) => ({
+          briefEvidenceSummary: finalHits.slice(0, lanePolicy.maxEvidenceItems).map((hit, index) => ({
             rank: index + 1,
             sourceType: hit.sourceType,
             authorityLevel: hit.authorityLevel,
