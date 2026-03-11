@@ -123,6 +123,13 @@
   - graph expansion helper를 `server/src/services/retrieval/graph.ts`로 이동
   - model rerank helper를 `server/src/services/retrieval/model-rerank.ts`로 이동
   - 공통 path/text helper를 `server/src/services/retrieval/shared.ts`로 이동
+- `issue-retrieval.ts` refactor slice 2 완료
+  - scoring / rationale helper를 `server/src/services/retrieval/scoring.ts`로 이동
+  - 메인 retrieval 파일은 temporal context / orchestration / persistence 중심으로 축소
+- `rerank provider abstraction` 1차 완료
+  - config 해석을 `server/src/services/knowledge-rerank/config.ts`로 분리
+  - provider transport를 `server/src/services/knowledge-rerank/providers.ts`로 분리
+  - facade `knowledge-reranking.ts`는 기존 인터페이스를 유지
 - `knowledge-setup` read model cache 1차 완료
   - setup view는 15초 fresh / 2분 stale 캐시 사용
   - stale 구간에서는 cached view를 반환하고 background refresh 수행
