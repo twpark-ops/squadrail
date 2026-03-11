@@ -20,6 +20,7 @@ import { changeIssuePath, workIssuePath } from "../lib/appRoutes";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { HeroSection } from "../components/HeroSection";
+import { ChangeReviewDesk } from "../components/ChangeReviewDesk";
 import { MetricCardV2 } from "../components/MetricCardV2";
 import { StatusBadgeV2 } from "../components/StatusBadgeV2";
 import { Button } from "@/components/ui/button";
@@ -218,6 +219,18 @@ export function Changes() {
       }));
   }, [issuesQuery.data]);
 
+  const primaryReviewItem =
+    reviewReady[0] ?? mergeCandidates[0] ?? changesInMotion[0] ?? null;
+
+  const primaryReviewSurfaceQuery = useQuery({
+    queryKey: primaryReviewItem
+      ? queryKeys.issues.changeSurface(primaryReviewItem.issueId)
+      : ["issues", "change-surface", "__none__"],
+    queryFn: () => issuesApi.getChangeSurface(primaryReviewItem!.issueId),
+    enabled: Boolean(primaryReviewItem),
+    staleTime: 15_000,
+  });
+
   if (!selectedCompanyId) {
     return (
       <EmptyState
@@ -324,6 +337,25 @@ export function Changes() {
           ) : undefined
         }
       />
+
+      {primaryReviewItem && (
+        <ChangeReviewDesk
+          companyId={selectedCompanyId}
+          issueId={primaryReviewItem.issueId}
+          issueRef={
+            primaryReviewItem.identifier ?? primaryReviewItem.issueId.slice(0, 8)
+          }
+          issueTitle={primaryReviewItem.title}
+          reviewHref={changeIssuePath(
+            primaryReviewItem.identifier ?? primaryReviewItem.issueId
+          )}
+          workHref={workIssuePath(
+            primaryReviewItem.identifier ?? primaryReviewItem.issueId
+          )}
+          surface={primaryReviewSurfaceQuery.data}
+          compact
+        />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCardV2

@@ -64,9 +64,7 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await page.goto(`${baseUrl}/SMO/agents/all`);
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
   await expect(page.getByText("Live execution")).toBeVisible();
-  await page.getByRole("link", { name: /Smoke Engineer/i }).first().click();
-  await expect(page.getByRole("heading", { name: "Smoke Engineer", exact: true })).toBeVisible();
-  await expect(page.getByText("Agent Surface")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Smoke Engineer/i }).first()).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/projects`);
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();

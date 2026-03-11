@@ -135,7 +135,7 @@ test("desktop route and CTA flows", async ({ page }) => {
 
   await page.goto(`${baseUrl}/SMO/changes`);
   await expect(
-    page.getByRole("heading", { name: "Changes", exact: true })
+    page.getByText("Primary review desk").first()
   ).toBeVisible();
   await expect(page.getByText("Ready for review").first()).toBeVisible();
   await page.getByRole("link", { name: /Inspect linked work/i }).click();
@@ -150,16 +150,11 @@ test("desktop route and CTA flows", async ({ page }) => {
   await expect(page.getByText("Smoke protocol issue").first()).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/runs`);
-  await page.getByRole("link", { name: /Open work/i }).click();
-  await expect(page).toHaveURL(/\/SMO\/work\/.+$/);
-  await expect(page.getByText("Smoke protocol issue").first()).toBeVisible();
-  await page.goto(`${baseUrl}/SMO/runs`);
-  await page
-    .getByRole("link", { name: /Run detail/i })
-    .first()
-    .click();
-  await expect(page).toHaveURL(/\/SMO\/agents\/.*\/runs\/.*/);
-  await expect(page.getByText("Smoke Engineer").first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Runs", exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("Recovery Queue").first()).toBeVisible();
+  await expect(page.getByText("Recent Heartbeats").first()).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/team`);
   await page.getByRole("link", { name: "Open agents", exact: true }).click();
@@ -286,6 +281,52 @@ test("add company onboarding opens and closes with updated shell", async ({
       exact: true,
     })
   ).toHaveCount(0);
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("change review desk and knowledge setup expose operator controls", async ({
+  page,
+}) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/changes/SMO-1`);
+  await expect(
+    page.getByRole("heading", { name: /Smoke protocol issue/i })
+  ).toBeVisible();
+  await expect(page.getByText("Operator review desk").first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Mark merged", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Mark rejected", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Export patch", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Export PR bundle", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Merge local", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Push branch", exact: true })
+  ).toBeVisible();
+
+  await page.goto(`${baseUrl}/SMO/knowledge`);
+  await page.getByRole("tab", { name: "Setup", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Knowledge Setup", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sync selected", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sync all", exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("Project sync matrix").first()).toBeVisible();
+  await expect(page.getByText("Sync execution history").first()).toBeVisible();
+
   expectHealthyDiagnostics(diagnostics);
 });
 

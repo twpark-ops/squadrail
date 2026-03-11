@@ -49,6 +49,7 @@ WORK_DOM_PATH="${WORK_DOM_PATH:-$SQUADRAIL_HOME/work.dom.html}"
 WORK_DETAIL_DOM_PATH="${WORK_DETAIL_DOM_PATH:-$SQUADRAIL_HOME/work-detail.dom.html}"
 OVERVIEW_DOM_PATH="${OVERVIEW_DOM_PATH:-$SQUADRAIL_HOME/overview.dom.html}"
 CHANGES_DOM_PATH="${CHANGES_DOM_PATH:-$SQUADRAIL_HOME/changes.dom.html}"
+CHANGE_DETAIL_DOM_PATH="${CHANGE_DETAIL_DOM_PATH:-$SQUADRAIL_HOME/change-detail.dom.html}"
 RUNS_DOM_PATH="${RUNS_DOM_PATH:-$SQUADRAIL_HOME/runs.dom.html}"
 TEAM_DOM_PATH="${TEAM_DOM_PATH:-$SQUADRAIL_HOME/team.dom.html}"
 KNOWLEDGE_DOM_PATH="${KNOWLEDGE_DOM_PATH:-$SQUADRAIL_HOME/knowledge.dom.html}"
@@ -145,11 +146,16 @@ PROJECT_RESPONSE="$(curl -sSf -X POST "${BASE_URL}/api/companies/${COMPANY_ID}/p
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Smoke Workspace\",\"description\":\"Workspace for browser smoke automation\",\"status\":\"in_progress\",\"workspace\":{\"name\":\"Smoke Workspace\",\"cwd\":\"${REPO_ROOT}\",\"isPrimary\":true}}")"
 
+PROJECT_ID="$(printf '%s' "$PROJECT_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.id);});')"
 SMOKE_WORKSPACE_ID="$(printf '%s' "$PROJECT_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const x=JSON.parse(s);const workspaces=Array.isArray(x.workspaces)?x.workspaces:[];const primary=workspaces.find((entry)=>entry.isPrimary) || workspaces[0];if(!primary?.id){process.exit(1);}process.stdout.write(primary.id);});')"
 
 curl -sSf -X PATCH "${BASE_URL}/api/companies/${COMPANY_ID}/setup-progress" \
   -H "Content-Type: application/json" \
   -d "{\"selectedEngine\":\"${SMOKE_ENGINE}\",\"selectedWorkspaceId\":\"${SMOKE_WORKSPACE_ID}\",\"metadata\":{\"knowledgeSeeded\":true,\"firstIssueReady\":true,\"smokeReady\":true}}" >/dev/null
+
+curl -sSf -X POST "${BASE_URL}/api/companies/${COMPANY_ID}/knowledge-sync" \
+  -H "Content-Type: application/json" \
+  -d "{\"projectIds\":[\"${PROJECT_ID}\"],\"forceFull\":false,\"rebuildGraph\":true,\"rebuildVersions\":true,\"backfillPersonalization\":true}" >/dev/null
 
 SECOND_COMPANY_RESPONSE="$(curl -sSf -X POST "${BASE_URL}/api/companies" \
   -H "Content-Type: application/json" \
@@ -181,15 +187,274 @@ REVIEWER_RESPONSE="$(curl -sSf -X POST "${BASE_URL}/api/companies/${COMPANY_ID}/
   -d "{\"name\":\"Smoke Reviewer\",\"role\":\"qa\",\"adapterType\":\"${SMOKE_ENGINE}\",\"adapterConfig\":{},\"runtimeConfig\":{},\"budgetMonthlyCents\":0}")"
 REVIEWER_ID="$(printf '%s' "$REVIEWER_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.id);});')"
 
-curl -sSf -X POST "${BASE_URL}/api/issues/${ISSUE_ID}/protocol/messages" \
-  -H "Content-Type: application/json" \
-  -d "{\"messageType\":\"ASSIGN_TASK\",\"sender\":{\"actorType\":\"user\",\"actorId\":\"local-board\",\"role\":\"human_board\"},\"recipients\":[{\"recipientType\":\"agent\",\"recipientId\":\"${ENGINEER_ID}\",\"role\":\"engineer\"},{\"recipientType\":\"agent\",\"recipientId\":\"${REVIEWER_ID}\",\"role\":\"reviewer\"}],\"workflowStateBefore\":\"backlog\",\"workflowStateAfter\":\"assigned\",\"summary\":\"Assign smoke issue\",\"requiresAck\":false,\"payload\":{\"goal\":\"Verify dashboard queue and compose flow\",\"acceptanceCriteria\":[\"Execution queue populated\",\"Issue detail renders protocol console\"],\"definitionOfDone\":[\"Smoke DOM checks passed\"],\"priority\":\"high\",\"assigneeAgentId\":\"${ENGINEER_ID}\",\"reviewerAgentId\":\"${REVIEWER_ID}\"},\"artifacts\":[]}" >/dev/null
+for _ in $(seq 1 30); do
+  EMBEDDED_DB_PORT="$(grep -Eo 'pg:[0-9]+' "$SERVER_LOG" | tail -n 1 | cut -d: -f2 || true)"
+  if [[ -n "$EMBEDDED_DB_PORT" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+if [[ -z "${EMBEDDED_DB_PORT:-}" ]]; then
+  echo "failed to detect embedded postgres port from ${SERVER_LOG}" >&2
+  exit 1
+fi
+
+(
+  cd "$REPO_ROOT/server"
+  DATABASE_URL="postgres://squadrail:squadrail@127.0.0.1:${EMBEDDED_DB_PORT}/squadrail" \
+  COMPANY_ID="$COMPANY_ID" \
+  ISSUE_ID="$ISSUE_ID" \
+  PROJECT_ID="$PROJECT_ID" \
+  ENGINEER_ID="$ENGINEER_ID" \
+  REVIEWER_ID="$REVIEWER_ID" \
+  REPO_ROOT="$REPO_ROOT" \
+  pnpm exec tsx <<'TS'
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import {
+  createDb,
+  issueMergeCandidates,
+  issueProtocolArtifacts,
+  issueProtocolMessages,
+  issueProtocolRecipients,
+  issueProtocolState,
+  issueProtocolThreads,
+  issues,
+} from "@squadrail/db";
+
+const databaseUrl = process.env.DATABASE_URL;
+const companyId = process.env.COMPANY_ID;
+const issueId = process.env.ISSUE_ID;
+const projectId = process.env.PROJECT_ID;
+const engineerId = process.env.ENGINEER_ID;
+const reviewerId = process.env.REVIEWER_ID;
+const repoRoot = process.env.REPO_ROOT;
+
+if (!databaseUrl || !companyId || !issueId || !projectId || !engineerId || !reviewerId || !repoRoot) {
+  throw new Error("missing required seed environment");
+}
+
+const db = createDb(databaseUrl);
+
+const threadId = randomUUID();
+const approvalMessageId = randomUUID();
+const closeMessageId = randomUUID();
+const mergeCandidateId = randomUUID();
+const approvalAt = new Date("2026-03-10T11:00:00.000Z");
+const closeAt = new Date("2026-03-10T11:05:00.000Z");
+
+await db.transaction(async (tx) => {
+  await tx.insert(issueProtocolThreads).values({
+    id: threadId,
+    companyId,
+    issueId,
+    threadType: "primary",
+    title: "Primary protocol thread",
+    createdAt: approvalAt,
+    updatedAt: closeAt,
+  });
+
+  await tx.insert(issueProtocolMessages).values([
+    {
+      id: approvalMessageId,
+      companyId,
+      issueId,
+      threadId,
+      seq: 1,
+      messageType: "APPROVE_IMPLEMENTATION",
+      senderActorType: "agent",
+      senderActorId: reviewerId,
+      senderRole: "reviewer",
+      workflowStateBefore: "under_review",
+      workflowStateAfter: "approved",
+      summary: "Approved for external merge handoff.",
+      payload: {
+        approvalSummary: "Approved for external merge handoff.",
+        approvalMode: "agent_review",
+        approvalChecklist: [
+          "Verification artifacts checked",
+          "Workspace handoff metadata checked",
+        ],
+        verifiedEvidence: [
+          "Diff stat recorded",
+          "Focused build and test runs attached",
+        ],
+        residualRisks: [
+          "Board operator still needs to execute the merge action",
+        ],
+      },
+      requiresAck: false,
+      createdAt: approvalAt,
+    },
+    {
+      id: closeMessageId,
+      companyId,
+      issueId,
+      threadId,
+      seq: 2,
+      messageType: "CLOSE_TASK",
+      senderActorType: "user",
+      senderActorId: "local-board",
+      senderRole: "human_board",
+      workflowStateBefore: "approved",
+      workflowStateAfter: "done",
+      summary: "Ready for operator merge",
+      payload: {
+        closeReason: "completed",
+        closureSummary: "Ready for operator merge",
+        verificationSummary: "Focused tests passed",
+        rollbackPlan: "Revert the smoke patch",
+        finalArtifacts: [
+          "Diff prepared for external merge",
+        ],
+        finalTestStatus: "passed",
+        mergeStatus: "pending_external_merge",
+        remainingRisks: [
+          "Needs explicit operator merge handoff",
+        ],
+      },
+      requiresAck: false,
+      createdAt: closeAt,
+    },
+  ]);
+
+  await tx.insert(issueProtocolRecipients).values([
+    {
+      companyId,
+      messageId: approvalMessageId,
+      recipientType: "user",
+      recipientId: "local-board",
+      recipientRole: "human_board",
+    },
+    {
+      companyId,
+      messageId: closeMessageId,
+      recipientType: "agent",
+      recipientId: engineerId,
+      recipientRole: "engineer",
+    },
+  ]);
+
+  await tx.insert(issueProtocolArtifacts).values([
+    {
+      companyId,
+      messageId: approvalMessageId,
+      artifactKind: "approval",
+      artifactUri: "approval://smoke",
+      label: "Smoke approval artifact",
+      metadata: {},
+    },
+    {
+      companyId,
+      messageId: closeMessageId,
+      artifactKind: "doc",
+      artifactUri: "workspace://binding",
+      label: "Workspace binding",
+      metadata: {
+        bindingType: "implementation_workspace",
+        cwd: repoRoot,
+        branchName: "squadrail/smoke-merge",
+        headSha: "abc123def456",
+        source: "project_isolated",
+        workspaceState: "fresh",
+      },
+    },
+    {
+      companyId,
+      messageId: closeMessageId,
+      artifactKind: "diff",
+      artifactUri: "run://diff",
+      label: "Diff artifact",
+      metadata: {
+        branchName: "squadrail/smoke-merge",
+        headSha: "abc123def456",
+        changedFiles: [
+          "ui/src/pages/Changes.tsx",
+          "ui/src/pages/IssueDetail.tsx",
+        ],
+        statusEntries: [
+          "M ui/src/pages/Changes.tsx",
+          "M ui/src/pages/IssueDetail.tsx",
+        ],
+        diffStat: "2 files changed, 24 insertions(+)",
+      },
+    },
+    {
+      companyId,
+      messageId: closeMessageId,
+      artifactKind: "test_run",
+      artifactUri: "run://test",
+      label: "pnpm --filter @squadrail/ui test",
+      metadata: {},
+    },
+    {
+      companyId,
+      messageId: closeMessageId,
+      artifactKind: "build_run",
+      artifactUri: "run://build",
+      label: "pnpm --filter @squadrail/ui build",
+      metadata: {},
+    },
+  ]);
+
+  await tx.update(issues).set({
+    projectId,
+    status: "done",
+    assigneeAgentId: engineerId,
+    startedAt: approvalAt,
+    completedAt: closeAt,
+    updatedAt: closeAt,
+  }).where(eq(issues.id, issueId));
+
+  await tx.insert(issueProtocolState).values({
+    issueId,
+    companyId,
+    workflowState: "approved",
+    coarseIssueStatus: "in_review",
+    primaryEngineerAgentId: engineerId,
+    reviewerAgentId: reviewerId,
+    currentReviewCycle: 1,
+    lastProtocolMessageId: closeMessageId,
+    lastTransitionAt: closeAt,
+    metadata: {},
+  });
+
+  await tx.insert(issueMergeCandidates).values({
+    id: mergeCandidateId,
+    companyId,
+    issueId,
+    closeMessageId,
+    state: "pending",
+    sourceBranch: "squadrail/smoke-merge",
+    workspacePath: repoRoot,
+    headSha: "abc123def456",
+    diffStat: "2 files changed, 24 insertions(+)",
+    targetBaseBranch: "main",
+    automationMetadata: {
+      lastPreparedBranch: "squadrail/smoke-merge",
+      lastPushRemote: "origin",
+    },
+    operatorNote: "Ready for operator merge",
+    createdAt: closeAt,
+    updatedAt: closeAt,
+  });
+});
+
+const client = Reflect.get(db, "$client");
+if (client && typeof client === "object" && "end" in client && typeof client.end === "function") {
+  await client.end();
+}
+process.exit(0);
+TS
+)
 
 SETTINGS_URL="${BASE_URL}/${COMPANY_PREFIX}/settings"
 WORK_URL="${BASE_URL}/${COMPANY_PREFIX}/work"
 WORK_DETAIL_URL="${BASE_URL}/${COMPANY_PREFIX}/work/${ISSUE_IDENTIFIER}"
 OVERVIEW_URL="${BASE_URL}/${COMPANY_PREFIX}/overview"
 CHANGES_URL="${BASE_URL}/${COMPANY_PREFIX}/changes"
+CHANGE_DETAIL_URL="${BASE_URL}/${COMPANY_PREFIX}/changes/${ISSUE_IDENTIFIER}"
 RUNS_URL="${BASE_URL}/${COMPANY_PREFIX}/runs"
 TEAM_URL="${BASE_URL}/${COMPANY_PREFIX}/team"
 KNOWLEDGE_URL="${BASE_URL}/${COMPANY_PREFIX}/knowledge"
@@ -229,8 +494,14 @@ grep -q "Smoke protocol issue" "$OVERVIEW_DOM_PATH"
 echo "==> verifying changes page"
 CHANGES_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$CHANGES_URL")"
 printf '%s' "$CHANGES_DOM" >"$CHANGES_DOM_PATH"
-grep -q "Changes" "$CHANGES_DOM_PATH"
-grep -q "Implementation In Motion" "$CHANGES_DOM_PATH"
+grep -q "Changes · Squadrail" "$CHANGES_DOM_PATH"
+grep -q "GET /companies/${COMPANY_ID}/dashboard/protocol-queue?limit=20 200" "$SERVER_LOG"
+
+echo "==> verifying change detail page"
+CHANGE_DETAIL_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$CHANGE_DETAIL_URL")"
+printf '%s' "$CHANGE_DETAIL_DOM" >"$CHANGE_DETAIL_DOM_PATH"
+grep -q "GET /issues/${ISSUE_IDENTIFIER}/change-surface 200" "$SERVER_LOG"
+grep -q "GET /issues/${ISSUE_IDENTIFIER}/protocol/messages 200" "$SERVER_LOG"
 
 echo "==> verifying runs page"
 RUNS_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$RUNS_URL")"
@@ -254,6 +525,7 @@ grep -q "Retrieval posture" "$KNOWLEDGE_DOM_PATH"
 grep -q "Recent Retrieval Loops" "$KNOWLEDGE_DOM_PATH"
 grep -q "7-day trend" "$KNOWLEDGE_DOM_PATH"
 grep -Eq "No documents indexed yet|Recent Company Slice" "$KNOWLEDGE_DOM_PATH"
+grep -q "Setup" "$KNOWLEDGE_DOM_PATH"
 
 "$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --window-size=1440,1200 --screenshot="$SCREENSHOT_PATH" "$OVERVIEW_URL" >/dev/null 2>&1
 
@@ -274,6 +546,7 @@ echo "    work DOM: ${WORK_DOM_PATH}"
 echo "    work detail DOM: ${WORK_DETAIL_DOM_PATH}"
 echo "    overview DOM: ${OVERVIEW_DOM_PATH}"
 echo "    changes DOM: ${CHANGES_DOM_PATH}"
+echo "    change detail DOM: ${CHANGE_DETAIL_DOM_PATH}"
 echo "    runs DOM: ${RUNS_DOM_PATH}"
 echo "    team DOM: ${TEAM_DOM_PATH}"
 echo "    knowledge DOM: ${KNOWLEDGE_DOM_PATH}"
