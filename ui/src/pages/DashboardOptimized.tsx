@@ -143,13 +143,19 @@ export function DashboardOptimized() {
   const buckets = protocolQueue?.buckets;
   const recoveryItems = recoveryQueue?.items ?? [];
   const recoveryPreview = recoveryItems.slice(0, 3);
-  const runningRuns = data?.executionReliability.runningRuns ?? 0;
-  const queuedRuns = data?.executionReliability.queuedRuns ?? 0;
   const reviewReady = data?.protocol.reviewQueueCount ?? 0;
   const blockedCount = data?.protocol.blockedQueueCount ?? 0;
   const humanDecisionCount = data?.protocol.awaitingHumanDecisionCount ?? 0;
+  const attention = data?.attention;
+  const knowledge = data?.knowledge;
   const prioritySignals = data
     ? [
+        {
+          label: "Attention now",
+          value: attention?.urgentIssueCount ?? 0,
+          detail: `${attention?.runtimeRiskCount ?? 0} runtime · ${attention?.reviewPressureCount ?? 0} review`,
+          to: appRoutes.runs,
+        },
         {
           label: "Execution queue",
           value: data.protocol.executionQueueCount,
@@ -158,21 +164,15 @@ export function DashboardOptimized() {
         },
         {
           label: "Review backlog",
-          value: reviewReady,
+          value: attention?.reviewPressureCount ?? reviewReady,
           detail: `${data.protocol.readyToCloseCount} near close`,
           to: appRoutes.changes,
         },
         {
-          label: "Blocked / human",
-          value: blockedCount + humanDecisionCount,
-          detail: `${blockedCount} blocked · ${humanDecisionCount} human`,
-          to: appRoutes.work,
-        },
-        {
-          label: "Heartbeat runs",
-          value: runningRuns + queuedRuns,
-          detail: `${runningRuns} live · ${queuedRuns} queued`,
-          to: appRoutes.runs,
+          label: "Knowledge coverage",
+          value: knowledge?.connectedDocuments ?? 0,
+          detail: `${knowledge?.totalDocuments ?? 0} docs · ${knowledge?.lowConfidenceRuns7d ?? 0} low confidence`,
+          to: appRoutes.knowledge,
         },
       ]
     : [];
@@ -440,8 +440,8 @@ export function DashboardOptimized() {
                     Review pressure
                   </div>
                   <div className="mt-2 text-sm leading-6 text-foreground">
-                    {reviewReady > 0
-                      ? `${reviewReady} items are already in review and ${data.protocol.readyToCloseCount} are close to merge or close handoff.`
+                    {(attention?.reviewPressureCount ?? reviewReady) > 0
+                      ? `${attention?.reviewPressureCount ?? reviewReady} items are clustered around review, and ${data.protocol.readyToCloseCount} are close to merge or close handoff.`
                       : "No heavy review pressure right now."}
                   </div>
                 </div>
@@ -450,8 +450,8 @@ export function DashboardOptimized() {
                     Human attention
                   </div>
                   <div className="mt-2 text-sm leading-6 text-foreground">
-                    {humanDecisionCount > 0
-                      ? `${humanDecisionCount} items are waiting on explicit board or operator decisions.`
+                    {humanDecisionCount > 0 || blockedCount > 0
+                      ? `${humanDecisionCount} items are waiting on explicit board decisions and ${blockedCount} remain blocked in flow.`
                       : "No explicit board decisions are waiting right now."}
                   </div>
                 </div>
@@ -460,9 +460,19 @@ export function DashboardOptimized() {
                     Stale work
                   </div>
                   <div className="mt-2 text-sm leading-6 text-foreground">
-                    {data.protocol.staleQueueCount > 0
-                      ? `${data.protocol.staleQueueCount} issues are staying in flow too long and need a fresh owner or recovery step.`
+                    {(attention?.staleWorkCount ?? data.protocol.staleQueueCount) > 0
+                      ? `${attention?.staleWorkCount ?? data.protocol.staleQueueCount} active items are drifting and need a fresh owner or recovery step.`
                       : "No stale flow signal is currently elevated."}
+                  </div>
+                </div>
+                <div className="rounded-[1.05rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                    Knowledge coverage
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-foreground">
+                    {knowledge && knowledge.totalDocuments > 0
+                      ? `${knowledge.connectedDocuments} of ${knowledge.totalDocuments} documents are connected into the graph, with ${knowledge.lowConfidenceRuns7d} low-confidence retrieval runs over the last 7 days.`
+                      : "Knowledge coverage is still shallow; sync documents and graph links before relying on retrieval for review flow."}
                   </div>
                 </div>
               </div>

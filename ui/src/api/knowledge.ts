@@ -292,6 +292,40 @@ export interface KnowledgeQualitySummary {
   }>;
 }
 
+export interface KnowledgeGraphNode {
+  id: string;
+  kind: "project" | "document" | "entity";
+  label: string;
+  secondaryLabel: string | null;
+  projectId: string | null;
+  metric: number;
+  path?: string | null;
+  documentId?: string;
+}
+
+export interface KnowledgeGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: "project_document" | "document_entity";
+  label: string | null;
+  weight: number;
+}
+
+export interface KnowledgeGraphView {
+  companyId: string;
+  projectId: string | null;
+  generatedAt: string;
+  summary: {
+    projectNodeCount: number;
+    documentNodeCount: number;
+    entityNodeCount: number;
+    edgeCount: number;
+  };
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+}
+
 export const knowledgeApi = {
   listDocuments: (params: {
     companyId: string;
@@ -307,6 +341,18 @@ export const knowledgeApi = {
   },
   getOverview: (companyId: string) =>
     api.get<KnowledgeOverview>(`/knowledge/overview?companyId=${encodeURIComponent(companyId)}`),
+  getGraph: (params: {
+    companyId: string;
+    projectId?: string;
+    documentLimit?: number;
+    edgeLimit?: number;
+  }) => {
+    const queryParams = new URLSearchParams({ companyId: params.companyId });
+    if (params.projectId) queryParams.append("projectId", params.projectId);
+    if (params.documentLimit) queryParams.append("documentLimit", params.documentLimit.toString());
+    if (params.edgeLimit) queryParams.append("edgeLimit", params.edgeLimit.toString());
+    return api.get<KnowledgeGraphView>(`/knowledge/graph?${queryParams.toString()}`);
+  },
   getQuality: (companyId: string, params?: { days?: number; limit?: number }) => {
     const queryParams = new URLSearchParams({ companyId });
     if (params?.days) queryParams.append("days", params.days.toString());

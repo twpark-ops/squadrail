@@ -15,6 +15,7 @@ import {
   issueTaskBriefs,
   issues,
   projects,
+  retrievalRuns,
 } from "@squadrail/db";
 import { issueProtocolService } from "./issue-protocol.js";
 import { notFound } from "../errors.js";
@@ -226,6 +227,56 @@ export function buildExecutionReliabilitySummary(input: {
     dispatchTimeoutsLast24h: input.dispatchTimeoutsLast24h,
     processLostLast24h: input.processLostLast24h,
     workspaceBlockedLast24h: input.workspaceBlockedLast24h,
+  };
+}
+
+export function buildDashboardAttentionSummary(input: {
+  blockedQueueCount: number;
+  awaitingHumanDecisionCount: number;
+  staleQueueCount: number;
+  staleTasks: number;
+  openViolationCount: number;
+  reviewQueueCount: number;
+  readyToCloseCount: number;
+  dispatchTimeoutsLast24h: number;
+  processLostLast24h: number;
+  workspaceBlockedLast24h: number;
+}) {
+  const runtimeRiskCount =
+    input.dispatchTimeoutsLast24h
+    + input.processLostLast24h
+    + input.workspaceBlockedLast24h;
+  const reviewPressureCount = input.reviewQueueCount + input.readyToCloseCount;
+  const staleWorkCount = input.staleQueueCount + input.staleTasks;
+  const urgentIssueCount =
+    input.blockedQueueCount
+    + input.awaitingHumanDecisionCount
+    + input.openViolationCount
+    + runtimeRiskCount;
+
+  return {
+    urgentIssueCount,
+    reviewPressureCount,
+    staleWorkCount,
+    runtimeRiskCount,
+  };
+}
+
+export function buildDashboardKnowledgeSummary(input: {
+  totalDocuments: number;
+  connectedDocuments: number;
+  linkedChunks: number;
+  totalLinks: number;
+  activeProjects: number;
+  lowConfidenceRuns7d: number;
+}) {
+  return {
+    totalDocuments: input.totalDocuments,
+    connectedDocuments: input.connectedDocuments,
+    linkedChunks: input.linkedChunks,
+    totalLinks: input.totalLinks,
+    activeProjects: input.activeProjects,
+    lowConfidenceRuns7d: input.lowConfidenceRuns7d,
   };
 }
 
@@ -486,6 +537,44 @@ export function dashboardService(db: Db) {
           )
           .then((rows) => Number(rows[0]?.count ?? 0)),
       ]);
+      const knowledgeSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const [knowledgeTotalsRows, lowConfidenceKnowledgeRuns] = await Promise.all([
+        db.execute<{
+          totalDocuments: number;
+          totalLinks: number;
+          linkedChunks: number;
+          connectedDocuments: number;
+          activeProjects: number;
+        }>(sql`
+          select
+            (select count(*)::int from knowledge_documents where company_id = ${companyId}) as "totalDocuments",
+            (select count(*)::int from knowledge_chunk_links where company_id = ${companyId}) as "totalLinks",
+            (select count(distinct chunk_id)::int from knowledge_chunk_links where company_id = ${companyId}) as "linkedChunks",
+            (
+              select count(distinct kc.document_id)::int
+              from knowledge_chunk_links kcl
+              join knowledge_chunks kc on kc.id = kcl.chunk_id
+              where kcl.company_id = ${companyId}
+            ) as "connectedDocuments",
+            (
+              select count(distinct project_id)::int
+              from knowledge_documents
+              where company_id = ${companyId}
+                and project_id is not null
+            ) as "activeProjects"
+        `),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(retrievalRuns)
+          .where(
+            and(
+              eq(retrievalRuns.companyId, companyId),
+              gte(retrievalRuns.createdAt, knowledgeSince),
+              sql`coalesce(${retrievalRuns.queryDebug} -> 'quality' ->> 'confidenceLevel', '') = 'low'`,
+            ),
+          )
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+      ]);
       const failureRows = await db
         .select({
           errorCode: heartbeatRuns.errorCode,
@@ -523,6 +612,47 @@ export function dashboardService(db: Db) {
         company.budgetMonthlyCents > 0
           ? (monthSpendCents / company.budgetMonthlyCents) * 100
           : 0;
+      const knowledgeTotals = knowledgeTotalsRows[0] ?? {
+        totalDocuments: 0,
+        totalLinks: 0,
+        linkedChunks: 0,
+        connectedDocuments: 0,
+        activeProjects: 0,
+      };
+      const executionReliability = buildExecutionReliabilitySummary({
+        runningRuns: runningRunsRow,
+        queuedRuns: queuedRunsRow,
+        dispatchRedispatchesLast24h: redispatchesRow,
+        dispatchTimeoutsLast24h: failureCounts.get("dispatch_timeout") ?? 0,
+        processLostLast24h: failureCounts.get("process_lost") ?? 0,
+        workspaceBlockedLast24h: failureCounts.get("workspace_required") ?? 0,
+      });
+      const protocolSummary = {
+        workflowCounts,
+        executionQueueCount:
+          workflowCounts.assigned
+          + workflowCounts.accepted
+          + workflowCounts.planning
+          + workflowCounts.implementing,
+        reviewQueueCount:
+          workflowCounts.submitted_for_review
+          + workflowCounts.under_review
+          + workflowCounts.qa_pending
+          + workflowCounts.under_qa_review
+          + workflowCounts.changes_requested,
+        handoffBlockerCount:
+          workflowCounts.qa_pending
+          + workflowCounts.under_qa_review
+          + workflowCounts.changes_requested
+          + workflowCounts.awaiting_human_decision
+          + workflowCounts.approved,
+        blockedQueueCount: workflowCounts.blocked,
+        awaitingHumanDecisionCount: workflowCounts.awaiting_human_decision,
+        readyToCloseCount: workflowCounts.approved,
+        staleQueueCount: staleProtocolStateCount,
+        openViolationCount: protocolOpenViolations,
+        protocolMessagesLast24h: protocolMessagesLastDay,
+      };
 
       return {
         companyId,
@@ -533,39 +663,27 @@ export function dashboardService(db: Db) {
           error: agentCounts.error,
         },
         tasks: taskCounts,
-        protocol: {
-          workflowCounts,
-          executionQueueCount:
-            workflowCounts.assigned
-            + workflowCounts.accepted
-            + workflowCounts.planning
-            + workflowCounts.implementing,
-          reviewQueueCount:
-            workflowCounts.submitted_for_review
-            + workflowCounts.under_review
-            + workflowCounts.qa_pending
-            + workflowCounts.under_qa_review
-            + workflowCounts.changes_requested,
-          handoffBlockerCount:
-            workflowCounts.qa_pending
-            + workflowCounts.under_qa_review
-            + workflowCounts.changes_requested
-            + workflowCounts.awaiting_human_decision
-            + workflowCounts.approved,
-          blockedQueueCount: workflowCounts.blocked,
-          awaitingHumanDecisionCount: workflowCounts.awaiting_human_decision,
-          readyToCloseCount: workflowCounts.approved,
-          staleQueueCount: staleProtocolStateCount,
-          openViolationCount: protocolOpenViolations,
-          protocolMessagesLast24h: protocolMessagesLastDay,
-        },
-        executionReliability: buildExecutionReliabilitySummary({
-          runningRuns: runningRunsRow,
-          queuedRuns: queuedRunsRow,
-          dispatchRedispatchesLast24h: redispatchesRow,
-          dispatchTimeoutsLast24h: failureCounts.get("dispatch_timeout") ?? 0,
-          processLostLast24h: failureCounts.get("process_lost") ?? 0,
-          workspaceBlockedLast24h: failureCounts.get("workspace_required") ?? 0,
+        protocol: protocolSummary,
+        executionReliability,
+        attention: buildDashboardAttentionSummary({
+          blockedQueueCount: protocolSummary.blockedQueueCount,
+          awaitingHumanDecisionCount: protocolSummary.awaitingHumanDecisionCount,
+          staleQueueCount: protocolSummary.staleQueueCount,
+          staleTasks,
+          openViolationCount: protocolSummary.openViolationCount,
+          reviewQueueCount: protocolSummary.reviewQueueCount,
+          readyToCloseCount: protocolSummary.readyToCloseCount,
+          dispatchTimeoutsLast24h: executionReliability.dispatchTimeoutsLast24h,
+          processLostLast24h: executionReliability.processLostLast24h,
+          workspaceBlockedLast24h: executionReliability.workspaceBlockedLast24h,
+        }),
+        knowledge: buildDashboardKnowledgeSummary({
+          totalDocuments: Number(knowledgeTotals.totalDocuments ?? 0),
+          connectedDocuments: Number(knowledgeTotals.connectedDocuments ?? 0),
+          linkedChunks: Number(knowledgeTotals.linkedChunks ?? 0),
+          totalLinks: Number(knowledgeTotals.totalLinks ?? 0),
+          activeProjects: Number(knowledgeTotals.activeProjects ?? 0),
+          lowConfidenceRuns7d: lowConfidenceKnowledgeRuns,
         }),
         costs: {
           monthSpendCents,

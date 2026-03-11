@@ -10,6 +10,7 @@ const {
   mockListRecentRetrievalRuns,
   mockRecordManualFeedback,
   mockGetKnowledgeOverview,
+  mockGetKnowledgeGraph,
   mockSummarizeRetrievalQuality,
   mockGetDocumentById,
   mockListDocumentChunks,
@@ -24,6 +25,7 @@ const {
   mockListRecentRetrievalRuns: vi.fn(),
   mockRecordManualFeedback: vi.fn(),
   mockGetKnowledgeOverview: vi.fn(),
+  mockGetKnowledgeGraph: vi.fn(),
   mockSummarizeRetrievalQuality: vi.fn(),
   mockGetDocumentById: vi.fn(),
   mockListDocumentChunks: vi.fn(),
@@ -44,6 +46,7 @@ vi.mock("../services/index.js", () => ({
     createDocument: vi.fn(),
     getDocumentById: mockGetDocumentById,
     getOverview: mockGetKnowledgeOverview,
+    getGraph: mockGetKnowledgeGraph,
     summarizeRetrievalQuality: mockSummarizeRetrievalQuality,
     getRetrievalRunById: mockGetRetrievalRunById,
     listRecentRetrievalRuns: mockListRecentRetrievalRuns,
@@ -199,6 +202,51 @@ async function invokeKnowledgeOverviewRoute(input: {
 }) {
   const router = knowledgeRoutes({} as never) as any;
   const handlers = findRouteLayer(router, "/knowledge/overview", "get");
+  const req = {
+    query: input.query,
+    actor: buildBoardActor(),
+  };
+  const state: { statusCode: number; body: unknown } = {
+    statusCode: 200,
+    body: undefined,
+  };
+  const res = {
+    status(code: number) {
+      state.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      state.body = payload;
+      return this;
+    },
+  };
+
+  for (const handler of handlers) {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const result = handler(req, res, (error?: unknown) => {
+          if (error) reject(error);
+          else resolve();
+        });
+        if (result && typeof result.then === "function") {
+          result.then(() => resolve(), reject);
+          return;
+        }
+        if (handler.length < 3) resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  return state;
+}
+
+async function invokeKnowledgeGraphRoute(input: {
+  query: Record<string, string>;
+}) {
+  const router = knowledgeRoutes({} as never) as any;
+  const handlers = findRouteLayer(router, "/knowledge/graph", "get");
   const req = {
     query: input.query,
     actor: buildBoardActor(),
@@ -523,6 +571,37 @@ describe("knowledge routes", () => {
     expect(response.statusCode).toBe(200);
     expect(mockGetKnowledgeOverview).toHaveBeenCalledWith({
       companyId: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
+  it("returns knowledge graph slice for a company", async () => {
+    mockGetKnowledgeGraph.mockResolvedValue({
+      companyId: "11111111-1111-4111-8111-111111111111",
+      projectId: null,
+      generatedAt: "2026-03-12T00:00:00.000Z",
+      summary: {
+        projectNodeCount: 2,
+        documentNodeCount: 3,
+        entityNodeCount: 4,
+        edgeCount: 6,
+      },
+      nodes: [],
+      edges: [],
+    });
+
+    const response = await invokeKnowledgeGraphRoute({
+      query: { companyId: "11111111-1111-4111-8111-111111111111" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetKnowledgeGraph).toHaveBeenCalledWith({
+      companyId: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(response.body).toMatchObject({
+      summary: {
+        projectNodeCount: 2,
+        edgeCount: 6,
+      },
     });
   });
 

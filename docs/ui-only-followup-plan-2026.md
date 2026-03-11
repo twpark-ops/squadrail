@@ -3,7 +3,7 @@
 Date: 2026-03-11
 Branch: `ui-only-followup-2026`
 Worktree: `/home/taewoong/company-project/squadall-ui-only-followup-2026`
-Status: UI-only structural and performance follow-up complete, optional polish largely closed
+Status: UI-only structural and performance follow-up complete; later backend/read-model follow-up completed in `ui-review-desk-2026`
 
 ## Current Sprint
 
@@ -13,6 +13,10 @@ This pass is shipping in one UI-only stream:
 - align priority support pages with the new support-panel system
 - lift remaining detail and admin surfaces with clearer headers, metrics, and panel rhythm
 - leave backend-dependent knowledge and aggregate work parked
+
+Historical note:
+
+- the parked knowledge graph endpoint and dashboard aggregate work were later completed in `ui-review-desk-2026`
 
 ## Current State
 
@@ -235,7 +239,7 @@ Delivered in this worktree:
 
 These remain parked for backend or shared-contract coordination:
 
-- `Knowledge` ask/chat
+- conversational `Knowledge` ask/chat remains intentionally excluded
 - company-scale graph traversal endpoint
 - new overview/work/runs aggregate metrics not derivable client-side
 - shared type changes for runtime, queue, or knowledge surfaces

@@ -119,6 +119,35 @@ export function attachResolvedWorkspaceContextToRunContext(input: {
   return contextSnapshot;
 }
 
+type TaskSessionUpsertSetInput = {
+  sessionParamsJson: Record<string, unknown> | null;
+  sessionDisplayId: string | null;
+  lastRunId: string | null;
+  lastError: string | null;
+};
+
+export function buildTaskSessionUpsertSet(
+  input: TaskSessionUpsertSetInput,
+  updatedAt: Date = new Date(),
+) {
+  return {
+    sessionParamsJson: input.sessionParamsJson,
+    sessionDisplayId: input.sessionDisplayId,
+    lastRunId: input.lastRunId,
+    lastError: input.lastError,
+    updatedAt,
+  };
+}
+
+export async function insertOrRefetchSingleton<T>(input: {
+  insert: () => Promise<T | null>;
+  refetch: () => Promise<T | null>;
+}) {
+  const inserted = await input.insert();
+  if (inserted) return inserted;
+  return input.refetch();
+}
+
 function normalizeMaxConcurrentRuns(value: unknown) {
   const parsed = Math.floor(asNumber(value, HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT));
   if (!Number.isFinite(parsed)) return HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT;
@@ -750,27 +779,7 @@ export function heartbeatService(db: Db) {
     lastRunId: string | null;
     lastError: string | null;
   }) {
-    const existing = await getTaskSession(
-      input.companyId,
-      input.agentId,
-      input.adapterType,
-      input.taskKey,
-    );
-    if (existing) {
-      return db
-        .update(agentTaskSessions)
-        .set({
-          sessionParamsJson: input.sessionParamsJson,
-          sessionDisplayId: input.sessionDisplayId,
-          lastRunId: input.lastRunId,
-          lastError: input.lastError,
-          updatedAt: new Date(),
-        })
-        .where(eq(agentTaskSessions.id, existing.id))
-        .returning()
-        .then((rows) => rows[0] ?? null);
-    }
-
+    const upsertSet = buildTaskSessionUpsertSet(input);
     return db
       .insert(agentTaskSessions)
       .values({
@@ -782,6 +791,15 @@ export function heartbeatService(db: Db) {
         sessionDisplayId: input.sessionDisplayId,
         lastRunId: input.lastRunId,
         lastError: input.lastError,
+      })
+      .onConflictDoUpdate({
+        target: [
+          agentTaskSessions.companyId,
+          agentTaskSessions.agentId,
+          agentTaskSessions.adapterType,
+          agentTaskSessions.taskKey,
+        ],
+        set: upsertSet,
       })
       .returning()
       .then((rows) => rows[0] ?? null);
@@ -814,16 +832,21 @@ export function heartbeatService(db: Db) {
     const existing = await getRuntimeState(agent.id);
     if (existing) return existing;
 
-    return db
-      .insert(agentRuntimeState)
-      .values({
-        agentId: agent.id,
-        companyId: agent.companyId,
-        adapterType: agent.adapterType,
-        stateJson: {},
-      })
-      .returning()
-      .then((rows) => rows[0]);
+    return insertOrRefetchSingleton({
+      insert: () =>
+        db
+          .insert(agentRuntimeState)
+          .values({
+            agentId: agent.id,
+            companyId: agent.companyId,
+            adapterType: agent.adapterType,
+            stateJson: {},
+          })
+          .onConflictDoNothing()
+          .returning()
+          .then((rows) => rows[0] ?? null),
+      refetch: () => getRuntimeState(agent.id),
+    });
   }
 
   async function setRunStatus(
@@ -1595,7 +1618,7 @@ export function heartbeatService(db: Db) {
         resolvedWorkspace,
       });
 
-      const runtimeSessionFallback = taskKey || resetTaskSession ? null : runtime.sessionId;
+      const runtimeSessionFallback = taskKey || resetTaskSession ? null : runtime?.sessionId ?? null;
       previousSessionDisplayId = truncateDisplayId(
         taskSessionForRun?.sessionDisplayId ??
           (sessionCodec.getDisplayId ? sessionCodec.getDisplayId(runtimeSessionParams) : null) ??

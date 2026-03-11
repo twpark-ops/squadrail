@@ -10,6 +10,9 @@
   - change surface를 review desk로 승격
   - knowledge setup UX 정리
   - Playwright 회귀 테스트 확장
+  - runtime-state 동시성 500 수정
+  - dashboard attention / knowledge aggregate 추가
+  - company-scale knowledge graph read endpoint + UI graph surface 연결
 
 ## 완료된 변경
 
@@ -27,6 +30,26 @@
   - `primaryReviewSurfaceQuery` 훅을 early return 앞쪽으로 이동해 React hook-order crash 수정
 - `ui/src/components/knowledge/KnowledgeSetupPanel.tsx`
   - refresh / sync all / retry failed / active job UI 보강
+- `server/src/services/heartbeat.ts`
+  - `ensureRuntimeState()`를 `insert ... on conflict do nothing + refetch` 경로로 변경
+  - `upsertTaskSession()`를 unique-key upsert로 변경
+- `packages/shared/src/types/dashboard.ts`
+  - `DashboardSummary.attention`
+  - `DashboardSummary.knowledge`
+- `server/src/services/dashboard.ts`
+  - attention rollup과 knowledge rollup 집계 추가
+- `server/src/services/knowledge.ts`
+  - company-scale graph slice read model 추가
+- `server/src/routes/knowledge.ts`
+  - `GET /knowledge/graph` 추가
+- `ui/src/api/knowledge.ts`
+  - graph API wrapper 및 타입 추가
+- `ui/src/components/knowledge/KnowledgeMapPanel.tsx`
+  - company-scale graph slice를 읽는 map surface로 갱신
+- `ui/src/pages/Knowledge.tsx`
+  - graph query 연결
+- `ui/src/pages/DashboardOptimized.tsx`
+  - 새 `attention / knowledge` aggregate를 operator summary에 반영
 - `ui/vite.config.ts`
   - markdown/editor vendor chunk strategy를 세분화해 editor async bundle을 추가로 절감
   - `lexical` / `markdown` vendor를 editor shell에서 분리
@@ -37,9 +60,12 @@
 ## 검증 상태
 
 - `pnpm --filter @squadrail/ui typecheck` 통과
+- `pnpm --filter @squadrail/server typecheck` 통과
+- `pnpm --filter @squadrail/server build` 통과
 - `pnpm --filter @squadrail/ui build` 통과
+- `pnpm exec vitest run -c server/vitest.config.ts ...` 통과 (`5 files, 40 tests`)
 - `scripts/smoke/local-ui-flow.sh` 통과
-- `UI_REVIEW_BASE_URL=http://127.0.0.1:3390 pnpm exec playwright test scripts/smoke/ui-interaction-review.spec.ts scripts/smoke/ui-support-routes.spec.ts --reporter=line` 통과 (`8 passed`)
+- `UI_REVIEW_BASE_URL=http://127.0.0.1:3393 pnpm exec playwright test scripts/smoke/ui-interaction-review.spec.ts scripts/smoke/ui-support-routes.spec.ts --reporter=line` 통과 (`8 passed`)
 
 ## 회귀 테스트 메모
 
@@ -55,8 +81,7 @@
 ## 남은 리스크
 
 - backend scope:
-  - `GET /api/agents/:id/runtime-state`에서 duplicate-key 500이 발생할 수 있음
-  - 이번 worktree에서는 UI-only 범위라 테스트 대상에서 제외
+  - `Knowledge` conversational ask/chat은 현재 로드맵에서 제외하고, graph-read와 retrieval evidence surface를 우선한다
 - perf scope:
   - main entry 약 `430kB`, `MarkdownEditor` async chunk 약 `815kB`
   - root entry HTML은 editor CSS preload를 더 이상 포함하지 않는다

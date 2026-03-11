@@ -47,6 +47,20 @@ export interface DashboardSummary {
     processLostLast24h: number;
     workspaceBlockedLast24h: number;
   };
+  attention: {
+    urgentIssueCount: number;
+    reviewPressureCount: number;
+    staleWorkCount: number;
+    runtimeRiskCount: number;
+  };
+  knowledge: {
+    totalDocuments: number;
+    connectedDocuments: number;
+    linkedChunks: number;
+    totalLinks: number;
+    activeProjects: number;
+    lowConfidenceRuns7d: number;
+  };
   pendingApprovals: number;
   staleTasks: number;
 }

@@ -105,6 +105,8 @@ test("desktop route and CTA flows", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Overview", exact: true })
   ).toBeVisible();
+  await expect(page.getByText("Attention now").first()).toBeVisible();
+  await expect(page.getByText("Knowledge coverage").first()).toBeVisible();
   await expect(page.getByText("Live operations").first()).toBeVisible();
   await page.getByRole("button", { name: /Reorder companies/i }).click();
   await expect(
@@ -188,6 +190,7 @@ test("desktop route and CTA flows", async ({ page }) => {
     page.getByRole("heading", { name: "Knowledge Base", exact: true })
   ).toBeVisible();
   await expect(page.getByText("Knowledge Map").first()).toBeVisible();
+  await expect(page.getByText(/project nodes/i).first()).toBeVisible();
   await page.getByRole("button", { name: /Refresh/i }).click();
   await expect(page.getByRole("button", { name: /Refresh/i })).toBeVisible();
 
