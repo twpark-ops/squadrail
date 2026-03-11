@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   buildE2eLabelSpecs,
-  collectTaggedIssues,
+  hasAnyLabelId,
   needsE2eCancellation,
   shouldHideE2eIssue,
 } from "./e2e-issue-utils.mjs";
@@ -127,14 +127,37 @@ async function hideIssue(issueId) {
   });
 }
 
+async function cancelHeartbeatRun(runId) {
+  return api(`/api/heartbeat-runs/${runId}/cancel`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+function isLikelyE2eIssue(issue, labelIds) {
+  if (!issue) return false;
+  if (hasAnyLabelId(issue, labelIds)) return true;
+  const title = String(issue.title ?? "");
+  return title.startsWith("E2E:") || title.startsWith("Org E2E:") || title.startsWith("Child delivery:");
+}
+
+async function resolveLikelyE2eIssue(issue, labelIds) {
+  if (!issue) return null;
+  if (isLikelyE2eIssue(issue, labelIds)) return issue;
+  if (!issue.parentId) return null;
+  const parent = await api(`/api/issues/${issue.parentId}`).catch(() => null);
+  return parent && isLikelyE2eIssue(parent, labelIds) ? parent : null;
+}
+
 async function cleanupTaggedIssues(companyId, labelIds) {
   const issues = await api(`/api/companies/${companyId}/issues`);
-  const taggedIssues = collectTaggedIssues(issues, labelIds);
+  const taggedIssues = issues.filter((issue) => isLikelyE2eIssue(issue, labelIds));
   const summary = {
     scanned: taggedIssues.length,
     cancelled: 0,
     hidden: 0,
   };
+  const issueIds = new Set(taggedIssues.map((issue) => issue.id));
 
   for (const issue of taggedIssues) {
     if (needsE2eCancellation(issue.status)) {
@@ -158,6 +181,28 @@ async function cleanupTaggedIssues(companyId, labelIds) {
       summary.hidden += 1;
       note(`cleanup hid ${issue.identifier}`);
     }
+  }
+
+  const heartbeatRuns = await api(`/api/companies/${companyId}/heartbeat-runs?limit=200`);
+  const activeRuns = heartbeatRuns.filter((run) => ["queued", "claimed", "running"].includes(run.status));
+
+  for (const run of activeRuns) {
+    const issueId = run?.contextSnapshot?.issueId;
+    if (!issueId) continue;
+    const issue = await api(`/api/issues/${issueId}`).catch(() => null);
+    if (!issue) continue;
+    const matchedIssue = await resolveLikelyE2eIssue(issue, labelIds);
+    if (!issueIds.has(issue.id) && !matchedIssue) continue;
+    if (needsE2eCancellation(issue.status)) {
+      await cancelIssue(
+        issue.id,
+        `Scenario cleanup cancelled lingering E2E issue ${issue.identifier}.`,
+        "Cancel lingering E2E issue before the next scenario run",
+      );
+      summary.cancelled += 1;
+      note(`cleanup cancelled lingering ${issue.identifier}`);
+    }
+    await cancelHeartbeatRun(run.id);
   }
 
   return summary;
@@ -933,13 +978,6 @@ async function createIssue(companyId, scenario, labelIds) {
   });
 }
 
-async function patchIssue(issueId, body) {
-  return api(`/api/issues/${issueId}`, {
-    method: "PATCH",
-    body,
-  });
-}
-
 async function createPmIntakeIssue(companyId, scenario, labelIds) {
   const created = await api(`/api/companies/${companyId}/intake/issues`, {
     method: "POST",
@@ -954,9 +992,6 @@ async function createPmIntakeIssue(companyId, scenario, labelIds) {
     },
   });
   const issue = created.issue ?? created;
-  if ((labelIds?.length ?? 0) > 0) {
-    await patchIssue(issue.id, { labelIds });
-  }
   return issue;
 }
 

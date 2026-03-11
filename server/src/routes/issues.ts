@@ -164,6 +164,47 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function buildMentionProtocolContext(input: {
+  issue: { assigneeAgentId?: string | null };
+  mentionedAgentId: string;
+  protocolState: Record<string, unknown> | null;
+}) {
+  const workflowState = readString(input.protocolState?.workflowState);
+  if (!workflowState) return {};
+
+  if (
+    input.issue.assigneeAgentId === input.mentionedAgentId
+    && (workflowState === "implementing" || workflowState === "changes_requested")
+  ) {
+    return {
+      protocolRecipientRole: "engineer",
+      protocolWorkflowStateAfter: workflowState,
+    };
+  }
+
+  if (
+    readString(input.protocolState?.reviewerAgentId) === input.mentionedAgentId
+    && (workflowState === "submitted_for_review" || workflowState === "under_review")
+  ) {
+    return {
+      protocolRecipientRole: "reviewer",
+      protocolWorkflowStateAfter: workflowState,
+    };
+  }
+
+  if (
+    readString(input.protocolState?.qaAgentId) === input.mentionedAgentId
+    && (workflowState === "qa_pending" || workflowState === "under_qa_review")
+  ) {
+    return {
+      protocolRecipientRole: "qa",
+      protocolWorkflowStateAfter: workflowState,
+    };
+  }
+
+  return {};
+}
+
 export function issueRoutes(db: Db, storage: StorageService) {
   const router = Router();
   const svc = issueService(db);
@@ -2078,6 +2119,11 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
 
     if (commentBody && comment) {
+      const protocolState = await protocolSvc.getState(id).catch((err) => {
+        logger.warn({ err, issueId: id }, "failed to resolve protocol state for issue update wakeups");
+        return null;
+      });
+
       let mentionedIds: string[] = [];
       try {
         mentionedIds = await svc.findMentionedAgents(issue.companyId, commentBody);
@@ -2086,7 +2132,35 @@ export function issueRoutes(db: Db, storage: StorageService) {
       }
 
       for (const mentionedId of mentionedIds) {
-        if (wakeups.has(mentionedId)) continue;
+        if (wakeups.has(mentionedId)) {
+          const existing = wakeups.get(mentionedId);
+          if (existing) {
+            wakeups.set(mentionedId, {
+              ...existing,
+              reason: "issue_comment_mentioned",
+              payload: {
+                ...(existing.payload ?? {}),
+                issueId: id,
+                commentId: comment.id,
+              },
+              contextSnapshot: {
+                ...(existing.contextSnapshot ?? {}),
+                issueId: id,
+                taskId: id,
+                commentId: comment.id,
+                wakeCommentId: comment.id,
+                wakeReason: "issue_comment_mentioned",
+                source: "comment.mention",
+                ...buildMentionProtocolContext({
+                  issue,
+                  mentionedAgentId: mentionedId,
+                  protocolState,
+                }),
+              },
+            });
+          }
+          continue;
+        }
         wakeups.set(mentionedId, {
           source: "automation",
           triggerDetail: "system",
@@ -2101,6 +2175,11 @@ export function issueRoutes(db: Db, storage: StorageService) {
             wakeCommentId: comment.id,
             wakeReason: "issue_comment_mentioned",
             source: "comment.mention",
+            ...buildMentionProtocolContext({
+              issue,
+              mentionedAgentId: mentionedId,
+              protocolState,
+            }),
           },
         });
       }
@@ -2944,6 +3023,10 @@ export function issueRoutes(db: Db, storage: StorageService) {
       }
 
       let mentionedIds: string[] = [];
+      const protocolState = await protocolSvc.getState(id).catch((err) => {
+        logger.warn({ err, issueId: id }, "failed to resolve protocol state for issue comment wakeups");
+        return null;
+      });
       try {
         mentionedIds = await svc.findMentionedAgents(issue.companyId, req.body.body);
       } catch (err) {
@@ -2951,7 +3034,35 @@ export function issueRoutes(db: Db, storage: StorageService) {
       }
 
       for (const mentionedId of mentionedIds) {
-        if (wakeups.has(mentionedId)) continue;
+        if (wakeups.has(mentionedId)) {
+          const existing = wakeups.get(mentionedId);
+          if (existing) {
+            wakeups.set(mentionedId, {
+              ...existing,
+              reason: "issue_comment_mentioned",
+              payload: {
+                ...(existing.payload ?? {}),
+                issueId: id,
+                commentId: comment.id,
+              },
+              contextSnapshot: {
+                ...(existing.contextSnapshot ?? {}),
+                issueId: id,
+                taskId: id,
+                commentId: comment.id,
+                wakeCommentId: comment.id,
+                wakeReason: "issue_comment_mentioned",
+                source: "comment.mention",
+                ...buildMentionProtocolContext({
+                  issue: currentIssue,
+                  mentionedAgentId: mentionedId,
+                  protocolState,
+                }),
+              },
+            });
+          }
+          continue;
+        }
         wakeups.set(mentionedId, {
           source: "automation",
           triggerDetail: "system",
@@ -2966,6 +3077,11 @@ export function issueRoutes(db: Db, storage: StorageService) {
             wakeCommentId: comment.id,
             wakeReason: "issue_comment_mentioned",
             source: "comment.mention",
+            ...buildMentionProtocolContext({
+              issue: currentIssue,
+              mentionedAgentId: mentionedId,
+              protocolState,
+            }),
           },
         });
       }

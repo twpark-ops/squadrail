@@ -716,4 +716,86 @@ describe("enrichProtocolMessageArtifactsFromRun", () => {
       ]),
     );
   });
+
+  it("captures a commit artifact for submit-for-review when the implementation workspace is clean", async () => {
+    setWorkspaceGitExecutorForTests(async ({ args }) => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return { stdout: "true\n" };
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return { stdout: "c8df1cd1234567890\n" };
+      if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "squadrail/issue-5-eng-1\n" };
+      if (args[0] === "status") return { stdout: "## squadrail/issue-5-eng-1\n" };
+      throw new Error(`unexpected git invocation: ${args.join(" ")}`);
+    });
+
+    const message = await enrichProtocolMessageArtifactsFromRun({
+      issueId: "issue-5",
+      run: {
+        id: "run-5",
+        companyId: "company-1",
+        agentId: "eng-1",
+        invocationSource: "automation",
+        status: "running",
+        startedAt: new Date("2026-03-10T00:04:00.000Z"),
+        finishedAt: null,
+        stdoutExcerpt: null,
+        stderrExcerpt: null,
+        contextSnapshot: {
+          issueId: "issue-5",
+          squadrailWorkspace: {
+            cwd: "/workspace/repo",
+            source: "project_isolated",
+            projectId: "project-1",
+            workspaceId: "workspace-1",
+            workspaceUsage: "implementation",
+            branchName: "squadrail/issue-5-eng-1",
+            workspaceState: "fresh",
+            hasLocalChanges: false,
+          },
+        },
+      },
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "submit for review",
+        payload: {
+          implementationSummary: "done",
+          evidence: ["Committed implementation patch"],
+          diffSummary: "derive service version from build info",
+          changedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
+          testResults: ["go test ./internal/observability -count=1"],
+          reviewChecklist: ["go test passed"],
+          residualRisks: ["pending QA validation"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(message.artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "commit",
+          uri: "commit://c8df1cd1234567890",
+          metadata: expect.objectContaining({
+            commitSha: "c8df1cd1234567890",
+            changedFiles: [
+              "internal/observability/tracing.go",
+              "internal/observability/tracing_test.go",
+            ],
+          }),
+        }),
+      ]),
+    );
+  });
 });

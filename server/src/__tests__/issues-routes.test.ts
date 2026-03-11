@@ -9,6 +9,7 @@ const {
   mockIssueGetById,
   mockIssueUpdate,
   mockIssueCheckout,
+  mockIssueAddComment,
   mockIssueFindMentionedAgents,
   mockIssueFindMentionedProjectIds,
   mockIssueGetAncestors,
@@ -60,6 +61,7 @@ const {
   mockIssueGetById: vi.fn(),
   mockIssueUpdate: vi.fn(),
   mockIssueCheckout: vi.fn(),
+  mockIssueAddComment: vi.fn(),
   mockIssueFindMentionedAgents: vi.fn(),
   mockIssueFindMentionedProjectIds: vi.fn(),
   mockIssueGetAncestors: vi.fn(),
@@ -185,7 +187,7 @@ vi.mock("../services/index.js", () => ({
     getById: mockIssueGetById,
     update: mockIssueUpdate,
     checkout: mockIssueCheckout,
-    addComment: vi.fn(),
+    addComment: mockIssueAddComment,
     findMentionedAgents: mockIssueFindMentionedAgents,
     findMentionedProjectIds: mockIssueFindMentionedProjectIds,
     getAncestors: mockIssueGetAncestors,
@@ -365,6 +367,14 @@ describe("issue routes wakeup handling", () => {
     mockAccessHasPermission.mockResolvedValue(true);
     mockIssueFindMentionedAgents.mockResolvedValue([]);
     mockIssueFindMentionedProjectIds.mockResolvedValue([]);
+    mockIssueAddComment.mockResolvedValue({
+      id: "comment-1",
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      body: "comment",
+      createdAt: new Date("2026-03-11T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-11T00:00:00.000Z"),
+    });
     mockIssueGetAncestors.mockResolvedValue([]);
     mockIssueListInternalWorkItems.mockResolvedValue([]);
     mockIssueGetInternalWorkItemSummary.mockResolvedValue({
@@ -756,6 +766,109 @@ describe("issue routes wakeup handling", () => {
       issueId: "11111111-1111-4111-8111-111111111111",
       mutation: "create",
     });
+  });
+
+  it("upgrades an assignee wakeup to issue_comment_mentioned when the assignee is explicitly mentioned", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-182",
+      title: "Recovery issue",
+      status: "in_progress",
+      assigneeAgentId: "22222222-2222-4222-8222-222222222222",
+      executionRunId: null,
+    });
+    mockIssueFindMentionedAgents.mockResolvedValue(["22222222-2222-4222-8222-222222222222"]);
+    mockProtocolGetState.mockResolvedValue({
+      workflowState: "implementing",
+      reviewerAgentId: "rev-1",
+      qaAgentId: "qa-1",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/comments",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        body: "@swiftcl-codex-engineer please recover and resubmit",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatWakeup).toHaveBeenCalledWith(
+      "22222222-2222-4222-8222-222222222222",
+      expect.objectContaining({
+        reason: "issue_comment_mentioned",
+        payload: expect.objectContaining({
+          issueId: "11111111-1111-4111-8111-111111111111",
+          commentId: "comment-1",
+        }),
+        contextSnapshot: expect.objectContaining({
+          issueId: "11111111-1111-4111-8111-111111111111",
+          wakeReason: "issue_comment_mentioned",
+          source: "comment.mention",
+          protocolRecipientRole: "engineer",
+          protocolWorkflowStateAfter: "implementing",
+        }),
+      }),
+    );
+  });
+
+  it("adds implementation protocol context when an update comment mentions the assignee during changes_requested", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-183",
+      title: "Recovery issue via patch",
+      description: "Existing issue",
+      status: "in_progress",
+      assigneeAgentId: "22222222-2222-4222-8222-222222222222",
+      assigneeUserId: null,
+      createdByUserId: "user-1",
+    });
+    mockIssueUpdate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-183",
+      title: "Recovery issue via patch",
+      description: "Existing issue",
+      status: "in_progress",
+      assigneeAgentId: "22222222-2222-4222-8222-222222222222",
+      assigneeUserId: null,
+    });
+    mockIssueAddComment.mockResolvedValue({
+      id: "comment-1",
+      body: "@swiftcl-codex-engineer please retry review submission",
+    });
+    mockIssueFindMentionedAgents.mockResolvedValue(["22222222-2222-4222-8222-222222222222"]);
+    mockProtocolGetState.mockResolvedValue({
+      workflowState: "changes_requested",
+      reviewerAgentId: "rev-1",
+      qaAgentId: "qa-1",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id",
+      method: "patch",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        comment: "@swiftcl-codex-engineer please retry review submission",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockHeartbeatWakeup).toHaveBeenCalledWith(
+      "22222222-2222-4222-8222-222222222222",
+      expect.objectContaining({
+        reason: "issue_comment_mentioned",
+        contextSnapshot: expect.objectContaining({
+          issueId: "11111111-1111-4111-8111-111111111111",
+          protocolRecipientRole: "engineer",
+          protocolWorkflowStateAfter: "changes_requested",
+          wakeReason: "issue_comment_mentioned",
+        }),
+      }),
+    );
   });
 
   it("creates a PM intake issue and assigns it into the PM lane", async () => {

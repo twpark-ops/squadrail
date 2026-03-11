@@ -147,6 +147,7 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
   issueId: string;
   liveLogContent?: string | null;
 }) {
+  const payload = asRecord(input.message.payload);
   const workspace = extractWorkspaceContext(input.run);
   const runEvidenceText = buildRunEvidenceText(input.run);
   const verificationSignals = extractRunVerificationSignals({
@@ -213,6 +214,34 @@ export async function enrichProtocolMessageArtifactsFromRun(input: {
         repoUrl: workspace.repoUrl,
         repoRef: workspace.repoRef,
         headSha: workspaceGitSnapshot?.headSha ?? null,
+      },
+    });
+  }
+
+  const submittedChangedFiles = readStringArray(payload.changedFiles);
+  const shouldCaptureCommittedReviewArtifact =
+    input.message.messageType === "SUBMIT_FOR_REVIEW"
+    && submittedChangedFiles.length > 0
+    && Boolean(workspaceGitSnapshot?.headSha)
+    && workspaceGitSnapshot?.hasChanges === false;
+
+  if (shouldCaptureCommittedReviewArtifact) {
+    autoArtifacts.push({
+      kind: "commit",
+      uri: `commit://${workspaceGitSnapshot?.headSha}`,
+      label: truncateLabel(`Commit ${workspaceGitSnapshot?.headSha?.slice(0, 12)}`),
+      metadata: {
+        ...autoArtifactMetadata({
+          run: input.run,
+          issueId: input.issueId,
+          workspace,
+        }),
+        captureConfidence: "workspace_snapshot",
+        commitSha: workspaceGitSnapshot?.headSha ?? null,
+        branchName: workspaceGitSnapshot?.branchName ?? workspace?.branchName ?? null,
+        expectedBranchName: workspaceGitSnapshot?.expectedBranchName ?? workspace?.branchName ?? null,
+        branchMismatch: workspaceGitSnapshot?.branchMismatch ?? false,
+        changedFiles: submittedChangedFiles,
       },
     });
   }
