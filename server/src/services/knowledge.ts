@@ -1486,6 +1486,52 @@ export function knowledgeService(db: Db) {
         .orderBy(desc(retrievalRuns.createdAt))
         .limit(limit);
 
+      const runIds = rows.map((row) => row.retrievalRunId);
+      const feedbackRows = runIds.length === 0
+        ? []
+        : await db
+          .select({
+            retrievalRunId: retrievalFeedbackEvents.retrievalRunId,
+            feedbackType: retrievalFeedbackEvents.feedbackType,
+            targetType: retrievalFeedbackEvents.targetType,
+            weight: retrievalFeedbackEvents.weight,
+            createdAt: retrievalFeedbackEvents.createdAt,
+          })
+          .from(retrievalFeedbackEvents)
+          .where(inArray(retrievalFeedbackEvents.retrievalRunId, runIds))
+          .orderBy(desc(retrievalFeedbackEvents.createdAt));
+
+      const feedbackByRunId = new Map<string, {
+        totalCount: number;
+        positiveCount: number;
+        negativeCount: number;
+        pinnedPathCount: number;
+        hiddenPathCount: number;
+        lastFeedbackAt: string | null;
+        feedbackTypeCounts: Record<string, number>;
+      }>();
+      for (const row of feedbackRows) {
+        const entry = feedbackByRunId.get(row.retrievalRunId) ?? {
+          totalCount: 0,
+          positiveCount: 0,
+          negativeCount: 0,
+          pinnedPathCount: 0,
+          hiddenPathCount: 0,
+          lastFeedbackAt: null,
+          feedbackTypeCounts: {},
+        };
+        entry.totalCount += 1;
+        if (row.weight > 0) entry.positiveCount += 1;
+        if (row.weight < 0) entry.negativeCount += 1;
+        if (row.feedbackType === "operator_pin" && row.targetType === "path") entry.pinnedPathCount += 1;
+        if (row.feedbackType === "operator_hide" && row.targetType === "path") entry.hiddenPathCount += 1;
+        if (!entry.lastFeedbackAt || row.createdAt.getTime() > new Date(entry.lastFeedbackAt).getTime()) {
+          entry.lastFeedbackAt = row.createdAt.toISOString();
+        }
+        entry.feedbackTypeCounts[row.feedbackType] = (entry.feedbackTypeCounts[row.feedbackType] ?? 0) + 1;
+        feedbackByRunId.set(row.retrievalRunId, entry);
+      }
+
       return Promise.all(rows.map(async (row) => {
         const queryDebug = asRecord(row.queryDebug);
         const quality = asRecord(queryDebug.quality);
@@ -1575,6 +1621,15 @@ export function knowledgeService(db: Db) {
           topHitPath: readString(queryDebug.topHitPath),
           topHitSourceType: readString(queryDebug.topHitSourceType),
           topHitArtifactKind: readString(queryDebug.topHitArtifactKind),
+          feedbackSummary: feedbackByRunId.get(row.retrievalRunId) ?? {
+            totalCount: 0,
+            positiveCount: 0,
+            negativeCount: 0,
+            pinnedPathCount: 0,
+            hiddenPathCount: 0,
+            lastFeedbackAt: null,
+            feedbackTypeCounts: {},
+          },
           topHits,
         };
       }));

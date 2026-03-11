@@ -10,6 +10,7 @@ import {
   knowledgeService,
   logActivity,
   projectService,
+  retrievalPersonalizationService,
   setupProgressService,
 } from "../services/index.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -87,6 +88,13 @@ const recentRetrievalRunsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).optional(),
 });
 
+const retrievalFeedbackSchema = z.object({
+  feedbackType: z.enum(["operator_pin", "operator_hide"]),
+  targetType: z.enum(["chunk", "path", "symbol", "source_type"]),
+  targetIds: z.array(z.string().trim().min(1)).min(1).max(32),
+  noteBody: z.string().trim().max(4_000).nullable().optional(),
+}).strict();
+
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -125,6 +133,7 @@ export function knowledgeRoutes(db: Db) {
   const imports = knowledgeImportService(db);
   const projects = projectService(db);
   const setup = setupProgressService(db);
+  const retrievalPersonalization = retrievalPersonalizationService(db);
 
   router.get("/knowledge/documents", async (req, res) => {
     const parsed = listDocumentsSchema.safeParse(req.query);
@@ -172,6 +181,38 @@ export function knowledgeRoutes(db: Db) {
     assertCompanyAccess(req, parsed.data.companyId);
     const runs = await knowledge.listRecentRetrievalRuns(parsed.data);
     res.json(runs);
+  });
+
+  router.post("/knowledge/retrieval-runs/:id/feedback", async (req, res) => {
+    const parsed = retrievalFeedbackSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    const run = await knowledge.getRetrievalRunById(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: "Retrieval run not found" });
+      return;
+    }
+
+    assertCompanyAccess(req, run.companyId);
+    const issueProjectId = readString((run.queryDebug as Record<string, unknown> | null | undefined)?.issueProjectId);
+    const actor = getActorInfo(req);
+    const actorRole = actor.agentId ? "agent" : "human_board";
+    const result = await retrievalPersonalization.recordManualFeedback({
+      companyId: run.companyId,
+      issueId: run.issueId ?? null,
+      issueProjectId,
+      retrievalRunId: run.id,
+      feedbackType: parsed.data.feedbackType,
+      targetType: parsed.data.targetType,
+      targetIds: parsed.data.targetIds,
+      actorRole,
+      noteBody: parsed.data.noteBody ?? null,
+    });
+
+    res.json(result);
   });
 
   router.post("/knowledge/documents", async (req, res) => {
