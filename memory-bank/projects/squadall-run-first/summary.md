@@ -119,3 +119,19 @@
   - approvals, intake, protocol read, merge/change-surface, attachments를 `server/src/routes/issues/` 하위 모듈로 분리
   - 메인 `issues.ts`는 create/update/delete/checkout/release, comments, protocol write 등 고변동 write path 중심으로 축소
   - 집중 테스트 + 전체 `typecheck/test/build` 모두 통과
+- `issue-retrieval.ts` refactor slice 1 완료
+  - graph expansion helper를 `server/src/services/retrieval/graph.ts`로 이동
+  - model rerank helper를 `server/src/services/retrieval/model-rerank.ts`로 이동
+  - 공통 path/text helper를 `server/src/services/retrieval/shared.ts`로 이동
+- `knowledge-setup` read model cache 1차 완료
+  - setup view는 15초 fresh / 2분 stale 캐시 사용
+  - stale 구간에서는 cached view를 반환하고 background refresh 수행
+  - knowledge sync / org repair 시 cache invalidate
+- 루트 CI/release workflow 추가
+  - `.github/workflows/pr-verify.yml`
+  - `.github/workflows/release.yml`
+- 이번 배치 전체 검증:
+  - `pnpm vitest run server/src/__tests__/issue-retrieval.test.ts server/src/__tests__/companies-routes.test.ts server/src/__tests__/knowledge-routes.test.ts`
+  - `pnpm -r typecheck`
+  - `pnpm test:run`
+  - `pnpm build`
