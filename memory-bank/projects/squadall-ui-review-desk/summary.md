@@ -27,13 +27,16 @@
   - `primaryReviewSurfaceQuery` 훅을 early return 앞쪽으로 이동해 React hook-order crash 수정
 - `ui/src/components/knowledge/KnowledgeSetupPanel.tsx`
   - refresh / sync all / retry failed / active job UI 보강
+- `ui/vite.config.ts`
+  - markdown/editor vendor chunk strategy를 세분화해 editor async bundle을 추가로 절감
+  - `lexical` / `markdown` vendor를 editor shell에서 분리
 
 ## 검증 상태
 
 - `pnpm --filter @squadrail/ui typecheck` 통과
 - `pnpm --filter @squadrail/ui build` 통과
 - `scripts/smoke/local-ui-flow.sh` 통과
-- `UI_REVIEW_BASE_URL=http://127.0.0.1:3381 pnpm exec playwright test scripts/smoke/ui-interaction-review.spec.ts scripts/smoke/ui-support-routes.spec.ts --reporter=line` 통과 (`7 passed`)
+- `UI_REVIEW_BASE_URL=http://127.0.0.1:3386 pnpm exec playwright test scripts/smoke/ui-interaction-review.spec.ts scripts/smoke/ui-support-routes.spec.ts --reporter=line` 통과 (`7 passed`)
 
 ## 회귀 테스트 메모
 
@@ -52,4 +55,5 @@
   - `GET /api/agents/:id/runtime-state`에서 duplicate-key 500이 발생할 수 있음
   - 이번 worktree에서는 UI-only 범위라 테스트 대상에서 제외
 - perf scope:
-  - main entry 약 `431kB`, `MarkdownEditor` async chunk 약 `926kB`
+  - main entry 약 `431kB`, `MarkdownEditor` async chunk 약 `816kB`
+  - editor chunk warning은 줄었지만 아직 Vite large-chunk warning 기준(`500kB`)은 넘는다

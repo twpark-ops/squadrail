@@ -291,7 +291,7 @@ test("change review desk and knowledge setup expose operator controls", async ({
 
   await page.goto(`${baseUrl}/SMO/changes/SMO-1`);
   await expect(
-    page.getByRole("heading", { name: /Smoke protocol issue/i })
+    page.getByRole("heading", { name: "SMO-1 · Smoke protocol issue" })
   ).toBeVisible();
   await expect(page.getByText("Operator review desk").first()).toBeVisible();
   await expect(

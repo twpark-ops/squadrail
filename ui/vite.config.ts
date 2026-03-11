@@ -3,6 +3,10 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+function matchAny(id: string, patterns: string[]) {
+  return patterns.some((pattern) => id.includes(pattern));
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
@@ -28,6 +32,34 @@ export default defineConfig({
 
           if (id.includes("@dnd-kit")) {
             return "dnd-kit";
+          }
+
+          if (matchAny(id, ["/@mdxeditor/editor/"])) {
+            return "mdx-editor";
+          }
+
+          if (
+            matchAny(id, [
+              "/@lexical/",
+              "/lexical/",
+              "/@mdxeditor/gurx/",
+            ])
+          ) {
+            return "lexical";
+          }
+
+          if (
+            matchAny(id, [
+              "/unified/",
+              "/remark-",
+              "/rehype-",
+              "/micromark",
+              "/mdast-",
+              "/hast-",
+              "/mdurl/",
+            ])
+          ) {
+            return "markdown";
           }
 
           return undefined;
