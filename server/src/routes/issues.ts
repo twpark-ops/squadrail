@@ -193,22 +193,32 @@ export function issueRoutes(db: Db, storage: StorageService) {
   }
 
   function scheduleIssueMemoryIngest(issueId: string, mutation: "create" | "update" | "internal_work_item") {
-    runWithoutDbContext(() => {
-      void organizationalMemory
-        .ingestIssueSnapshot({ issueId, mutation })
-        .catch((err) => logger.error({ err, issueId, mutation }, "issue organizational memory ingest failed"));
-    });
+    const schedule = () => {
+      runWithoutDbContext(() => {
+        void organizationalMemory
+          .ingestIssueSnapshot({ issueId, mutation })
+          .catch((err) => logger.error({ err, issueId, mutation }, "issue organizational memory ingest failed"));
+      });
+    };
+    if (!enqueueAfterDbCommit(schedule)) {
+      schedule();
+    }
   }
 
   function scheduleProtocolMemoryIngest(messageId: string, issueId: string, messageType: string) {
-    runWithoutDbContext(() => {
-      void organizationalMemory
-        .ingestProtocolMessage({ messageId })
-        .catch((err) => logger.error(
-          { err, issueId, messageId, messageType },
-          "protocol organizational memory ingest failed",
-        ));
-    });
+    const schedule = () => {
+      runWithoutDbContext(() => {
+        void organizationalMemory
+          .ingestProtocolMessage({ messageId })
+          .catch((err) => logger.error(
+            { err, issueId, messageId, messageType },
+            "protocol organizational memory ingest failed",
+          ));
+      });
+    };
+    if (!enqueueAfterDbCommit(schedule)) {
+      schedule();
+    }
   }
 
   async function ensureIssueLabelsByName(companyId: string, specs: ReadonlyArray<{ name: string; color: string }>) {

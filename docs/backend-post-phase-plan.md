@@ -16,6 +16,26 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 - 현재 완료 상태: [phase-roadmap.md](/home/taewoong/company-project/squadall/docs/phase-roadmap.md)
 - 후속 제품 backlog: [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/post-phase-backlog.md)
+- 실행 우선순위 재정렬: [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)
+
+## 2026-03-11 우선순위 재정렬
+
+최근 replay cache / graph / feedback 고도화 이후, 다음 병목은 retrieval 미세튜닝이 아니라 `replay readiness gate`와 `18-agent burn-in`이라는 점이 확인됐다.
+
+따라서 현재 기준 우선순위는 아래 순서로 재정렬한다.
+
+1. replay E2E gate normalization
+2. 18-agent real-org burn-in
+3. blocked timeout + legacy semantics cleanup
+4. retrieval god-file refactor
+5. rerank provider abstraction
+6. execution lane classifier
+7. fast lane optimization
+8. deeper multi-hop
+9. ranking/cache/trend consolidation
+10. cross-issue memory reuse
+
+세부 이유와 실행 순서는 [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)에서 관리한다.
 
 ## `.paperclip`에서 채택한 백엔드 참고점
 

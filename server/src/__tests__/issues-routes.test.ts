@@ -605,7 +605,7 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(2);
     expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(2);
     expect(mockIssueRetrievalHandleProtocolMessage).toHaveBeenCalledTimes(1);
     expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
@@ -668,14 +668,14 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(2);
     expect(mockProtocolDispatchMessage).not.toHaveBeenCalled();
-    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
+    expect(mockRunWithoutDbContext).not.toHaveBeenCalled();
 
     expect(queuedCallback).not.toBeNull();
     await queuedCallback?.();
 
-    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(2);
+    expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
     expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -744,6 +744,7 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(201);
+    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
     expect(mockRunWithoutDbContext).toHaveBeenCalledTimes(1);
     expect(mockOrgMemoryIngestIssueSnapshot).toHaveBeenCalledWith({
       issueId: "11111111-1111-4111-8111-111111111111",
@@ -1999,6 +2000,7 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(201);
+    expect(mockEnqueueAfterDbCommit).toHaveBeenCalledTimes(1);
     expect(mockRunWithoutDbContext).toHaveBeenCalled();
     expect(mockOrgMemoryIngestProtocolMessage).toHaveBeenCalledWith({
       messageId: "message-1",
