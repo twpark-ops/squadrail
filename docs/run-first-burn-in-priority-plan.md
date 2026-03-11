@@ -77,6 +77,7 @@
 완료 기준:
 
 - 여러 이슈가 동시에 돌아도 stuck run과 queue pollution 없이 완주 가능하다.
+- 상세 실행계획은 [18-agent-real-org-burn-in-plan.md](/home/taewoong/company-project/squadall/docs/18-agent-real-org-burn-in-plan.md) 기준으로 관리한다.
 
 ### 3. Blocked Timeout + Legacy Semantics Cleanup
 
