@@ -5,6 +5,7 @@ import {
   estimateEmbeddingTokenUsage,
   knowledgeEmbeddingService,
   normalizeEmbeddingInput,
+  sanitizeEmbeddingInput,
   shrinkEmbeddingInputForRetry,
 } from "../services/knowledge-embeddings.js";
 
@@ -20,6 +21,14 @@ describe("knowledge embedding service", () => {
   it("normalizes blank embedding input safely", () => {
     expect(normalizeEmbeddingInput("   \n\t ")).toBe("[blank]");
     expect(normalizeEmbeddingInput("hello\nworld")).toBe("hello world");
+  });
+
+  it("sanitizes control characters and lone surrogates before embedding", () => {
+    const sanitized = sanitizeEmbeddingInput(`alpha\u0000beta\uD800gamma\uDC00delta`);
+    expect(sanitized).toContain("alpha beta");
+    expect(sanitized).toContain("gamma delta");
+    expect(sanitized.includes("\u0000")).toBe(false);
+    expect(/[\uD800-\uDFFF]/.test(sanitized)).toBe(false);
   });
 
   it("truncates oversized embedding input to a safe token budget", () => {
@@ -230,6 +239,46 @@ describe("knowledge embedding service", () => {
       String(fetchSpy.mock.calls.at(-1)?.[1]?.body ?? "{}"),
     ) as { input?: string[] };
     expect(retryPayload.input?.[0]?.endsWith("[truncated]")).toBe(true);
+    expect(result.embeddings).toHaveLength(1);
+  });
+
+  it("retries a single malformed embedding input after sanitizing the payload", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    let firstAttempt = true;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as { input?: string[] };
+      const first = payload.input?.[0] ?? "";
+      if (firstAttempt) {
+        firstAttempt = false;
+        return {
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({
+            error: {
+              message: "We could not parse the JSON body of your request.",
+            },
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          model: DEFAULT_OPENAI_EMBEDDING_MODEL,
+          usage: { prompt_tokens: 10, total_tokens: 10 },
+          data: [{
+            index: 0,
+            embedding: Array.from({ length: 1536 }, () => 0.03),
+          }],
+        }),
+      } as Response;
+    });
+
+    const service = knowledgeEmbeddingService();
+    const result = await service.generateEmbeddings(["alpha\u0000beta\uD800gamma"]);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const retryPayload = JSON.parse(String(fetchSpy.mock.calls[1]?.[1]?.body ?? "{}")) as { input?: string[] };
+    expect(retryPayload.input?.[0]).toBe("alpha beta gamma");
     expect(result.embeddings).toHaveLength(1);
   });
 });

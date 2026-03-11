@@ -95,14 +95,26 @@ export function summarizeBriefQuality(brief) {
 
 export function summarizeKnowledgeQualityGate(summary) {
   const readinessGate = asRecord(summary?.readinessGate);
+  const functionalReadinessGate = asRecord(summary?.functionalReadinessGate);
+  const historicalHygieneGate = asRecord(summary?.historicalHygieneGate);
   const failures = Array.isArray(readinessGate.failures)
     ? readinessGate.failures.filter((value) => typeof value === "string")
+    : [];
+  const functionalFailures = Array.isArray(functionalReadinessGate.failures)
+    ? functionalReadinessGate.failures.filter((value) => typeof value === "string")
+    : [];
+  const historicalFailures = Array.isArray(historicalHygieneGate.failures)
+    ? historicalHygieneGate.failures.filter((value) => typeof value === "string")
     : [];
   const perProject = Array.isArray(summary?.perProject) ? summary.perProject : [];
   const perRole = Array.isArray(summary?.perRole) ? summary.perRole : [];
   return {
     status: typeof readinessGate.status === "string" ? readinessGate.status : null,
     failures,
+    functionalStatus: typeof functionalReadinessGate.status === "string" ? functionalReadinessGate.status : null,
+    functionalFailures,
+    historicalStatus: typeof historicalHygieneGate.status === "string" ? historicalHygieneGate.status : null,
+    historicalFailures,
     totalRuns: typeof summary?.totalRuns === "number" ? summary.totalRuns : 0,
     candidateCacheHitRate:
       typeof summary?.candidateCacheHitRate === "number" ? summary.candidateCacheHitRate : 0,
