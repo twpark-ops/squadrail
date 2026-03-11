@@ -944,6 +944,19 @@ export function issueRoutes(db: Db, storage: StorageService) {
       return { result, warnings: [] as string[] };
     }
 
+    if (effectiveMessage.messageType === "CLOSE_TASK") {
+      try {
+        await heartbeat.cancelSupersededIssueFollowups({
+          companyId: input.issue.companyId,
+          issueId: input.issue.id,
+          excludeRunId: input.actor.runId ?? null,
+          reason: "Issue closed via protocol",
+        });
+      } catch (err) {
+        logger.error({ err, issueId: input.issue.id }, "Superseded protocol follow-up cleanup failed");
+      }
+    }
+
     const runDispatch = async () => {
       let recipientHints: Array<{
         recipientId: string;

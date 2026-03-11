@@ -3,7 +3,9 @@ import { resolveProtocolRunRequirement } from "@squadrail/shared/protocol-run-re
 import {
   buildRequiredProtocolProgressError,
   hasRequiredProtocolProgress,
+  isSupersededProtocolWakeReason,
   shouldEnqueueProtocolRequiredRetry,
+  shouldSkipSupersededProtocolFollowup,
   shouldResetTaskSessionForWake,
 } from "../services/heartbeat.js";
 
@@ -111,6 +113,31 @@ describe("heartbeat protocol progress helpers", () => {
       shouldEnqueueProtocolRequiredRetry({
         protocolRetryCount: 1,
         issueStatus: "in_progress",
+      }),
+    ).toBe(false);
+  });
+
+  it("skips stale protocol follow-up wakes once the issue is terminal", () => {
+    expect(isSupersededProtocolWakeReason("issue_ready_for_closure")).toBe(true);
+    expect(isSupersededProtocolWakeReason("issue_ready_for_qa_gate")).toBe(true);
+    expect(isSupersededProtocolWakeReason("protocol_required_retry")).toBe(true);
+    expect(isSupersededProtocolWakeReason("heartbeat_timer")).toBe(false);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "issue_ready_for_closure",
+        issueStatus: "done",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "issue_ready_for_qa_gate",
+        issueStatus: "cancelled",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "issue_ready_for_closure",
+        issueStatus: "in_review",
       }),
     ).toBe(false);
   });

@@ -1,5 +1,10 @@
+import { enqueueAfterDbCommit, runWithDbContext } from "@squadrail/db";
 import { describe, expect, it } from "vitest";
-import { decideDispatchWatchdogAction, scheduleDeferredRunDispatch } from "../services/heartbeat.js";
+import {
+  decideDispatchWatchdogAction,
+  runDispatchWatchdogOutsideDbContext,
+  scheduleDeferredRunDispatch,
+} from "../services/heartbeat.js";
 
 describe("decideDispatchWatchdogAction", () => {
   it("returns noop when the run is no longer running", () => {
@@ -74,5 +79,19 @@ describe("decideDispatchWatchdogAction", () => {
 
     await new Promise((resolve) => setImmediate(resolve));
     expect(calls).toEqual(["scheduled", "dispatched"]);
+  });
+
+  it("runs dispatch watchdog callbacks outside any inherited db transaction context", () => {
+    let detachedFromDbContext: boolean | null = null;
+
+    runWithDbContext({ kind: "tx" }, () => {
+      runDispatchWatchdogOutsideDbContext(() => {
+        detachedFromDbContext = enqueueAfterDbCommit(() => {
+          // No-op callback for assertion only.
+        });
+      });
+    });
+
+    expect(detachedFromDbContext).toBe(false);
   });
 });

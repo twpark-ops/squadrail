@@ -8,6 +8,7 @@ import {
   extractJsonTail,
   findLatestBriefByScope,
   isKnowledgeSetupReady,
+  summarizeKnowledgeQualityGate,
   summarizeBriefQuality,
 } from "./rag-readiness-utils.mjs";
 
@@ -23,18 +24,14 @@ const RAG_SCENARIO_KEY = process.env.SWIFTSIGHT_RAG_SCENARIO ?? "swiftsight-agen
 
 const SCENARIO_CONFIG = {
   "swiftsight-agent-tl-qa-loop": {
-    pinnedPaths: [
-      "internal/storage/path.go",
-      "internal/storage/path_test.go",
-    ],
+    pinnedPaths: ["internal/storage/path.go"],
+    expectedRelatedPaths: ["internal/storage/path_test.go"],
     reviewScope: "reviewer",
     expectedProject: "swiftsight-agent",
   },
   "swiftsight-cloud-pm-qa-lead-loop": {
-    pinnedPaths: [
-      "internal/observability/tracing.go",
-      "internal/observability/tracing_test.go",
-    ],
+    pinnedPaths: ["internal/observability/tracing.go"],
+    expectedRelatedPaths: ["internal/observability/tracing_test.go"],
     reviewScope: "reviewer",
     expectedProject: "swiftsight-cloud",
   },
@@ -201,6 +198,17 @@ async function fetchKnowledgeQuality(companyId) {
   return api(`/api/knowledge/quality?companyId=${companyId}&days=14&limit=2000`);
 }
 
+async function fetchProjectKnowledgeQuality(companyId, projectId, role = null) {
+  const params = new URLSearchParams({
+    companyId,
+    projectId,
+    days: "14",
+    limit: "2000",
+  });
+  if (role) params.set("role", role);
+  return api(`/api/knowledge/quality?${params.toString()}`);
+}
+
 async function recordOperatorPin(issueId, retrievalRunId, pinnedPaths) {
   return api(`/api/issues/${issueId}/retrieval-feedback`, {
     method: "POST",
@@ -301,6 +309,7 @@ async function main() {
     followInspect.reviewQuality.reviewHitCount > 0 || followInspect.reviewQuality.codeHitCount > 0,
     "Follow-up reviewer brief still lacks concrete review/code evidence",
   );
+  assert(followInspect.reviewQuality.exactPathSatisfied, "Follow-up reviewer brief did not satisfy exact path evidence");
   assert(
     !followInspect.reviewQuality.hitSourceTypes.every((sourceType) => sourceType === "issue"),
     "Follow-up reviewer brief is still dominated entirely by issue snapshots",
@@ -309,6 +318,16 @@ async function main() {
     followInspect.reviewQuality.hitPaths.some((hitPath) => scenarioConfig.pinnedPaths.includes(hitPath)),
     "Follow-up reviewer brief did not surface pinned implementation paths",
   );
+  assert(
+    followInspect.reviewQuality.multiHopGraphHitCount > 0,
+    `Follow-up reviewer brief did not surface multi-hop graph evidence: ${JSON.stringify(followInspect.reviewQuality.graphHopDepthCounts)}`,
+  );
+  if (Array.isArray(scenarioConfig.expectedRelatedPaths) && scenarioConfig.expectedRelatedPaths.length > 0) {
+    assert(
+      followInspect.reviewQuality.hitPaths.some((hitPath) => scenarioConfig.expectedRelatedPaths.includes(hitPath)),
+      "Follow-up reviewer brief did not surface the related path discovered through graph expansion",
+    );
+  }
 
   section("Replay Issue");
   const replayRun = await runScenarioOnce({
@@ -323,9 +342,34 @@ async function main() {
     replayInspect.reviewQuality.candidateCacheHit || replayInspect.reviewQuality.finalCacheHit,
     "Replay reviewer brief did not hit retrieval caches",
   );
+  assert(replayInspect.reviewQuality.exactPathSatisfied, "Replay reviewer brief lost exact path evidence");
+  assert(
+    replayInspect.reviewQuality.candidateCacheReason === null || replayInspect.reviewQuality.candidateCacheReason === "hit",
+    `Replay candidate cache reason was unexpected: ${replayInspect.reviewQuality.candidateCacheReason}`,
+  );
+  assert(
+    replayInspect.reviewQuality.finalCacheReason === null || replayInspect.reviewQuality.finalCacheReason === "hit",
+    `Replay final cache reason was unexpected: ${replayInspect.reviewQuality.finalCacheReason}`,
+  );
 
   const quality = await fetchKnowledgeQuality(company.id);
+  const projectQuality = await fetchProjectKnowledgeQuality(company.id, targetProject.projectId);
+  const reviewerProjectQuality = await fetchProjectKnowledgeQuality(company.id, targetProject.projectId, scenarioConfig.reviewScope);
+  const projectGate = summarizeKnowledgeQualityGate(projectQuality);
+  const reviewerProjectGate = summarizeKnowledgeQualityGate(reviewerProjectQuality);
   assert(quality.candidateCacheHitRate > 0 || quality.finalCacheHitRate > 0, "Knowledge quality did not record cache hit rates");
+  assert(quality.multiHopGraphExpandedRuns > 0, "Knowledge quality did not record any multi-hop graph expansion");
+  assert(projectGate.totalRuns > 0, "Project-scoped knowledge quality did not record any runs");
+  assert(
+    projectGate.candidateCacheHitRate > 0 || projectGate.finalCacheHitRate > 0,
+    "Project-scoped knowledge quality did not record cache hit rates",
+  );
+  assert(projectGate.multiHopGraphExpandedRuns > 0, "Project-scoped quality did not record multi-hop graph expansion");
+  assert(
+    projectGate.status === "pass" || projectGate.failures.length === 0,
+    `Project-scoped readiness gate is not passing: ${JSON.stringify(projectGate)}`,
+  );
+  assert(reviewerProjectGate.totalRuns > 0, "Reviewer project-scoped quality did not record any runs");
 
   section("Summary");
   note(JSON.stringify({
@@ -354,6 +398,8 @@ async function main() {
       averageGraphHitCount: quality.averageGraphHitCount,
       multiHopGraphExpandedRuns: quality.multiHopGraphExpandedRuns,
     },
+    projectQuality: projectGate,
+    reviewerProjectQuality: reviewerProjectGate,
   }, null, 2));
 }
 

@@ -69,9 +69,16 @@ export function summarizeBriefQuality(brief) {
     confidenceLevel: typeof quality.confidenceLevel === "string" ? quality.confidenceLevel : null,
     graphHitCount: typeof quality.graphHitCount === "number" ? quality.graphHitCount : 0,
     graphMaxDepth: typeof quality.graphMaxDepth === "number" ? quality.graphMaxDepth : 0,
+    graphHopDepthCounts:
+      quality.graphHopDepthCounts && typeof quality.graphHopDepthCounts === "object" && !Array.isArray(quality.graphHopDepthCounts)
+        ? quality.graphHopDepthCounts
+        : {},
     multiHopGraphHitCount: typeof quality.multiHopGraphHitCount === "number" ? quality.multiHopGraphHitCount : 0,
     candidateCacheHit: quality.candidateCacheHit === true,
     finalCacheHit: quality.finalCacheHit === true,
+    candidateCacheReason: typeof quality.candidateCacheReason === "string" ? quality.candidateCacheReason : null,
+    finalCacheReason: typeof quality.finalCacheReason === "string" ? quality.finalCacheReason : null,
+    exactPathSatisfied: quality.exactPathSatisfied !== false,
     personalizationApplied: quality.personalizationApplied === true,
     personalizedHitCount: typeof quality.personalizedHitCount === "number" ? quality.personalizedHitCount : 0,
     averagePersonalizationBoost:
@@ -83,5 +90,27 @@ export function summarizeBriefQuality(brief) {
     degradedReasons,
     hitPaths,
     hitSourceTypes,
+  };
+}
+
+export function summarizeKnowledgeQualityGate(summary) {
+  const readinessGate = asRecord(summary?.readinessGate);
+  const failures = Array.isArray(readinessGate.failures)
+    ? readinessGate.failures.filter((value) => typeof value === "string")
+    : [];
+  const perProject = Array.isArray(summary?.perProject) ? summary.perProject : [];
+  const perRole = Array.isArray(summary?.perRole) ? summary.perRole : [];
+  return {
+    status: typeof readinessGate.status === "string" ? readinessGate.status : null,
+    failures,
+    totalRuns: typeof summary?.totalRuns === "number" ? summary.totalRuns : 0,
+    candidateCacheHitRate:
+      typeof summary?.candidateCacheHitRate === "number" ? summary.candidateCacheHitRate : 0,
+    finalCacheHitRate:
+      typeof summary?.finalCacheHitRate === "number" ? summary.finalCacheHitRate : 0,
+    multiHopGraphExpandedRuns:
+      typeof summary?.multiHopGraphExpandedRuns === "number" ? summary.multiHopGraphExpandedRuns : 0,
+    matchingProjectCount: perProject.filter((entry) => typeof entry?.projectId === "string").length,
+    matchingRoleCount: perRole.filter((entry) => typeof entry?.role === "string").length,
   };
 }

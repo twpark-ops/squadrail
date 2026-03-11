@@ -90,6 +90,23 @@ function readBoolean(value: unknown) {
   return value === true;
 }
 
+type RetrievalCacheIdentityView = {
+  queryFingerprint: string | null;
+  policyFingerprint: string | null;
+  feedbackFingerprint: string | null;
+  revisionSignature: string | null;
+};
+
+function readRetrievalCacheIdentity(value: unknown): RetrievalCacheIdentityView {
+  const record = asRecord(value);
+  return {
+    queryFingerprint: readString(record.queryFingerprint),
+    policyFingerprint: readString(record.policyFingerprint),
+    feedbackFingerprint: readString(record.feedbackFingerprint),
+    revisionSignature: readString(record.revisionSignature),
+  };
+}
+
 export function buildKnowledgeQualityDailyTrend(input: {
   samples: KnowledgeQualityTrendSample[];
   days: number;
@@ -326,7 +343,7 @@ export function knowledgeService(db: Db) {
     const documentLanguage = input.documentLanguage;
     const projectId = input.projectId;
 
-    const symbolValues = input.codeGraph.symbols
+    const rawSymbolValues = input.codeGraph.symbols
       .map((symbol) => {
         const chunkId = input.chunkIdByIndex.get(symbol.chunkIndex);
         if (!chunkId) return null;
@@ -348,9 +365,39 @@ export function knowledgeService(db: Db) {
       })
       .filter((value): value is NonNullable<typeof value> => value !== null);
 
+    const symbolValues = Array.from(
+      rawSymbolValues.reduce((map, symbol) => {
+        const key = `${symbol.path}:${symbol.symbolKey}`;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, symbol);
+          return map;
+        }
+
+        const existingMetadataSize = Object.keys(existing.metadata ?? {}).length;
+        const nextMetadataSize = Object.keys(symbol.metadata ?? {}).length;
+        const shouldReplace =
+          nextMetadataSize > existingMetadataSize
+          || (existing.endLine ?? 0) < (symbol.endLine ?? 0);
+
+        if (shouldReplace) {
+          map.set(key, symbol);
+        }
+        return map;
+      }, new Map<string, (typeof rawSymbolValues)[number]>()).values(),
+    );
+
     if (symbolValues.length === 0) {
       return { symbolCount: 0, edgeCount: 0 };
     }
+
+    await input.tx
+      .delete(codeSymbols)
+      .where(and(
+        eq(codeSymbols.companyId, input.companyId),
+        eq(codeSymbols.projectId, projectId),
+        eq(codeSymbols.path, documentPath),
+      ));
 
     const insertedSymbols = await input.tx
       .insert(codeSymbols)
@@ -982,19 +1029,83 @@ export function knowledgeService(db: Db) {
       return updated ?? entry;
     },
 
+    getCompatibleRetrievalCacheEntry: async (input: {
+      companyId: string;
+      projectId?: string | null;
+      stage: string;
+      knowledgeRevision?: number;
+      allowFeedbackDrift?: boolean;
+      identity: {
+        queryFingerprint: string;
+        policyFingerprint: string;
+        feedbackFingerprint: string;
+        revisionSignature?: string | null;
+      };
+    }) => {
+      const now = new Date();
+      const revision = input.knowledgeRevision ?? 0;
+      const entries = await db
+        .select()
+        .from(retrievalCacheEntries)
+        .where(
+          and(
+            eq(retrievalCacheEntries.companyId, input.companyId),
+            eqNullable(retrievalCacheEntries.projectId, input.projectId ?? null),
+            eq(retrievalCacheEntries.stage, input.stage),
+            eq(retrievalCacheEntries.knowledgeRevision, revision),
+            or(isNull(retrievalCacheEntries.expiresAt), gte(retrievalCacheEntries.expiresAt, now)),
+          ),
+        )
+        .orderBy(desc(retrievalCacheEntries.updatedAt));
+
+      const entry = entries.find((candidate) => {
+        const metadata = asRecord(asRecord(candidate.valueJson).metadata);
+        const cacheIdentity = readRetrievalCacheIdentity(metadata.cacheIdentity);
+        return (
+          cacheIdentity.queryFingerprint === input.identity.queryFingerprint
+          && cacheIdentity.policyFingerprint === input.identity.policyFingerprint
+          && (
+            cacheIdentity.feedbackFingerprint === input.identity.feedbackFingerprint
+            || input.allowFeedbackDrift === true
+          )
+          && (input.identity.revisionSignature == null || cacheIdentity.revisionSignature === input.identity.revisionSignature)
+        );
+      }) ?? null;
+
+      if (!entry) return null;
+
+      const [updated] = await db
+        .update(retrievalCacheEntries)
+        .set({
+          hitCount: entry.hitCount + 1,
+          lastAccessedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(retrievalCacheEntries.id, entry.id))
+        .returning();
+      return updated ?? entry;
+    },
+
     inspectRetrievalCacheEntryState: async (input: {
       companyId: string;
       projectId?: string | null;
       stage: string;
       cacheKey: string;
       knowledgeRevision?: number;
+      identity?: {
+        queryFingerprint: string;
+        policyFingerprint: string;
+        feedbackFingerprint: string;
+      };
     }) => {
       const now = new Date();
       const entries = await db
         .select({
+          cacheKey: retrievalCacheEntries.cacheKey,
           knowledgeRevision: retrievalCacheEntries.knowledgeRevision,
           updatedAt: retrievalCacheEntries.updatedAt,
           expiresAt: retrievalCacheEntries.expiresAt,
+          valueJson: retrievalCacheEntries.valueJson,
         })
         .from(retrievalCacheEntries)
         .where(
@@ -1002,7 +1113,6 @@ export function knowledgeService(db: Db) {
             eq(retrievalCacheEntries.companyId, input.companyId),
             eqNullable(retrievalCacheEntries.projectId, input.projectId ?? null),
             eq(retrievalCacheEntries.stage, input.stage),
-            eq(retrievalCacheEntries.cacheKey, input.cacheKey),
           ),
         )
         .orderBy(desc(retrievalCacheEntries.knowledgeRevision), desc(retrievalCacheEntries.updatedAt));
@@ -1017,24 +1127,94 @@ export function knowledgeService(db: Db) {
       }
 
       const expectedRevision = input.knowledgeRevision ?? 0;
-      const sameRevisionEntry = entries.find((entry) => entry.knowledgeRevision === expectedRevision) ?? null;
-      if (sameRevisionEntry) {
-        const expired = sameRevisionEntry.expiresAt != null && sameRevisionEntry.expiresAt.getTime() < now.getTime();
+      const exactRevisionEntry = entries.find((entry) =>
+        entry.cacheKey === input.cacheKey && entry.knowledgeRevision === expectedRevision) ?? null;
+      if (exactRevisionEntry) {
+        const expired = exactRevisionEntry.expiresAt != null && exactRevisionEntry.expiresAt.getTime() < now.getTime();
         if (expired) {
           return {
             state: "miss_expired" as const,
-            matchedRevision: sameRevisionEntry.knowledgeRevision,
-            latestKnownRevision: entries[0]?.knowledgeRevision ?? sameRevisionEntry.knowledgeRevision,
-            lastEntryUpdatedAt: sameRevisionEntry.updatedAt,
+            matchedRevision: exactRevisionEntry.knowledgeRevision,
+            latestKnownRevision: entries[0]?.knowledgeRevision ?? exactRevisionEntry.knowledgeRevision,
+            lastEntryUpdatedAt: exactRevisionEntry.updatedAt,
           };
         }
       }
 
+      const exactKeyEntries = entries.filter((entry) => entry.cacheKey === input.cacheKey);
+      if (input.identity) {
+        const sameQueryEntries = entries.filter((entry) => {
+          const cacheIdentity = readRetrievalCacheIdentity(asRecord(entry.valueJson).metadata && asRecord(asRecord(entry.valueJson).metadata).cacheIdentity);
+          return cacheIdentity.queryFingerprint === input.identity?.queryFingerprint;
+        });
+        const samePolicyEntries = sameQueryEntries.filter((entry) => {
+          const cacheIdentity = readRetrievalCacheIdentity(asRecord(asRecord(entry.valueJson).metadata).cacheIdentity);
+          return cacheIdentity.policyFingerprint === input.identity?.policyFingerprint;
+        });
+        const sameFeedbackEntries = samePolicyEntries.filter((entry) => {
+          const cacheIdentity = readRetrievalCacheIdentity(asRecord(asRecord(entry.valueJson).metadata).cacheIdentity);
+          return cacheIdentity.feedbackFingerprint === input.identity?.feedbackFingerprint;
+        });
+
+        const latestFor = (records: typeof entries) => records[0]?.knowledgeRevision ?? null;
+        const lastUpdatedFor = (records: typeof entries) => records[0]?.updatedAt ?? null;
+
+        if (sameFeedbackEntries.length > 0) {
+          const sameRevisionEntry = sameFeedbackEntries.find((entry) => entry.knowledgeRevision === expectedRevision) ?? null;
+          if (sameRevisionEntry) {
+            const expired = sameRevisionEntry.expiresAt != null && sameRevisionEntry.expiresAt.getTime() < now.getTime();
+            if (expired) {
+              return {
+                state: "miss_expired" as const,
+                matchedRevision: sameRevisionEntry.knowledgeRevision,
+                latestKnownRevision: latestFor(sameFeedbackEntries),
+                lastEntryUpdatedAt: sameRevisionEntry.updatedAt,
+              };
+            }
+          }
+          if (sameFeedbackEntries.some((entry) => entry.knowledgeRevision !== expectedRevision)) {
+            return {
+              state: "miss_revision_changed" as const,
+              matchedRevision: sameRevisionEntry?.knowledgeRevision ?? null,
+              latestKnownRevision: latestFor(sameFeedbackEntries),
+              lastEntryUpdatedAt: (sameRevisionEntry ?? sameFeedbackEntries[0])?.updatedAt ?? null,
+            };
+          }
+        }
+
+        if (samePolicyEntries.length > 0) {
+          return {
+            state: "miss_feedback_changed" as const,
+            matchedRevision: samePolicyEntries.find((entry) => entry.knowledgeRevision === expectedRevision)?.knowledgeRevision ?? null,
+            latestKnownRevision: latestFor(samePolicyEntries),
+            lastEntryUpdatedAt: lastUpdatedFor(samePolicyEntries),
+          };
+        }
+
+        if (sameQueryEntries.length > 0) {
+          return {
+            state: "miss_policy_changed" as const,
+            matchedRevision: sameQueryEntries.find((entry) => entry.knowledgeRevision === expectedRevision)?.knowledgeRevision ?? null,
+            latestKnownRevision: latestFor(sameQueryEntries),
+            lastEntryUpdatedAt: lastUpdatedFor(sameQueryEntries),
+          };
+        }
+      }
+
+      if (exactKeyEntries.length > 0) {
+        return {
+          state: "miss_revision_changed" as const,
+          matchedRevision: exactKeyEntries.find((entry) => entry.knowledgeRevision === expectedRevision)?.knowledgeRevision ?? null,
+          latestKnownRevision: exactKeyEntries[0]?.knowledgeRevision ?? null,
+          lastEntryUpdatedAt: exactKeyEntries[0]?.updatedAt ?? null,
+        };
+      }
+
       return {
-        state: "miss_revision_changed" as const,
-        matchedRevision: sameRevisionEntry?.knowledgeRevision ?? null,
-        latestKnownRevision: entries[0]?.knowledgeRevision ?? null,
-        lastEntryUpdatedAt: (sameRevisionEntry ?? entries[0])?.updatedAt ?? null,
+        state: "miss_cold" as const,
+        matchedRevision: null,
+        latestKnownRevision: null,
+        lastEntryUpdatedAt: null,
       };
     },
 
@@ -1703,11 +1883,23 @@ export function knowledgeService(db: Db) {
 
     summarizeRetrievalQuality: async (input: {
       companyId: string;
+      projectId?: string;
+      role?: string;
       days?: number;
       limit?: number;
     }) => {
       const days = Math.max(1, Math.min(90, input.days ?? 14));
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const retrievalConditions = [
+        eq(retrievalRuns.companyId, input.companyId),
+        gte(retrievalRuns.createdAt, since),
+      ];
+      if (input.projectId) {
+        retrievalConditions.push(sql`${retrievalRuns.queryDebug} ->> 'issueProjectId' = ${input.projectId}`);
+      }
+      if (input.role) {
+        retrievalConditions.push(eq(retrievalRuns.actorRole, input.role));
+      }
       const rows = await db
         .select({
           id: retrievalRuns.id,
@@ -1717,12 +1909,7 @@ export function knowledgeService(db: Db) {
           createdAt: retrievalRuns.createdAt,
         })
         .from(retrievalRuns)
-        .where(
-          and(
-            eq(retrievalRuns.companyId, input.companyId),
-            gte(retrievalRuns.createdAt, since),
-          ),
-        )
+        .where(and(...retrievalConditions))
         .orderBy(desc(retrievalRuns.createdAt))
         .limit(input.limit ?? 1000);
 
@@ -1987,6 +2174,17 @@ export function knowledgeService(db: Db) {
         });
       }
 
+      const feedbackStatsConditions = [
+        eq(retrievalFeedbackEvents.companyId, input.companyId),
+        gte(retrievalFeedbackEvents.createdAt, since),
+      ];
+      if (input.projectId) {
+        feedbackStatsConditions.push(eq(retrievalFeedbackEvents.projectId, input.projectId));
+      }
+      if (input.role) {
+        feedbackStatsConditions.push(eq(retrievalFeedbackEvents.actorRole, input.role));
+      }
+
       const feedbackStats = await db
         .select({
           eventCount: sql<number>`count(*)`,
@@ -1994,12 +2192,7 @@ export function knowledgeService(db: Db) {
           negativeCount: sql<number>`coalesce(sum(case when ${retrievalFeedbackEvents.weight} < 0 then 1 else 0 end), 0)`,
         })
         .from(retrievalFeedbackEvents)
-        .where(
-          and(
-            eq(retrievalFeedbackEvents.companyId, input.companyId),
-            gte(retrievalFeedbackEvents.createdAt, since),
-          ),
-        )
+        .where(and(...feedbackStatsConditions))
         .then((result) => result[0] ?? { eventCount: 0, positiveCount: 0, negativeCount: 0 });
       const feedbackTypeCounts = await db
         .select({
@@ -2007,20 +2200,50 @@ export function knowledgeService(db: Db) {
           count: sql<number>`count(*)`,
         })
         .from(retrievalFeedbackEvents)
-        .where(
-          and(
-            eq(retrievalFeedbackEvents.companyId, input.companyId),
-            gte(retrievalFeedbackEvents.createdAt, since),
-          ),
-        )
+        .where(and(...feedbackStatsConditions))
         .groupBy(retrievalFeedbackEvents.feedbackType)
         .then((rows) => Object.fromEntries(rows.map((row) => [row.feedbackType, row.count])));
+
+      const profileConditions = [eq(retrievalRoleProfiles.companyId, input.companyId)];
+      if (input.projectId) {
+        profileConditions.push(sql`(${retrievalRoleProfiles.projectId} = ${input.projectId} or ${retrievalRoleProfiles.projectId} is null)`);
+      }
+      if (input.role) {
+        profileConditions.push(eq(retrievalRoleProfiles.role, input.role));
+      }
 
       const profileCount = await db
         .select({ count: sql<number>`count(*)` })
         .from(retrievalRoleProfiles)
-        .where(eq(retrievalRoleProfiles.companyId, input.companyId))
+        .where(and(...profileConditions))
         .then((result) => result[0]?.count ?? 0);
+
+      const issueScopeConditions = [eq(issues.companyId, input.companyId)];
+      if (input.projectId) {
+        issueScopeConditions.push(eq(issues.projectId, input.projectId));
+      }
+
+      const issueDocConditions = [
+        eq(knowledgeDocuments.companyId, input.companyId),
+        eq(knowledgeDocuments.sourceType, "issue"),
+        ne(knowledgeDocuments.authorityLevel, "deprecated"),
+        sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
+      ];
+      const protocolDocConditions = [
+        eq(knowledgeDocuments.companyId, input.companyId),
+        eq(knowledgeDocuments.sourceType, "protocol_message"),
+        ne(knowledgeDocuments.authorityLevel, "deprecated"),
+      ];
+      const reviewDocConditions = [
+        eq(knowledgeDocuments.companyId, input.companyId),
+        eq(knowledgeDocuments.sourceType, "review"),
+        ne(knowledgeDocuments.authorityLevel, "deprecated"),
+      ];
+      if (input.projectId) {
+        issueDocConditions.push(eq(knowledgeDocuments.projectId, input.projectId));
+        protocolDocConditions.push(eq(knowledgeDocuments.projectId, input.projectId));
+        reviewDocConditions.push(eq(knowledgeDocuments.projectId, input.projectId));
+      }
 
       const [
         issueTotalItems,
@@ -2039,45 +2262,35 @@ export function knowledgeService(db: Db) {
         db
           .select({ count: sql<number>`count(*)` })
           .from(issues)
-          .where(eq(issues.companyId, input.companyId))
+          .where(and(...issueScopeConditions))
+          .then((rows) => rows[0]?.count ?? 0),
+        db
+          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.issueId})` })
+          .from(knowledgeDocuments)
+          .where(and(...issueDocConditions))
           .then((rows) => rows[0]?.count ?? 0),
         db
           .select({ count: sql<number>`count(distinct ${knowledgeDocuments.issueId})` })
           .from(knowledgeDocuments)
           .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "issue"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
-            sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
-          ))
-          .then((rows) => rows[0]?.count ?? 0),
-        db
-          .select({ count: sql<number>`count(distinct ${knowledgeDocuments.issueId})` })
-          .from(knowledgeDocuments)
-          .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "issue"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            ...issueDocConditions,
             sql`${knowledgeDocuments.issueId} is not null`,
-            sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
           ))
           .then((rows) => rows[0]?.count ?? 0),
         db
           .select({ count: sql<number>`count(*)` })
           .from(knowledgeDocuments)
           .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "issue"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            ...issueDocConditions,
             sql`${knowledgeDocuments.issueId} is null`,
-            sql`coalesce(${knowledgeDocuments.metadata} ->> 'isLatestForScope', 'true') <> 'false'`,
           ))
           .then((rows) => rows[0]?.count ?? 0),
         db
           .select({ count: sql<number>`count(*)` })
           .from(issueProtocolMessages)
+          .innerJoin(issues, eq(issueProtocolMessages.issueId, issues.id))
           .where(and(
-            eq(issueProtocolMessages.companyId, input.companyId),
+            ...issueScopeConditions,
             inArray(
               issueProtocolMessages.messageType,
               [...ORGANIZATIONAL_MEMORY_PROTOCOL_MESSAGE_TYPES] as typeof issueProtocolMessages.$inferSelect.messageType[],
@@ -2087,19 +2300,13 @@ export function knowledgeService(db: Db) {
         db
           .select({ count: sql<number>`count(*)` })
           .from(knowledgeDocuments)
-          .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "protocol_message"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
-          ))
+          .where(and(...protocolDocConditions))
           .then((rows) => rows[0]?.count ?? 0),
         db
           .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
           .from(knowledgeDocuments)
           .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "protocol_message"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            ...protocolDocConditions,
             sql`${knowledgeDocuments.messageId} is not null`,
           ))
           .then((rows) => rows[0]?.count ?? 0),
@@ -2107,17 +2314,16 @@ export function knowledgeService(db: Db) {
           .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
           .from(knowledgeDocuments)
           .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "protocol_message"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            ...protocolDocConditions,
             sql`${knowledgeDocuments.messageId} is null`,
           ))
           .then((rows) => rows[0]?.count ?? 0),
         db
           .select({ count: sql<number>`count(*)` })
           .from(issueProtocolMessages)
+          .innerJoin(issues, eq(issueProtocolMessages.issueId, issues.id))
           .where(and(
-            eq(issueProtocolMessages.companyId, input.companyId),
+            ...issueScopeConditions,
             inArray(
               issueProtocolMessages.messageType,
               [...ORGANIZATIONAL_MEMORY_REVIEW_MESSAGE_TYPES] as typeof issueProtocolMessages.$inferSelect.messageType[],
@@ -2127,19 +2333,13 @@ export function knowledgeService(db: Db) {
         db
           .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
           .from(knowledgeDocuments)
-          .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "review"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
-          ))
+          .where(and(...reviewDocConditions))
           .then((rows) => rows[0]?.count ?? 0),
         db
           .select({ count: sql<number>`count(distinct ${knowledgeDocuments.messageId})` })
           .from(knowledgeDocuments)
           .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "review"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            ...reviewDocConditions,
             sql`${knowledgeDocuments.messageId} is not null`,
           ))
           .then((rows) => rows[0]?.count ?? 0),
@@ -2147,16 +2347,26 @@ export function knowledgeService(db: Db) {
           .select({ count: sql<number>`count(*)` })
           .from(knowledgeDocuments)
           .where(and(
-            eq(knowledgeDocuments.companyId, input.companyId),
-            eq(knowledgeDocuments.sourceType, "review"),
-            ne(knowledgeDocuments.authorityLevel, "deprecated"),
+            ...reviewDocConditions,
             sql`${knowledgeDocuments.messageId} is null`,
           ))
           .then((rows) => rows[0]?.count ?? 0),
       ]);
 
+      const readinessFailures = [
+        ...(multiHopGraphExpandedRuns > 0 ? [] : ["multi_hop_graph"]),
+        ...(candidateCacheHitCount > 0 || finalCacheHitCount > 0 ? [] : ["retrieval_cache"]),
+        ...(codeHitCountTotal > 0 ? [] : ["code_evidence"]),
+        ...(reviewHitCountTotal > 0 ? [] : ["review_evidence"]),
+        ...(issueTotalItems > 0 && issueLinkedDocumentCount < issueTotalItems ? ["issue_memory_coverage"] : []),
+        ...(protocolTotalItems > 0 && protocolLinkedDocumentCount < protocolTotalItems ? ["protocol_memory_coverage"] : []),
+        ...(reviewTotalItems > 0 && reviewLinkedDocumentCount < reviewTotalItems ? ["review_memory_coverage"] : []),
+      ];
+
       return {
         companyId: input.companyId,
+        projectId: input.projectId ?? null,
+        role: input.role ?? null,
         windowDays: days,
         generatedAt: new Date().toISOString(),
         totalRuns,
@@ -2234,6 +2444,10 @@ export function knowledgeService(db: Db) {
                 ? reviewLinkedDocumentCount / reviewTotalItems
                 : 0,
           },
+        },
+        readinessGate: {
+          status: readinessFailures.length === 0 ? "pass" : "warn",
+          failures: readinessFailures,
         },
         perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),

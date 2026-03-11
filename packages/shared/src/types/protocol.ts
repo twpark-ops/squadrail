@@ -180,6 +180,10 @@ export interface IssueProtocolReassignTaskPayload {
   newReviewerAgentId?: string | null;
   newQaAgentId?: string | null;
   carryForwardBriefVersion?: number | null;
+  acceptanceCriteria?: string[];
+  definitionOfDone?: string[];
+  implementationGuidance?: string | null;
+  risks?: string[];
 }
 
 export interface IssueProtocolCancelTaskPayload {

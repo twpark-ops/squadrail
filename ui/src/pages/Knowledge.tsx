@@ -223,6 +223,13 @@ export function Knowledge() {
         .slice(0, 3),
     [qualityQuery.data?.candidateCacheMissReasonCounts],
   );
+  const topFinalMissReasons = useMemo(
+    () =>
+      Object.entries(qualityQuery.data?.finalCacheMissReasonCounts ?? {})
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 3),
+    [qualityQuery.data?.finalCacheMissReasonCounts],
+  );
   const maxDailyRuns = useMemo(
     () => dailyTrend.reduce((max, day) => Math.max(max, day.totalRuns), 0),
     [dailyTrend],
@@ -561,11 +568,16 @@ export function Knowledge() {
                   </div>
                 </div>
 
-                {topCandidateMissReasons.length > 0 && (
+                {(topCandidateMissReasons.length > 0 || topFinalMissReasons.length > 0) && (
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                     {topCandidateMissReasons.map(([reason, count]) => (
-                      <span key={reason} className="rounded-full border border-border bg-background px-3 py-1.5">
+                      <span key={`candidate:${reason}`} className="rounded-full border border-border bg-background px-3 py-1.5">
                         candidate miss · {formatCacheStateLabel(reason)} · {count}
+                      </span>
+                    ))}
+                    {topFinalMissReasons.map(([reason, count]) => (
+                      <span key={`final:${reason}`} className="rounded-full border border-border bg-background px-3 py-1.5">
+                        final miss · {formatCacheStateLabel(reason)} · {count}
                       </span>
                     ))}
                   </div>
@@ -627,7 +639,7 @@ export function Knowledge() {
                           </div>
                         </div>
 
-                        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                        <div className="mt-4 grid gap-3 lg:grid-cols-4">
                           <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                               Candidate cache
@@ -640,6 +652,21 @@ export function Knowledge() {
                               revision {run.candidateCacheMatchedRevision ?? "?"}
                               {run.candidateCacheLatestKnownRevision != null
                                 ? ` / latest ${run.candidateCacheLatestKnownRevision}`
+                                : ""}
+                            </div>
+                          </div>
+                          <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                              Final cache
+                            </div>
+                            <div className="mt-2 text-sm font-semibold text-foreground">
+                              {formatCacheStateLabel(run.finalCacheState ?? (run.finalCacheHit ? "hit" : "miss"))}
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {run.finalCacheReason ? `${formatCacheStateLabel(run.finalCacheReason)} · ` : ""}
+                              revision {run.finalCacheMatchedRevision ?? "?"}
+                              {run.finalCacheLatestKnownRevision != null
+                                ? ` / latest ${run.finalCacheLatestKnownRevision}`
                                 : ""}
                             </div>
                           </div>

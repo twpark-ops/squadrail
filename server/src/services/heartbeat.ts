@@ -50,6 +50,20 @@ const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 const WORKSPACE_CONTEXT_KEY = "squadrailWorkspace";
 const WORKSPACES_CONTEXT_KEY = "squadrailWorkspaces";
 const startLocksByAgent = new Map<string, Promise<void>>();
+const SUPERSEDED_PROTOCOL_WAKE_REASONS = new Set([
+  "issue_ready_for_closure",
+  "issue_ready_for_qa_gate",
+  "protocol_required_retry",
+]);
+
+class SupersededProtocolFollowupError extends Error {
+  readonly code = "superseded_followup";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SupersededProtocolFollowupError";
+  }
+}
 
 function appendExcerpt(prev: string, chunk: string) {
   return appendWithCap(prev, chunk, MAX_EXCERPT_BYTES);
@@ -404,6 +418,19 @@ export function shouldEnqueueProtocolRequiredRetry(input: {
   return input.issueStatus !== "done" && input.issueStatus !== "cancelled";
 }
 
+export function shouldSkipSupersededProtocolFollowup(input: {
+  wakeReason?: string | null;
+  issueStatus?: string | null;
+}) {
+  if (input.issueStatus !== "done" && input.issueStatus !== "cancelled") return false;
+  return isSupersededProtocolWakeReason(input.wakeReason);
+}
+
+export function isSupersededProtocolWakeReason(wakeReason?: string | null) {
+  const normalized = readNonEmptyString(wakeReason);
+  return normalized ? SUPERSEDED_PROTOCOL_WAKE_REASONS.has(normalized) : false;
+}
+
 export function shouldReapHeartbeatRun(input: {
   runStatus: string;
   runUpdatedAt: Date | string | null | undefined;
@@ -463,6 +490,10 @@ export function decideDispatchWatchdogAction(input: {
 
 export function scheduleDeferredRunDispatch(dispatch: () => void) {
   setImmediate(dispatch);
+}
+
+export function runDispatchWatchdogOutsideDbContext(callback: () => void) {
+  runWithoutDbContext(callback);
 }
 
 function normalizeAgentNameKey(value: string | null | undefined) {
@@ -574,8 +605,10 @@ export function heartbeatService(db: Db) {
     const existing = dispatchWatchdogTimers.get(runId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
-      void handleDispatchWatchdog(runId).catch((err) => {
-        logger.error({ err, runId }, "dispatch watchdog failed");
+      runDispatchWatchdogOutsideDbContext(() => {
+        void handleDispatchWatchdog(runId).catch((err) => {
+          logger.error({ err, runId }, "dispatch watchdog failed");
+        });
       });
     }, RUN_DISPATCH_WATCHDOG_MS);
     timer.unref?.();
@@ -1405,15 +1438,72 @@ export function heartbeatService(db: Db) {
       await appendCheckpoint("preflight.runtime_state", "loading runtime state");
       const runtime = await ensureRuntimeState(agent);
 
-      const issueAssigneeConfig = issueId
+      const wakeReason = readNonEmptyString(context.wakeReason);
+      const issueRuntimeConfig = issueId
         ? await db
             .select({
               assigneeAgentId: issues.assigneeAgentId,
               assigneeAdapterOverrides: issues.assigneeAdapterOverrides,
+              status: issues.status,
             })
             .from(issues)
             .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
             .then((rows) => rows[0] ?? null)
+        : null;
+      if (shouldSkipSupersededProtocolFollowup({
+        wakeReason,
+        issueStatus: issueRuntimeConfig?.status ?? null,
+      })) {
+        const message = `Skipping stale protocol follow-up because issue is already ${issueRuntimeConfig?.status ?? "terminal"}.`;
+        currentPhase = "preflight.followup_superseded";
+        await appendCheckpoint("preflight.followup_superseded", message, {
+          wakeReason,
+          issueStatus: issueRuntimeConfig?.status ?? null,
+        });
+        const cancelledRun = await setRunStatus(run.id, "cancelled", {
+          finishedAt: new Date(),
+          error: message,
+          errorCode: "superseded_followup",
+        });
+        await setWakeupStatus(run.wakeupRequestId, "cancelled", {
+          finishedAt: new Date(),
+          error: message,
+        });
+        if (cancelledRun) {
+          await appendRunEvent(cancelledRun, seq++, {
+            eventType: "lifecycle",
+            stream: "system",
+            level: "warn",
+            message,
+            payload: {
+              wakeReason,
+              issueStatus: issueRuntimeConfig?.status ?? null,
+            },
+          });
+          await releaseIssueExecutionAndPromote(cancelledRun);
+          await upsertRunLease({
+            run: cancelledRun,
+            status: "released",
+            checkpointJson: {
+              phase: "preflight.followup_superseded",
+              message,
+              wakeReason,
+              issueStatus: issueRuntimeConfig?.status ?? null,
+            },
+            heartbeatAt: new Date(),
+            leaseExpiresAt: new Date(),
+            releasedAt: new Date(),
+            lastError: null,
+          });
+        }
+        await finalizeAgentStatus(agent.id, "cancelled");
+        return;
+      }
+      const issueAssigneeConfig = issueRuntimeConfig
+        ? {
+            assigneeAgentId: issueRuntimeConfig.assigneeAgentId,
+            assigneeAdapterOverrides: issueRuntimeConfig.assigneeAdapterOverrides,
+          }
         : null;
       const issueAssigneeOverrides =
         issueAssigneeConfig && issueAssigneeConfig.assigneeAgentId === agent.id
@@ -2020,7 +2110,12 @@ export function heartbeatService(db: Db) {
       await finalizeAgentStatus(agent.id, outcome);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown adapter failure";
-      const errorCode = err instanceof WorkspaceResolutionError ? err.code : "adapter_failed";
+      const errorCode =
+        err instanceof WorkspaceResolutionError
+          ? err.code
+          : err instanceof SupersededProtocolFollowupError
+            ? err.code
+            : "adapter_failed";
       logger.error({ err, runId, phase: currentPhase }, "heartbeat execution failed");
 
       let logSummary: { bytes: number; sha256?: string; compressed: boolean } | null = null;
@@ -2032,7 +2127,7 @@ export function heartbeatService(db: Db) {
         }
       }
 
-      const failedRun = await setRunStatus(run.id, "failed", {
+      const failedRun = await setRunStatus(run.id, errorCode === "superseded_followup" ? "cancelled" : "failed", {
         error: message,
         errorCode,
         finishedAt: new Date(),
@@ -2042,13 +2137,13 @@ export function heartbeatService(db: Db) {
         logSha256: logSummary?.sha256,
         logCompressed: logSummary?.compressed ?? false,
       });
-      await setWakeupStatus(run.wakeupRequestId, "failed", {
+      await setWakeupStatus(run.wakeupRequestId, errorCode === "superseded_followup" ? "cancelled" : "failed", {
         finishedAt: new Date(),
         error: message,
       });
       await upsertRunLease({
         run: eventRun,
-        status: "failed",
+        status: errorCode === "superseded_followup" ? "cancelled" : "failed",
         checkpointJson: {
           phase: currentPhase,
           message,
@@ -2073,12 +2168,14 @@ export function heartbeatService(db: Db) {
           },
         });
         await releaseIssueExecutionAndPromote(failedRun);
-        await wakeLeadSupervisorForRunFailure({
-          run: failedRun,
-          status: "failed",
-          errorCode,
-          error: message,
-        });
+        if (errorCode !== "superseded_followup") {
+          await wakeLeadSupervisorForRunFailure({
+            run: failedRun,
+            status: "failed",
+            errorCode,
+            error: message,
+          });
+        }
 
         await updateRuntimeState(agent, failedRun, {
           exitCode: null,
@@ -2103,7 +2200,7 @@ export function heartbeatService(db: Db) {
         }
       }
 
-      await finalizeAgentStatus(agent.id, "failed");
+      await finalizeAgentStatus(agent.id, errorCode === "superseded_followup" ? "cancelled" : "failed");
     } finally {
       clearDispatchWatchdog(runId);
       if (leaseHeartbeatTimer) {
@@ -2187,6 +2284,7 @@ export function heartbeatService(db: Db) {
         .select({
           id: issues.id,
           companyId: issues.companyId,
+          status: issues.status,
         })
         .from(issues)
         .where(and(eq(issues.companyId, run.companyId), eq(issues.executionRunId, run.id)))
@@ -2252,6 +2350,21 @@ export function heartbeatService(db: Db) {
         );
         const promotedContextSeed: Record<string, unknown> = { ...deferredContextSeed };
         const promotedReason = readNonEmptyString(deferred.reason) ?? "issue_execution_promoted";
+        if (
+          (issue.status === "done" || issue.status === "cancelled")
+          && isSupersededProtocolWakeReason(promotedReason)
+        ) {
+          await tx
+            .update(agentWakeupRequests)
+            .set({
+              status: "cancelled",
+              finishedAt: new Date(),
+              error: `Deferred wake skipped because issue is already ${issue.status}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(agentWakeupRequests.id, deferred.id));
+          continue;
+        }
         const promotedSource =
           (readNonEmptyString(deferred.source) as WakeupOptions["source"]) ?? "automation";
         const promotedTriggerDetail =
@@ -3086,6 +3199,71 @@ export function heartbeatService(db: Db) {
           sql`case when ${heartbeatRuns.status} = 'running' then 0 else 1 end`,
           asc(heartbeatRuns.createdAt),
         );
+
+      let cancelledRunCount = 0;
+      for (const run of runs) {
+        const current = await getRun(run.id);
+        if (!current || (current.status !== "queued" && current.status !== "running")) continue;
+        await cancelRunInternal(run.id);
+        cancelledRunCount += 1;
+      }
+
+      return {
+        cancelledWakeupCount: wakeupRows.length,
+        cancelledRunCount,
+      };
+    },
+
+    cancelSupersededIssueFollowups: async (input: {
+      companyId: string;
+      issueId: string;
+      reason?: string | null;
+      excludeRunId?: string | null;
+    }) => {
+      const cancelledAt = new Date();
+      const reason = readNonEmptyString(input.reason) ?? "Cancelled stale protocol follow-up";
+      const supersededReasons = [...SUPERSEDED_PROTOCOL_WAKE_REASONS];
+
+      const wakeupRows = await db
+        .select({ id: agentWakeupRequests.id })
+        .from(agentWakeupRequests)
+        .where(
+          and(
+            eq(agentWakeupRequests.companyId, input.companyId),
+            inArray(agentWakeupRequests.status, ["queued", "claimed", "deferred_issue_execution"]),
+            sql`${agentWakeupRequests.payload} ->> 'issueId' = ${input.issueId}`,
+            sql`(
+              ${agentWakeupRequests.reason} in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})
+              or ${agentWakeupRequests.payload} -> ${DEFERRED_WAKE_CONTEXT_KEY} ->> 'wakeReason' in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})
+            )`,
+          ),
+        );
+
+      if (wakeupRows.length > 0) {
+        await db
+          .update(agentWakeupRequests)
+          .set({
+            status: "cancelled",
+            finishedAt: cancelledAt,
+            error: reason,
+            updatedAt: cancelledAt,
+          })
+          .where(inArray(agentWakeupRequests.id, wakeupRows.map((row) => row.id)));
+      }
+
+      const runConditions = [
+        eq(heartbeatRuns.companyId, input.companyId),
+        inArray(heartbeatRuns.status, ["queued", "running"]),
+        sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
+        sql`${heartbeatRuns.contextSnapshot} ->> 'wakeReason' in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})`,
+      ];
+      if (input.excludeRunId) {
+        runConditions.push(sql`${heartbeatRuns.id} <> ${input.excludeRunId}`);
+      }
+      const runs = await db
+        .select({ id: heartbeatRuns.id })
+        .from(heartbeatRuns)
+        .where(and(...runConditions));
 
       let cancelledRunCount = 0;
       for (const run of runs) {

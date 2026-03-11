@@ -231,6 +231,10 @@ export interface KnowledgeQualitySummary {
     finalCacheHits: number;
     personalizedRuns: number;
   }>;
+  readinessGate?: {
+    status: "pass" | "warn";
+    failures: string[];
+  };
 }
 
 export const knowledgeApi = {

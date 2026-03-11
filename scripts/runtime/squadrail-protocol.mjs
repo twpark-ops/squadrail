@@ -26,7 +26,8 @@ const COMMAND_HELP = {
     "Usage: squadrail-protocol.mjs start-implementation --issue <issueId> [--sender-role <role>] --summary <text> [options]",
     "",
     "Supported options:",
-    "  --implementation-mode <direct|guided>            (default: direct)",
+    "  --implementation-mode <direct|after_plan|after_change_request>",
+    "                      legacy aliases `guided`, `code_change`, and `isolated_workspace` are normalized automatically",
     "  --active-hypotheses \"item1||item2\"",
     "  --workflow-before <state>",
     "  --payload <json>                                  implementationMode, activeHypotheses, summary",
@@ -111,6 +112,13 @@ const COMMAND_HELP = {
     "JSON payload may include: reason, newAssigneeAgentId, newReviewerAgentId, acceptanceCriteria, definitionOfDone, implementationGuidance, risks",
   ].join("\n"),
 };
+
+function normalizeImplementationMode(value) {
+  if (value === "guided" || value === "code_change" || value === "isolated_workspace") {
+    return "direct";
+  }
+  return value;
+}
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -691,10 +699,12 @@ async function startImplementationCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      implementationMode: readAliasedOption(
-        options,
-        ["implementation-mode", "implementationMode"],
-        payloadPatch.implementationMode ?? "direct",
+      implementationMode: normalizeImplementationMode(
+        readAliasedOption(
+          options,
+          ["implementation-mode", "implementationMode"],
+          payloadPatch.implementationMode ?? "direct",
+        ),
       ),
       activeHypotheses,
     },

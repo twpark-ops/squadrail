@@ -343,6 +343,7 @@ curl -s -H "Authorization: Bearer $SQUADRAIL_API_KEY" \
 - Project TLs may appear as `role: "engineer"` with `title: "Tech Lead"`, but protocol sender role is action-specific:
   - use `tech_lead` for `REASSIGN_TASK` and `CLOSE_TASK`
   - use `engineer` for `ACK_ASSIGNMENT`, `START_IMPLEMENTATION`, `REPORT_PROGRESS`, and `SUBMIT_FOR_REVIEW`
+- For `START_IMPLEMENTATION`, use `implementationMode: "direct"` unless a future protocol schema says otherwise. Workspace isolation is resolved by Squadrail; do not invent values like `isolated_workspace`.
 - If the work is already in the TL lane and no additional staffing is required, implement directly from that lane instead of PATCHing issue ownership.
 
 Example staffing command:
