@@ -61,6 +61,7 @@ export interface OrgSyncRepairResult {
 
 export type KnowledgeSyncJobStatus = "queued" | "running" | "completed" | "failed";
 export type KnowledgeSetupProjectStatus = "ready" | "missing_workspace" | "needs_import" | "stale";
+export type KnowledgeSetupCacheState = "miss" | "fresh" | "stale";
 
 export interface KnowledgeSetupWorkspaceState {
   workspaceId: string | null;
@@ -129,9 +130,21 @@ export interface KnowledgeSyncJobView {
   projectRuns: KnowledgeSyncJobProjectRun[];
 }
 
+export interface KnowledgeSetupCacheView {
+  state: KnowledgeSetupCacheState;
+  refreshInFlight: boolean;
+  freshUntil: string | null;
+  staleUntil: string | null;
+  lastRefreshStartedAt: string | null;
+  lastRefreshCompletedAt: string | null;
+  lastRefreshErrorAt: string | null;
+  lastRefreshError: string | null;
+}
+
 export interface KnowledgeSetupView {
   companyId: string;
   generatedAt: string;
+  cache: KnowledgeSetupCacheView;
   setupProgressStatus: string;
   orgSync: OrgSyncView;
   projects: KnowledgeSetupProjectView[];

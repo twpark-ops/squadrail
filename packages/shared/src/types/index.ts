@@ -79,6 +79,7 @@ export type {
   OrgSyncView,
   OrgSyncRepairResult,
   KnowledgeSyncJobStatus,
+  KnowledgeSetupCacheState,
   KnowledgeSetupProjectStatus,
   KnowledgeSetupWorkspaceState,
   KnowledgeSetupProjectMetrics,

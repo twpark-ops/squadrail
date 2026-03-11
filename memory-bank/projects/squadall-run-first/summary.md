@@ -127,6 +127,7 @@
   - setup view는 15초 fresh / 2분 stale 캐시 사용
   - stale 구간에서는 cached view를 반환하고 background refresh 수행
   - knowledge sync / org repair 시 cache invalidate
+  - `KnowledgeSetupView.cache`에 `state / refreshInFlight / freshUntil / staleUntil / lastRefresh*` 메타데이터 추가
 - 루트 CI/release workflow 추가
   - `.github/workflows/pr-verify.yml`
   - `.github/workflows/release.yml`
