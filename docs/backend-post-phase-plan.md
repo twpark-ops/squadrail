@@ -480,6 +480,13 @@ Knowledge follow-up은 CLI-first가 아니라 UI-first로 진행한다.
 - 루트 CI / release workflow 추가
   - `.github/workflows/pr-verify.yml`
   - `.github/workflows/release.yml`
+- `issue-retrieval.ts` refactor slice 2 완료
+  - scoring / rationale helper를 `server/src/services/retrieval/scoring.ts`로 이동
+  - 메인 `issue-retrieval.ts`는 temporal context / orchestration / persistence 중심으로 축소
+- `rerank provider abstraction` 1차 완료
+  - provider config를 `server/src/services/knowledge-rerank/config.ts`로 분리
+  - provider transport를 `server/src/services/knowledge-rerank/providers.ts`로 분리
+  - `knowledge-reranking.ts`는 facade만 유지한다
 
 이 순서는 coordinated burn-in 이후 `run first, optimize later` 원칙과 충돌하지 않는다.
 의미는 UI-only 작업을 별도 worktree로 분리한 뒤, 백엔드 커널에서는 확장 전에 god-file과 release discipline을 정리하자는 것이다.
