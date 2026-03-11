@@ -331,14 +331,20 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - 비슷한 이슈의 해결 패턴 재사용
   - 조직 기억의 실질적 생산성 효과 확보
 
-다음 우선순위:
+다음 실행 큐는 [p1-next-10-step-execution-plan.md](/home/taewoong/company-project/squadall/docs/p1-next-10-step-execution-plan.md)에 고정한다.
 
-1. operator feedback UI surface
-2. candidate / final-hit cache
-3. deeper chunk-link multi-hop
-3. candidate / final-hit cache
-4. deeper chunk-link multi-hop traversal
-5. cross-issue memory / quality trend surface
+요약 우선순위:
+
+1. operator feedback surface expansion
+2. feedback filters + issue-less run handling
+3. candidate cache provenance surface
+4. final-hit cache provenance surface
+5. cache invalidation normalization
+6. deeper chunk-link multi-hop
+7. retrieval ranking stabilization phase 2
+8. retrieval god-file refactor slice 1
+9. rerank provider abstraction
+10. retrieval trend + real-org E2E gate
 
 상세 우선순위와 단계별 계획은 [organizational-memory-rag-plan.md](/home/taewoong/company-project/squadall/docs/organizational-memory-rag-plan.md), 전체 조직 풀루프 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/autonomous-org-full-loop-plan.md) 참조.
 

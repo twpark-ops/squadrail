@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyEvidenceDiversityGuard,
   applyModelRerankOrder,
+  applyOrganizationalMemorySaturationGuard,
   buildQueryEmbeddingCacheKey,
   buildGraphExpansionSeeds,
   buildSymbolGraphExpandedHits,
@@ -718,6 +720,7 @@ describe("issue retrieval helpers", () => {
             entityIds: ["retryWorker"],
             seedReasons: ["linked_symbol"],
             graphScore: 1.2,
+            hopDepth: 2,
           },
         },
       ],
@@ -727,6 +730,407 @@ describe("issue retrieval helpers", () => {
     expect(merged).toHaveLength(2);
     expect(merged[0]?.chunkId).toBe("chunk-2");
     expect(merged[0]?.graphMetadata?.entityTypes).toContain("symbol");
+    expect(merged[0]?.graphMetadata?.hopDepth).toBe(2);
+  });
+
+  it("preserves deepest hop depth when graph metadata merges into an existing base hit", () => {
+    const merged = mergeGraphExpandedHits({
+      baseHits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retry worker",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.5,
+          sparseScore: 0.2,
+          rerankScore: 0.7,
+          fusedScore: 1.4,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+        },
+      ],
+      graphHits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retry worker",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: null,
+          sparseScore: null,
+          rerankScore: 1.3,
+          fusedScore: 1.9,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+          graphMetadata: {
+            entityTypes: ["path"],
+            entityIds: ["src/retry.ts"],
+            seedReasons: ["graph_escalated_path:protocol_changed_path"],
+            graphScore: 1.3,
+            hopDepth: 2,
+          },
+        },
+      ],
+      finalK: 2,
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.graphMetadata?.hopDepth).toBe(2);
+    expect(merged[0]?.graphMetadata?.seedReasons).toContain("graph_escalated_path:protocol_changed_path");
+  });
+
+  it("promotes exact-path code evidence when organizational memory dominates the top-k", () => {
+    const adjusted = applyEvidenceDiversityGuard({
+      finalK: 4,
+      signals: {
+        exactPaths: ["src/retry.ts"],
+        fileNames: ["retry.ts"],
+        symbolHints: ["retryWorker"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "test_report", "review", "issue"],
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-worker"],
+        blockerCode: null,
+        questionType: null,
+      },
+      hits: [
+        {
+          chunkId: "review-1",
+          documentId: "doc-review-1",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-81/review/submit.md",
+          title: "Review artifact 1",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.8,
+          sparseScore: 0.5,
+          rerankScore: 3.2,
+          fusedScore: 9.4,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "review-2",
+          documentId: "doc-review-2",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-80/review/submit.md",
+          title: "Review artifact 2",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.79,
+          sparseScore: 0.49,
+          rerankScore: 3.1,
+          fusedScore: 9.1,
+          updatedAt: new Date("2026-03-09T00:00:00Z"),
+        },
+        {
+          chunkId: "issue-1",
+          documentId: "doc-issue-1",
+          sourceType: "issue",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-81/issue.md",
+          title: "Issue snapshot",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Retry worker issue",
+          documentMetadata: { artifactKind: "issue_snapshot" },
+          chunkMetadata: {},
+          denseScore: 0.5,
+          sparseScore: 0.35,
+          rerankScore: 2.4,
+          fusedScore: 8.4,
+          updatedAt: new Date("2026-03-08T00:00:00Z"),
+        },
+        {
+          chunkId: "review-3",
+          documentId: "doc-review-3",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-79/review/submit.md",
+          title: "Review artifact 3",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.77,
+          sparseScore: 0.48,
+          rerankScore: 3,
+          fusedScore: 8.2,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+        },
+        {
+          chunkId: "code-1",
+          documentId: "doc-code-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retry worker implementation",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.51,
+          sparseScore: 0.31,
+          rerankScore: 1.6,
+          fusedScore: 7.2,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(adjusted.slice(0, 4).some((hit) => hit.sourceType === "code")).toBe(true);
+    expect(adjusted.slice(0, 4).some((hit) => hit.diversityMetadata?.promotedReason === "exact_path_code")).toBe(true);
+  });
+
+  it("promotes exact-path code evidence even when the candidate sits deep in the ranked list", () => {
+    const hits = Array.from({ length: 28 }, (_, index) => ({
+      chunkId: `review-${index}`,
+      documentId: `doc-review-${index}`,
+      sourceType: "review",
+      authorityLevel: "canonical",
+      documentIssueId: "issue-1",
+      documentProjectId: "project-1",
+      path: `issues/CLO-${80 + index}/review/submit.md`,
+      title: `Review artifact ${index}`,
+      headingPath: null,
+      symbolName: null,
+      textContent: "Changed src/retry.ts",
+      documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+      chunkMetadata: {},
+      denseScore: 0.8 - index * 0.01,
+      sparseScore: 0.5,
+      rerankScore: 3.2 - index * 0.03,
+      fusedScore: 9.4 - index * 0.08,
+      updatedAt: new Date(`2026-03-${String((index % 9) + 1).padStart(2, "0")}T00:00:00Z`),
+    }));
+    hits.push({
+      chunkId: "code-deep",
+      documentId: "doc-code-deep",
+      sourceType: "code",
+      authorityLevel: "working",
+      documentIssueId: null,
+      documentProjectId: "project-1",
+      path: "src/retry.ts",
+      title: "Retry worker",
+      headingPath: null,
+      symbolName: "retryWorker",
+      textContent: "retry worker implementation",
+      documentMetadata: {},
+      chunkMetadata: {},
+      denseScore: 0.2,
+      sparseScore: 0.1,
+      rerankScore: 0.6,
+      fusedScore: 1.2,
+      updatedAt: new Date("2026-03-02T00:00:00Z"),
+    });
+
+    const adjusted = applyEvidenceDiversityGuard({
+      finalK: 4,
+      signals: {
+        exactPaths: ["src/retry.ts"],
+        fileNames: ["retry.ts"],
+        symbolHints: ["retryWorker"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "test_report", "review", "issue"],
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-worker"],
+        blockerCode: null,
+        questionType: null,
+      },
+      hits,
+    });
+
+    expect(adjusted.slice(0, 4).some((hit) => hit.chunkId === "code-deep")).toBe(true);
+  });
+
+  it("applies saturation guard to repeated organizational memory artifacts", () => {
+    const adjusted = applyOrganizationalMemorySaturationGuard({
+      finalK: 4,
+      hits: [
+        {
+          chunkId: "review-1",
+          documentId: "doc-review-1",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-80/review/submit.md",
+          title: "Review artifact 1",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.8,
+          sparseScore: 0.6,
+          rerankScore: 3,
+          fusedScore: 9,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "review-2",
+          documentId: "doc-review-2",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-79/review/submit.md",
+          title: "Review artifact 2",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.78,
+          sparseScore: 0.62,
+          rerankScore: 3,
+          fusedScore: 8.9,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "review-3",
+          documentId: "doc-review-3",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-78/review/submit.md",
+          title: "Review artifact 3",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.77,
+          sparseScore: 0.6,
+          rerankScore: 3,
+          fusedScore: 8.8,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "code-1",
+          documentId: "doc-code-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "retry.ts",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "function retryWorker() {}",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.42,
+          sparseScore: 0.25,
+          rerankScore: 2.8,
+          fusedScore: 8.1,
+          updatedAt: new Date("2026-03-09T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(adjusted[0]?.chunkId).toBe("review-1");
+    expect(adjusted[1]?.chunkId).toBe("code-1");
+    expect(adjusted[2]?.saturationMetadata?.penalty).toBeLessThan(0);
+  });
+
+  it("prefers direct code evidence over review metadata when exact paths are available", () => {
+    const reranked = rerankRetrievalHits({
+      issueId: "issue-1",
+      projectId: "project-1",
+      finalK: 3,
+      signals: {
+        exactPaths: ["src/retry.ts"],
+        fileNames: ["retry.ts"],
+        symbolHints: ["retryWorker"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "test_report", "review", "issue"],
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-worker"],
+        blockerCode: null,
+        questionType: null,
+      },
+      hits: [
+        {
+          chunkId: "review-1",
+          documentId: "doc-review-1",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-81/review/submit.md",
+          title: "Review artifact",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.7,
+          sparseScore: 0.4,
+          rerankScore: 0,
+          fusedScore: 7.5,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "code-1",
+          documentId: "doc-code-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "Retry worker",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "retry worker implementation",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.5,
+          sparseScore: 0.2,
+          rerankScore: 0,
+          fusedScore: 6.2,
+          updatedAt: new Date("2026-03-08T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(reranked[0]?.sourceType).toBe("code");
+    expect(reranked[0]?.path).toBe("src/retry.ts");
   });
 
   it("expands symbol graph hits across two hops with decay", () => {
@@ -1182,7 +1586,7 @@ describe("issue retrieval helpers", () => {
     expect(reranked[0]?.personalizationMetadata?.totalBoost).toBeGreaterThan(0.7);
   });
 
-  it("stabilizes ranking by preferring changed-path review artifacts over stale issue snapshots", () => {
+  it("stabilizes ranking so stale issue snapshots can outrank weaker review metadata when dense relevance is higher", () => {
     const reranked = rerankRetrievalHits({
       issueId: "issue-1",
       projectId: "project-1",
@@ -1249,9 +1653,9 @@ describe("issue retrieval helpers", () => {
       ],
     });
 
-    expect(reranked[0]?.chunkId).toBe("chunk-review");
-    expect(reranked[1]?.chunkId).toBe("chunk-issue");
-    expect(reranked[1]?.rerankScore).toBeLessThan(reranked[0]?.rerankScore ?? 0);
+    expect(reranked[0]?.chunkId).toBe("chunk-issue");
+    expect(reranked[1]?.chunkId).toBe("chunk-review");
+    expect(reranked[0]?.fusedScore).toBeGreaterThan(reranked[1]?.fusedScore ?? 0);
   });
 
   it("keeps direct code hits ahead of issue snapshots that only match changedPaths metadata", () => {
@@ -1345,7 +1749,8 @@ describe("issue retrieval helpers", () => {
     });
 
     expect(reranked[0]?.chunkId).toBe("chunk-code");
-    expect(reranked[2]?.chunkId).toBe("chunk-issue");
+    expect(reranked[1]?.chunkId).toBe("chunk-issue");
+    expect(reranked[2]?.chunkId).toBe("chunk-review");
     expect(reranked[2]?.rerankScore).toBeLessThan(reranked[0]?.rerankScore ?? 0);
   });
 

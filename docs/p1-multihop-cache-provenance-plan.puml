@@ -1,0 +1,47 @@
+@startuml
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #475569
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment left
+
+package "Retrieval Pipeline" {
+  [Signals
+  exact path / symbol / project] as Signals
+  [Candidate retrieval
+  sparse + dense + cache] as Candidate
+  [Chunk-link graph expansion] as Graph
+  [Final rerank
+  saturation guard] as Rerank
+  [Brief + run debug] as Brief
+}
+
+package "Cache Provenance" {
+  [Inspect cache state
+  hit / miss_cold / miss_revision_changed] as Inspect
+  [Persist provenance
+  matched revision / latest revision / updatedAt] as Persist
+  [Recent runs / quality read model] as ReadModel
+}
+
+Signals --> Candidate
+Candidate --> Graph
+Graph --> Rerank
+Rerank --> Brief
+Candidate --> Inspect
+Inspect --> Persist
+Persist --> Brief
+Persist --> ReadModel
+
+note right of Graph
+Allow one-time path/symbol escalation
+when organizational memory links
+re-surface stronger signals
+end note
+
+note right of Rerank
+Apply mild saturation penalty
+for repeated issue/protocol/review
+artifacts with same path/source
+end note
+@enduml

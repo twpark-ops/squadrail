@@ -6,6 +6,7 @@ type Args = {
   companyId?: string;
   companyName?: string;
   limit?: number;
+  rebuildOnly?: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -26,6 +27,10 @@ function parseArgs(argv: string[]): Args {
     if (current === "--limit" && next) {
       args.limit = Number(next);
       index += 1;
+      continue;
+    }
+    if (current === "--rebuild-only") {
+      args.rebuildOnly = true;
     }
   }
   return args;
@@ -50,11 +55,15 @@ async function main() {
   }
   if (!companyId) throw new Error("Target company was not found");
 
-  const result = await retrievalPersonalizationService(db).backfillProtocolFeedback({
-    companyId,
-    limit: args.limit,
-  });
-  console.log(JSON.stringify(result, null, 2));
+  const service = retrievalPersonalizationService(db);
+  const result = args.rebuildOnly
+    ? { scanned: 0, replayed: 0, feedbackEventCount: 0, profiledRunCount: 0 }
+    : await service.backfillProtocolFeedback({
+      companyId,
+      limit: args.limit,
+    });
+  const rebuild = await service.rebuildAllProfiles({ companyId });
+  console.log(JSON.stringify({ ...result, rebuild }, null, 2));
 }
 
 main().catch((error) => {
