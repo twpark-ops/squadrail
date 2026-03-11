@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { and, desc, eq, inArray, not, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
@@ -20,10 +19,34 @@ import { knowledgeService } from "./knowledge.js";
 import { logActivity } from "./activity-log.js";
 import { publishLiveEvent } from "./live-events.js";
 import {
+  buildPersonalizationFingerprint,
+  buildRetrievalCacheIdentity,
+  buildRetrievalCacheInspectionResult,
+  buildRetrievalStageCacheKey,
+  hashString,
+  stableJson,
+} from "./retrieval-cache.js";
+import {
+  appendUniqueRetrievalHits,
+  applyEvidenceDiversityGuard,
+  applyGraphConnectivityGuard,
+  applyOrganizationalBridgeGuard,
+  applyOrganizationalMemorySaturationGuard,
+  classifyOrganizationalArtifact,
+  isExecutableEvidenceSourceType,
+} from "./retrieval-evidence-guards.js";
+import {
   computeRetrievalPersonalizationBoost,
   retrievalPersonalizationService,
   type RetrievalPersonalizationProfile,
 } from "./retrieval-personalization.js";
+
+export {
+  applyEvidenceDiversityGuard,
+  applyGraphConnectivityGuard,
+  applyOrganizationalBridgeGuard,
+  applyOrganizationalMemorySaturationGuard,
+} from "./retrieval-evidence-guards.js";
 
 const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
   ASSIGN_TASK: "on_assignment",
@@ -50,15 +73,11 @@ type RetrievalEventType = (typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE)[keyof typeof 
 type RetrievalTargetRole = "engineer" | "reviewer" | "tech_lead" | "cto" | "pm" | "qa" | "human_board";
 type RetrievalBriefScope = "global" | "engineer" | "reviewer" | "tech_lead" | "cto" | "pm" | "qa" | "closure";
 
-function sha256(value: string) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 export function buildQueryEmbeddingCacheKey(input: {
   queryText: string;
   embeddingFingerprint: string;
 }) {
-  return sha256(`${input.embeddingFingerprint}\n${input.queryText}`);
+  return hashString(`${input.embeddingFingerprint}\n${input.queryText}`);
 }
 
 function readCachedEmbedding(entryValue: Record<string, unknown> | null | undefined) {
@@ -128,7 +147,13 @@ export interface RetrievalHitView {
     artifactClass: "issue" | "protocol" | "review" | null;
   } | null;
   diversityMetadata?: {
-    promotedReason: "exact_path_code" | "exact_path_test_report";
+    promotedReason:
+      | "exact_path_code"
+      | "exact_path_test_report"
+      | "organizational_bridge_exact_path"
+      | "organizational_bridge_related_path"
+      | "graph_multihop_code"
+      | "graph_multihop_context";
     replacedSourceType: string | null;
   } | null;
 }
@@ -224,9 +249,15 @@ interface RetrievalCachePayload {
   metadata: Record<string, unknown>;
 }
 
-type RetrievalCacheState = "hit" | "miss_cold" | "miss_revision_changed" | "miss_expired";
+export type RetrievalCacheState =
+  | "hit"
+  | "miss_cold"
+  | "miss_revision_changed"
+  | "miss_expired"
+  | "miss_policy_changed"
+  | "miss_feedback_changed";
 
-interface RetrievalCacheInspectionResult {
+export interface RetrievalCacheInspectionResult {
   state: RetrievalCacheState;
   reason: RetrievalCacheState;
   matchedRevision: number | null;
@@ -338,7 +369,7 @@ interface RetrievalLinkView {
   weight: number;
 }
 
-interface RetrievalSignals {
+export interface RetrievalSignals {
   exactPaths: string[];
   fileNames: string[];
   symbolHints: string[];
@@ -350,7 +381,7 @@ interface RetrievalSignals {
   questionType: string | null;
 }
 
-function applyPersonalizationSignals(input: {
+export function applyPersonalizationSignals(input: {
   signals: RetrievalSignals;
   profile: RetrievalPersonalizationProfile;
   maxPaths?: number;
@@ -359,11 +390,28 @@ function applyPersonalizationSignals(input: {
 }) {
   if (!input.profile.applied) return input.signals;
 
+  const directExactPaths = input.signals.exactPaths.map(normalizeHintPath);
+  const directDirectories = new Set(directExactPaths.map((value) => path.posix.dirname(value)));
+  const directBasenames = new Set(directExactPaths.map((value) => path.posix.basename(value)));
+  const directStemNames = new Set(directExactPaths.map(basenameWithoutExtension));
+
   const boostedPaths = Object.entries(input.profile.pathBoosts)
     .filter((entry) => entry[1] > 0.04)
     .sort((left, right) => right[1] - left[1])
     .slice(0, input.maxPaths ?? 6)
-    .map(([pathValue]) => normalizeHintPath(pathValue));
+    .map(([pathValue]) => normalizeHintPath(pathValue))
+    .filter((candidatePath) => {
+      if (directExactPaths.length === 0) return true;
+      const candidateDir = path.posix.dirname(candidatePath);
+      const candidateBase = path.posix.basename(candidatePath);
+      const candidateStem = basenameWithoutExtension(candidatePath);
+      return (
+        directExactPaths.includes(candidatePath)
+        || directDirectories.has(candidateDir)
+        || directBasenames.has(candidateBase)
+        || directStemNames.has(candidateStem)
+      );
+    });
   const boostedSymbols = Object.entries(input.profile.symbolBoosts)
     .filter((entry) => entry[1] > 0.04)
     .sort((left, right) => right[1] - left[1])
@@ -419,6 +467,9 @@ interface RetrievalRerankWeights {
   pathLinkMinBoost: number;
   pathLinkWeightMultiplier: number;
   linkBoostCap: number;
+  graphMultiHopBoost: number;
+  graphExecutableBridgeBoost: number;
+  graphCrossProjectBoost: number;
   freshnessWindowDays: number;
   freshnessMaxBoost: number;
   expiredPenalty: number;
@@ -514,7 +565,7 @@ export interface RetrievalSymbolGraphSeed {
   seedReasons: string[];
 }
 
-interface RetrievalTemporalContext {
+export interface RetrievalTemporalContext {
   branchName: string | null;
   defaultBranchName: string | null;
   headSha: string | null;
@@ -555,6 +606,9 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   pathLinkMinBoost: 0.2,
   pathLinkWeightMultiplier: 1,
   linkBoostCap: 2.5,
+  graphMultiHopBoost: 0.55,
+  graphExecutableBridgeBoost: 0.4,
+  graphCrossProjectBoost: 0.3,
   freshnessWindowDays: 21,
   freshnessMaxBoost: 0.45,
   expiredPenalty: -1.2,
@@ -697,73 +751,6 @@ function uniqueNonEmpty(values: Array<string | null | undefined>) {
   return ordered;
 }
 
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
-  }
-  if (!value || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
-}
-
-function buildRetrievalStageCacheKey(input: {
-  stage: "candidate_hits" | "final_hits";
-  queryText: string;
-  companyId: string;
-  issueProjectId: string | null;
-  role: string;
-  eventType: string;
-  workflowState: string;
-  allowedSourceTypes: string[];
-  allowedAuthorityLevels: string[];
-  rerankConfig: Record<string, unknown>;
-  dynamicSignals: RetrievalSignals;
-  temporalContext: RetrievalTemporalContext | null;
-  revisionSignature: string;
-  personalizationFingerprint?: string;
-}): string {
-  return sha256(stableJson({
-    stage: input.stage,
-    companyId: input.companyId,
-    issueProjectId: input.issueProjectId,
-    queryText: input.queryText,
-    role: input.role,
-    eventType: input.eventType,
-    workflowState: input.workflowState,
-    allowedSourceTypes: [...input.allowedSourceTypes].sort(),
-    allowedAuthorityLevels: [...input.allowedAuthorityLevels].sort(),
-    rerankConfig: input.rerankConfig,
-    dynamicSignals: {
-      exactPaths: [...input.dynamicSignals.exactPaths].sort(),
-      fileNames: [...input.dynamicSignals.fileNames].sort(),
-      symbolHints: [...input.dynamicSignals.symbolHints].sort(),
-      knowledgeTags: [...input.dynamicSignals.knowledgeTags].sort(),
-      preferredSourceTypes: [...input.dynamicSignals.preferredSourceTypes].sort(),
-      projectAffinityIds: [...input.dynamicSignals.projectAffinityIds].sort(),
-      blockerCode: input.dynamicSignals.blockerCode,
-      questionType: input.dynamicSignals.questionType,
-    },
-    temporalContext: input.temporalContext,
-    revisionSignature: input.revisionSignature,
-    personalizationFingerprint: input.personalizationFingerprint ?? null,
-  }));
-}
-
-function buildPersonalizationFingerprint(profile: RetrievalPersonalizationProfile) {
-  return sha256(stableJson({
-    applied: profile.applied,
-    scopes: profile.scopes,
-    feedbackCount: profile.feedbackCount,
-    positiveFeedbackCount: profile.positiveFeedbackCount,
-    negativeFeedbackCount: profile.negativeFeedbackCount,
-    sourceTypeBoosts: profile.sourceTypeBoosts,
-    pathBoosts: profile.pathBoosts,
-    symbolBoosts: profile.symbolBoosts,
-  }));
-}
-
 function buildKnowledgeRevisionSignature(input: {
   companyId: string;
   issueProjectId: string | null;
@@ -782,7 +769,7 @@ function buildKnowledgeRevisionSignature(input: {
   const revisionByProjectId = new Map(
     input.revisions.map((revision) => [revision.projectId, revision] as const),
   );
-  return sha256(stableJson({
+  return hashString(stableJson({
     companyId: input.companyId,
     orderedProjectIds,
     revisions: orderedProjectIds.map((projectId) => {
@@ -817,6 +804,19 @@ function normalizeHintPath(value: string) {
 function basenameWithoutExtension(filePath: string) {
   const base = path.posix.basename(filePath);
   return base.replace(/\.[^.]+$/, "");
+}
+
+function extractPathHintsFromTextValues(values: Array<string | null | undefined>) {
+  const pathPattern = /\b(?:[A-Za-z0-9_.-]+\/)+(?:[A-Za-z0-9_.-]+\.[A-Za-z0-9]+)\b/g;
+  const results: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string" || value.trim().length === 0) continue;
+    const matches = value.match(pathPattern) ?? [];
+    for (const match of matches) {
+      results.push(normalizeHintPath(match));
+    }
+  }
+  return uniqueNonEmpty(results);
 }
 
 function extractIdentifierHints(values: string[]) {
@@ -1132,6 +1132,8 @@ export function deriveDynamicRetrievalSignals(input: {
   message: CreateIssueProtocolMessage;
   issue: {
     projectId: string | null;
+    title?: string | null;
+    description?: string | null;
     mentionedProjects?: Array<{ id: string; name: string }>;
   };
   recipientRole: string;
@@ -1150,12 +1152,37 @@ export function deriveDynamicRetrievalSignals(input: {
     ...(input.baselineSourceTypes ?? []),
   ]);
 
+  const textDerivedPaths = extractPathHintsFromTextValues([
+    input.issue.title,
+    input.issue.description,
+    input.message.summary,
+    typeof payload.goal === "string" ? payload.goal : null,
+    typeof payload.reason === "string" ? payload.reason : null,
+    typeof payload.implementationSummary === "string" ? payload.implementationSummary : null,
+    typeof payload.diffSummary === "string" ? payload.diffSummary : null,
+    typeof payload.reviewSummary === "string" ? payload.reviewSummary : null,
+    typeof payload.approvalSummary === "string" ? payload.approvalSummary : null,
+    typeof payload.closureSummary === "string" ? payload.closureSummary : null,
+    typeof payload.verificationSummary === "string" ? payload.verificationSummary : null,
+    ...((payload.requiredEvidence as string[] | undefined) ?? []),
+    ...((payload.reviewChecklist as string[] | undefined) ?? []),
+    ...((payload.testResults as string[] | undefined) ?? []),
+    ...((payload.residualRisks as string[] | undefined) ?? []),
+    ...((payload.changedFiles as string[] | undefined) ?? []),
+    ...(((payload.changeRequests as Array<Record<string, unknown>> | undefined) ?? []).flatMap((request) => [
+      typeof request.title === "string" ? request.title : null,
+      typeof request.reason === "string" ? request.reason : null,
+      typeof request.suggestedAction === "string" ? request.suggestedAction : null,
+      ...(((request.affectedFiles as string[] | undefined) ?? [])),
+    ])),
+  ]);
   const exactPaths = uniqueNonEmpty([
     ...((payload.changedFiles as string[] | undefined) ?? []),
     ...(((payload.changeRequests as Array<Record<string, unknown>> | undefined) ?? []).flatMap((request) => (
       (request.affectedFiles as string[] | undefined) ?? []
     ))),
     ...((payload.relatedArtifacts as string[] | undefined) ?? []),
+    ...textDerivedPaths,
   ]).map(normalizeHintPath);
   const fileNames = uniqueNonEmpty(exactPaths.map((entry) => path.posix.basename(entry)));
   const knowledgeTags = uniqueNonEmpty([
@@ -1255,6 +1282,15 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     pathLinkMinBoost: readConfiguredNumber(weightsRecord.pathLinkMinBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.pathLinkMinBoost),
     pathLinkWeightMultiplier: readConfiguredNumber(weightsRecord.pathLinkWeightMultiplier, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.pathLinkWeightMultiplier),
     linkBoostCap: readConfiguredNumber(weightsRecord.linkBoostCap, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.linkBoostCap),
+    graphMultiHopBoost: readConfiguredNumber(weightsRecord.graphMultiHopBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.graphMultiHopBoost),
+    graphExecutableBridgeBoost: readConfiguredNumber(
+      weightsRecord.graphExecutableBridgeBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.graphExecutableBridgeBoost,
+    ),
+    graphCrossProjectBoost: readConfiguredNumber(
+      weightsRecord.graphCrossProjectBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.graphCrossProjectBoost,
+    ),
     freshnessWindowDays: readConfiguredNumber(weightsRecord.freshnessWindowDays, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.freshnessWindowDays),
     freshnessMaxBoost: readConfiguredNumber(weightsRecord.freshnessMaxBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.freshnessMaxBoost),
     expiredPenalty: readConfiguredNumber(weightsRecord.expiredPenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.expiredPenalty),
@@ -1485,37 +1521,6 @@ function computePathBoost(hitPath: string | null, signals: RetrievalSignals, wei
   return 0;
 }
 
-function classifyOrganizationalArtifact(hit: RetrievalHitView): "issue" | "protocol" | "review" | null {
-  const artifactKind = readMetadataString(hit.documentMetadata, "artifactKind");
-  if (artifactKind === "issue_snapshot" || hit.sourceType === "issue") return "issue";
-  if (artifactKind === "protocol_event" || hit.sourceType === "protocol_message") return "protocol";
-  if (artifactKind === "review_event" || hit.sourceType === "review") return "review";
-  return null;
-}
-
-function buildRetrievalCacheInspectionResult(input: {
-  state: RetrievalCacheState;
-  cacheKey: string;
-  matchedRevision?: number | null;
-  latestKnownRevision?: number | null;
-  lastEntryUpdatedAt?: Date | string | null;
-}): RetrievalCacheInspectionResult {
-  const updatedAtValue = input.lastEntryUpdatedAt;
-  const updatedAt = updatedAtValue instanceof Date
-    ? updatedAtValue.toISOString()
-    : typeof updatedAtValue === "string"
-      ? updatedAtValue
-      : null;
-  return {
-    state: input.state,
-    reason: input.state,
-    matchedRevision: input.matchedRevision ?? null,
-    latestKnownRevision: input.latestKnownRevision ?? null,
-    lastEntryUpdatedAt: updatedAt,
-    cacheKeyFingerprint: input.cacheKey.slice(0, 12),
-  };
-}
-
 function shouldEscalateGraphSeed(input: {
   entityType: RetrievalGraphSeed["entityType"];
   currentSeed: RetrievalGraphSeed;
@@ -1538,24 +1543,6 @@ function shouldEscalateGraphSeed(input: {
   );
 }
 
-function deriveOrganizationalMemorySaturationPath(hit: RetrievalHitView) {
-  const changedPaths = Array.isArray(hit.documentMetadata.changedPaths)
-    ? hit.documentMetadata.changedPaths.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    : [];
-  const primaryChangedPath = changedPaths[0] ? normalizeHintPath(changedPaths[0]) : null;
-  if (primaryChangedPath) return primaryChangedPath;
-  return hit.path ? normalizeHintPath(hit.path) : null;
-}
-
-function isExecutableEvidenceSourceType(sourceType: string) {
-  return sourceType === "code" || sourceType === "test_report";
-}
-
-function matchesExactPathEvidence(hit: RetrievalHitView, signals: RetrievalSignals) {
-  const pathBoost = computeDocumentPathBoost(hit, signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
-  return pathBoost.kind === "direct";
-}
-
 function computeExecutablePathBridgeBoost(input: {
   hit: RetrievalHitView;
   pathBoost: RetrievalPathBoostResult;
@@ -1565,134 +1552,6 @@ function computeExecutablePathBridgeBoost(input: {
   if (input.hit.sourceType === "code") return input.weights.exactPathCodeBridgeBoost;
   if (input.hit.sourceType === "test_report") return input.weights.exactPathTestBridgeBoost;
   return 0;
-}
-
-export function applyOrganizationalMemorySaturationGuard(input: {
-  hits: RetrievalHitView[];
-  finalK: number;
-}) {
-  const inspectionLimit = Math.max(input.finalK * 4, input.finalK + 12);
-  const inspected = input.hits.slice(0, inspectionLimit);
-  const rest = input.hits.slice(inspectionLimit);
-  const pathCounts = new Map<string, number>();
-  const sourceCounts = new Map<string, number>();
-
-  const adjusted = inspected.map((hit) => {
-    const artifactClass = classifyOrganizationalArtifact(hit);
-    if (!artifactClass) {
-      return {
-        ...hit,
-        saturationMetadata: null,
-      } satisfies RetrievalHitView;
-    }
-
-    const normalizedPath = deriveOrganizationalMemorySaturationPath(hit);
-    const repeatedPathCount = normalizedPath ? (pathCounts.get(normalizedPath) ?? 0) : 0;
-    const repeatedSourceTypeCount = sourceCounts.get(hit.sourceType) ?? 0;
-    let penalty = 0;
-
-    if (repeatedPathCount >= 1) {
-      penalty -= Math.min(2.2, 0.92 * repeatedPathCount * (artifactClass === "review" ? 1.15 : 1));
-    }
-    if (repeatedSourceTypeCount >= 3) {
-      penalty -= Math.min(0.8, 0.18 * (repeatedSourceTypeCount - 2));
-    }
-
-    if (normalizedPath) {
-      pathCounts.set(normalizedPath, repeatedPathCount + 1);
-    }
-    sourceCounts.set(hit.sourceType, repeatedSourceTypeCount + 1);
-
-    if (penalty === 0) {
-      return {
-        ...hit,
-        saturationMetadata: {
-          penalty: 0,
-          repeatedPathCount,
-          repeatedSourceTypeCount,
-          artifactClass,
-        },
-      } satisfies RetrievalHitView;
-    }
-
-    return {
-      ...hit,
-      fusedScore: hit.fusedScore + penalty,
-      rerankScore: (hit.rerankScore ?? 0) + penalty,
-      saturationMetadata: {
-        penalty,
-        repeatedPathCount,
-        repeatedSourceTypeCount,
-        artifactClass,
-      },
-    } satisfies RetrievalHitView;
-  });
-
-  return [...adjusted, ...rest]
-    .sort((left, right) => {
-      if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
-      return right.updatedAt.getTime() - left.updatedAt.getTime();
-    });
-}
-
-export function applyEvidenceDiversityGuard(input: {
-  hits: RetrievalHitView[];
-  finalK: number;
-  signals: RetrievalSignals;
-}) {
-  if (input.finalK <= 0 || input.signals.exactPaths.length === 0) return input.hits;
-
-  if (input.hits.length <= input.finalK) return input.hits;
-
-  const selected = input.hits.slice(0, input.finalK);
-  if (selected.some((hit) => isExecutableEvidenceSourceType(hit.sourceType) && matchesExactPathEvidence(hit, input.signals))) {
-    return input.hits;
-  }
-
-  const promotedCandidate = input.hits.find((hit, index) =>
-    index >= input.finalK
-    && isExecutableEvidenceSourceType(hit.sourceType)
-    && matchesExactPathEvidence(hit, input.signals));
-  if (!promotedCandidate) return input.hits;
-
-  const replacementIndex = [...selected]
-    .map((hit, index) => ({ hit, index }))
-    .reverse()
-    .find(({ hit }) => classifyOrganizationalArtifact(hit) != null)?.index ?? (selected.length - 1);
-  const replaced = selected[replacementIndex] ?? null;
-  const promoted = {
-    ...promotedCandidate,
-    diversityMetadata: {
-      promotedReason: promotedCandidate.sourceType === "test_report" ? "exact_path_test_report" : "exact_path_code",
-      replacedSourceType: replaced?.sourceType ?? null,
-    },
-  } satisfies RetrievalHitView;
-
-  const adjustedSelected = selected.map((hit, index) => (index === replacementIndex ? promoted : hit));
-  let promotedRemoved = false;
-  const remainingHits = input.hits.filter((hit) => {
-    if (!promotedRemoved && hit.chunkId === promotedCandidate.chunkId) {
-      promotedRemoved = true;
-      return false;
-    }
-    return true;
-  });
-
-  return [
-    ...adjustedSelected,
-    ...remainingHits.slice(input.finalK),
-  ];
-}
-
-function appendUniqueRetrievalHits(baseHits: RetrievalHitView[], fallbackHits: RetrievalHitView[]) {
-  const seen = new Set(baseHits.map((hit) => hit.chunkId));
-  const appended = [...baseHits];
-  for (const hit of fallbackHits) {
-    if (seen.has(hit.chunkId)) continue;
-    seen.add(hit.chunkId);
-    appended.push(hit);
-  }
-  return appended;
 }
 
 function computeDocumentPathBoost(
@@ -2134,6 +1993,24 @@ function computeLinkBoost(input: {
   return Math.min(input.weights.linkBoostCap, score);
 }
 
+function computeGraphConnectivityBoost(input: {
+  hit: RetrievalHitView;
+  signals: RetrievalSignals;
+  weights: RetrievalRerankWeights;
+}) {
+  const hopDepth = input.hit.graphMetadata?.hopDepth ?? 1;
+  if (hopDepth <= 1) return 0;
+
+  let score = Math.min(1.8, (hopDepth - 1) * input.weights.graphMultiHopBoost);
+  if (isExecutableEvidenceSourceType(input.hit.sourceType)) {
+    score += input.weights.graphExecutableBridgeBoost;
+  }
+  if (input.signals.projectAffinityIds.length > 1) {
+    score += input.weights.graphCrossProjectBoost;
+  }
+  return score;
+}
+
 export function rerankRetrievalHits(input: {
   hits: RetrievalHitView[];
   signals: RetrievalSignals;
@@ -2185,6 +2062,11 @@ export function rerankRetrievalHits(input: {
         + computeLatestBoost(hit, rerankConfig.weights)
         + computeFreshnessBoost(hit, rerankConfig.weights)
         + temporal.score
+        + computeGraphConnectivityBoost({
+          hit,
+          signals: input.signals,
+          weights: rerankConfig.weights,
+        })
         + computeLinkBoost({
           hit,
           links: input.linkMap?.get(hit.chunkId) ?? [],
@@ -2227,10 +2109,18 @@ export function rerankRetrievalHits(input: {
       return right.updatedAt.getTime() - left.updatedAt.getTime();
     });
 
-  return applyEvidenceDiversityGuard({
-    hits: applyOrganizationalMemorySaturationGuard({
-      hits: scoredHits,
+  return applyGraphConnectivityGuard({
+    hits: applyOrganizationalBridgeGuard({
+      hits: applyEvidenceDiversityGuard({
+        hits: applyOrganizationalMemorySaturationGuard({
+          hits: scoredHits,
+          finalK: input.finalK,
+        }),
+        finalK: input.finalK,
+        signals: input.signals,
+      }),
       finalK: input.finalK,
+      signals: input.signals,
     }),
     finalK: input.finalK,
     signals: input.signals,
@@ -2315,6 +2205,23 @@ export function buildGraphExpansionSeeds(input: {
         seedReasons: ["top_hit_path"],
       });
     }
+    if (hit.documentIssueId && classifyOrganizationalArtifact(hit) != null) {
+      pushSeed({
+        entityType: "issue",
+        entityId: hit.documentIssueId,
+        seedBoost: hit.sourceType === "review" ? 1.15 : 0.95,
+        seedReasons: ["top_hit_issue_context"],
+      });
+    }
+
+    for (const changedPath of metadataStringArray(hit.documentMetadata, ["changedPaths"]).slice(0, 3)) {
+      pushSeed({
+        entityType: "path",
+        entityId: normalizeHintPath(changedPath),
+        seedBoost: 1.15,
+        seedReasons: ["top_hit_changed_path"],
+      });
+    }
 
     for (const link of input.linkMap?.get(hit.chunkId) ?? []) {
       if (link.entityType === "symbol") {
@@ -2337,6 +2244,13 @@ export function buildGraphExpansionSeeds(input: {
           entityId: link.entityId,
           seedBoost: Math.max(0.55, link.weight * 0.6),
           seedReasons: ["project_affinity_link"],
+        });
+      } else if (link.entityType === "issue") {
+        pushSeed({
+          entityType: "issue",
+          entityId: link.entityId,
+          seedBoost: Math.max(0.78, link.weight * 0.72),
+          seedReasons: ["linked_issue_context"],
         });
       }
     }
@@ -2392,6 +2306,35 @@ export function buildSymbolGraphExpansionSeeds(input: {
   return Array.from(seedMap.values())
     .sort((left, right) => right.seedBoost - left.seedBoost)
     .slice(0, maxSeeds);
+}
+
+export function deriveSemanticGraphHopDepth(input: {
+  traversalHopDepth: number;
+  seedReasons: string[];
+}) {
+  const normalizedReasons = input.seedReasons;
+  const derivedContextHop = normalizedReasons.some((reason) =>
+    reason === "top_hit_issue_context"
+    || reason === "linked_issue_context"
+    || reason === "top_hit_changed_path")
+    ? 1
+    : 0;
+  return Math.max(1, input.traversalHopDepth + derivedContextHop);
+}
+
+export function shouldAllowGraphExactPathRediscovery(input: {
+  hopDepth: number;
+  seeds: RetrievalGraphSeed[];
+}) {
+  if (input.hopDepth <= 1) return false;
+  return input.seeds.some((seed) =>
+    seed.entityType === "path"
+    && seed.seedReasons.some((reason) =>
+      reason === "linked_issue_context"
+      || reason === "top_hit_issue_context"
+      || reason === "top_hit_changed_path"
+      || reason.startsWith("graph_hop:")
+      || reason.startsWith("graph_escalated_")));
 }
 
 export function mergeGraphExpandedHits(input: {
@@ -2707,6 +2650,10 @@ function buildHitRationale(input: {
   }
   for (const edgeType of uniqueNonEmpty(input.hit.graphMetadata?.edgeTypes ?? [])) {
     reasons.push(`graph_edge_${edgeType}`);
+  }
+  if ((input.hit.graphMetadata?.hopDepth ?? 1) > 1) reasons.push("graph_multihop");
+  if ((input.hit.graphMetadata?.hopDepth ?? 1) > 1 && isExecutableEvidenceSourceType(input.hit.sourceType)) {
+    reasons.push("graph_executable_bridge");
   }
   if ((input.hit.personalizationMetadata?.sourceTypeBoost ?? 0) !== 0) reasons.push("personalized_source_type");
   if ((input.hit.personalizationMetadata?.pathBoost ?? 0) !== 0) reasons.push("personalized_path");
@@ -3121,7 +3068,7 @@ export function issueRetrievalService(db: Db) {
         conditions.push(not(inArray(knowledgeChunks.id, excludeChunkIds)));
       }
 
-      return db
+      const rows = await db
         .select({
           chunkId: knowledgeChunks.id,
           documentId: knowledgeDocuments.id,
@@ -3148,6 +3095,73 @@ export function issueRetrievalService(db: Db) {
         .where(and(...conditions))
         .orderBy(desc(knowledgeChunkLinks.weight), desc(knowledgeDocuments.updatedAt))
         .limit(Math.max(input.limit * 10, 60));
+      return rows.filter((row): row is typeof rows[number] & { entityId: string } => typeof row.entityId === "string" && row.entityId.length > 0);
+    };
+
+    const queryRowsForExactPathSeeds = async (
+      seeds: RetrievalGraphSeed[],
+      excludeChunkIds: string[],
+      options?: { allowVisitedChunkMatches?: boolean },
+    ) => {
+      const pathSeeds = uniqueNonEmpty(
+        seeds
+          .filter((seed) => seed.entityType === "path")
+          .map((seed) => normalizeHintPath(seed.entityId)),
+      );
+      if (pathSeeds.length === 0) return [];
+
+      const conditions = [
+        eq(knowledgeChunks.companyId, input.companyId),
+        inArray(knowledgeDocuments.sourceType, input.allowedSourceTypes),
+        inArray(knowledgeDocuments.authorityLevel, input.allowedAuthorityLevels),
+        inArray(knowledgeDocuments.path, pathSeeds),
+      ];
+      if (!options?.allowVisitedChunkMatches && excludeChunkIds.length > 0) {
+        conditions.push(not(inArray(knowledgeChunks.id, excludeChunkIds)));
+      }
+
+      const executablePriority = sql<number>`
+        case
+          when ${knowledgeDocuments.sourceType} = 'code' then 3
+          when ${knowledgeDocuments.sourceType} = 'test_report' then 2
+          when ${knowledgeDocuments.sourceType} = 'review' then 1
+          else 0
+        end
+      `;
+
+      const rows = await db
+        .select({
+          chunkId: knowledgeChunks.id,
+          documentId: knowledgeDocuments.id,
+          sourceType: knowledgeDocuments.sourceType,
+          authorityLevel: knowledgeDocuments.authorityLevel,
+          documentIssueId: knowledgeDocuments.issueId,
+          documentProjectId: knowledgeDocuments.projectId,
+          path: knowledgeDocuments.path,
+          title: knowledgeDocuments.title,
+          headingPath: knowledgeChunks.headingPath,
+          symbolName: knowledgeChunks.symbolName,
+          textContent: knowledgeChunks.textContent,
+          documentMetadata: knowledgeDocuments.metadata,
+          chunkMetadata: knowledgeChunks.metadata,
+          updatedAt: knowledgeDocuments.updatedAt,
+          entityType: sql<string>`'path'`,
+          entityId: knowledgeDocuments.path,
+          linkReason: sql<string>`'path_document_match'`,
+          linkWeight: sql<number>`
+            case
+              when ${knowledgeDocuments.sourceType} = 'code' then 1.18
+              when ${knowledgeDocuments.sourceType} = 'test_report' then 1.08
+              else 0.72
+            end
+          `,
+        })
+        .from(knowledgeChunks)
+        .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+        .where(and(...conditions))
+        .orderBy(desc(executablePriority), desc(knowledgeDocuments.updatedAt))
+        .limit(Math.max(input.limit * 12, 96));
+      return rows.filter((row): row is typeof rows[number] & { entityId: string } => typeof row.entityId === "string" && row.entityId.length > 0);
     };
 
     const buildHits = (
@@ -3159,6 +3173,10 @@ export function issueRetrievalService(db: Db) {
       for (const row of rows) {
         const seed = seeds.get(`${row.entityType}:${row.entityId}`);
         if (!seed) continue;
+        const graphHopDepth = deriveSemanticGraphHopDepth({
+          traversalHopDepth: hopDepth,
+          seedReasons: seed.seedReasons,
+        });
 
         const existing = grouped.get(row.chunkId);
         const graphScore = Math.min(4, seed.seedBoost + Math.max(0.2, row.linkWeight * 0.6));
@@ -3196,7 +3214,7 @@ export function issueRetrievalService(db: Db) {
               entityIds: [row.entityId],
               seedReasons: uniqueNonEmpty([...seed.seedReasons, row.linkReason]),
               graphScore,
-              hopDepth,
+              hopDepth: graphHopDepth,
             },
           });
           continue;
@@ -3216,7 +3234,7 @@ export function issueRetrievalService(db: Db) {
               row.linkReason,
             ]),
             graphScore: nextGraphScore,
-            hopDepth: Math.min(existing.graphMetadata?.hopDepth ?? hopDepth, hopDepth),
+            hopDepth: Math.max(existing.graphMetadata?.hopDepth ?? graphHopDepth, graphHopDepth),
           },
         });
       }
@@ -3225,7 +3243,7 @@ export function issueRetrievalService(db: Db) {
 
     const listLinksForGraphExpansion = async (chunkIds: string[]) => {
       if (chunkIds.length === 0) return [];
-      return db
+      const rows = await db
         .select({
           chunkId: knowledgeChunkLinks.chunkId,
           entityType: knowledgeChunkLinks.entityType,
@@ -3240,6 +3258,7 @@ export function issueRetrievalService(db: Db) {
         ))
         .orderBy(desc(knowledgeChunkLinks.weight))
         .limit(Math.max(input.limit * 16, 120));
+      return rows.filter((row): row is typeof rows[number] & { entityId: string } => typeof row.entityId === "string" && row.entityId.length > 0);
     };
 
     let frontierSeeds = input.seeds;
@@ -3263,7 +3282,17 @@ export function issueRetrievalService(db: Db) {
       if (frontierSeeds.length === 0) break;
 
       const frontierSeedMap = new Map(frontierSeeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const));
-      const hopRows = await queryRowsForSeeds(frontierSeeds, excludedChunkIds);
+      const allowVisitedExactPathMatches = shouldAllowGraphExactPathRediscovery({
+        hopDepth,
+        seeds: frontierSeeds,
+      });
+      const [linkedHopRows, exactPathHopRows] = await Promise.all([
+        queryRowsForSeeds(frontierSeeds, excludedChunkIds),
+        queryRowsForExactPathSeeds(frontierSeeds, excludedChunkIds, {
+          allowVisitedChunkMatches: allowVisitedExactPathMatches,
+        }),
+      ]);
+      const hopRows = [...linkedHopRows, ...exactPathHopRows];
       edgeTraversalCount += hopRows.length;
 
       const hopHits = buildHits(hopRows, frontierSeedMap, hopDepth);
@@ -3760,6 +3789,42 @@ export function issueRetrievalService(db: Db) {
           },
         });
 
+        const cachePolicyConfig = {
+          ...rerankConfig,
+          denseEnabled: Boolean(queryEmbedding),
+        };
+        const candidateCacheIdentity = buildRetrievalCacheIdentity({
+          stage: "candidate_hits",
+          queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          baselineSignals,
+          temporalContext,
+          allowedSourceTypes: policy.allowedSourceTypes,
+          allowedAuthorityLevels: policy.allowedAuthorityLevels,
+          rerankConfig: cachePolicyConfig,
+          revisionSignature,
+          personalizationFingerprint,
+        });
+        const finalCacheIdentity = buildRetrievalCacheIdentity({
+          stage: "final_hits",
+          queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          baselineSignals,
+          temporalContext,
+          allowedSourceTypes: policy.allowedSourceTypes,
+          allowedAuthorityLevels: policy.allowedAuthorityLevels,
+          rerankConfig: cachePolicyConfig,
+          revisionSignature,
+          personalizationFingerprint,
+        });
         const candidateCacheKey = buildRetrievalStageCacheKey({
           stage: "candidate_hits",
           queryText,
@@ -3770,10 +3835,7 @@ export function issueRetrievalService(db: Db) {
           workflowState: input.message.workflowStateAfter,
           allowedSourceTypes: policy.allowedSourceTypes,
           allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          rerankConfig: {
-            ...rerankConfig,
-            denseEnabled: Boolean(queryEmbedding),
-          },
+          rerankConfig: cachePolicyConfig,
           dynamicSignals,
           temporalContext,
           revisionSignature,
@@ -3789,27 +3851,32 @@ export function issueRetrievalService(db: Db) {
           workflowState: input.message.workflowStateAfter,
           allowedSourceTypes: policy.allowedSourceTypes,
           allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          rerankConfig: {
-            ...rerankConfig,
-            denseEnabled: Boolean(queryEmbedding),
-          },
+          rerankConfig: cachePolicyConfig,
           dynamicSignals,
           temporalContext,
           revisionSignature,
           personalizationFingerprint,
         });
 
-        const candidateCacheEntry = await knowledge.getRetrievalCacheEntry({
+        const exactCandidateCacheEntry = await knowledge.getRetrievalCacheEntry({
           companyId: input.companyId,
           projectId: input.issue.projectId,
           stage: "candidate_hits",
           cacheKey: candidateCacheKey,
           knowledgeRevision: primaryKnowledgeRevision,
         });
+        const candidateCacheEntry = exactCandidateCacheEntry ?? await knowledge.getCompatibleRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "candidate_hits",
+          knowledgeRevision: primaryKnowledgeRevision,
+          allowFeedbackDrift: true,
+          identity: candidateCacheIdentity,
+        });
         const candidateCacheInspection = candidateCacheEntry
           ? buildRetrievalCacheInspectionResult({
             state: "hit",
-            cacheKey: candidateCacheKey,
+            cacheKey: candidateCacheEntry.cacheKey,
             matchedRevision: candidateCacheEntry.knowledgeRevision,
             latestKnownRevision: candidateCacheEntry.knowledgeRevision,
             lastEntryUpdatedAt: candidateCacheEntry.updatedAt,
@@ -3822,21 +3889,30 @@ export function issueRetrievalService(db: Db) {
               stage: "candidate_hits",
               cacheKey: candidateCacheKey,
               knowledgeRevision: primaryKnowledgeRevision,
+              identity: candidateCacheIdentity,
             })),
           });
         const cachedCandidatePayload = readRetrievalCachePayload(candidateCacheEntry?.valueJson);
 
-        const finalCacheEntry = await knowledge.getRetrievalCacheEntry({
+        const exactFinalCacheEntry = await knowledge.getRetrievalCacheEntry({
           companyId: input.companyId,
           projectId: input.issue.projectId,
           stage: "final_hits",
           cacheKey: finalCacheKey,
           knowledgeRevision: primaryKnowledgeRevision,
         });
+        const finalCacheEntry = exactFinalCacheEntry ?? await knowledge.getCompatibleRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "final_hits",
+          knowledgeRevision: primaryKnowledgeRevision,
+          allowFeedbackDrift: true,
+          identity: finalCacheIdentity,
+        });
         const finalCacheInspection = finalCacheEntry
           ? buildRetrievalCacheInspectionResult({
             state: "hit",
-            cacheKey: finalCacheKey,
+            cacheKey: finalCacheEntry.cacheKey,
             matchedRevision: finalCacheEntry.knowledgeRevision,
             latestKnownRevision: finalCacheEntry.knowledgeRevision,
             lastEntryUpdatedAt: finalCacheEntry.updatedAt,
@@ -3849,6 +3925,7 @@ export function issueRetrievalService(db: Db) {
               stage: "final_hits",
               cacheKey: finalCacheKey,
               knowledgeRevision: primaryKnowledgeRevision,
+              identity: finalCacheIdentity,
             })),
           });
         const cachedFinalPayload = readRetrievalCachePayload(finalCacheEntry?.valueJson);
@@ -3943,6 +4020,7 @@ export function issueRetrievalService(db: Db) {
                 pathHitCount,
                 symbolHitCount,
                 denseHitCount,
+                cacheIdentity: candidateCacheIdentity,
               },
             }),
           });
@@ -3997,6 +4075,10 @@ export function issueRetrievalService(db: Db) {
             linkMap,
             signals: dynamicSignals,
           });
+          const chunkGraphLimit = Math.min(
+            Math.max(policy.finalK * 3, graphSeeds.length * 3, 12),
+            30,
+          );
           chunkGraphResult = await queryGraphExpansionKnowledge({
             companyId: input.companyId,
             issueId: input.issueId,
@@ -4006,7 +4088,7 @@ export function issueRetrievalService(db: Db) {
             allowedSourceTypes: policy.allowedSourceTypes,
             allowedAuthorityLevels: policy.allowedAuthorityLevels,
             excludeChunkIds: hits.map((hit) => hit.chunkId),
-            limit: Math.min(Math.max(policy.finalK, 6), Math.max(graphSeeds.length * 2, 6)),
+            limit: chunkGraphLimit,
           });
           const graphLinkMap = chunkGraphResult.hits.length > 0
             ? await listRetrievalLinks(chunkGraphResult.hits.map((hit) => hit.chunkId))
@@ -4046,13 +4128,17 @@ export function issueRetrievalService(db: Db) {
             hits: rerankedHits,
             chunkSymbolMap,
           });
+          const symbolGraphLimit = Math.min(
+            Math.max(policy.finalK * 3, symbolGraphSeeds.length * 3, 12),
+            30,
+          );
           symbolGraphResult = await querySymbolGraphExpansionKnowledge({
             companyId: input.companyId,
             symbolSeeds: symbolGraphSeeds,
             excludeChunkIds: rerankedHits.map((hit) => hit.chunkId),
             allowedSourceTypes: policy.allowedSourceTypes,
             allowedAuthorityLevels: policy.allowedAuthorityLevels,
-            limit: Math.min(Math.max(policy.finalK, 6), Math.max(symbolGraphSeeds.length * 2, 6)),
+            limit: symbolGraphLimit,
           });
           const symbolGraphLinkMap = symbolGraphResult.hits.length > 0
             ? await listRetrievalLinks(symbolGraphResult.hits.map((hit) => hit.chunkId))
@@ -4118,7 +4204,22 @@ export function issueRetrievalService(db: Db) {
             } catch {
               finalHits = symbolExpandedHits;
             }
+          } else {
+            finalHits = symbolExpandedHits;
           }
+          finalHits = applyGraphConnectivityGuard({
+            hits: applyOrganizationalBridgeGuard({
+              hits: applyEvidenceDiversityGuard({
+                hits: finalHits,
+                finalK: policy.finalK,
+                signals: dynamicSignals,
+              }),
+              finalK: policy.finalK,
+              signals: dynamicSignals,
+            }),
+            finalK: policy.finalK,
+            signals: dynamicSignals,
+          }).slice(0, policy.finalK);
           if (pathHits.length > 0) {
             const exactPathFallbackHits = rerankRetrievalHits({
               hits: pathHits.map((hit) => ({
@@ -4140,8 +4241,12 @@ export function issueRetrievalService(db: Db) {
               rerankConfig,
               personalizationProfile,
             }).filter((hit) => isExecutableEvidenceSourceType(hit.sourceType));
-            finalHits = applyEvidenceDiversityGuard({
-              hits: appendUniqueRetrievalHits(finalHits, exactPathFallbackHits),
+            finalHits = applyGraphConnectivityGuard({
+              hits: applyEvidenceDiversityGuard({
+                hits: appendUniqueRetrievalHits(finalHits, exactPathFallbackHits),
+                finalK: policy.finalK,
+                signals: dynamicSignals,
+              }),
               finalK: policy.finalK,
               signals: dynamicSignals,
             }).slice(0, policy.finalK);
@@ -4193,6 +4298,7 @@ export function issueRetrievalService(db: Db) {
               metadata: {
                 graphSeedCount: graphSeeds.length,
                 symbolGraphSeedCount: symbolGraphSeeds.length,
+                cacheIdentity: finalCacheIdentity,
               },
             }),
           });

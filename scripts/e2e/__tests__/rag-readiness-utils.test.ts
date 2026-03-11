@@ -4,6 +4,7 @@ import {
   extractJsonTail,
   findLatestBriefByScope,
   isKnowledgeSetupReady,
+  summarizeKnowledgeQualityGate,
   summarizeBriefQuality,
 } from "../rag-readiness-utils.mjs";
 
@@ -84,9 +85,13 @@ describe("rag-readiness-utils", () => {
             confidenceLevel: "high",
             graphHitCount: 3,
             graphMaxDepth: 2,
+            graphHopDepthCounts: { 1: 2, 2: 1 },
             multiHopGraphHitCount: 1,
             candidateCacheHit: true,
             finalCacheHit: true,
+            candidateCacheReason: "hit",
+            finalCacheReason: "hit",
+            exactPathSatisfied: true,
             personalizationApplied: true,
             personalizedHitCount: 2,
             averagePersonalizationBoost: 0.31,
@@ -105,9 +110,13 @@ describe("rag-readiness-utils", () => {
       confidenceLevel: "high",
       graphHitCount: 3,
       graphMaxDepth: 2,
+      graphHopDepthCounts: { 1: 2, 2: 1 },
       multiHopGraphHitCount: 1,
       candidateCacheHit: true,
       finalCacheHit: true,
+      candidateCacheReason: "hit",
+      finalCacheReason: "hit",
+      exactPathSatisfied: true,
       personalizationApplied: true,
       personalizedHitCount: 2,
       averagePersonalizationBoost: 0.31,
@@ -117,6 +126,30 @@ describe("rag-readiness-utils", () => {
       degradedReasons: ["narrow_source_diversity"],
       hitPaths: ["internal/observability/tracing.go"],
       hitSourceTypes: [],
+    });
+  });
+
+  it("summarizes project-scoped knowledge quality gate payloads", () => {
+    expect(summarizeKnowledgeQualityGate({
+      totalRuns: 4,
+      candidateCacheHitRate: 0.5,
+      finalCacheHitRate: 0.25,
+      multiHopGraphExpandedRuns: 2,
+      readinessGate: {
+        status: "pass",
+        failures: [],
+      },
+      perProject: [{ projectId: "proj-1" }],
+      perRole: [{ role: "reviewer" }],
+    })).toEqual({
+      status: "pass",
+      failures: [],
+      totalRuns: 4,
+      candidateCacheHitRate: 0.5,
+      finalCacheHitRate: 0.25,
+      multiHopGraphExpandedRuns: 2,
+      matchingProjectCount: 1,
+      matchingRoleCount: 1,
     });
   });
 });

@@ -47,6 +47,25 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+export function compareGraphRebuildDocuments(
+  left: { sourceType: string; path: string | null; updatedAt: Date },
+  right: { sourceType: string; path: string | null; updatedAt: Date },
+) {
+  const sourcePriority = (sourceType: string) => {
+    if (sourceType === "code") return 0;
+    if (sourceType === "test_report") return 1;
+    return 2;
+  };
+
+  const sourceDiff = sourcePriority(left.sourceType) - sourcePriority(right.sourceType);
+  if (sourceDiff !== 0) return sourceDiff;
+
+  const pathDiff = String(left.path ?? "").localeCompare(String(right.path ?? ""), "en");
+  if (pathDiff !== 0) return pathDiff;
+
+  return left.updatedAt.getTime() - right.updatedAt.getTime();
+}
+
 export function knowledgeBackfillService(db: Db) {
   const knowledge = knowledgeService(db);
   const embeddings = knowledgeEmbeddingService();
@@ -365,6 +384,9 @@ export function knowledgeBackfillService(db: Db) {
       const documents = await db
         .select({
           id: knowledgeDocuments.id,
+          path: knowledgeDocuments.path,
+          sourceType: knowledgeDocuments.sourceType,
+          updatedAt: knowledgeDocuments.updatedAt,
         })
         .from(knowledgeDocuments)
         .where(and(
@@ -377,9 +399,11 @@ export function knowledgeBackfillService(db: Db) {
         .orderBy(desc(knowledgeDocuments.updatedAt))
         .limit(input.limit ?? 500);
 
+      const orderedDocuments = [...documents].sort(compareGraphRebuildDocuments);
+
       let processed = 0;
       let skipped = 0;
-      for (const document of documents) {
+      for (const document of orderedDocuments) {
         const result = await this.rebuildDocumentGraph({
           documentId: document.id,
           actor: {
@@ -396,7 +420,7 @@ export function knowledgeBackfillService(db: Db) {
 
       return {
         companyId: input.companyId,
-        scanned: documents.length,
+        scanned: orderedDocuments.length,
         processed,
         skipped,
       };

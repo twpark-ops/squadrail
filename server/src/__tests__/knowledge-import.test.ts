@@ -369,6 +369,48 @@ describe("knowledge import helpers", () => {
     expect(codeGraph?.edges.some((edge) => edge.edgeType === "imports" && edge.targetSymbolName === "retryWorker")).toBe(true);
   });
 
+  it("builds test edges from Go test files to production symbols", () => {
+    const content = [
+      "package storage",
+      "",
+      "import \"testing\"",
+      "",
+      "func TestValidatePathWithinBase(t *testing.T) {",
+      "  _, _ = ValidatePathWithinBase(\"/tmp\", \"../etc/passwd\")",
+      "}",
+      "",
+      "func TestSafeJoin(t *testing.T) {",
+      "  _, _ = SafeJoin(\"/tmp\", \"nested/file.txt\")",
+      "}",
+    ].join("\n");
+    const chunks = chunkWorkspaceFile({
+      relativePath: "internal/storage/path_test.go",
+      content,
+      language: "go",
+    });
+    const codeGraph = buildCodeGraphForWorkspaceFile({
+      relativePath: "internal/storage/path_test.go",
+      content,
+      language: "go",
+      chunks,
+    });
+
+    expect(codeGraph?.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          edgeType: "tests",
+          targetPath: "internal/storage/path.go",
+          targetSymbolName: "ValidatePathWithinBase",
+        }),
+        expect.objectContaining({
+          edgeType: "tests",
+          targetPath: "internal/storage/path.go",
+          targetSymbolName: "SafeJoin",
+        }),
+      ]),
+    );
+  });
+
   it("detects secrets in workspace content", () => {
     expect(
       detectWorkspaceSecret({

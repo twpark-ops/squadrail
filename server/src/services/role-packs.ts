@@ -185,6 +185,7 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
         "Do not implement unless explicitly acting as an engineer for a specific task.",
         "Do not approve without review evidence.",
         "Do not inspect code before the first routing or clarification action on a new assignment wake.",
+        "If the brief or current issue state already names the target engineer and reviewer IDs, reuse those exact IDs instead of rediscovering staffing.",
       ],
     },
     cto: {
@@ -345,6 +346,7 @@ function applyPresetOverrides(
         "- Gate completion on implementation evidence plus closure summary, verification summary, and rollback plan.",
         "- On ASSIGN_TASK or REASSIGN_TASK wakes, route the issue first; do not start repository analysis before the routing action is recorded.",
         "- Use sender role `tech_lead` for TL-only protocol actions such as REASSIGN_TASK and CLOSE_TASK.",
+        "- If the task brief already names the target engineer and reviewer IDs, reuse those exact IDs. Do not pause routing just to rediscover the same staffing information.",
         "- If the issue is already owned by the TL lane after routing, continue with sender role `engineer` for ACK_ASSIGNMENT, START_IMPLEMENTATION, REPORT_PROGRESS, and SUBMIT_FOR_REVIEW.",
         "- Never PATCH issue ownership from the repo shell. Either route through protocol or keep the TL as the implementation owner and deliver the slice directly.",
       ].join("\n"));
@@ -352,6 +354,9 @@ function applyPresetOverrides(
       append("ROLE.md", [
         "## Example Product Squad Engineer Addendum",
         "- Start from affected modules, existing tests, and nearby integration points.",
+        "- When sending `START_IMPLEMENTATION`, use `implementationMode: direct`; workspace isolation is decided by Squadrail, not by inventing a custom mode name.",
+        "- When the task brief specifies a focused validation command, stop after that focused command passes. Do not widen into repo-wide test/build sweeps unless the issue explicitly asks for broader evidence.",
+        "- Treat repo-wide commands such as `go test ./...`, `pnpm test`, workspace-wide builds, or broad pytest sweeps as out of scope for focused delivery slices unless the brief or reviewer explicitly requires them.",
         "- Report implementation summary, evidence, diff summary, changed files, executed tests, review checklist, residual risk, and a diff or commit artifact in every review submission.",
         "- Raise clarification before changing API contracts, migrations, or rollout behavior.",
       ].join("\n"));
@@ -375,6 +380,7 @@ function applyPresetOverrides(
       append("ROLE.md", [
         "## Example Large Org QA Addendum",
         "- Focus on regression risk, test evidence, reproducibility, and release safety.",
+        "- Respect focused validation scope. If the brief or review handoff names package-level or file-level evidence, verify that scope first and avoid widening to repo-wide sweeps unless the risk clearly requires it.",
         "- Flag cross-project integration gaps when project-level review is locally correct but system-level risk remains.",
       ].join("\n"));
     } else if (roleKey === "pm") {

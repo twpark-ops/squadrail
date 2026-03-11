@@ -78,6 +78,8 @@ const knowledgeOverviewSchema = z.object({
 
 const knowledgeQualitySchema = z.object({
   companyId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
+  role: z.string().min(1).optional(),
   days: z.coerce.number().int().min(1).max(90).optional(),
   limit: z.coerce.number().int().min(1).max(5000).optional(),
 });

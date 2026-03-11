@@ -549,6 +549,32 @@ describe("knowledge routes", () => {
     });
   });
 
+  it("passes project and role filters to retrieval quality summary", async () => {
+    mockSummarizeRetrievalQuality.mockResolvedValue({
+      companyId: "11111111-1111-4111-8111-111111111111",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      role: "reviewer",
+      totalRuns: 4,
+    });
+
+    const response = await invokeKnowledgeQualityRoute({
+      query: {
+        companyId: "11111111-1111-4111-8111-111111111111",
+        projectId: "22222222-2222-4222-8222-222222222222",
+        role: "reviewer",
+        days: "14",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSummarizeRetrievalQuality).toHaveBeenCalledWith({
+      companyId: "11111111-1111-4111-8111-111111111111",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      role: "reviewer",
+      days: 14,
+    });
+  });
+
   it("returns recent retrieval runs for a company", async () => {
     mockListRecentRetrievalRuns.mockResolvedValue([
       {

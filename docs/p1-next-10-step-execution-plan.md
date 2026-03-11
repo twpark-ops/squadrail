@@ -171,16 +171,26 @@ Slice 1 범위:
 1. Operator feedback surface expansion
 2. Feedback filters and issue-less handling
 3. Candidate cache provenance
-
-남은 다음 순서:
-
 4. Final-hit cache provenance
 5. Cache invalidation normalization
-6. Deeper chunk-link multi-hop
 7. Ranking stabilization phase 2
 8. Retrieval god-file refactor slice 1
 9. Rerank provider abstraction
+
+남은 다음 순서:
+
+6. Deeper chunk-link multi-hop
 10. Retrieval trend + real-org E2E gate
+
+이번 배치 추가 반영:
+
+- `linked_issue_context`, `top_hit_issue_context`, `top_hit_changed_path` seed를 도입해
+  issue/protocol/review -> issue -> changed path -> code/test 경로의 multi-hop 가능성을 높였다.
+- candidate/final cache miss reason taxonomy를 `miss_cold / miss_revision_changed / miss_expired / miss_policy_changed / miss_feedback_changed`로 정규화했다.
+- pure helper를 `retrieval-cache.ts`, `retrieval-evidence-guards.ts`로 분리해
+  `issue-retrieval.ts`의 pure logic 일부를 orchestration 밖으로 이동했다.
+- rerank provider는 `openai | generic_http | null` capability로 정리했고,
+  provider unavailable reason도 테스트로 고정했다.
 
 ## 검증 전략
 

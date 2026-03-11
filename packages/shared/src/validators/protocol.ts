@@ -198,6 +198,10 @@ export const issueProtocolReassignTaskPayloadSchema = z.object({
   newReviewerAgentId: optionalUuidSchema,
   newQaAgentId: optionalUuidSchema,
   carryForwardBriefVersion: z.number().int().nonnegative().nullable().optional(),
+  acceptanceCriteria: nonEmptyStringArraySchema.optional(),
+  definitionOfDone: nonEmptyStringArraySchema.optional(),
+  implementationGuidance: z.string().trim().min(1).nullable().optional(),
+  risks: nonEmptyStringArraySchema.optional(),
 }).strict();
 
 export const issueProtocolCancelTaskPayloadSchema = z.object({

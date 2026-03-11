@@ -11,6 +11,8 @@ describe("knowledge reranking service", () => {
     delete process.env.SQUADRAIL_KNOWLEDGE_RERANK_MODEL;
     delete process.env.SQUADRAIL_KNOWLEDGE_RERANK_PROVIDER;
     delete process.env.SQUADRAIL_KNOWLEDGE_RERANK_ENDPOINT;
+    delete process.env.SQUADRAIL_KNOWLEDGE_RERANK_AUTH_HEADER_NAME;
+    delete process.env.SQUADRAIL_KNOWLEDGE_RERANK_AUTH_HEADER_VALUE;
     vi.restoreAllMocks();
   });
 
@@ -22,6 +24,7 @@ describe("knowledge reranking service", () => {
       model: null,
       endpoint: null,
       maxCandidates: 8,
+      reason: "missing_openai_model_or_api_key",
     });
   });
 
@@ -88,5 +91,74 @@ describe("knowledge reranking service", () => {
     expect(result.rankedChunkIds).toEqual(["chunk-2", "chunk-1"]);
     expect(result.rationales.get("chunk-2")).toBe("Direct code match");
     expect(result.usage.totalTokens).toBe(66);
+  });
+
+  it("supports generic_http provider contracts", async () => {
+    process.env.SQUADRAIL_KNOWLEDGE_RERANK_PROVIDER = "generic_http";
+    process.env.SQUADRAIL_KNOWLEDGE_RERANK_ENDPOINT = "http://127.0.0.1:9999/rerank";
+    process.env.SQUADRAIL_KNOWLEDGE_RERANK_MODEL = "proxy-rerank";
+    process.env.SQUADRAIL_KNOWLEDGE_RERANK_AUTH_HEADER_NAME = "x-rerank-key";
+    process.env.SQUADRAIL_KNOWLEDGE_RERANK_AUTH_HEADER_VALUE = "secret";
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        provider: "generic_http",
+        model: "proxy-rerank",
+        rankedChunkIds: ["chunk-1"],
+        rationales: [
+          { chunkId: "chunk-1", reason: "Proxy ranked direct match first" },
+        ],
+        usage: {
+          inputTokens: 21,
+          outputTokens: 5,
+          totalTokens: 26,
+        },
+      }),
+    } as Response);
+
+    const service = knowledgeRerankingService();
+    expect(service.getProviderInfo()).toEqual({
+      available: true,
+      provider: "generic_http",
+      model: "proxy-rerank",
+      endpoint: "http://127.0.0.1:9999/rerank",
+      maxCandidates: 8,
+      reason: null,
+    });
+
+    const result = await service.rerankCandidates({
+      queryText: "pin the retry worker implementation path",
+      recipientRole: "reviewer",
+      workflowState: "under_review",
+      summary: "Review retrieval cache change",
+      candidates: [
+        {
+          chunkId: "chunk-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          path: "src/retry.ts",
+          symbolName: "retryWorker",
+          title: "retry.ts",
+          excerpt: "function retryWorker() { return boundedRetry(); }",
+          fusedScore: 3.1,
+        },
+      ],
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://127.0.0.1:9999/rerank");
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-rerank-key": "secret",
+      },
+    });
+    expect(result.provider).toBe("generic_http");
+    expect(result.rankedChunkIds).toEqual(["chunk-1"]);
+    expect(result.rationales.get("chunk-1")).toBe("Proxy ranked direct match first");
+    expect(result.usage.totalTokens).toBe(26);
   });
 });

@@ -21,6 +21,7 @@ const {
   mockHeartbeatWakeup,
   mockHeartbeatGetRun,
   mockHeartbeatCancelIssueScope,
+  mockHeartbeatCancelSupersededIssueFollowups,
   mockAgentGetById,
   mockAgentList,
   mockResolvePmIntakeAgents,
@@ -71,6 +72,7 @@ const {
   mockHeartbeatWakeup: vi.fn(),
   mockHeartbeatGetRun: vi.fn(),
   mockHeartbeatCancelIssueScope: vi.fn(),
+  mockHeartbeatCancelSupersededIssueFollowups: vi.fn(),
   mockAgentGetById: vi.fn(),
   mockAgentList: vi.fn(),
   mockResolvePmIntakeAgents: vi.fn(),
@@ -129,6 +131,7 @@ vi.mock("../services/index.js", () => ({
     wakeup: mockHeartbeatWakeup,
     getRun: mockHeartbeatGetRun,
     cancelIssueScope: mockHeartbeatCancelIssueScope,
+    cancelSupersededIssueFollowups: mockHeartbeatCancelSupersededIssueFollowups,
   }),
   issueApprovalService: () => ({
     listApprovalsForIssue: vi.fn(),
@@ -1801,6 +1804,10 @@ describe("issue routes wakeup handling", () => {
           reason: "Project-level ownership belongs to cloud TL",
           newAssigneeAgentId: "22222222-2222-4222-8222-222222222222",
           newReviewerAgentId: "33333333-3333-4333-8333-333333333333",
+          acceptanceCriteria: ["Cloud TL owns staffing", "QA remains explicit reviewer"],
+          definitionOfDone: ["Implementation delegated", "QA handoff preserved"],
+          implementationGuidance: "Route to the project engineer before any repo inspection.",
+          risks: ["Cross-project scope drift if reviewer is not preserved"],
         },
         artifacts: [],
       },
@@ -2901,6 +2908,12 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatCancelSupersededIssueFollowups).toHaveBeenCalledWith({
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      excludeRunId: null,
+      reason: "Issue closed via protocol",
+    });
     expect(mockMergeCandidateUpsertDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         issueId: "11111111-1111-4111-8111-111111111111",

@@ -1184,6 +1184,34 @@ function deriveProductionPathCandidates(input: {
   return Array.from(candidates).filter((candidate) => candidate !== normalizedPath);
 }
 
+function deriveTestTargetSymbolNames(input: {
+  sourceSymbolName: string;
+  sourceText: string;
+}) {
+  const candidates = new Set<string>();
+
+  if (input.sourceSymbolName.startsWith("Test") && input.sourceSymbolName.length > 4) {
+    const withoutPrefix = input.sourceSymbolName.slice(4);
+    if (withoutPrefix.length > 0) {
+      candidates.add(withoutPrefix.split("_")[0] ?? withoutPrefix);
+    }
+  }
+
+  const identifierMatches = input.sourceText.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? [];
+  for (const match of identifierMatches) {
+    if (match === input.sourceSymbolName) continue;
+    if (match.startsWith("Test") && match.length > 4) {
+      candidates.add(match.slice(4).split("_")[0] ?? match.slice(4));
+      continue;
+    }
+    if (/[A-Z]/.test(match[0] ?? "") || /[A-Z]/.test(match)) {
+      candidates.add(match.split("_")[0] ?? match);
+    }
+  }
+
+  return Array.from(candidates).filter((candidate) => candidate.trim().length > 0);
+}
+
 export function buildCodeGraphForWorkspaceFile(input: {
   relativePath: string;
   content: string;
@@ -1333,15 +1361,16 @@ export function buildCodeGraphForWorkspaceFile(input: {
     for (const sourceSymbol of symbols) {
       const sourceChunk = chunkByIndex.get(sourceSymbol.chunkIndex);
       if (!sourceChunk) continue;
-      const sourceText = sourceChunk.textContent;
-      for (const targetSymbol of symbols) {
-        if (targetSymbol.symbolKey === sourceSymbol.symbolKey) continue;
-        if (!new RegExp(`\\b${escapeRegex(targetSymbol.symbolName)}\\b`).test(sourceText)) continue;
+      const targetSymbolNames = deriveTestTargetSymbolNames({
+        sourceSymbolName: sourceSymbol.symbolName,
+        sourceText: sourceChunk.textContent,
+      });
+      for (const targetSymbolName of targetSymbolNames) {
         for (const targetPath of productionPathCandidates) {
           testEdgeCandidates += 1;
           pushEdge({
             fromSymbolKey: sourceSymbol.symbolKey,
-            targetSymbolName: targetSymbol.symbolName,
+            targetSymbolName,
             targetPath,
             edgeType: "tests",
             weight: 1.12,

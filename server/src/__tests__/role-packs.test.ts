@@ -35,6 +35,7 @@ describe("role pack defaults", () => {
     expect(agents?.content).toContain("Example Product Squad Delivery Context");
     expect(role?.content).toContain("Example Product Squad Engineer Addendum");
     expect(role?.content).toContain("Report implementation summary, evidence, diff summary, changed files, executed tests, review checklist, residual risk, and a diff or commit artifact");
+    expect(role?.content).toContain("focused validation command");
   });
 
   it("teaches the default engineer pack the full review handoff contract", () => {
@@ -55,6 +56,7 @@ describe("role pack defaults", () => {
     expect(role?.content).toContain("closure summary");
     expect(role?.content).toContain("verification summary");
     expect(role?.content).toContain("rollback plan");
+    expect(role?.content).toContain("reuse those exact IDs");
   });
 
   it("creates CTO and QA role packs for the large org preset", () => {
@@ -64,6 +66,7 @@ describe("role pack defaults", () => {
     expect(ctoFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Example Large Org CTO Addendum");
     expect(ctoFiles.find((file) => file.filename === "AGENTS.md")?.content).toContain("Example Product Squad Delivery Context");
     expect(qaFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Example Large Org QA Addendum");
+    expect(qaFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Respect focused validation scope");
     expect(qaFiles.find((file) => file.filename === "REVIEW.md")?.content).toContain("Approval requires acceptance criteria coverage");
   });
 });

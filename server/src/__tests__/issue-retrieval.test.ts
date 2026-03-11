@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   applyEvidenceDiversityGuard,
+  applyGraphConnectivityGuard,
+  applyPersonalizationSignals,
+  applyOrganizationalBridgeGuard,
   applyModelRerankOrder,
   applyOrganizationalMemorySaturationGuard,
   buildQueryEmbeddingCacheKey,
@@ -9,6 +12,8 @@ import {
   buildSymbolGraphExpansionSeeds,
   buildRetrievalQueryText,
   computeCosineSimilarity,
+  deriveSemanticGraphHopDepth,
+  shouldAllowGraphExactPathRediscovery,
   deriveDynamicRetrievalSignals,
   deriveBriefScope,
   deriveRetrievalEventType,
@@ -39,11 +44,111 @@ describe("issue retrieval helpers", () => {
     expect(first).not.toBe(different);
   });
 
+  it("treats issue-context and changed-path seeds as semantic multi-hop evidence", () => {
+    expect(
+      deriveSemanticGraphHopDepth({
+        traversalHopDepth: 1,
+        seedReasons: ["top_hit_changed_path"],
+      }),
+    ).toBe(2);
+    expect(
+      deriveSemanticGraphHopDepth({
+        traversalHopDepth: 1,
+        seedReasons: ["top_hit_issue_context"],
+      }),
+    ).toBe(2);
+    expect(
+      deriveSemanticGraphHopDepth({
+        traversalHopDepth: 1,
+        seedReasons: ["top_hit_path"],
+      }),
+    ).toBe(1);
+  });
+
+  it("allows exact-path rediscovery only for deeper graph hops driven by organizational context", () => {
+    expect(
+      shouldAllowGraphExactPathRediscovery({
+        hopDepth: 2,
+        seeds: [
+          {
+            entityType: "path",
+            entityId: "internal/storage/path.go",
+            seedBoost: 1.2,
+            seedReasons: ["graph_hop:protocol_changed_path"],
+          },
+        ],
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldAllowGraphExactPathRediscovery({
+        hopDepth: 2,
+        seeds: [
+          {
+            entityType: "path",
+            entityId: "internal/storage/path.go",
+            seedBoost: 1.2,
+            seedReasons: ["top_hit_path"],
+          },
+        ],
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldAllowGraphExactPathRediscovery({
+        hopDepth: 1,
+        seeds: [
+          {
+            entityType: "path",
+            entityId: "internal/storage/path.go",
+            seedBoost: 1.2,
+            seedReasons: ["graph_hop:protocol_changed_path"],
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
   it("maps protocol messages to retrieval events", () => {
     expect(deriveRetrievalEventType("ASSIGN_TASK")).toBe("on_assignment");
     expect(deriveRetrievalEventType("REASSIGN_TASK")).toBe("on_assignment");
     expect(deriveRetrievalEventType("SUBMIT_FOR_REVIEW")).toBe("on_review_submit");
     expect(deriveRetrievalEventType("NOTE")).toBeNull();
+  });
+
+  it("filters unrelated personalization paths when direct exact paths already exist", () => {
+    const signals = applyPersonalizationSignals({
+      signals: {
+        exactPaths: ["internal/storage/path.go", "internal/storage/path_test.go"],
+        fileNames: ["path.go", "path_test.go"],
+        symbolHints: ["SafeJoin"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "test_report", "review"],
+        blockerCode: null,
+        questionType: null,
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-agent"],
+      },
+      profile: {
+        applied: true,
+        scopes: ["project"],
+        feedbackCount: 4,
+        positiveFeedbackCount: 3,
+        negativeFeedbackCount: 1,
+        sourceTypeBoosts: { code: 0.2 },
+        pathBoosts: {
+          "internal/storage/path.go": 0.5,
+          "internal/executor/executor.go": 0.7,
+        },
+        symbolBoosts: {
+          SafeJoin: 0.1,
+          executeTask: 0.2,
+        },
+      },
+    });
+
+    expect(signals.exactPaths).toContain("internal/storage/path.go");
+    expect(signals.exactPaths).not.toContain("internal/executor/executor.go");
   });
 
   it("builds retrieval query text from issue and payload terms", () => {
@@ -193,6 +298,62 @@ describe("issue retrieval helpers", () => {
 
     expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("path:internal/storage/path.go");
     expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("symbol:SafeJoin");
+  });
+
+  it("adds issue-context and changed-path seeds from organizational memory hits", () => {
+    const seeds = buildGraphExpansionSeeds({
+      hits: [
+        {
+          chunkId: "chunk-review",
+          documentId: "doc-review",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-42",
+          documentProjectId: "project-worker",
+          path: "issues/CLO-90/review/submit.md",
+          title: "Review submission",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed internal/storage/path.go and internal/storage/path_test.go",
+          documentMetadata: {
+            artifactKind: "review_event",
+            changedPaths: ["internal/storage/path.go", "internal/storage/path_test.go"],
+          },
+          chunkMetadata: {},
+          denseScore: 0.9,
+          sparseScore: 0.4,
+          rerankScore: 1.2,
+          fusedScore: 2.9,
+          updatedAt: new Date("2026-03-08T00:00:00Z"),
+        },
+      ],
+      linkMap: new Map([
+        ["chunk-review", [
+          {
+            chunkId: "chunk-review",
+            entityType: "issue",
+            entityId: "issue-42",
+            linkReason: "protocol_related_issue",
+            weight: 0.92,
+          },
+        ]],
+      ]),
+      signals: {
+        exactPaths: ["internal/storage/path.go"],
+        fileNames: ["path.go"],
+        symbolHints: ["SafeJoin"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "review", "issue"],
+        projectAffinityIds: ["project-worker"],
+        projectAffinityNames: ["swiftsight-agent"],
+        blockerCode: null,
+        questionType: null,
+      },
+    });
+
+    expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("issue:issue-42");
+    expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("path:internal/storage/path.go");
+    expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("path:internal/storage/path_test.go");
   });
 
   it("builds symbol graph seeds from chunk symbol registry", () => {
@@ -977,6 +1138,275 @@ describe("issue retrieval helpers", () => {
     expect(adjusted.slice(0, 4).some((hit) => hit.chunkId === "code-deep")).toBe(true);
   });
 
+  it("promotes multi-hop graph evidence into the top-k when graph hits would otherwise disappear", () => {
+    const adjusted = applyGraphConnectivityGuard({
+      finalK: 4,
+      signals: {
+        exactPaths: ["src/retry.ts"],
+        fileNames: ["retry.ts"],
+        symbolHints: ["retryWorker"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "test_report", "review", "issue"],
+        projectAffinityIds: ["project-1", "project-2"],
+        projectAffinityNames: ["swiftsight-worker", "swiftsight-agent"],
+        blockerCode: null,
+        questionType: null,
+      },
+      hits: [
+        {
+          chunkId: "review-1",
+          documentId: "doc-review-1",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-80/review/submit.md",
+          title: "Review artifact 1",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.82,
+          sparseScore: 0.55,
+          rerankScore: 3.2,
+          fusedScore: 9.1,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "issue-1",
+          documentId: "doc-issue-1",
+          sourceType: "issue",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-80/issue.md",
+          title: "Issue snapshot",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Retry issue",
+          documentMetadata: { artifactKind: "issue_snapshot" },
+          chunkMetadata: {},
+          denseScore: 0.6,
+          sparseScore: 0.4,
+          rerankScore: 2.5,
+          fusedScore: 8.6,
+          updatedAt: new Date("2026-03-09T00:00:00Z"),
+        },
+        {
+          chunkId: "review-2",
+          documentId: "doc-review-2",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-79/review/submit.md",
+          title: "Review artifact 2",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.78,
+          sparseScore: 0.51,
+          rerankScore: 3,
+          fusedScore: 8.4,
+          updatedAt: new Date("2026-03-08T00:00:00Z"),
+        },
+        {
+          chunkId: "review-3",
+          documentId: "doc-review-3",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-78/review/submit.md",
+          title: "Review artifact 3",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed src/retry.ts",
+          documentMetadata: { artifactKind: "review_event", changedPaths: ["src/retry.ts"] },
+          chunkMetadata: {},
+          denseScore: 0.75,
+          sparseScore: 0.48,
+          rerankScore: 2.9,
+          fusedScore: 8.1,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+        },
+        {
+          chunkId: "graph-2hop",
+          documentId: "doc-graph-2hop",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-2",
+          path: "src/retry.ts",
+          title: "Retry graph evidence",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "Retry implementation in sibling project",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.45,
+          sparseScore: 0.22,
+          rerankScore: 1.7,
+          fusedScore: 7.1,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+          graphMetadata: {
+            entityTypes: ["path", "project"],
+            entityIds: ["src/retry.ts", "project-2"],
+            seedReasons: ["graph_hop:protocol_related_issue"],
+            graphScore: 1.4,
+            hopDepth: 2,
+          },
+        },
+      ],
+    });
+
+    expect(adjusted.slice(0, 4).some((hit) => hit.chunkId === "graph-2hop")).toBe(true);
+    expect(adjusted.slice(0, 4).some((hit) => hit.diversityMetadata?.promotedReason === "graph_multihop_code")).toBe(true);
+  });
+
+  it("promotes related executable paths from organizational memory bridge context", () => {
+    const adjusted = applyOrganizationalBridgeGuard({
+      finalK: 4,
+      signals: {
+        exactPaths: ["internal/storage/path.go"],
+        fileNames: ["path.go"],
+        symbolHints: ["SafeJoin"],
+        knowledgeTags: [],
+        preferredSourceTypes: ["code", "test_report", "review", "issue"],
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-agent"],
+        blockerCode: null,
+        questionType: null,
+      },
+      hits: [
+        {
+          chunkId: "review-1",
+          documentId: "doc-review-1",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-81/review/submit.md",
+          title: "Review artifact 1",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed internal/storage/path.go and internal/storage/path_test.go",
+          documentMetadata: {
+            artifactKind: "review_event",
+            changedPaths: ["internal/storage/path.go", "internal/storage/path_test.go"],
+          },
+          chunkMetadata: {},
+          denseScore: 0.8,
+          sparseScore: 0.5,
+          rerankScore: 3.2,
+          fusedScore: 9.2,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "issue-1",
+          documentId: "doc-issue-1",
+          sourceType: "issue",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-81/issue.md",
+          title: "Issue snapshot",
+          headingPath: null,
+          symbolName: null,
+          textContent: "SafeJoin fix",
+          documentMetadata: { artifactKind: "issue_snapshot" },
+          chunkMetadata: {},
+          denseScore: 0.72,
+          sparseScore: 0.41,
+          rerankScore: 2.7,
+          fusedScore: 8.5,
+          updatedAt: new Date("2026-03-09T00:00:00Z"),
+        },
+        {
+          chunkId: "review-2",
+          documentId: "doc-review-2",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-80/review/submit.md",
+          title: "Review artifact 2",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed internal/storage/path.go",
+          documentMetadata: {
+            artifactKind: "review_event",
+            changedPaths: ["internal/storage/path.go"],
+          },
+          chunkMetadata: {},
+          denseScore: 0.7,
+          sparseScore: 0.39,
+          rerankScore: 2.6,
+          fusedScore: 8.3,
+          updatedAt: new Date("2026-03-08T00:00:00Z"),
+        },
+        {
+          chunkId: "review-3",
+          documentId: "doc-review-3",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-79/review/submit.md",
+          title: "Review artifact 3",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Changed internal/storage/path.go",
+          documentMetadata: {
+            artifactKind: "review_event",
+            changedPaths: ["internal/storage/path.go"],
+          },
+          chunkMetadata: {},
+          denseScore: 0.68,
+          sparseScore: 0.38,
+          rerankScore: 2.5,
+          fusedScore: 8.1,
+          updatedAt: new Date("2026-03-07T00:00:00Z"),
+        },
+        {
+          chunkId: "code-related",
+          documentId: "doc-code-related",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "internal/storage/path_test.go",
+          title: "SafeJoin regression test",
+          headingPath: null,
+          symbolName: "TestSafeJoin",
+          textContent: "regression coverage",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.44,
+          sparseScore: 0.19,
+          rerankScore: 1.2,
+          fusedScore: 6.2,
+          updatedAt: new Date("2026-03-06T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(adjusted.slice(0, 4).some((hit) => hit.path === "internal/storage/path_test.go")).toBe(true);
+    expect(
+      adjusted
+        .slice(0, 4)
+        .some((hit) => hit.diversityMetadata?.promotedReason === "organizational_bridge_related_path"),
+    ).toBe(true);
+    expect(
+      adjusted
+        .slice(0, 4)
+        .some((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1 && hit.path === "internal/storage/path_test.go"),
+    ).toBe(true);
+  });
+
   it("applies saturation guard to repeated organizational memory artifacts", () => {
     const adjusted = applyOrganizationalMemorySaturationGuard({
       finalK: 4,
@@ -1254,6 +1684,45 @@ describe("issue retrieval helpers", () => {
     expect(signals.symbolHints).toContain("retryWorker");
     expect(signals.preferredSourceTypes[0]).toBe("code");
     expect(signals.preferredSourceTypes).toContain("adr");
+  });
+
+  it("derives exact paths from issue text when payload paths are absent", () => {
+    const signals = deriveDynamicRetrievalSignals({
+      recipientRole: "engineer",
+      eventType: "on_assignment",
+      issue: {
+        projectId: "project-1",
+        title: "Fix internal/storage/path.go retry behavior",
+        description: "Update internal/storage/path.go and internal/storage/path_test.go to normalize symlink handling.",
+        mentionedProjects: [],
+      },
+      baselineSourceTypes: ["code", "review"],
+      message: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "tl-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "todo",
+        workflowStateAfter: "todo",
+        summary: "Please take over internal/storage/path.go cleanup",
+        payload: {
+          reason: "Move the fix into internal/storage/path.go and validate it in internal/storage/path_test.go.",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(signals.exactPaths).toContain("internal/storage/path.go");
+    expect(signals.exactPaths).toContain("internal/storage/path_test.go");
   });
 
   it("builds retrieval query text from review decision and closure contracts", () => {

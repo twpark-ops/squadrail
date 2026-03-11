@@ -280,15 +280,16 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 ### 2. Candidate / Final-Hit Cache
 
 - candidate merge cache와 final-hit cache는 retrieval hot path에 이미 들어갔다.
-- 다음 단계는 invalidation 이유와 hit provenance를 운영 표면에서 더 잘 설명하는 것이다.
+- invalidation 이유와 hit provenance를 운영 표면까지 노출했다.
+- 현재 남은 단계는 cache hit/miss가 실조직 readiness gate와 multi-hop 품질 기준을 안정적으로 통과하는지 확인하는 것이다.
 - 목표:
   - retrieval hot path latency 안정화
   - personalization / graph 확장 비용 흡수
 
 ### 3. Deeper Chunk-Link Multi-Hop
 
-- 현재 graph expansion은 의미가 생겼지만 chunk-link 중심 multi-hop은 아직 얕다.
-- symbol edge와 chunk link를 2-hop 이상 결합해 `지식 그래프 느낌`을 강화한다.
+- 현재 graph expansion은 의미가 생겼고, `issue context + changed path` seed도 추가됐다.
+- 남은 핵심은 recent live run에서 `multiHopGraphHitCount > 0`가 안정적으로 재현되게 하는 것이다.
 - 목표:
   - cross-issue / cross-project 연결 근거 확장
   - graphHitCount의 실질적 상승
@@ -304,6 +305,8 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 ### 5. Retrieval God-File Refactor
 
 - [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/retrieval-god-file-refactor-debt.md) 기준으로 `issue-retrieval.ts`를 분리한다.
+- 1차로 pure helper를 `retrieval-cache.ts`, `retrieval-evidence-guards.ts`로 분리했다.
+- 다음 단계는 query/graph/scoring orchestration을 더 쪼개는 slice 2 이상이다.
 - 목표:
   - 유지보수성 회복
   - multi-hop / cache / ranking 개선을 독립적으로 실험 가능하게 만들기
