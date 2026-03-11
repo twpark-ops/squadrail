@@ -1,0 +1,28 @@
+@startuml
+title P1 Operator Feedback and Cache Surface
+
+actor Operator
+rectangle "Knowledge Explore" {
+  component "Recent Retrieval Loops" as UI
+}
+
+rectangle "API" {
+  component "GET /knowledge/retrieval-runs" as RunsApi
+  component "POST /issues/:id/retrieval-feedback" as FeedbackApi
+}
+
+database "retrieval_runs" as Runs
+database "retrieval_run_hits" as Hits
+database "retrieval_feedback_events" as Feedback
+database "retrieval_role_profiles" as Profiles
+
+Operator --> UI : inspect runs\npin/hide hits
+UI --> RunsApi : list recent runs
+UI --> FeedbackApi : record feedback
+
+RunsApi --> Runs : recent runs
+RunsApi --> Hits : top hits
+FeedbackApi --> Feedback : record pin/hide
+FeedbackApi --> Profiles : update role profile
+
+@enduml

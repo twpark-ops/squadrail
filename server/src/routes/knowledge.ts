@@ -81,6 +81,12 @@ const knowledgeQualitySchema = z.object({
   limit: z.coerce.number().int().min(1).max(5000).optional(),
 });
 
+const recentRetrievalRunsSchema = z.object({
+  companyId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -154,6 +160,18 @@ export function knowledgeRoutes(db: Db) {
     assertCompanyAccess(req, parsed.data.companyId);
     const summary = await knowledge.summarizeRetrievalQuality(parsed.data);
     res.json(summary);
+  });
+
+  router.get("/knowledge/retrieval-runs", async (req, res) => {
+    const parsed = recentRetrievalRunsSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    assertCompanyAccess(req, parsed.data.companyId);
+    const runs = await knowledge.listRecentRetrievalRuns(parsed.data);
+    res.json(runs);
   });
 
   router.post("/knowledge/documents", async (req, res) => {

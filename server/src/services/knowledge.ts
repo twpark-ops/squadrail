@@ -63,6 +63,78 @@ type KnowledgeDocumentVersionInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type KnowledgeQualityTrendSample = {
+  createdAt: Date;
+  lowConfidence: boolean;
+  graphExpanded: boolean;
+  multiHopGraphExpanded: boolean;
+  candidateCacheHit: boolean;
+  finalCacheHit: boolean;
+  personalized: boolean;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readNumber(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readBoolean(value: unknown) {
+  return value === true;
+}
+
+export function buildKnowledgeQualityDailyTrend(input: {
+  samples: KnowledgeQualityTrendSample[];
+  days: number;
+}) {
+  const bucketMap = new Map<string, {
+    date: string;
+    totalRuns: number;
+    lowConfidenceRuns: number;
+    graphExpandedRuns: number;
+    multiHopGraphExpandedRuns: number;
+    candidateCacheHits: number;
+    finalCacheHits: number;
+    personalizedRuns: number;
+  }>();
+
+  for (let offset = input.days - 1; offset >= 0; offset -= 1) {
+    const date = new Date(Date.now() - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    bucketMap.set(date, {
+      date,
+      totalRuns: 0,
+      lowConfidenceRuns: 0,
+      graphExpandedRuns: 0,
+      multiHopGraphExpandedRuns: 0,
+      candidateCacheHits: 0,
+      finalCacheHits: 0,
+      personalizedRuns: 0,
+    });
+  }
+
+  for (const sample of input.samples) {
+    const date = sample.createdAt.toISOString().slice(0, 10);
+    const bucket = bucketMap.get(date);
+    if (!bucket) continue;
+    bucket.totalRuns += 1;
+    if (sample.lowConfidence) bucket.lowConfidenceRuns += 1;
+    if (sample.graphExpanded) bucket.graphExpandedRuns += 1;
+    if (sample.multiHopGraphExpanded) bucket.multiHopGraphExpandedRuns += 1;
+    if (sample.candidateCacheHit) bucket.candidateCacheHits += 1;
+    if (sample.finalCacheHit) bucket.finalCacheHits += 1;
+    if (sample.personalized) bucket.personalizedRuns += 1;
+  }
+
+  return Array.from(bucketMap.values());
+}
+
 function buildMinimalCodeGraphFromChunks(input: {
   chunks: Array<{
     chunkIndex: number;
@@ -1328,6 +1400,106 @@ export function knowledgeService(db: Db) {
         .where(eq(retrievalRuns.id, retrievalRunId))
         .then((rows) => rows[0] ?? null),
 
+    listRecentRetrievalRuns: async (input: {
+      companyId: string;
+      projectId?: string;
+      limit?: number;
+    }) => {
+      const limit = Math.max(1, Math.min(input.limit ?? 8, 20));
+      const rows = await db
+        .select({
+          retrievalRunId: retrievalRuns.id,
+          companyId: retrievalRuns.companyId,
+          issueId: retrievalRuns.issueId,
+          actorRole: retrievalRuns.actorRole,
+          eventType: retrievalRuns.eventType,
+          workflowState: retrievalRuns.workflowState,
+          queryText: retrievalRuns.queryText,
+          queryDebug: retrievalRuns.queryDebug,
+          createdAt: retrievalRuns.createdAt,
+          issueIdentifier: issues.identifier,
+          issueTitle: issues.title,
+          issueProjectId: issues.projectId,
+        })
+        .from(retrievalRuns)
+        .leftJoin(issues, eq(retrievalRuns.issueId, issues.id))
+        .where(and(
+          eq(retrievalRuns.companyId, input.companyId),
+          input.projectId ? eq(issues.projectId, input.projectId) : undefined,
+        ))
+        .orderBy(desc(retrievalRuns.createdAt))
+        .limit(limit);
+
+      return Promise.all(rows.map(async (row) => {
+        const queryDebug = asRecord(row.queryDebug);
+        const quality = asRecord(queryDebug.quality);
+        const cache = asRecord(queryDebug.cache);
+        const personalization = asRecord(queryDebug.personalization);
+        const topHits = (await db
+          .select({
+            chunkId: retrievalRunHits.chunkId,
+            finalRank: retrievalRunHits.finalRank,
+            fusedScore: retrievalRunHits.fusedScore,
+            rationale: retrievalRunHits.rationale,
+            textContent: knowledgeChunks.textContent,
+            headingPath: knowledgeChunks.headingPath,
+            symbolName: knowledgeChunks.symbolName,
+            documentPath: knowledgeDocuments.path,
+            documentTitle: knowledgeDocuments.title,
+            sourceType: knowledgeDocuments.sourceType,
+            authorityLevel: knowledgeDocuments.authorityLevel,
+          })
+          .from(retrievalRunHits)
+          .innerJoin(knowledgeChunks, eq(retrievalRunHits.chunkId, knowledgeChunks.id))
+          .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+          .where(eq(retrievalRunHits.retrievalRunId, row.retrievalRunId))
+          .orderBy(retrievalRunHits.finalRank, retrievalRunHits.id)
+          .limit(5))
+          .map((hit) => ({
+            chunkId: hit.chunkId,
+            finalRank: hit.finalRank,
+            fusedScore: hit.fusedScore,
+            rationale: hit.rationale,
+            textContent: hit.textContent,
+            headingPath: hit.headingPath,
+            symbolName: hit.symbolName,
+            documentPath: hit.documentPath,
+            documentTitle: hit.documentTitle,
+            sourceType: hit.sourceType,
+            authorityLevel: hit.authorityLevel,
+          }));
+
+        const confidenceLevel = readString(quality.confidenceLevel);
+        return {
+          retrievalRunId: row.retrievalRunId,
+          companyId: row.companyId,
+          issueId: row.issueId,
+          issueIdentifier: row.issueIdentifier,
+          issueTitle: row.issueTitle,
+          issueProjectId: row.issueProjectId,
+          actorRole: row.actorRole,
+          eventType: row.eventType,
+          workflowState: row.workflowState,
+          queryText: row.queryText,
+          createdAt: row.createdAt,
+          confidenceLevel:
+            confidenceLevel === "high" || confidenceLevel === "medium" || confidenceLevel === "low"
+              ? confidenceLevel
+              : null,
+          graphHitCount: readNumber(queryDebug.graphHitCount),
+          multiHopGraphHitCount: readNumber(queryDebug.multiHopGraphHitCount),
+          candidateCacheHit: readBoolean(cache.candidateHit),
+          finalCacheHit: readBoolean(cache.finalHit),
+          personalizationApplied: readBoolean(personalization.applied),
+          averagePersonalizationBoost: readNumber(personalization.averagePersonalizationBoost),
+          topHitPath: readString(queryDebug.topHitPath),
+          topHitSourceType: readString(queryDebug.topHitSourceType),
+          topHitArtifactKind: readString(queryDebug.topHitArtifactKind),
+          topHits,
+        };
+      }));
+    },
+
     listRetrievalRunHits: async (retrievalRunId: string) =>
       db
         .select({
@@ -1494,6 +1666,7 @@ export function knowledgeService(db: Db) {
       const graphEntityTypeCounts: Record<string, number> = {};
       const edgeTypeCounts: Record<string, number> = {};
       const graphHopDepthCounts: Record<string, number> = {};
+      const dailyTrendSamples: KnowledgeQualityTrendSample[] = [];
 
       for (const row of rows) {
         const debug = (row.queryDebug ?? {}) as Record<string, unknown>;
@@ -1646,6 +1819,16 @@ export function knowledgeService(db: Db) {
           if (hasProjectMismatch) projectEntry.projectMismatchCount += 1;
           perProject.set(issueProjectId, projectEntry);
         }
+
+        dailyTrendSamples.push({
+          createdAt: row.createdAt,
+          lowConfidence: confidenceLevel === "low",
+          graphExpanded: graphHitCount > 0,
+          multiHopGraphExpanded: multiHopGraphHitCount > 0,
+          candidateCacheHit: cache.candidateHit === true,
+          finalCacheHit: cache.finalHit === true,
+          personalized: personalization.applied === true,
+        });
       }
 
       const feedbackStats = await db
@@ -1855,6 +2038,10 @@ export function knowledgeService(db: Db) {
         edgeTypeCounts,
         graphHopDepthCounts,
         feedbackTypeCounts,
+        dailyTrend: buildKnowledgeQualityDailyTrend({
+          samples: dailyTrendSamples,
+          days,
+        }),
         organizationalMemoryCoverage: {
           issue: {
             totalItems: issueTotalItems,

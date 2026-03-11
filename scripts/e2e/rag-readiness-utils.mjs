@@ -57,6 +57,9 @@ export function summarizeBriefQuality(brief) {
   const hitPaths = hits
     .map((hit) => (typeof hit?.path === "string" ? hit.path : null))
     .filter((value) => value != null);
+  const hitSourceTypes = hits
+    .map((hit) => (typeof hit?.sourceType === "string" ? hit.sourceType : null))
+    .filter((value) => value != null);
   const degradedReasons = Array.isArray(quality.degradedReasons)
     ? quality.degradedReasons.filter((value) => typeof value === "string")
     : [];
@@ -73,7 +76,12 @@ export function summarizeBriefQuality(brief) {
     personalizedHitCount: typeof quality.personalizedHitCount === "number" ? quality.personalizedHitCount : 0,
     averagePersonalizationBoost:
       typeof quality.averagePersonalizationBoost === "number" ? quality.averagePersonalizationBoost : 0,
+    organizationalMemoryHitCount:
+      typeof quality.organizationalMemoryHitCount === "number" ? quality.organizationalMemoryHitCount : 0,
+    codeHitCount: typeof quality.codeHitCount === "number" ? quality.codeHitCount : 0,
+    reviewHitCount: typeof quality.reviewHitCount === "number" ? quality.reviewHitCount : 0,
     degradedReasons,
     hitPaths,
+    hitSourceTypes,
   };
 }

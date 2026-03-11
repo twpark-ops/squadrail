@@ -267,6 +267,14 @@ async function main() {
   note(`seed issue=${seedRun.identifier} (${seedRun.issueId})`);
   const seedInspect = await inspectScenarioIssue(seedRun.issueId, scenarioConfig.reviewScope);
   note(`seed review quality=${JSON.stringify(seedInspect.reviewQuality)}`);
+  assert(
+    seedInspect.reviewQuality.reviewHitCount > 0 || seedInspect.reviewQuality.codeHitCount > 0,
+    "Seed reviewer brief still lacks concrete review/code evidence",
+  );
+  assert(
+    !seedInspect.reviewQuality.hitSourceTypes.every((sourceType) => sourceType === "issue"),
+    "Seed reviewer brief is still dominated entirely by issue snapshots",
+  );
 
   assert(seedInspect.reviewQuality.retrievalRunId, "Seed reviewer brief is missing retrievalRunId");
   await recordOperatorPin(seedRun.issueId, seedInspect.reviewQuality.retrievalRunId, scenarioConfig.pinnedPaths);
@@ -288,6 +296,14 @@ async function main() {
   assert(
     followInspect.reviewQuality.personalizationApplied || followInspect.reviewQuality.personalizedHitCount > 0,
     "Follow-up reviewer brief did not apply retrieval personalization",
+  );
+  assert(
+    followInspect.reviewQuality.reviewHitCount > 0 || followInspect.reviewQuality.codeHitCount > 0,
+    "Follow-up reviewer brief still lacks concrete review/code evidence",
+  );
+  assert(
+    !followInspect.reviewQuality.hitSourceTypes.every((sourceType) => sourceType === "issue"),
+    "Follow-up reviewer brief is still dominated entirely by issue snapshots",
   );
   assert(
     followInspect.reviewQuality.hitPaths.some((hitPath) => scenarioConfig.pinnedPaths.includes(hitPath)),

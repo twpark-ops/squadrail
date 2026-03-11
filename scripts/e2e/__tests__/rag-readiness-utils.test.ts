@@ -111,8 +111,12 @@ describe("rag-readiness-utils", () => {
       personalizationApplied: true,
       personalizedHitCount: 2,
       averagePersonalizationBoost: 0.31,
+      organizationalMemoryHitCount: 0,
+      codeHitCount: 0,
+      reviewHitCount: 0,
       degradedReasons: ["narrow_source_diversity"],
       hitPaths: ["internal/observability/tracing.go"],
+      hitSourceTypes: [],
     });
   });
 });

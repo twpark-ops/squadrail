@@ -43,6 +43,7 @@ const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
 const QUERY_EMBEDDING_CACHE_TTL_SECONDS = 24 * 60 * 60;
 const CANDIDATE_HIT_CACHE_TTL_SECONDS = 20 * 60;
 const FINAL_HIT_CACHE_TTL_SECONDS = 10 * 60;
+const CHUNK_GRAPH_EXPANSION_MAX_HOPS = 3;
 
 type RetrievalEventType = (typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE)[keyof typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE];
 
@@ -261,6 +262,10 @@ function readCachedBriefQualitySummary(value: Record<string, unknown> | null | u
     personalizationApplied: value.personalizationApplied === true,
     personalizedHitCount: typeof value.personalizedHitCount === "number" ? value.personalizedHitCount : 0,
     averagePersonalizationBoost: typeof value.averagePersonalizationBoost === "number" ? value.averagePersonalizationBoost : 0,
+    organizationalMemoryHitCount:
+      typeof value.organizationalMemoryHitCount === "number" ? value.organizationalMemoryHitCount : 0,
+    codeHitCount: typeof value.codeHitCount === "number" ? value.codeHitCount : 0,
+    reviewHitCount: typeof value.reviewHitCount === "number" ? value.reviewHitCount : 0,
     sourceDiversity: typeof value.sourceDiversity === "number" ? value.sourceDiversity : 0,
     candidateCacheHit: value.candidateCacheHit === true,
     finalCacheHit: value.finalCacheHit === true,
@@ -369,6 +374,8 @@ interface RetrievalRerankWeights {
   sourceTypeMinBoost: number;
   exactPathBoost: number;
   fileNameBoost: number;
+  metadataExactPathBoostMultiplier: number;
+  metadataFileNameBoostMultiplier: number;
   symbolExactBoost: number;
   symbolPartialBoost: number;
   tagMatchBoostPerTag: number;
@@ -391,6 +398,15 @@ interface RetrievalRerankWeights {
   temporalDefaultBranchBoost: number;
   temporalForeignBranchPenalty: number;
   temporalStalePenalty: number;
+  organizationalIssueMissPenalty: number;
+  organizationalProtocolMissPenalty: number;
+}
+
+type RetrievalPathBoostKind = "none" | "direct" | "metadata_exact" | "metadata_file";
+
+interface RetrievalPathBoostResult {
+  score: number;
+  kind: RetrievalPathBoostKind;
 }
 
 interface RetrievalPolicyRerankConfig {
@@ -431,6 +447,9 @@ interface BriefQualitySummary {
   personalizationApplied: boolean;
   personalizedHitCount: number;
   averagePersonalizationBoost: number;
+  organizationalMemoryHitCount: number;
+  codeHitCount: number;
+  reviewHitCount: number;
   sourceDiversity: number;
   candidateCacheHit: boolean;
   finalCacheHit: boolean;
@@ -488,6 +507,8 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   sourceTypeMinBoost: 0.15,
   exactPathBoost: 2.5,
   fileNameBoost: 0.9,
+  metadataExactPathBoostMultiplier: 0.85,
+  metadataFileNameBoostMultiplier: 0.7,
   symbolExactBoost: 1.3,
   symbolPartialBoost: 0.45,
   tagMatchBoostPerTag: 0.4,
@@ -510,6 +531,8 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   temporalDefaultBranchBoost: 0.25,
   temporalForeignBranchPenalty: -0.35,
   temporalStalePenalty: -0.45,
+  organizationalIssueMissPenalty: -1.1,
+  organizationalProtocolMissPenalty: -0.45,
 } as const satisfies RetrievalRerankWeights;
 
 function summarizeBriefQuality(input: {
@@ -573,6 +596,9 @@ function summarizeBriefQuality(input: {
     .length;
   const staleVersionPenaltyCount = input.finalHits.filter((hit) => hit.temporalMetadata?.stale === true).length;
   const exactCommitMatchCount = input.finalHits.filter((hit) => hit.temporalMetadata?.matchType === "exact_commit").length;
+  const organizationalMemoryHitCount = input.finalHits.filter((hit) => classifyOrganizationalArtifact(hit) != null).length;
+  const codeHitCount = input.finalHits.filter((hit) => hit.sourceType === "code").length;
+  const reviewHitCount = input.finalHits.filter((hit) => hit.sourceType === "review").length;
   if (input.temporalContext && temporalHitCount === 0) {
     degradedReasons.push("temporal_context_unmatched");
   }
@@ -613,6 +639,9 @@ function summarizeBriefQuality(input: {
     personalizationApplied: personalizedHits.length > 0,
     personalizedHitCount: personalizedHits.length,
     averagePersonalizationBoost,
+    organizationalMemoryHitCount,
+    codeHitCount,
+    reviewHitCount,
     sourceDiversity,
     candidateCacheHit: input.candidateCacheHit === true,
     finalCacheHit: input.finalCacheHit === true,
@@ -1076,8 +1105,8 @@ export function deriveDynamicRetrievalSignals(input: {
 }) {
   const payload = input.message.payload as Record<string, unknown>;
   const preferredSourceTypesByRole: Record<string, string[]> = {
-    engineer: ["code", "adr", "runbook", "issue", "review", "test_report"],
-    reviewer: ["code", "test_report", "review", "issue", "adr", "runbook"],
+    engineer: ["code", "test_report", "review", "adr", "runbook", "issue"],
+    reviewer: ["code", "test_report", "review", "adr", "runbook", "issue"],
     tech_lead: ["adr", "prd", "issue", "runbook", "review", "code"],
     human_board: ["prd", "adr", "issue", "review", "runbook", "protocol_message"],
   };
@@ -1163,6 +1192,14 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     sourceTypeMinBoost: readConfiguredNumber(weightsRecord.sourceTypeMinBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.sourceTypeMinBoost),
     exactPathBoost: readConfiguredNumber(weightsRecord.exactPathBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.exactPathBoost),
     fileNameBoost: readConfiguredNumber(weightsRecord.fileNameBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.fileNameBoost),
+    metadataExactPathBoostMultiplier: readConfiguredNumber(
+      weightsRecord.metadataExactPathBoostMultiplier,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.metadataExactPathBoostMultiplier,
+    ),
+    metadataFileNameBoostMultiplier: readConfiguredNumber(
+      weightsRecord.metadataFileNameBoostMultiplier,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.metadataFileNameBoostMultiplier,
+    ),
     symbolExactBoost: readConfiguredNumber(weightsRecord.symbolExactBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.symbolExactBoost),
     symbolPartialBoost: readConfiguredNumber(weightsRecord.symbolPartialBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.symbolPartialBoost),
     tagMatchBoostPerTag: readConfiguredNumber(weightsRecord.tagMatchBoostPerTag, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.tagMatchBoostPerTag),
@@ -1185,6 +1222,14 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     temporalDefaultBranchBoost: readConfiguredNumber(weightsRecord.temporalDefaultBranchBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalDefaultBranchBoost),
     temporalForeignBranchPenalty: readConfiguredNumber(weightsRecord.temporalForeignBranchPenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalForeignBranchPenalty),
     temporalStalePenalty: readConfiguredNumber(weightsRecord.temporalStalePenalty, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.temporalStalePenalty),
+    organizationalIssueMissPenalty: readConfiguredNumber(
+      weightsRecord.organizationalIssueMissPenalty,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.organizationalIssueMissPenalty,
+    ),
+    organizationalProtocolMissPenalty: readConfiguredNumber(
+      weightsRecord.organizationalProtocolMissPenalty,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.organizationalProtocolMissPenalty,
+    ),
   } satisfies RetrievalRerankWeights;
 
   return {
@@ -1267,8 +1312,8 @@ function defaultPolicyTemplate(input: {
   eventType: RetrievalEventType;
   workflowState: string;
 }) {
-  const engineerSources = ["code", "adr", "issue", "review", "test_report", "runbook"];
-  const reviewerSources = ["code", "test_report", "review", "issue", "adr", "runbook"];
+  const engineerSources = ["code", "test_report", "review", "adr", "runbook", "issue"];
+  const reviewerSources = ["code", "test_report", "review", "adr", "runbook", "issue"];
   const leadSources = ["prd", "adr", "runbook", "issue", "protocol_message", "review", "code"];
   const boardSources = ["prd", "adr", "issue", "review", "protocol_message", "runbook"];
   const ctoSources = ["prd", "adr", "runbook", "issue", "review", "protocol_message"];
@@ -1393,12 +1438,101 @@ function computePathBoost(hitPath: string | null, signals: RetrievalSignals, wei
   return 0;
 }
 
+function classifyOrganizationalArtifact(hit: RetrievalHitView): "issue" | "protocol" | "review" | null {
+  const artifactKind = readMetadataString(hit.documentMetadata, "artifactKind");
+  if (artifactKind === "issue_snapshot" || hit.sourceType === "issue") return "issue";
+  if (artifactKind === "protocol_event" || hit.sourceType === "protocol_message") return "protocol";
+  if (artifactKind === "review_event" || hit.sourceType === "review") return "review";
+  return null;
+}
+
+function computeDocumentPathBoost(
+  hit: RetrievalHitView,
+  signals: RetrievalSignals,
+  weights: RetrievalRerankWeights,
+): RetrievalPathBoostResult {
+  const directBoost = computePathBoost(hit.path, signals, weights);
+  if (directBoost > 0) {
+    return {
+      score: directBoost,
+      kind: "direct",
+    };
+  }
+
+  const changedPaths = metadataStringArray(hit.documentMetadata, ["changedPaths"]).map(normalizeHintPath);
+  if (changedPaths.length === 0) {
+    return {
+      score: 0,
+      kind: "none",
+    };
+  }
+  const artifactClass = classifyOrganizationalArtifact(hit);
+  const exactMultiplier =
+    artifactClass === "issue"
+      ? 0.2
+      : artifactClass === "protocol"
+        ? 0.35
+        : artifactClass === "review"
+          ? 0.7
+          : weights.metadataExactPathBoostMultiplier;
+  const fileMultiplier =
+    artifactClass === "issue"
+      ? 0.14
+      : artifactClass === "protocol"
+        ? 0.26
+        : artifactClass === "review"
+          ? 0.56
+          : weights.metadataFileNameBoostMultiplier;
+  if (changedPaths.some((candidate) => signals.exactPaths.includes(candidate))) {
+    return {
+      score: weights.exactPathBoost * exactMultiplier,
+      kind: "metadata_exact",
+    };
+  }
+
+  const changedFileNames = uniqueNonEmpty(changedPaths.map((candidate) => path.posix.basename(candidate)));
+  if (changedFileNames.some((fileName) => signals.fileNames.includes(fileName))) {
+    return {
+      score: weights.fileNameBoost * fileMultiplier,
+      kind: "metadata_file",
+    };
+  }
+  return {
+    score: 0,
+    kind: "none",
+  };
+}
+
 function computeSymbolBoost(symbolName: string | null, signals: RetrievalSignals, weights: RetrievalRerankWeights) {
   if (!symbolName) return 0;
   const normalized = symbolName.toLowerCase();
   if (signals.symbolHints.some((hint) => hint.toLowerCase() === normalized)) return weights.symbolExactBoost;
   if (signals.symbolHints.some((hint) => normalized.includes(hint.toLowerCase()) || hint.toLowerCase().includes(normalized))) {
     return weights.symbolPartialBoost;
+  }
+  return 0;
+}
+
+function computeOrganizationalMemoryPenalty(input: {
+  hit: RetrievalHitView;
+  signals: RetrievalSignals;
+  weights: RetrievalRerankWeights;
+  pathBoost: RetrievalPathBoostResult;
+  symbolBoost: number;
+}) {
+  const needsImplementationContext = input.signals.exactPaths.length > 0 || input.signals.symbolHints.length > 0;
+  if (!needsImplementationContext) return 0;
+
+  const artifactClass = classifyOrganizationalArtifact(input.hit);
+  if (!artifactClass) return 0;
+  if (input.pathBoost.kind === "direct" || input.symbolBoost > 0) return 0;
+  if (artifactClass === "review") return 0;
+
+  if (artifactClass === "issue") {
+    return input.weights.organizationalIssueMissPenalty;
+  }
+  if (artifactClass === "protocol") {
+    return input.weights.organizationalProtocolMissPenalty;
   }
   return 0;
 }
@@ -1768,6 +1902,15 @@ export function rerankRetrievalHits(input: {
   });
   return input.hits
     .map((hit) => {
+      const pathBoost = computeDocumentPathBoost(hit, input.signals, rerankConfig.weights);
+      const symbolBoost = computeSymbolBoost(hit.symbolName, input.signals, rerankConfig.weights);
+      const organizationalMemoryPenalty = computeOrganizationalMemoryPenalty({
+        hit,
+        signals: input.signals,
+        weights: rerankConfig.weights,
+        pathBoost,
+        symbolBoost,
+      });
       const temporal = computeTemporalBoost({
         hit,
         temporalContext: input.temporalContext ?? null,
@@ -1780,8 +1923,8 @@ export function rerankRetrievalHits(input: {
           preferredSourceTypes: input.signals.preferredSourceTypes,
           rerankConfig,
         })
-        + computePathBoost(hit.path, input.signals, rerankConfig.weights)
-        + computeSymbolBoost(hit.symbolName, input.signals, rerankConfig.weights)
+        + pathBoost.score
+        + symbolBoost
         + computeTagBoost(hit, input.signals, rerankConfig.weights)
         + computeLatestBoost(hit, rerankConfig.weights)
         + computeFreshnessBoost(hit, rerankConfig.weights)
@@ -1794,7 +1937,8 @@ export function rerankRetrievalHits(input: {
           projectAffinityIds: input.projectAffinityIds ?? input.signals.projectAffinityIds,
           signals: input.signals,
           weights: rerankConfig.weights,
-        });
+        })
+        + organizationalMemoryPenalty;
       const personalization = computeRetrievalPersonalizationBoost({
         hit: {
           sourceType: hit.sourceType,
@@ -1858,6 +2002,37 @@ export function buildGraphExpansionSeeds(input: {
       seedReasons: uniqueNonEmpty([...existing.seedReasons, ...seed.seedReasons]),
     });
   };
+
+  for (const exactPath of input.signals.exactPaths.slice(0, Math.min(maxSeeds, 6))) {
+    pushSeed({
+      entityType: "path",
+      entityId: normalizeHintPath(exactPath),
+      seedBoost: 1.9,
+      seedReasons: ["signal_exact_path"],
+    });
+  }
+
+  for (const symbolHint of input.signals.symbolHints
+    .filter((hint) => hint.trim().length >= 3)
+    .slice(0, Math.min(maxSeeds, 6))) {
+    pushSeed({
+      entityType: "symbol",
+      entityId: symbolHint,
+      seedBoost: 1.4,
+      seedReasons: ["signal_symbol_hint"],
+    });
+  }
+
+  if (crossProjectRequested) {
+    for (const projectId of input.signals.projectAffinityIds.slice(0, Math.min(maxSeeds, 4))) {
+      pushSeed({
+        entityType: "project",
+        entityId: projectId,
+        seedBoost: 0.7,
+        seedReasons: ["signal_project_affinity"],
+      });
+    }
+  }
 
   for (const hit of input.hits.slice(0, maxSeedHits)) {
     if (hit.symbolName) {
@@ -2240,12 +2415,21 @@ function buildHitRationale(input: {
   if (computeAuthorityBoost(input.hit.authorityLevel) > 0) reasons.push("high_authority");
   if ((input.hit.rerankScore ?? 0) > 0) reasons.push("heuristic_rerank");
   if ((input.hit.modelRerankRank ?? 0) > 0) reasons.push("model_rerank");
-  if (computePathBoost(input.hit.path, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS) > 0) reasons.push("path_match");
-  if (computeSymbolBoost(input.hit.symbolName, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS) > 0) reasons.push("symbol_match");
+  const pathBoost = computeDocumentPathBoost(input.hit, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
+  const symbolBoost = computeSymbolBoost(input.hit.symbolName, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
+  if (pathBoost.score > 0) reasons.push(pathBoost.kind === "direct" ? "path_match" : "metadata_path_match");
+  if (symbolBoost > 0) reasons.push("symbol_match");
   if (computeTagBoost(input.hit, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS) > 0) reasons.push("tag_match");
   const freshnessBoost = computeFreshnessBoost(input.hit, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
   if (freshnessBoost > 0) reasons.push("fresh_content");
   if (freshnessBoost < 0) reasons.push("stale_or_invalid");
+  if (computeOrganizationalMemoryPenalty({
+    hit: input.hit,
+    signals: input.signals,
+    weights: DEFAULT_RETRIEVAL_RERANK_WEIGHTS,
+    pathBoost,
+    symbolBoost,
+  }) < 0) reasons.push("organizational_memory_penalty");
   for (const entityType of uniqueNonEmpty(input.hit.graphMetadata?.entityTypes ?? [])) {
     reasons.push(`graph_${entityType}_link`);
   }
@@ -2644,10 +2828,6 @@ export function issueRetrievalService(db: Db) {
       };
     }
 
-    const seedByKey = new Map<string, RetrievalGraphSeed>(
-      input.seeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const),
-    );
-
     const queryRowsForSeeds = async (seeds: RetrievalGraphSeed[], excludeChunkIds: string[]) => {
       const pairConditions = seeds.map((seed) =>
         and(
@@ -2769,12 +2949,9 @@ export function issueRetrievalService(db: Db) {
       return Array.from(grouped.values());
     };
 
-    const firstHopRows = await queryRowsForSeeds(input.seeds, input.excludeChunkIds);
-    const firstHopHits = buildHits(firstHopRows, seedByKey, 1);
-
-    const discoveredLinks = firstHopRows.length === 0
-      ? []
-      : await db
+    const listLinksForGraphExpansion = async (chunkIds: string[]) => {
+      if (chunkIds.length === 0) return [];
+      return db
         .select({
           chunkId: knowledgeChunkLinks.chunkId,
           entityType: knowledgeChunkLinks.entityType,
@@ -2785,55 +2962,77 @@ export function issueRetrievalService(db: Db) {
         .from(knowledgeChunkLinks)
         .where(and(
           eq(knowledgeChunkLinks.companyId, input.companyId),
-          inArray(knowledgeChunkLinks.chunkId, firstHopRows.map((row) => row.chunkId)),
+          inArray(knowledgeChunkLinks.chunkId, chunkIds),
         ))
         .orderBy(desc(knowledgeChunkLinks.weight))
         .limit(Math.max(input.limit * 16, 120));
+    };
 
-    const secondHopSeedMap = new Map<string, RetrievalGraphSeed>();
-    for (const link of discoveredLinks) {
-      if (link.entityType !== "symbol" && link.entityType !== "path" && link.entityType !== "project") continue;
-      const key = `${link.entityType}:${link.entityId}`;
-      if (seedByKey.has(key)) continue;
-      const current = secondHopSeedMap.get(key);
-      const nextSeed: RetrievalGraphSeed = {
-        entityType: link.entityType,
-        entityId: link.entityId,
-        seedBoost: Math.min(2.8, Math.max(0.5, link.weight * 0.7)),
-        seedReasons: uniqueNonEmpty([`graph_hop:${link.linkReason}`]),
-      };
-      if (!current) {
-        secondHopSeedMap.set(key, nextSeed);
+    let frontierSeeds = input.seeds;
+    let excludedChunkIds = uniqueNonEmpty(input.excludeChunkIds);
+    const visitedSeedKeys = new Set(input.seeds.map((seed) => `${seed.entityType}:${seed.entityId}`));
+    let hits: RetrievalHitView[] = [];
+    let edgeTraversalCount = 0;
+
+    for (let hopDepth = 1; hopDepth <= CHUNK_GRAPH_EXPANSION_MAX_HOPS; hopDepth += 1) {
+      if (frontierSeeds.length === 0) break;
+
+      const frontierSeedMap = new Map(frontierSeeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const));
+      const hopRows = await queryRowsForSeeds(frontierSeeds, excludedChunkIds);
+      edgeTraversalCount += hopRows.length;
+
+      const hopHits = buildHits(hopRows, frontierSeedMap, hopDepth);
+      hits = mergeGraphExpandedHits({
+        baseHits: hits,
+        graphHits: hopHits,
+        finalK: Math.max(input.limit, hits.length + hopHits.length),
+      });
+      excludedChunkIds = uniqueNonEmpty([
+        ...excludedChunkIds,
+        ...hopHits.map((hit) => hit.chunkId),
+      ]);
+
+      if (hopDepth === CHUNK_GRAPH_EXPANSION_MAX_HOPS || hopRows.length === 0) {
+        frontierSeeds = [];
         continue;
       }
-      secondHopSeedMap.set(key, {
-        ...current,
-        seedBoost: Math.max(current.seedBoost, nextSeed.seedBoost),
-        seedReasons: uniqueNonEmpty([...current.seedReasons, ...nextSeed.seedReasons]),
-      });
+
+      const discoveredLinks = await listLinksForGraphExpansion(hopRows.map((row) => row.chunkId));
+      edgeTraversalCount += discoveredLinks.length;
+
+      const nextSeedMap = new Map<string, RetrievalGraphSeed>();
+      for (const link of discoveredLinks) {
+        if (link.entityType !== "symbol" && link.entityType !== "path" && link.entityType !== "project") continue;
+        const key = `${link.entityType}:${link.entityId}`;
+        if (visitedSeedKeys.has(key)) continue;
+
+        const current = nextSeedMap.get(key);
+        const nextSeed: RetrievalGraphSeed = {
+          entityType: link.entityType,
+          entityId: link.entityId,
+          seedBoost: Math.min(2.8, Math.max(0.45, link.weight * (0.78 - hopDepth * 0.08))),
+          seedReasons: uniqueNonEmpty([`graph_hop:${link.linkReason}`]),
+        };
+        if (!current) {
+          nextSeedMap.set(key, nextSeed);
+          continue;
+        }
+        nextSeedMap.set(key, {
+          ...current,
+          seedBoost: Math.max(current.seedBoost, nextSeed.seedBoost),
+          seedReasons: uniqueNonEmpty([...current.seedReasons, ...nextSeed.seedReasons]),
+        });
+      }
+
+      frontierSeeds = Array.from(nextSeedMap.values())
+        .sort((left, right) => right.seedBoost - left.seedBoost)
+        .slice(0, Math.max(input.limit * 4, 48));
+      for (const seed of frontierSeeds) {
+        visitedSeedKeys.add(`${seed.entityType}:${seed.entityId}`);
+      }
     }
 
-    const secondHopSeeds = Array.from(secondHopSeedMap.values());
-    const secondHopRows = secondHopSeeds.length === 0
-      ? []
-      : await queryRowsForSeeds(
-        secondHopSeeds,
-        uniqueNonEmpty([
-          ...input.excludeChunkIds,
-          ...firstHopHits.map((hit) => hit.chunkId),
-        ]),
-      );
-    const secondHopHits = buildHits(
-      secondHopRows,
-      new Map(secondHopSeeds.map((seed) => [`${seed.entityType}:${seed.entityId}`, seed] as const)),
-      2,
-    );
-
-    const hits = mergeGraphExpandedHits({
-      baseHits: firstHopHits,
-      graphHits: secondHopHits,
-      finalK: Math.max(input.limit, firstHopHits.length + secondHopHits.length),
-    })
+    hits = hits
       .sort((left, right) => {
         if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
         return right.updatedAt.getTime() - left.updatedAt.getTime();
@@ -2852,7 +3051,7 @@ export function issueRetrievalService(db: Db) {
 
     return {
       hits,
-      edgeTraversalCount: firstHopRows.length + discoveredLinks.length + secondHopRows.length,
+      edgeTraversalCount,
       graphMaxDepth: hits.reduce((max, hit) => Math.max(max, hit.graphMetadata?.hopDepth ?? 1), 0),
       graphHopDepthCounts,
       graphEntityTypeCounts,
@@ -3787,6 +3986,8 @@ export function issueRetrievalService(db: Db) {
           hitProjectIds: uniqueNonEmpty(finalHits.map((hit) => hit.documentProjectId ?? "")),
           topHitProjectId: finalHits[0]?.documentProjectId ?? null,
           topHitPath: finalHits[0]?.path ?? null,
+          topHitSourceType: finalHits[0]?.sourceType ?? null,
+          topHitArtifactKind: readMetadataString(finalHits[0]?.documentMetadata ?? {}, "artifactKind"),
           graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
           graphSeedTypes: uniqueNonEmpty([
             ...graphSeeds.map((seed) => seed.entityType),

@@ -206,16 +206,26 @@
 
 - backend route는 이미 있다.
 - 이를 `Knowledge / Work / Changes` 표면으로 올린다.
+- 현재 상태:
+  - `Change View`와 `Knowledge > Recent Retrieval Loops`에는 연결됨
+  - 다음 단계는 pinned / hidden provenance, filter, feedback summary다.
 
 ### P1-B. Candidate / Final-Hit Cache
 
 - 현재 query embedding cache 다음 단계
 - retrieval hot path 비용과 latency 안정화
+- 현재 상태:
+  - cache 자체는 구현 완료
+  - 다음 단계는 invalidation reason / hit provenance visibility다.
 
 ### P1-C. Deeper Chunk-Link Multi-Hop
 
 - symbol graph 외 chunk-link 2-hop 이상 확장
 - `지식 그래프 느낌` 강화
+- 현재 상태:
+  - chunk-link max hop은 3으로 열려 있다.
+  - direct signal seed와 ranking stabilization으로 top hit 분포는 개선됐다.
+  - 다음 단계는 실제 `multiHopGraphHitCount` 증가와 provenance 설명 강화다.
 
 ## 6. 장기 단계
 
@@ -250,7 +260,7 @@
 상류 intake, QA 게이트, organizational memory backend 커널이 닫힌 뒤의 다음 우선순위는 아래 8개다.
 
 1. Operator Feedback UI Surface Expansion
-2. Candidate / Final-Hit Cache
+2. Candidate / Final-Hit Cache Visibility
 3. Deeper Chunk-Link Multi-Hop
 4. Retrieval Ranking Stabilization
 5. Retrieval God-File Refactor
@@ -261,7 +271,8 @@
 이 순서는 다음 원칙을 따른다.
 
 - 먼저 operator가 retrieval을 교정할 수 있어야 한다.
-- 그 다음 latency와 graph 연결성을 보강한다.
+- 그 다음 cache hit과 invalidation을 운영자가 읽을 수 있게 한다.
+- 이후 graph 연결성과 ranking 안정화를 보강한다.
 - 이후 구조 부채와 provider lock-in을 줄인다.
 - 마지막에 조직 기억 재사용을 본격화한다.
 
