@@ -1,0 +1,34 @@
+@startuml
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam defaultFontName "Noto Sans CJK KR"
+
+rectangle "Signals" {
+  component "exactPaths" as ExactPaths
+  component "symbolHints" as SymbolHints
+  component "projectAffinity" as ProjectAffinity
+}
+
+rectangle "Retrieval Core" {
+  component "Candidate Fusion" as Candidate
+  component "Ranking Stabilization" as Ranking
+  component "Chunk-Link Expansion" as ChunkGraph
+  component "Symbol Graph Expansion" as SymbolGraph
+}
+
+rectangle "Outputs" {
+  component "Brief Quality" as Quality
+  component "Recent Retrieval Runs" as RecentRuns
+  component "Real-org E2E" as E2E
+}
+
+ExactPaths --> ChunkGraph : direct path seed
+SymbolHints --> ChunkGraph : direct symbol seed
+ProjectAffinity --> ChunkGraph : cross-project seed
+Candidate --> Ranking
+ChunkGraph --> Ranking
+SymbolGraph --> Ranking
+Ranking --> Quality
+Ranking --> RecentRuns
+Ranking --> E2E
+@enduml

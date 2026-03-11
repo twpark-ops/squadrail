@@ -229,7 +229,10 @@ echo "==> verifying knowledge page"
 KNOWLEDGE_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$KNOWLEDGE_URL")"
 printf '%s' "$KNOWLEDGE_DOM" >"$KNOWLEDGE_DOM_PATH"
 grep -q "Knowledge Base" "$KNOWLEDGE_DOM_PATH"
-grep -q "No documents indexed yet" "$KNOWLEDGE_DOM_PATH"
+grep -q "Retrieval posture" "$KNOWLEDGE_DOM_PATH"
+grep -q "Recent Retrieval Loops" "$KNOWLEDGE_DOM_PATH"
+grep -q "7-day trend" "$KNOWLEDGE_DOM_PATH"
+grep -Eq "No documents indexed yet|Recent Company Slice" "$KNOWLEDGE_DOM_PATH"
 
 "$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --window-size=1440,1200 --screenshot="$SCREENSHOT_PATH" "$OVERVIEW_URL" >/dev/null 2>&1
 

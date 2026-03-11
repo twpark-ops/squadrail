@@ -79,6 +79,43 @@ export interface RetrievalHit {
   documentMetadata: Record<string, unknown>;
 }
 
+export interface RecentRetrievalRunSummary {
+  retrievalRunId: string;
+  companyId: string;
+  issueId: string | null;
+  issueIdentifier: string | null;
+  issueTitle: string | null;
+  issueProjectId: string | null;
+  actorRole: string;
+  eventType: string;
+  workflowState: string;
+  queryText: string;
+  createdAt: string;
+  confidenceLevel: "high" | "medium" | "low" | null;
+  graphHitCount: number;
+  multiHopGraphHitCount: number;
+  candidateCacheHit: boolean;
+  finalCacheHit: boolean;
+  personalizationApplied: boolean;
+  averagePersonalizationBoost: number;
+  topHitPath: string | null;
+  topHitSourceType: string | null;
+  topHitArtifactKind: string | null;
+  topHits: Array<{
+    chunkId: string;
+    finalRank: number | null;
+    fusedScore: number | null;
+    rationale: string | null;
+    textContent: string;
+    headingPath: string | null;
+    symbolName: string | null;
+    documentPath: string | null;
+    documentTitle: string | null;
+    sourceType: string;
+    authorityLevel: string;
+  }>;
+}
+
 export interface WorkspaceKnowledgeImportResult {
   projectId: string;
   workspaceId: string;
@@ -148,6 +185,7 @@ export interface KnowledgeQualitySummary {
   positiveFeedbackCount: number;
   negativeFeedbackCount: number;
   feedbackCoverageRate: number;
+  profileCount: number;
   graphExpandedRuns: number;
   multiHopGraphExpandedRuns: number;
   graphEntityTypeCounts: Record<string, number>;
@@ -184,6 +222,16 @@ export const knowledgeApi = {
     if (params?.days) queryParams.append("days", params.days.toString());
     if (params?.limit) queryParams.append("limit", params.limit.toString());
     return api.get<KnowledgeQualitySummary>(`/knowledge/quality?${queryParams.toString()}`);
+  },
+  listRecentRetrievalRuns: (params: {
+    companyId: string;
+    projectId?: string;
+    limit?: number;
+  }) => {
+    const queryParams = new URLSearchParams({ companyId: params.companyId });
+    if (params.projectId) queryParams.append("projectId", params.projectId);
+    if (params.limit) queryParams.append("limit", params.limit.toString());
+    return api.get<RecentRetrievalRunSummary[]>(`/knowledge/retrieval-runs?${queryParams.toString()}`);
   },
   getDocument: (documentId: string) =>
     api.get<KnowledgeDocument>(`/knowledge/documents/${documentId}`),

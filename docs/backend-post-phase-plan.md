@@ -230,6 +230,11 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - reviewer approval can escalate into `qa_pending`
   - QA follow-up wake and timeout handling are active
   - close follow-up only happens after final `approved`
+- Retrieval stabilization:
+  - direct `exactPaths` / `symbolHints` are now graph seeds
+  - organizational memory metadata path boost is stabilized by artifact kind
+  - engineer / reviewer source order prefers `code -> test_report -> review -> ... -> issue`
+  - latest live `CLO-77` retrieval runs show TL / Engineer top hit source moving from `issue` to `review`
 - Retrieval god-file refactor debt is explicitly recorded in
   - [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/retrieval-god-file-refactor-debt.md)
 
@@ -265,8 +270,8 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ### 1. Operator Feedback UI Surface
 
-- 현재 pin / hide는 `Change View`에는 부분적으로 올라와 있다.
-- 다음 단계는 이를 `Knowledge Explore`와 retrieval quality 요약 표면까지 확장하는 것이다.
+- `Change View`에 있던 pin / hide를 `Knowledge Explore > Recent Retrieval Loops`까지 확장했다.
+- 다음 단계는 feedback filters, pinned / hidden provenance, issue-less run handling을 더 보강하는 것이다.
 - 목표:
   - operator correction latency 축소
   - retrieval 교정 루프를 제품 기본 기능으로 승격
@@ -274,8 +279,8 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ### 2. Candidate / Final-Hit Cache
 
-- 현재 실사용 캐시는 query embedding 중심이다.
-- candidate merge cache와 final-hit cache를 추가해 동일 역할/유사 컨텍스트 반복 검색 비용을 줄인다.
+- candidate merge cache와 final-hit cache는 retrieval hot path에 이미 들어갔다.
+- 다음 단계는 invalidation 이유와 hit provenance를 운영 표면에서 더 잘 설명하는 것이다.
 - 목표:
   - retrieval hot path latency 안정화
   - personalization / graph 확장 비용 흡수

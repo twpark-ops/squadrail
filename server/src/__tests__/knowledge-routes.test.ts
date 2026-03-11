@@ -7,6 +7,7 @@ const {
   mockSetupUpdate,
   mockGetRetrievalRunById,
   mockListRetrievalRunHits,
+  mockListRecentRetrievalRuns,
   mockGetKnowledgeOverview,
   mockSummarizeRetrievalQuality,
   mockGetDocumentById,
@@ -19,6 +20,7 @@ const {
   mockSetupUpdate: vi.fn(),
   mockGetRetrievalRunById: vi.fn(),
   mockListRetrievalRunHits: vi.fn(),
+  mockListRecentRetrievalRuns: vi.fn(),
   mockGetKnowledgeOverview: vi.fn(),
   mockSummarizeRetrievalQuality: vi.fn(),
   mockGetDocumentById: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock("../services/index.js", () => ({
     getOverview: mockGetKnowledgeOverview,
     summarizeRetrievalQuality: mockSummarizeRetrievalQuality,
     getRetrievalRunById: mockGetRetrievalRunById,
+    listRecentRetrievalRuns: mockListRecentRetrievalRuns,
     listDocumentChunks: mockListDocumentChunks,
     listDocumentChunksWithLinks: mockListDocumentChunksWithLinks,
     listRetrievalRunHits: mockListRetrievalRunHits,
@@ -276,6 +279,51 @@ async function invokeKnowledgeQualityRoute(input: {
   return state;
 }
 
+async function invokeRecentRetrievalRunsRoute(input: {
+  query: Record<string, string>;
+}) {
+  const router = knowledgeRoutes({} as never) as any;
+  const handlers = findRouteLayer(router, "/knowledge/retrieval-runs", "get");
+  const req = {
+    query: input.query,
+    actor: buildBoardActor(),
+  };
+  const state: { statusCode: number; body: unknown } = {
+    statusCode: 200,
+    body: undefined,
+  };
+  const res = {
+    status(code: number) {
+      state.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      state.body = payload;
+      return this;
+    },
+  };
+
+  for (const handler of handlers) {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const result = handler(req, res, (error?: unknown) => {
+          if (error) reject(error);
+          else resolve();
+        });
+        if (result && typeof result.then === "function") {
+          result.then(() => resolve(), reject);
+          return;
+        }
+        if (handler.length < 3) resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  return state;
+}
+
 async function invokeDocumentChunksRoute(input: {
   params: Record<string, string>;
   query?: Record<string, string>;
@@ -447,6 +495,60 @@ describe("knowledge routes", () => {
       totalRuns: 12,
       lowConfidenceRuns: 3,
     });
+  });
+
+  it("returns recent retrieval runs for a company", async () => {
+    mockListRecentRetrievalRuns.mockResolvedValue([
+      {
+        retrievalRunId: "retrieval-1",
+        issueId: "issue-1",
+        issueIdentifier: "CLO-1",
+        issueTitle: "Stabilize retrieval",
+        actorRole: "reviewer",
+        candidateCacheHit: true,
+        finalCacheHit: false,
+        topHits: [
+          {
+            chunkId: "chunk-1",
+            documentPath: "internal/storage/path.go",
+            sourceType: "review",
+          },
+        ],
+      },
+    ]);
+
+    const response = await invokeRecentRetrievalRunsRoute({
+      query: {
+        companyId: "11111111-1111-4111-8111-111111111111",
+        projectId: "22222222-2222-4222-8222-222222222222",
+        limit: "6",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListRecentRetrievalRuns).toHaveBeenCalledWith({
+      companyId: "11111111-1111-4111-8111-111111111111",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      limit: 6,
+    });
+    expect(response.body).toEqual([
+      {
+        retrievalRunId: "retrieval-1",
+        issueId: "issue-1",
+        issueIdentifier: "CLO-1",
+        issueTitle: "Stabilize retrieval",
+        actorRole: "reviewer",
+        candidateCacheHit: true,
+        finalCacheHit: false,
+        topHits: [
+          {
+            chunkId: "chunk-1",
+            documentPath: "internal/storage/path.go",
+            sourceType: "review",
+          },
+        ],
+      },
+    ]);
   });
 
   it("returns chunk links when includeLinks=true", async () => {

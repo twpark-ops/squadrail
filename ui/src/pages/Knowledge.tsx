@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Download, FolderTree, Network, RefreshCw, Settings2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, FolderTree, Network, Pin, PinOff, RefreshCw, Settings2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { PageTransition } from "@/components/PageTransition";
 import { useCompany } from "@/context/CompanyContext";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
+import { useToast } from "@/context/ToastContext";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { companiesApi } from "@/api/companies";
 import { knowledgeApi, type KnowledgeDocument } from "@/api/knowledge";
+import { issuesApi } from "@/api/issues";
 import { projectsApi } from "@/api/projects";
 import { KnowledgeStats } from "@/components/knowledge/KnowledgeStats";
 import { ProjectDistribution } from "@/components/knowledge/ProjectDistribution";
@@ -16,12 +19,41 @@ import { DocumentDetailModal } from "@/components/knowledge/DocumentDetailModal"
 import { KnowledgeSignalPanel } from "@/components/knowledge/KnowledgeSignalPanel";
 import { KnowledgeMapPanel } from "@/components/knowledge/KnowledgeMapPanel";
 import { KnowledgeSetupPanel } from "@/components/knowledge/KnowledgeSetupPanel";
+import { changeIssuePath } from "@/lib/appRoutes";
 import { queryKeys } from "@/lib/queryKeys";
 import { timeAgo } from "@/lib/timeAgo";
+
+function deriveFeedbackTarget(hit: {
+  documentPath: string | null;
+  symbolName: string | null;
+  sourceType: string;
+}) {
+  if (hit.documentPath) {
+    return {
+      targetType: "path" as const,
+      targetIds: [hit.documentPath],
+      label: hit.documentPath,
+    };
+  }
+  if (hit.symbolName) {
+    return {
+      targetType: "symbol" as const,
+      targetIds: [hit.symbolName],
+      label: hit.symbolName,
+    };
+  }
+  return {
+    targetType: "source_type" as const,
+    targetIds: [hit.sourceType],
+    label: hit.sourceType,
+  };
+}
 
 export function Knowledge() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const { pushToast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"explore" | "setup">("explore");
@@ -70,6 +102,50 @@ export function Knowledge() {
     enabled: Boolean(selectedCompanyId),
   });
 
+  const recentRunsQuery = useQuery({
+    queryKey: ["knowledge", "recent-retrieval-runs", selectedCompanyId, selectedProjectId],
+    queryFn: () => knowledgeApi.listRecentRetrievalRuns({
+      companyId: selectedCompanyId!,
+      projectId: selectedProjectId ?? undefined,
+      limit: 8,
+    }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const retrievalFeedbackMutation = useMutation({
+    mutationFn: (input: {
+      issueId: string;
+      retrievalRunId: string;
+      feedbackType: "operator_pin" | "operator_hide";
+      targetType: "chunk" | "path" | "symbol" | "source_type";
+      targetIds: string[];
+      noteBody?: string | null;
+    }) => issuesApi.recordRetrievalFeedback(input.issueId, {
+      retrievalRunId: input.retrievalRunId,
+      feedbackType: input.feedbackType,
+      targetType: input.targetType,
+      targetIds: input.targetIds,
+      noteBody: input.noteBody ?? null,
+    }),
+    onSuccess: (_, variables) => {
+      void recentRunsQuery.refetch();
+      void qualityQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ["issue", variables.issueId] });
+      pushToast({
+        title: variables.feedbackType === "operator_pin" ? "Retrieval hit pinned" : "Retrieval hit hidden",
+        body: variables.targetIds[0] ?? variables.retrievalRunId,
+        tone: "success",
+      });
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Retrieval feedback failed",
+        body: error instanceof Error ? error.message : "Failed to record retrieval feedback",
+        tone: "error",
+      });
+    },
+  });
+
   const stats = useMemo(() => {
     const overview = overviewQuery.data;
     const timestamps = (overview?.projectCoverage ?? [])
@@ -92,16 +168,38 @@ export function Knowledge() {
     [projectsQuery.data],
   );
 
+  const dailyTrend = useMemo(
+    () => qualityQuery.data?.dailyTrend?.slice(-7) ?? [],
+    [qualityQuery.data?.dailyTrend],
+  );
+  const maxDailyRuns = useMemo(
+    () => dailyTrend.reduce((max, day) => Math.max(max, day.totalRuns), 0),
+    [dailyTrend],
+  );
+
   const handleRefresh = () => {
     void overviewQuery.refetch();
     void documentsQuery.refetch();
     void projectsQuery.refetch();
     void setupQuery.refetch();
     void qualityQuery.refetch();
+    void recentRunsQuery.refetch();
   };
 
-  const isLoading = overviewQuery.isLoading || documentsQuery.isLoading || projectsQuery.isLoading || setupQuery.isLoading || qualityQuery.isLoading;
-  const hasError = overviewQuery.error || documentsQuery.error || projectsQuery.error || setupQuery.error || qualityQuery.error;
+  const isLoading =
+    overviewQuery.isLoading
+    || documentsQuery.isLoading
+    || projectsQuery.isLoading
+    || setupQuery.isLoading
+    || qualityQuery.isLoading
+    || recentRunsQuery.isLoading;
+  const hasError =
+    overviewQuery.error
+    || documentsQuery.error
+    || projectsQuery.error
+    || setupQuery.error
+    || qualityQuery.error
+    || recentRunsQuery.error;
 
   if (!selectedCompanyId) {
     return (
@@ -168,6 +266,7 @@ export function Knowledge() {
                 || (projectsQuery.error instanceof Error ? projectsQuery.error.message : null)
                 || (setupQuery.error instanceof Error ? setupQuery.error.message : null)
                 || (qualityQuery.error instanceof Error ? qualityQuery.error.message : null)
+                || (recentRunsQuery.error instanceof Error ? recentRunsQuery.error.message : null)
                 || "unknown error"}
             </p>
           </div>
@@ -213,7 +312,7 @@ export function Knowledge() {
                     <div className="mb-4">
                       <h2 className="text-lg font-semibold text-foreground">Retrieval posture</h2>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Current retrieval scale and import freshness. These stats support the explorer instead of dominating it.
+                        Current retrieval scale, cache posture, and operator feedback. This is the quickest view into whether the org memory loop is actually steering retrieval.
                       </p>
                     </div>
                     <KnowledgeStats
@@ -252,8 +351,254 @@ export function Knowledge() {
                         </div>
                       </div>
                     )}
+                    {qualityQuery.data && (
+                      <div className="mt-4 grid gap-3 xl:grid-cols-[0.85fr_1.15fr]">
+                        <div className="rounded-[1rem] border border-border bg-background/72 px-4 py-4">
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            Feedback posture
+                          </div>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                            <div>
+                              <div className="text-[11px] text-muted-foreground">Events</div>
+                              <div className="mt-1 text-xl font-semibold text-foreground">
+                                {qualityQuery.data.feedbackEventCount.toLocaleString()}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[11px] text-muted-foreground">Coverage</div>
+                              <div className="mt-1 text-xl font-semibold text-foreground">
+                                {(qualityQuery.data.feedbackCoverageRate * 100).toFixed(0)}%
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[11px] text-muted-foreground">Profiles</div>
+                              <div className="mt-1 text-xl font-semibold text-foreground">
+                                {qualityQuery.data.profileCount.toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {Object.entries(qualityQuery.data.feedbackTypeCounts).length > 0 ? (
+                              Object.entries(qualityQuery.data.feedbackTypeCounts)
+                                .sort((left, right) => right[1] - left[1])
+                                .slice(0, 4)
+                                .map(([type, count]) => (
+                                  <span
+                                    key={type}
+                                    className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground/80"
+                                  >
+                                    {type.replaceAll("_", " ")} · {count}
+                                  </span>
+                                ))
+                            ) : (
+                              <span className="rounded-full border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground">
+                                No operator feedback yet
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="rounded-[1rem] border border-border bg-background/72 px-4 py-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                7-day trend
+                              </div>
+                              <div className="mt-1 text-sm text-muted-foreground">
+                                Runs, cache reuse, and graph expansion over the last week.
+                              </div>
+                            </div>
+                            <span className="rounded-full border border-border bg-card px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              live quality
+                            </span>
+                          </div>
+                          <div className="mt-4 space-y-2">
+                            {dailyTrend.length > 0 ? (
+                              dailyTrend.map((day) => {
+                                const width = maxDailyRuns > 0 ? `${Math.max(10, Math.round((day.totalRuns / maxDailyRuns) * 100))}%` : "10%";
+                                return (
+                                  <div key={day.date} className="grid grid-cols-[84px_minmax(0,1fr)_120px] items-center gap-3">
+                                    <div className="text-xs text-muted-foreground">{day.date.slice(5)}</div>
+                                    <div className="rounded-full bg-border/60">
+                                      <div
+                                        className="h-2 rounded-full bg-primary/80"
+                                        style={{ width }}
+                                      />
+                                    </div>
+                                    <div className="text-right text-[11px] text-muted-foreground">
+                                      {day.totalRuns} runs · {day.graphExpandedRuns} graph · {day.finalCacheHits} final cache
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="rounded-[0.85rem] border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                                Recent trend data will appear as retrieval runs accumulate.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
+              </section>
+            )}
+
+            {!isLoading && (
+              <section className="rounded-[1.6rem] border border-border bg-card p-5 shadow-card">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h2 className="text-2xl font-semibold">Recent Retrieval Loops</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Inspect the latest retrieval-backed briefs, confirm cache reuse, and steer follow-up runs with pin or hide feedback.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span className="rounded-full border border-border bg-background px-3 py-1.5">
+                      {recentRunsQuery.data?.length ?? 0} recent runs
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1.5">
+                      {(((qualityQuery.data?.candidateCacheHitRate ?? 0)) * 100).toFixed(0)}% candidate cache
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1.5">
+                      {(((qualityQuery.data?.finalCacheHitRate ?? 0)) * 100).toFixed(0)}% final cache
+                    </span>
+                  </div>
+                </div>
+
+                {recentRunsQuery.data && recentRunsQuery.data.length > 0 ? (
+                  <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                    {recentRunsQuery.data.map((run) => (
+                      <div key={run.retrievalRunId} className="rounded-[1.25rem] border border-border bg-background/80 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span className="rounded-full border border-border bg-card px-2.5 py-1 font-medium text-foreground">
+                                {run.actorRole}
+                              </span>
+                              <span className="rounded-full border border-border bg-card px-2.5 py-1">
+                                {run.eventType}
+                              </span>
+                              {run.candidateCacheHit && (
+                                <span className="rounded-full border border-emerald-300/70 bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                                  candidate cache
+                                </span>
+                              )}
+                              {run.finalCacheHit && (
+                                <span className="rounded-full border border-blue-300/70 bg-blue-50 px-2.5 py-1 text-blue-700">
+                                  final cache
+                                </span>
+                              )}
+                              {run.multiHopGraphHitCount > 0 && (
+                                <span className="rounded-full border border-violet-300/70 bg-violet-50 px-2.5 py-1 text-violet-700">
+                                  {run.multiHopGraphHitCount} multi-hop
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">
+                                {run.issueIdentifier ?? run.issueTitle ?? run.retrievalRunId.slice(0, 8)}
+                              </div>
+                              <div className="mt-1 text-sm text-muted-foreground">
+                                {run.issueId && (run.issueIdentifier ?? run.issueId) ? (
+                                  <Link to={changeIssuePath(run.issueIdentifier ?? run.issueId)} className="font-medium text-primary hover:underline">
+                                    {run.issueTitle ?? "Open change view"}
+                                  </Link>
+                                ) : (
+                                  run.queryText
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right text-xs text-muted-foreground">
+                            <div>{new Date(run.createdAt).toLocaleString()}</div>
+                            <div className="mt-1">
+                              quality {run.confidenceLevel ?? "unknown"} · {run.graphHitCount} graph
+                              {run.personalizationApplied ? ` · boost ${run.averagePersonalizationBoost.toFixed(2)}` : ""}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-2">
+                          {run.topHits.map((hit) => {
+                            const target = deriveFeedbackTarget(hit);
+                            return (
+                              <div key={`${run.retrievalRunId}:${hit.chunkId}`} className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                  <div className="space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                      <span className="rounded-full border border-border bg-background px-2 py-0.5 font-medium text-foreground">
+                                        {hit.sourceType}
+                                      </span>
+                                      {hit.documentPath && (
+                                        <span className="font-mono text-[11px] text-foreground/80">{hit.documentPath}</span>
+                                      )}
+                                      {typeof hit.finalRank === "number" && (
+                                        <span className="rounded-full border border-border bg-background px-2 py-0.5">
+                                          #{hit.finalRank}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-sm font-medium text-foreground">
+                                      {hit.documentTitle ?? hit.symbolName ?? hit.chunkId.slice(0, 8)}
+                                    </div>
+                                    <div className="line-clamp-2 text-sm text-muted-foreground">
+                                      {hit.rationale ?? hit.textContent}
+                                    </div>
+                                  </div>
+                                  {run.issueId ? (
+                                    <div className="flex shrink-0 gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={retrievalFeedbackMutation.isPending}
+                                        onClick={() => retrievalFeedbackMutation.mutate({
+                                          issueId: run.issueId!,
+                                          retrievalRunId: run.retrievalRunId,
+                                          feedbackType: "operator_pin",
+                                          targetType: target.targetType,
+                                          targetIds: target.targetIds,
+                                          noteBody: `Pinned from knowledge surface: ${target.label}`,
+                                        })}
+                                      >
+                                        <Pin className="mr-2 h-3.5 w-3.5" />
+                                        Pin
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={retrievalFeedbackMutation.isPending}
+                                        onClick={() => retrievalFeedbackMutation.mutate({
+                                          issueId: run.issueId!,
+                                          retrievalRunId: run.retrievalRunId,
+                                          feedbackType: "operator_hide",
+                                          targetType: target.targetType,
+                                          targetIds: target.targetIds,
+                                          noteBody: `Hidden from knowledge surface: ${target.label}`,
+                                        })}
+                                      >
+                                        <PinOff className="mr-2 h-3.5 w-3.5" />
+                                        Hide
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-muted-foreground">Issue-linked feedback unavailable</div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-5 rounded-[1rem] border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    Recent retrieval runs will appear here after the next brief generation.
+                  </div>
+                )}
               </section>
             )}
 
