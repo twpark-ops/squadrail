@@ -6,4 +6,7 @@
 - active execution plans
 - user preference notes
 
-현재 활성 컨텍스트는 `projects/squadall-run-first/summary.md`에 기록한다.
+현재 활성 컨텍스트:
+
+- `projects/squadall-run-first/summary.md`
+- `projects/squadall-ui-review-desk/summary.md`

@@ -15,6 +15,78 @@ import type {
 } from "@squadrail/shared";
 import { api } from "./client";
 
+export type MergeCandidateResolutionInput = {
+  actionType: "mark_merged" | "mark_rejected";
+  noteBody?: string | null;
+  targetBaseBranch?: string | null;
+  mergeCommitSha?: string | null;
+};
+
+export type MergeCandidateAutomationInput = {
+  actionType:
+    | "prepare_merge"
+    | "export_patch"
+    | "export_pr_bundle"
+    | "merge_local"
+    | "cherry_pick_local"
+    | "push_branch";
+  targetBaseBranch?: string | null;
+  integrationBranchName?: string | null;
+  remoteName?: string | null;
+  branchName?: string | null;
+  pushAfterAction?: boolean;
+};
+
+export type MergeAutomationPlan = {
+  issueId: string;
+  identifier: string | null;
+  title: string;
+  candidateState: "pending" | "merged" | "rejected";
+  projectId: string | null;
+  projectName: string | null;
+  sourceBranch: string | null;
+  sourceHeadSha: string | null;
+  sourceWorkspacePath: string | null;
+  sourceHeadCurrent: string | null;
+  sourceHasLocalChanges: boolean;
+  sourceComparisonRef: string | null;
+  baseWorkspaceId: string | null;
+  baseWorkspaceName: string | null;
+  baseWorkspacePath: string | null;
+  targetBaseBranch: string | null;
+  targetStartRef: string | null;
+  integrationBranchName: string | null;
+  automationWorktreePath: string | null;
+  remoteName: string | null;
+  remoteUrl: string | null;
+  checks: Record<string, boolean>;
+  warnings: string[];
+  canAutomate: boolean;
+  automationMetadata: Record<string, unknown> | null;
+};
+
+export type MergeAutomationActionResult = {
+  actionType: MergeCandidateAutomationInput["actionType"];
+  ok: boolean;
+  plan: MergeAutomationPlan;
+  patchPath?: string | null;
+  prBundlePath?: string | null;
+  prPayloadPath?: string | null;
+  targetBranch?: string | null;
+  remoteName?: string | null;
+  remoteUrl?: string | null;
+  pushed?: boolean;
+  pushedBranch?: string | null;
+  automationWorktreePath?: string | null;
+  mergeCommitSha?: string | null;
+  cherryPickedCommitShas?: string[];
+};
+
+export type MergeCandidateAutomationResponse = {
+  result: MergeAutomationActionResult;
+  mergeCandidate: IssueMergeCandidate | null;
+};
+
 export const issuesApi = {
   list: (
     companyId: string,
@@ -73,6 +145,10 @@ export const issuesApi = {
     retrievalRunIds: string[];
   }>(`/issues/${id}/retrieval-feedback`, data),
   getMergeCandidate: (id: string) => api.get<IssueMergeCandidate>(`/issues/${id}/merge-candidate`),
+  resolveMergeCandidate: (id: string, data: MergeCandidateResolutionInput) =>
+    api.post<IssueMergeCandidate>(`/issues/${id}/merge-candidate/actions`, data),
+  runMergeCandidateAutomation: (id: string, data: MergeCandidateAutomationInput) =>
+    api.post<MergeCandidateAutomationResponse>(`/issues/${id}/merge-candidate/automation`, data),
   create: (companyId: string, data: Record<string, unknown>) =>
     api.post<Issue>(`/companies/${companyId}/issues`, data),
   update: (id: string, data: Record<string, unknown>) => api.patch<Issue>(`/issues/${id}`, data),

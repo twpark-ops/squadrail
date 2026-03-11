@@ -191,6 +191,18 @@ export function KnowledgeSetupPanel({
     : latestJob?.startedAt
     ? timeAgo(new Date(latestJob.startedAt))
     : null;
+  const activeJob =
+    [view.latestJob, ...view.recentJobs].find(
+      (job) => job && (job.status === "running" || job.status === "queued")
+    ) ?? null;
+  const retryFailedProjectIds = Array.from(
+    new Set(
+      (latestJob?.projectRuns ?? [])
+        .filter((run) => run.status === "failed")
+        .map((run) => run.projectId)
+        .filter((projectId): projectId is string => Boolean(projectId))
+    )
+  );
 
   const allSelected =
     selectedProjectIds.length > 0 &&
@@ -249,6 +261,32 @@ export function KnowledgeSetupPanel({
                 />
                 Refresh
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  syncMutation.mutate(
+                    view.projects.map((project) => project.projectId)
+                  )
+                }
+                disabled={syncMutation.isPending || repairMutation.isPending}
+                className="rounded-full"
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Sync all
+              </Button>
+              {retryFailedProjectIds.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => syncMutation.mutate(retryFailedProjectIds)}
+                  disabled={syncMutation.isPending || repairMutation.isPending}
+                  className="rounded-full"
+                >
+                  <AlertTriangle className="mr-2 h-4 w-4" />
+                  Retry failed
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={() => syncMutation.mutate(selectedProjectIds)}
@@ -423,6 +461,93 @@ export function KnowledgeSetupPanel({
         </div>
       </section>
 
+      {activeJob && (
+        <section className="rounded-[1.5rem] border border-border bg-card p-5 shadow-card">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Active job
+              </div>
+              <h3 className="mt-2 text-xl font-semibold text-foreground">
+                Knowledge sync in flight
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Inspect the live job before re-running the whole setup flow.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant="outline"
+                className={toneClasses(statusTone(activeJob.status))}
+              >
+                {titleCase(activeJob.status)}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                {activeJob.selectedProjectIds.length} selected
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-[1rem] border border-border bg-background/70 px-4 py-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Started
+              </div>
+              <div className="mt-2 text-sm font-medium text-foreground">
+                {activeJob.startedAt
+                  ? timeAgo(new Date(activeJob.startedAt))
+                  : "Queued"}
+              </div>
+            </div>
+            <div className="rounded-[1rem] border border-border bg-background/70 px-4 py-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Project runs
+              </div>
+              <div className="mt-2 text-sm font-medium text-foreground">
+                {activeJob.projectRuns.length} tracked
+              </div>
+            </div>
+            <div className="rounded-[1rem] border border-border bg-background/70 px-4 py-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Failed
+              </div>
+              <div className="mt-2 text-sm font-medium text-foreground">
+                {
+                  activeJob.projectRuns.filter((run) => run.status === "failed")
+                    .length
+                }{" "}
+                failed
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {activeJob.projectRuns.slice(0, 8).map((run) => (
+              <div
+                key={run.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-[0.95rem] border border-border bg-background/70 px-3 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground">
+                    {view.projects.find((project) => project.projectId === run.projectId)
+                      ?.projectName ?? run.projectId}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Updated {timeAgo(new Date(run.updatedAt))}
+                  </div>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={toneClasses(statusTone(run.status))}
+                >
+                  {titleCase(run.status)}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-[1.5rem] border border-border bg-card p-5 shadow-card">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -590,6 +715,17 @@ export function KnowledgeSetupPanel({
             >
               Select all projects
             </Button>
+            {retryFailedProjectIds.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={syncMutation.isPending}
+                onClick={() => syncMutation.mutate(retryFailedProjectIds)}
+                className="rounded-full"
+              >
+                Retry failed
+              </Button>
+            )}
             <Button
               size="sm"
               disabled={selectedProjects.length === 0 || syncMutation.isPending}

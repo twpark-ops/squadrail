@@ -52,6 +52,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BriefPanelV2 } from "../components/BriefPanelV2";
+import { ChangeReviewDesk } from "../components/ChangeReviewDesk";
 import { StatusBadgeV2 } from "../components/StatusBadgeV2";
 import {
   Activity as ActivityIcon,
@@ -1458,342 +1459,355 @@ export function IssueDetail() {
       )}
 
       {issueSection === "Changes" && (
-        <section className="space-y-4 rounded-[1.8rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                <GitCommitHorizontal className="h-3.5 w-3.5" />
-                Change Review Surface
-              </div>
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight">
-                  Change Evidence
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Branch, diff, verification signals, and merge handoff captured
-                  from the delivery loop.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {latestCloseSnapshot?.mergeStatus && (
-                <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground">
-                  Merge {formatProtocolValue(latestCloseSnapshot.mergeStatus)}
-                </span>
-              )}
-              {latestWorkspaceSnapshot?.workspaceStatus && (
-                <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {latestWorkspaceSnapshot.workspaceStatus.replace(/_/g, " ")}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                <GitBranch className="h-3.5 w-3.5" />
-                Branch
-              </div>
-              <div className="mt-3 text-sm font-semibold text-foreground">
-                {latestWorkspaceSnapshot?.branchName ??
-                  "No implementation branch yet"}
-              </div>
-              {latestWorkspaceSnapshot?.headSha && (
-                <div className="mt-1 font-['IBM_Plex_Mono'] text-xs text-muted-foreground">
-                  {latestWorkspaceSnapshot.headSha.slice(0, 12)}
+        <div className="space-y-4">
+          <section className="space-y-4 rounded-[1.8rem] border border-border bg-card px-5 py-5 shadow-card">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                  <GitCommitHorizontal className="h-3.5 w-3.5" />
+                  Change Review Surface
                 </div>
-              )}
-            </div>
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                <GitCommitHorizontal className="h-3.5 w-3.5" />
-                Diff Coverage
-              </div>
-              <div className="mt-3 text-2xl font-semibold text-foreground">
-                {latestWorkspaceSnapshot?.changedFiles.length ??
-                  latestReviewHandoff?.changedFiles.length ??
-                  0}
-              </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                {latestWorkspaceSnapshot?.diffStat ??
-                  "Changed files captured from review handoff."}
-              </div>
-            </div>
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                <TestTube2 className="h-3.5 w-3.5" />
-                Verification
-              </div>
-              <div className="mt-3 text-2xl font-semibold text-foreground">
-                {latestReviewArtifacts.verificationArtifacts.length}
-              </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                Corroborated test/build artifacts attached to the latest review
-                submission.
-              </div>
-            </div>
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                <CheckCheck className="h-3.5 w-3.5" />
-                Approval
-              </div>
-              <div className="mt-3 text-sm font-semibold text-foreground">
-                {latestApprovalSnapshot?.approvalSummary ??
-                  "No approval summary yet"}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Changed Files
-              </div>
-              {(latestWorkspaceSnapshot?.changedFiles.length ?? 0) > 0 ||
-              (latestReviewHandoff?.changedFiles.length ?? 0) > 0 ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(latestWorkspaceSnapshot?.changedFiles.length
-                    ? latestWorkspaceSnapshot.changedFiles
-                    : latestReviewHandoff?.changedFiles ?? []
-                  )
-                    .slice(0, 10)
-                    .map((file) => (
-                      <span
-                        key={file}
-                        className="rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground"
-                      >
-                        {file}
-                      </span>
-                    ))}
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight">
+                    Change Evidence
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Branch, diff, verification signals, and merge handoff captured
+                    from the delivery loop.
+                  </p>
                 </div>
-              ) : (
-                <p className="mt-3 text-sm text-muted-foreground">
-                  No changed file manifest has been attached yet.
-                </p>
-              )}
-            </div>
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Merge Handoff
               </div>
-              <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                {latestCloseSnapshot?.closureSummary && (
-                  <p className="text-foreground">
-                    {latestCloseSnapshot.closureSummary}
+              <div className="flex flex-wrap gap-2">
+                {latestCloseSnapshot?.mergeStatus && (
+                  <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground">
+                    Merge {formatProtocolValue(latestCloseSnapshot.mergeStatus)}
+                  </span>
+                )}
+                {latestWorkspaceSnapshot?.workspaceStatus && (
+                  <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                    {latestWorkspaceSnapshot.workspaceStatus.replace(/_/g, " ")}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  <GitBranch className="h-3.5 w-3.5" />
+                  Branch
+                </div>
+                <div className="mt-3 text-sm font-semibold text-foreground">
+                  {latestWorkspaceSnapshot?.branchName ??
+                    "No implementation branch yet"}
+                </div>
+                {latestWorkspaceSnapshot?.headSha && (
+                  <div className="mt-1 font-['IBM_Plex_Mono'] text-xs text-muted-foreground">
+                    {latestWorkspaceSnapshot.headSha.slice(0, 12)}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  <GitCommitHorizontal className="h-3.5 w-3.5" />
+                  Diff Coverage
+                </div>
+                <div className="mt-3 text-2xl font-semibold text-foreground">
+                  {latestWorkspaceSnapshot?.changedFiles.length ??
+                    latestReviewHandoff?.changedFiles.length ??
+                    0}
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {latestWorkspaceSnapshot?.diffStat ??
+                    "Changed files captured from review handoff."}
+                </div>
+              </div>
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  <TestTube2 className="h-3.5 w-3.5" />
+                  Verification
+                </div>
+                <div className="mt-3 text-2xl font-semibold text-foreground">
+                  {latestReviewArtifacts.verificationArtifacts.length}
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Corroborated test/build artifacts attached to the latest review
+                  submission.
+                </div>
+              </div>
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  Approval
+                </div>
+                <div className="mt-3 text-sm font-semibold text-foreground">
+                  {latestApprovalSnapshot?.approvalSummary ??
+                    "No approval summary yet"}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  Changed Files
+                </div>
+                {(latestWorkspaceSnapshot?.changedFiles.length ?? 0) > 0 ||
+                (latestReviewHandoff?.changedFiles.length ?? 0) > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(latestWorkspaceSnapshot?.changedFiles.length
+                      ? latestWorkspaceSnapshot.changedFiles
+                      : latestReviewHandoff?.changedFiles ?? []
+                    )
+                      .slice(0, 10)
+                      .map((file) => (
+                        <span
+                          key={file}
+                          className="rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground"
+                        >
+                          {file}
+                        </span>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    No changed file manifest has been attached yet.
                   </p>
                 )}
-                {latestCloseSnapshot?.verificationSummary && (
-                  <p>Verification: {latestCloseSnapshot.verificationSummary}</p>
-                )}
-                {latestCloseSnapshot?.rollbackPlan && (
-                  <p>Rollback: {latestCloseSnapshot.rollbackPlan}</p>
-                )}
-                {!latestCloseSnapshot && (
-                  <p>No close handoff has been recorded yet.</p>
-                )}
+              </div>
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  Merge Handoff
+                </div>
+                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                  {latestCloseSnapshot?.closureSummary && (
+                    <p className="text-foreground">
+                      {latestCloseSnapshot.closureSummary}
+                    </p>
+                  )}
+                  {latestCloseSnapshot?.verificationSummary && (
+                    <p>Verification: {latestCloseSnapshot.verificationSummary}</p>
+                  )}
+                  {latestCloseSnapshot?.rollbackPlan && (
+                    <p>Rollback: {latestCloseSnapshot.rollbackPlan}</p>
+                  )}
+                  {!latestCloseSnapshot && (
+                    <p>No close handoff has been recorded yet.</p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    Retrieval Feedback
+            <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                      Retrieval Feedback
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Pin or hide evidence directly from the change surface to
+                      steer follow-up briefs.
+                    </div>
                   </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    Pin or hide evidence directly from the change surface to
-                    steer follow-up briefs.
-                  </div>
+                  {retrievalFeedbackSummary && (
+                    <div className="text-right text-xs text-muted-foreground">
+                      <div>{retrievalFeedbackSummary.positiveCount} positive</div>
+                      <div>{retrievalFeedbackSummary.negativeCount} negative</div>
+                    </div>
+                  )}
                 </div>
-                {retrievalFeedbackSummary && (
-                  <div className="text-right text-xs text-muted-foreground">
-                    <div>{retrievalFeedbackSummary.positiveCount} positive</div>
-                    <div>{retrievalFeedbackSummary.negativeCount} negative</div>
-                  </div>
-                )}
-              </div>
-              {latestRetrievalRuns.length === 0 ? (
-                <p className="mt-4 text-sm text-muted-foreground">
-                  No retrieval-backed brief has been attached yet.
-                </p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  {latestRetrievalRuns.map((run) => {
-                    const runDetail = retrievalRunById.get(run.retrievalRunId);
-                    const hits = (runDetail?.hits ?? []).slice(0, 5);
-                    return (
-                      <div
-                        key={run.retrievalRunId}
-                        className="rounded-[1rem] border border-border bg-card px-3 py-3"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium text-foreground">
-                              {formatProtocolValue(run.briefScope)}
-                            </span>
-                            <span className="font-mono">
-                              {run.retrievalRunId.slice(0, 8)}
-                            </span>
-                            {run.candidateCacheHit && (
-                              <span className="rounded-full border border-emerald-300/70 bg-emerald-50 px-2.5 py-1 text-emerald-700">
-                                candidate cache
+                {latestRetrievalRuns.length === 0 ? (
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    No retrieval-backed brief has been attached yet.
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-4">
+                    {latestRetrievalRuns.map((run) => {
+                      const runDetail = retrievalRunById.get(run.retrievalRunId);
+                      const hits = (runDetail?.hits ?? []).slice(0, 5);
+                      return (
+                        <div
+                          key={run.retrievalRunId}
+                          className="rounded-[1rem] border border-border bg-card px-3 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium text-foreground">
+                                {formatProtocolValue(run.briefScope)}
                               </span>
-                            )}
-                            {run.finalCacheHit && (
-                              <span className="rounded-full border border-blue-300/70 bg-blue-50 px-2.5 py-1 text-blue-700">
-                                final cache
+                              <span className="font-mono">
+                                {run.retrievalRunId.slice(0, 8)}
                               </span>
-                            )}
-                            {run.multiHopGraphHitCount > 0 && (
-                              <span className="rounded-full border border-violet-300/70 bg-violet-50 px-2.5 py-1 text-violet-700">
-                                {run.multiHopGraphHitCount} multi-hop
-                              </span>
-                            )}
+                              {run.candidateCacheHit && (
+                                <span className="rounded-full border border-emerald-300/70 bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                                  candidate cache
+                                </span>
+                              )}
+                              {run.finalCacheHit && (
+                                <span className="rounded-full border border-blue-300/70 bg-blue-50 px-2.5 py-1 text-blue-700">
+                                  final cache
+                                </span>
+                              )}
+                              {run.multiHopGraphHitCount > 0 && (
+                                <span className="rounded-full border border-violet-300/70 bg-violet-50 px-2.5 py-1 text-violet-700">
+                                  {run.multiHopGraphHitCount} multi-hop
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {run.graphHitCount} graph hits
+                              {run.personalized ? " · personalized" : ""}
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {run.graphHitCount} graph hits
-                            {run.personalized ? " · personalized" : ""}
-                          </div>
-                        </div>
-                        {hits.length === 0 ? (
-                          <p className="mt-3 text-sm text-muted-foreground">
-                            Retrieval hits are loading or unavailable.
-                          </p>
-                        ) : (
-                          <div className="mt-3 space-y-2">
-                            {hits.map((hit) => {
-                              const target = deriveFeedbackTarget({
-                                path: hit.documentPath,
-                                symbolName: hit.symbolName,
-                                sourceType: hit.sourceType,
-                                chunkId: hit.chunkId,
-                              });
-                              return (
-                                <div
-                                  key={`${run.retrievalRunId}:${hit.chunkId}`}
-                                  className="rounded-[0.95rem] border border-border/80 bg-background px-3 py-3"
-                                >
-                                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                    <div className="space-y-1">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-foreground">
-                                          {hit.sourceType}
-                                        </span>
-                                        {hit.documentPath && (
-                                          <span className="font-mono text-xs text-foreground/80">
-                                            {hit.documentPath}
+                          {hits.length === 0 ? (
+                            <p className="mt-3 text-sm text-muted-foreground">
+                              Retrieval hits are loading or unavailable.
+                            </p>
+                          ) : (
+                            <div className="mt-3 space-y-2">
+                              {hits.map((hit) => {
+                                const target = deriveFeedbackTarget({
+                                  path: hit.documentPath,
+                                  symbolName: hit.symbolName,
+                                  sourceType: hit.sourceType,
+                                  chunkId: hit.chunkId,
+                                });
+                                return (
+                                  <div
+                                    key={`${run.retrievalRunId}:${hit.chunkId}`}
+                                    className="rounded-[0.95rem] border border-border/80 bg-background px-3 py-3"
+                                  >
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                      <div className="space-y-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-foreground">
+                                            {hit.sourceType}
                                           </span>
-                                        )}
+                                          {hit.documentPath && (
+                                            <span className="font-mono text-xs text-foreground/80">
+                                              {hit.documentPath}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-sm font-medium text-foreground">
+                                          {hit.documentTitle ??
+                                            hit.symbolName ??
+                                            hit.chunkId.slice(0, 8)}
+                                        </div>
+                                        <div className="line-clamp-2 text-sm text-muted-foreground">
+                                          {hit.rationale ?? hit.textContent}
+                                        </div>
                                       </div>
-                                      <div className="text-sm font-medium text-foreground">
-                                        {hit.documentTitle ??
-                                          hit.symbolName ??
-                                          hit.chunkId.slice(0, 8)}
+                                      <div className="flex shrink-0 gap-2">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          disabled={
+                                            recordRetrievalFeedback.isPending
+                                          }
+                                          onClick={() =>
+                                            recordRetrievalFeedback.mutate({
+                                              retrievalRunId: run.retrievalRunId,
+                                              feedbackType: "operator_pin",
+                                              targetType: target.targetType,
+                                              targetIds: target.targetIds,
+                                              noteBody: `Pinned from change surface: ${target.label}`,
+                                            })
+                                          }
+                                        >
+                                          <Pin className="mr-2 h-3.5 w-3.5" />
+                                          Pin
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          disabled={
+                                            recordRetrievalFeedback.isPending
+                                          }
+                                          onClick={() =>
+                                            recordRetrievalFeedback.mutate({
+                                              retrievalRunId: run.retrievalRunId,
+                                              feedbackType: "operator_hide",
+                                              targetType: target.targetType,
+                                              targetIds: target.targetIds,
+                                              noteBody: `Hidden from change surface: ${target.label}`,
+                                            })
+                                          }
+                                        >
+                                          <PinOff className="mr-2 h-3.5 w-3.5" />
+                                          Hide
+                                        </Button>
                                       </div>
-                                      <div className="line-clamp-2 text-sm text-muted-foreground">
-                                        {hit.rationale ?? hit.textContent}
-                                      </div>
-                                    </div>
-                                    <div className="flex shrink-0 gap-2">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={
-                                          recordRetrievalFeedback.isPending
-                                        }
-                                        onClick={() =>
-                                          recordRetrievalFeedback.mutate({
-                                            retrievalRunId: run.retrievalRunId,
-                                            feedbackType: "operator_pin",
-                                            targetType: target.targetType,
-                                            targetIds: target.targetIds,
-                                            noteBody: `Pinned from change surface: ${target.label}`,
-                                          })
-                                        }
-                                      >
-                                        <Pin className="mr-2 h-3.5 w-3.5" />
-                                        Pin
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={
-                                          recordRetrievalFeedback.isPending
-                                        }
-                                        onClick={() =>
-                                          recordRetrievalFeedback.mutate({
-                                            retrievalRunId: run.retrievalRunId,
-                                            feedbackType: "operator_hide",
-                                            targetType: target.targetType,
-                                            targetIds: target.targetIds,
-                                            noteBody: `Hidden from change surface: ${target.label}`,
-                                          })
-                                        }
-                                      >
-                                        <PinOff className="mr-2 h-3.5 w-3.5" />
-                                        Hide
-                                      </Button>
                                     </div>
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Retrieval Summary
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">
-                    Pinned paths
-                  </div>
-                  <div className="mt-1 text-2xl font-semibold text-foreground">
-                    {retrievalFeedbackSummary?.pinnedPathCount ?? 0}
-                  </div>
+              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  Retrieval Summary
                 </div>
-                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">
-                    Hidden paths
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      Pinned paths
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-foreground">
+                      {retrievalFeedbackSummary?.pinnedPathCount ?? 0}
+                    </div>
                   </div>
-                  <div className="mt-1 text-2xl font-semibold text-foreground">
-                    {retrievalFeedbackSummary?.hiddenPathCount ?? 0}
+                  <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      Hidden paths
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-foreground">
+                      {retrievalFeedbackSummary?.hiddenPathCount ?? 0}
+                    </div>
                   </div>
-                </div>
-                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">
-                    Latest retrieval runs
+                  <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      Latest retrieval runs
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-foreground">
+                      {latestRetrievalRuns.length}
+                    </div>
                   </div>
-                  <div className="mt-1 text-2xl font-semibold text-foreground">
-                    {latestRetrievalRuns.length}
-                  </div>
-                </div>
-                <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">
-                    Last feedback
-                  </div>
-                  <div className="mt-1 text-sm font-medium text-foreground">
-                    {retrievalFeedbackSummary?.lastFeedbackAt
-                      ? relativeTime(retrievalFeedbackSummary.lastFeedbackAt)
-                      : "No feedback yet"}
+                  <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      Last feedback
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-foreground">
+                      {retrievalFeedbackSummary?.lastFeedbackAt
+                        ? relativeTime(retrievalFeedbackSummary.lastFeedbackAt)
+                        : "No feedback yet"}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+
+          <ChangeReviewDesk
+            companyId={selectedCompanyId}
+            issueId={issueId!}
+            issueRef={issue.identifier ?? issue.id.slice(0, 8)}
+            issueTitle={issue.title}
+            reviewHref={`${appRoutes.changes}/${issue.identifier ?? issue.id}`}
+            workHref={`${appRoutes.work}/${issue.identifier ?? issue.id}`}
+            surface={changeSurface}
+            onRefresh={invalidateIssue}
+          />
+        </div>
       )}
 
       <div className="space-y-3">
