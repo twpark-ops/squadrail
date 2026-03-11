@@ -720,6 +720,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
         {
           recipientId: "eng-1",
           recipientRole: "engineer",
+          executionLane: "fast",
           briefId: "brief-1",
           briefScope: "engineer",
           retrievalRunId: "retrieval-1",
@@ -769,10 +770,12 @@ describe("buildProtocolExecutionDispatchPlan", () => {
         latestBriefId: "brief-1",
         latestBriefScope: "engineer",
         retrievalRunId: "retrieval-1",
+        executionLane: "fast",
         taskBrief: {
           id: "brief-1",
           scope: "engineer",
           retrievalRunId: "retrieval-1",
+          executionLane: "fast",
           contentMarkdown: "# engineer brief\n\nUse retry policy ADR.",
           evidence: [
             {
@@ -789,10 +792,12 @@ describe("buildProtocolExecutionDispatchPlan", () => {
         latestBriefId: "brief-1",
         latestBriefScope: "engineer",
         retrievalRunId: "retrieval-1",
+        executionLane: "fast",
         taskBrief: {
           id: "brief-1",
           scope: "engineer",
           retrievalRunId: "retrieval-1",
+          executionLane: "fast",
           contentMarkdown: "# engineer brief\n\nUse retry policy ADR.",
           evidence: [
             {

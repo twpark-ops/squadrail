@@ -277,17 +277,27 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - knowledge sync / org repair 후 cache invalidate
 - repo 루트에 `.github/workflows/pr-verify.yml`, `.github/workflows/release.yml`를 추가해 기본 verify/release train을 열었다.
 
+추가 진행:
+
+- `issue-retrieval.ts` refactor slice 2 완료
+  - scoring / rationale helper를 `server/src/services/retrieval/scoring.ts`로 분리
+- `rerank provider abstraction` 1차 완료
+  - provider config / transport를 `server/src/services/knowledge-rerank/` 하위 모듈로 분리
+- `execution lane classifier + fast lane optimization + lane-aware multi-hop` 완료
+  - `server/src/services/execution-lanes.ts` 추가
+  - retrieval은 `fast / normal / deep` lane을 분류해 dense/sparse/rerank/finalK, model candidate count, graph hop depth, brief evidence 개수를 lane-aware하게 조정
+  - protocol wake payload / contextSnapshot / taskBrief에도 `executionLane`을 포함
+  - retrieval cache identity / stage key에도 lane을 포함해 fast/deep replay가 서로 오염되지 않게 함
+  - organizational memory metadata path boost는 artifact kind 기준으로 안정화됨
+  - engineer / reviewer source order는 `code -> test_report -> review -> ... -> issue`를 더 강하게 따름
+  - latest live retrieval run 기준 `codeHitCount`와 `exactPathSatisfied`가 실제로 다시 올라왔고 `multiHopGraphHitCount=8`까지 확인됨
+
 다음 순서:
 
-1. `issue-retrieval.ts` refactor slice 2
-   - scoring / cache codec / rationale helper 분리
-2. knowledge setup cache 확장
-   - background refresh signal / invalidation reason / metrics
-3. release workflow hardening
-   - publish guard / branch policy / preflight 분리
-  - organizational memory metadata path boost is stabilized by artifact kind
-  - engineer / reviewer source order prefers `code -> test_report -> review -> ... -> issue`
-  - latest live `CLO-77` retrieval runs show TL / Engineer top hit source moving from `issue` to `review`
+1. ranking/cache/trend consolidation
+2. cross-issue memory reuse
+3. rerank provider abstraction 2차
+4. execution lane / fast lane 실운영 계측 보강
 - Retrieval god-file refactor debt is explicitly recorded in
   - [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/retrieval-god-file-refactor-debt.md)
 
@@ -319,93 +329,28 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ## 다음 우선순위 큐
 
-현재 backend 커널은 닫혔다. 다음 우선순위는 품질 안정화와 제품 표면 연결이다.
+현재 backend 커널은 닫혔다. 다음 우선순위는 retrieval/운영 품질의 안정화와 조직 기억 재사용 강화다.
 
-### 1. Operator Feedback UI Surface
+### 1. Ranking / Cache / Trend Consolidation
 
-- `Change View`에 있던 pin / hide를 `Knowledge Explore > Recent Retrieval Loops`까지 확장했다.
-- 다음 단계는 feedback filters, pinned / hidden provenance, issue-less run handling을 더 보강하는 것이다.
-- 목표:
-  - operator correction latency 축소
-  - retrieval 교정 루프를 제품 기본 기능으로 승격
-  - change-only surface를 knowledge-wide surface로 확장
+- lane-aware retrieval, cache provenance, graph hit 지표는 이미 들어갔다.
+- 다음 단계는 이 지표를 project / role / sourceType별 추세로 정리하고 cache invalidation reason과 final-hit provenance를 운영 기준으로 안정화하는 것이다.
 
-### 2. Candidate / Final-Hit Cache
-
-- candidate merge cache와 final-hit cache는 retrieval hot path에 이미 들어갔다.
-- invalidation 이유와 hit provenance를 운영 표면까지 노출했다.
-- 현재 남은 단계는 cache hit/miss가 실조직 readiness gate와 multi-hop 품질 기준을 안정적으로 통과하는지 확인하는 것이다.
-- 목표:
-  - retrieval hot path latency 안정화
-  - personalization / graph 확장 비용 흡수
-
-### 3. Deeper Chunk-Link Multi-Hop
-
-- 현재 graph expansion은 의미가 생겼고, `issue context + changed path` seed도 추가됐다.
-- 남은 핵심은 recent live run에서 `multiHopGraphHitCount > 0`가 안정적으로 재현되게 하는 것이다.
-- 목표:
-  - cross-issue / cross-project 연결 근거 확장
-  - graphHitCount의 실질적 상승
-
-### 4. Retrieval Ranking Stabilization
-
-- latest readiness 관찰 기준으로 engineer brief와 reviewer brief가 여전히 historical issue snapshot에 과하게 끌리는 경우가 있다.
-- sourceType balancing, role-aware source ordering, code evidence promotion 규칙을 추가로 정교화한다.
-- 목표:
-  - `issue snapshot` 과잉 의존 감소
-  - `code / test / review` evidence 우선순위 안정화
-
-### 5. Retrieval God-File Refactor
-
-- [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/retrieval-god-file-refactor-debt.md) 기준으로 `issue-retrieval.ts`를 분리한다.
-- 1차로 pure helper를 `retrieval-cache.ts`, `retrieval-evidence-guards.ts`로 분리했다.
-- 다음 단계는 query/graph/scoring orchestration을 더 쪼개는 slice 2 이상이다.
-- 목표:
-  - 유지보수성 회복
-  - multi-hop / cache / ranking 개선을 독립적으로 실험 가능하게 만들기
-
-### 6. Rerank Provider Abstraction
-
-- 현재 model rerank는 OpenAI 단일 provider 중심이다.
-- provider abstraction을 추가해 Jina / Cohere 등 대체 provider를 붙일 수 있게 한다.
-- 목표:
-  - rerank 품질/비용 선택권 확보
-  - provider 장애 시 graceful fallback 강화
-
-### 7. RAG Quality Trend Surface
-
-- quality metric은 backend에 있지만, sourceType / role / project별 추세를 운영자가 읽기 쉽게 정리할 표면이 부족하다.
-- 목표:
-  - retrieval 품질의 장기 변화 감시
-  - organizational memory coverage 가시화
-
-### 8. Cross-Issue Memory Reuse
+### 2. Cross-Issue Memory Reuse
 
 - 현재는 issue / protocol / review가 ingest되고 personalization에 쓰인다.
 - 다음 단계는 새 issue가 과거 issue의 decision / fix / review 패턴을 직접 재사용하도록 만드는 것이다.
-- 목표:
-  - 비슷한 이슈의 해결 패턴 재사용
-  - 조직 기억의 실질적 생산성 효과 확보
+
+### 3. Rerank Provider Abstraction 2차
+
+- provider abstraction 1차는 끝났고, 다음은 복수 provider 전략과 graceful fallback 정책을 실제 설정 단위로 여는 것이다.
+
+### 4. Execution Lane / Fast Lane 실운영 계측
+
+- fast / normal / deep 분류는 완료됐다.
+- 다음 단계는 lane별 처리시간, cache hit, review reopen, QA bounce를 수집해 fast lane이 실제로 이득을 주는지 확인하는 것이다.
 
 다음 실행 큐는 [p1-next-10-step-execution-plan.md](/home/taewoong/company-project/squadall/docs/p1-next-10-step-execution-plan.md)에 고정한다.
-
-요약 우선순위:
-
-완료:
-
-1. operator feedback surface expansion
-2. feedback filters + issue-less run handling
-3. candidate cache provenance surface
-
-다음:
-
-4. final-hit cache provenance surface
-5. cache invalidation normalization
-6. deeper chunk-link multi-hop
-7. retrieval ranking stabilization phase 2
-8. retrieval god-file refactor slice 1
-9. rerank provider abstraction
-10. retrieval trend + real-org E2E gate
 
 상세 우선순위와 단계별 계획은 [organizational-memory-rag-plan.md](/home/taewoong/company-project/squadall/docs/organizational-memory-rag-plan.md), 전체 조직 풀루프 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/autonomous-org-full-loop-plan.md) 참조.
 

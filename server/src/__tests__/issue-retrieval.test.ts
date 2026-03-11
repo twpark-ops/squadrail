@@ -196,6 +196,90 @@ describe("issue retrieval helpers", () => {
     expect(query).toContain("idempotency");
   });
 
+  it("limits rendered brief evidence items with lane-aware cap", () => {
+    const markdown = renderRetrievedBriefMarkdown({
+      briefScope: "engineer",
+      issue: {
+        identifier: "SW-120",
+        title: "Keep evidence focused",
+      },
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "Keep evidence focused",
+        payload: {
+          goal: "Only the strongest evidence should surface in fast lane",
+          acceptanceCriteria: ["focused brief"],
+          definitionOfDone: ["brief is concise"],
+          priority: "high",
+          assigneeAgentId: "00000000-0000-0000-0000-000000000001",
+          reviewerAgentId: "00000000-0000-0000-0000-000000000002",
+        },
+        artifacts: [],
+      },
+      queryText: "Focus on the strongest evidence only",
+      maxEvidenceItems: 1,
+      hits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "retry.ts",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "primary evidence",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.9,
+          sparseScore: 0.2,
+          rerankScore: 1.2,
+          fusedScore: 2.3,
+          updatedAt: new Date("2026-03-01T00:00:00Z"),
+        },
+        {
+          chunkId: "chunk-2",
+          documentId: "doc-2",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-1/review.md",
+          title: "review.md",
+          headingPath: null,
+          symbolName: null,
+          textContent: "secondary evidence",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.7,
+          sparseScore: 0.4,
+          rerankScore: 1.1,
+          fusedScore: 2.1,
+          updatedAt: new Date("2026-03-01T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(markdown).toContain("1. [code/working] retry.ts");
+    expect(markdown).not.toContain("2. [review/canonical] review.md");
+  });
+
   it("builds graph expansion seeds from top hits and chunk links", () => {
     const seeds = buildGraphExpansionSeeds({
       hits: [

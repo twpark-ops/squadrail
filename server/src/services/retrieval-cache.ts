@@ -80,6 +80,7 @@ export function buildRetrievalStageCacheKey(input: {
   queryText: string;
   companyId: string;
   issueProjectId: string | null;
+  executionLane?: string | null;
   role: string;
   eventType: string;
   workflowState: string;
@@ -95,6 +96,7 @@ export function buildRetrievalStageCacheKey(input: {
     stage: input.stage,
     companyId: input.companyId,
     issueProjectId: input.issueProjectId,
+    executionLane: input.executionLane ?? null,
     queryText: normalizeRetrievalQueryText(input.queryText),
     role: input.role,
     eventType: input.eventType,
@@ -142,6 +144,7 @@ export function buildRetrievalCacheIdentity(input: {
   queryText: string;
   companyId: string;
   issueProjectId: string | null;
+  executionLane?: string | null;
   role: string;
   eventType: string;
   workflowState: string;
@@ -157,6 +160,7 @@ export function buildRetrievalCacheIdentity(input: {
     stage: input.stage,
     companyId: input.companyId,
     issueProjectId: input.issueProjectId,
+    executionLane: input.executionLane ?? null,
     role: input.role,
     eventType: input.eventType,
     workflowState: input.workflowState,

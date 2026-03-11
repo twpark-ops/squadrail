@@ -29,6 +29,7 @@ type ProtocolDispatchMode =
 export interface ProtocolExecutionRecipientHint {
   recipientId: string;
   recipientRole: string;
+  executionLane?: string;
   briefId?: string;
   briefScope?: string;
   retrievalRunId?: string;
@@ -244,12 +245,14 @@ function buildDispatchPlanBase(input: {
       ...(input.recipientHint?.briefId ? { latestBriefId: input.recipientHint.briefId } : {}),
       ...(input.recipientHint?.briefScope ? { latestBriefScope: input.recipientHint.briefScope } : {}),
       ...(input.recipientHint?.retrievalRunId ? { retrievalRunId: input.recipientHint.retrievalRunId } : {}),
+      ...(input.recipientHint?.executionLane ? { executionLane: input.recipientHint.executionLane } : {}),
       ...(input.recipientHint?.briefContentMarkdown || input.recipientHint?.briefEvidenceSummary?.length
         ? {
             taskBrief: {
               id: input.recipientHint?.briefId ?? null,
               scope: input.recipientHint?.briefScope ?? null,
               retrievalRunId: input.recipientHint?.retrievalRunId ?? null,
+              executionLane: input.recipientHint?.executionLane ?? null,
               contentMarkdown: input.recipientHint?.briefContentMarkdown ?? null,
               evidence: input.recipientHint?.briefEvidenceSummary ?? [],
             },
@@ -276,12 +279,14 @@ function buildDispatchPlanBase(input: {
       ...(input.recipientHint?.briefId ? { latestBriefId: input.recipientHint.briefId } : {}),
       ...(input.recipientHint?.briefScope ? { latestBriefScope: input.recipientHint.briefScope } : {}),
       ...(input.recipientHint?.retrievalRunId ? { retrievalRunId: input.recipientHint.retrievalRunId } : {}),
+      ...(input.recipientHint?.executionLane ? { executionLane: input.recipientHint.executionLane } : {}),
       ...(input.recipientHint?.briefContentMarkdown || input.recipientHint?.briefEvidenceSummary?.length
         ? {
             taskBrief: {
               id: input.recipientHint?.briefId ?? null,
               scope: input.recipientHint?.briefScope ?? null,
               retrievalRunId: input.recipientHint?.retrievalRunId ?? null,
+              executionLane: input.recipientHint?.executionLane ?? null,
               contentMarkdown: input.recipientHint?.briefContentMarkdown ?? null,
               evidence: input.recipientHint?.briefEvidenceSummary ?? [],
             },

@@ -143,3 +143,21 @@
   - `pnpm -r typecheck`
   - `pnpm test:run`
   - `pnpm build`
+- 추가 진행:
+  - `issue-retrieval.ts` refactor slice 2 완료
+    - scoring / rationale helper를 `server/src/services/retrieval/scoring.ts`로 이동
+  - `rerank provider abstraction` 1차 완료
+    - provider config / transport를 `server/src/services/knowledge-rerank/` 하위 모듈로 분리
+  - `execution lane classifier + fast lane optimization + lane-aware multi-hop` 완료
+    - `server/src/services/execution-lanes.ts` 추가
+    - retrieval은 `fast / normal / deep` lane을 분류해 dense/sparse/rerank/finalK, model candidate count, graph hop depth, brief evidence 개수를 lane-aware하게 조정
+    - wake payload / contextSnapshot / taskBrief에도 `executionLane`을 기록
+    - retrieval cache identity / stage key에도 lane을 포함
+    - replay 실측 기준 `candidateCacheHit`, `finalCacheHit`, `exactPathSatisfied`, `multiHopGraphHitCount=8`까지 확인
+
+## 현재 남은 우선순위
+
+1. ranking/cache/trend consolidation
+2. cross-issue memory reuse
+3. rerank provider abstraction 2차
+4. execution lane / fast lane 실운영 계측
