@@ -2,7 +2,9 @@
 
 import {
   buildE2eLabelSpecs,
+  collectIssueFamily,
   collectTaggedIssues,
+  hasAnyLabelId,
   needsE2eCancellation,
   shouldHideE2eIssue,
 } from "./e2e-issue-utils.mjs";
@@ -78,6 +80,23 @@ async function hideIssue(issueId) {
   });
 }
 
+async function cancelHeartbeatRun(runId) {
+  return api(`/api/heartbeat-runs/${runId}/cancel`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+function isLikelyE2eIssue(issue, labelIds) {
+  if (!issue) return false;
+  if (hasAnyLabelId(issue, labelIds)) return true;
+  const title = String(issue.title ?? "");
+  if (title.startsWith("E2E:") || title.startsWith("Org E2E:") || title.startsWith("Child delivery:")) {
+    return true;
+  }
+  return false;
+}
+
 async function cancelIssue(issueId, reason, workflowStateBefore) {
   return api(`/api/issues/${issueId}/protocol/messages`, {
     method: "POST",
@@ -110,23 +129,32 @@ async function cancelIssue(issueId, reason, workflowStateBefore) {
 
 async function cleanupTaggedIssues(companyId, labelIds) {
   const issues = await api(`/api/companies/${companyId}/issues`);
-  const taggedIssues = collectTaggedIssues(issues, labelIds);
+  const taggedRoots = collectTaggedIssues(issues, labelIds);
+  const taggedIssues = collectIssueFamily(
+    await Promise.all(taggedRoots.map((issue) => api(`/api/issues/${issue.id}`))),
+  );
   const summary = {
     scanned: taggedIssues.length,
     cancelled: 0,
     hidden: 0,
+    runsCancelled: 0,
   };
+  const issueIds = new Set(taggedIssues.map((issue) => issue.id));
 
   for (const issue of taggedIssues) {
     if (needsE2eCancellation(issue.status)) {
-      const state = await api(`/api/issues/${issue.id}/protocol/state`);
-      await cancelIssue(
-        issue.id,
-        `Cleanup cancelled lingering E2E issue ${issue.identifier}.`,
-        state.workflowState,
-      );
-      summary.cancelled += 1;
-      note(`cancelled ${issue.identifier}`);
+      try {
+        const state = await api(`/api/issues/${issue.id}/protocol/state`);
+        await cancelIssue(
+          issue.id,
+          `Cleanup cancelled lingering E2E issue ${issue.identifier}.`,
+          state.workflowState,
+        );
+        summary.cancelled += 1;
+        note(`cancelled ${issue.identifier}`);
+      } catch (error) {
+        note(`skip cancel ${issue.identifier}: ${error.message}`);
+      }
       if (HIDE_TERMINAL) {
         await hideIssue(issue.id);
         summary.hidden += 1;
@@ -140,6 +168,44 @@ async function cleanupTaggedIssues(companyId, labelIds) {
       summary.hidden += 1;
       note(`hid ${issue.identifier}`);
     }
+  }
+
+  const heartbeatRuns = await api(`/api/companies/${companyId}/heartbeat-runs?limit=200`);
+  const activeRuns = heartbeatRuns.filter((run) => {
+    if (!["queued", "claimed", "running"].includes(run.status)) return false;
+    const issueId = run?.contextSnapshot?.issueId;
+    return Boolean(issueId);
+  });
+
+  for (const run of activeRuns) {
+    const issueId = run?.contextSnapshot?.issueId;
+    const issue = issueId ? await api(`/api/issues/${issueId}`).catch(() => null) : null;
+    if (!issue) continue;
+    const shouldTreatAsE2e =
+      issueIds.has(issue.id) ||
+      (issue.hiddenAt && isLikelyE2eIssue(issue, labelIds)) ||
+      (issue.hiddenAt && issue.parentId && String(issue.title ?? "").startsWith("Child delivery:"));
+
+    if (!shouldTreatAsE2e) continue;
+
+    if (needsE2eCancellation(issue.status)) {
+      try {
+        const state = await api(`/api/issues/${issue.id}/protocol/state`);
+        await cancelIssue(
+          issue.id,
+          `Cleanup cancelled lingering active E2E issue ${issue.identifier}.`,
+          state.workflowState,
+        );
+        summary.cancelled += 1;
+        note(`cancelled lingering issue ${issue.identifier}`);
+      } catch (error) {
+        note(`skip cancel lingering issue ${issue.identifier}: ${error.message}`);
+      }
+    }
+
+    await cancelHeartbeatRun(run.id);
+    summary.runsCancelled += 1;
+    note(`cancelled run ${run.id} for issue ${issue.identifier ?? issue.id}`);
   }
 
   return summary;

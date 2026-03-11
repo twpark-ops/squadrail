@@ -686,6 +686,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const senderIsInheritedLead =
       input.sender.actorType === "agent" && input.sender.role === "tech_lead" && input.sender.actorId === resolvedLeadAgentId;
     if (
+      watchLeadRequested &&
       resolvedLeadAgentId &&
       !senderIsInheritedLead &&
       !assignmentRecipients.some(

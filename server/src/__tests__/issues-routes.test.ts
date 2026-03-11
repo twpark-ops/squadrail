@@ -1244,6 +1244,7 @@ describe("issue routes wakeup handling", () => {
             kind: "implementation",
             projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
             priority: "high",
+            watchLead: false,
             assigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
             reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
             acceptanceCriteria: ["Scoped child work"],
@@ -1260,9 +1261,26 @@ describe("issue routes wakeup handling", () => {
         issueId: "33333333-3333-4333-8333-333333333333",
         message: expect.objectContaining({
           messageType: "ASSIGN_TASK",
+          recipients: [
+            expect.objectContaining({
+              recipientId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+              role: "engineer",
+            }),
+            expect.objectContaining({
+              recipientId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+              role: "reviewer",
+            }),
+          ],
         }),
       }),
     );
+    const childAssignmentCall = mockProtocolAppendMessage.mock.calls[0]?.[0];
+    expect(
+      childAssignmentCall?.message?.recipients?.some(
+        (recipient: { recipientId: string; role: string }) =>
+          recipient.recipientId === "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" && recipient.role === "tech_lead",
+      ),
+    ).toBe(false);
     expect(response.body).toEqual(
       expect.objectContaining({
         protocol: null,

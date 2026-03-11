@@ -44,3 +44,23 @@ export function hasAnyLabelId(issue, labelIds) {
 export function collectTaggedIssues(issues, labelIds) {
   return issues.filter((issue) => hasAnyLabelId(issue, labelIds));
 }
+
+export function collectIssueFamily(rootIssues) {
+  const family = [];
+  const seen = new Set();
+  const stack = [...rootIssues];
+
+  while (stack.length > 0) {
+    const issue = stack.pop();
+    if (!issue?.id || seen.has(issue.id)) continue;
+    seen.add(issue.id);
+    family.push(issue);
+    if (Array.isArray(issue.internalWorkItems)) {
+      for (const child of issue.internalWorkItems) {
+        stack.push(child);
+      }
+    }
+  }
+
+  return family;
+}
