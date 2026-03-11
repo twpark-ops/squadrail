@@ -606,6 +606,7 @@ export function issueService(db: Db) {
     createInternalWorkItem: async (input: {
       parentIssueId: string;
       companyId: string;
+      projectId?: string | null;
       title: string;
       description?: string | null;
       kind: InternalWorkItemKind;
@@ -638,9 +639,14 @@ export function issueService(db: Db) {
         throw unprocessable("Internal work items can only be created under visible root issues");
       }
 
+      const targetProjectId =
+        input.projectId === undefined
+          ? parentIssue.projectId
+          : input.projectId;
+
       await validateCreateIssueInput(input.companyId, {
         parentId: parentIssue.id,
-        projectId: parentIssue.projectId,
+        projectId: targetProjectId,
         goalId: parentIssue.goalId,
         title: input.title,
         description: input.description ?? null,
@@ -668,7 +674,7 @@ export function issueService(db: Db) {
 
         return createIssueRecord(tx, input.companyId, {
           parentId: parentIssue.id,
-          projectId: parentIssue.projectId,
+          projectId: targetProjectId,
           goalId: parentIssue.goalId,
           title: input.title,
           description: input.description ?? null,

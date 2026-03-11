@@ -393,6 +393,12 @@ describe("issue routes wakeup handling", () => {
       message: { id: "protocol-message-1", seq: 1 },
       state: {},
     });
+    mockProjectGetById.mockResolvedValue({
+      id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+      companyId: "company-1",
+      name: "swiftsight-agent",
+    });
+    mockProjectGetById.mockResolvedValue(null);
     mockProtocolCreateViolation.mockResolvedValue({
       id: "violation-1",
       companyId: "company-1",
@@ -1000,6 +1006,23 @@ describe("issue routes wakeup handling", () => {
       message: { id: "protocol-message-1", seq: 1 },
       state: { workflowState: "assigned" },
     });
+    mockProjectGetById.mockImplementation(async (projectId: string) => {
+      if (projectId === "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb") {
+        return {
+          id: projectId,
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+        };
+      }
+      if (projectId === "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa") {
+        return {
+          id: projectId,
+          companyId: "company-1",
+          name: "swiftsight-agent",
+        };
+      }
+      return null;
+    });
 
     const response = await invokeRoute({
       path: "/issues/:id/intake/projection",
@@ -1013,6 +1036,7 @@ describe("issue routes wakeup handling", () => {
         qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
         root: {
           structuredTitle: "Cloud export intake",
+          projectId: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
           executionSummary: "Build a scoped export delivery plan for cloud studies and audit logs.",
           acceptanceCriteria: ["Scope is explicit", "Audit trail is covered"],
           definitionOfDone: ["TL lane owns the work", "Child execution item exists"],
@@ -1021,6 +1045,7 @@ describe("issue routes wakeup handling", () => {
           {
             title: "Design cloud export flow",
             kind: "plan",
+            projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
             priority: "high",
             assigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
             reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -1037,7 +1062,14 @@ describe("issue routes wakeup handling", () => {
       "11111111-1111-4111-8111-111111111111",
       expect.objectContaining({
         title: "Cloud export intake",
+        projectId: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
         priority: "high",
+      }),
+    );
+    expect(mockIssueCreateInternalWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentIssueId: "11111111-1111-4111-8111-111111111111",
+        projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
       }),
     );
     expect(mockProtocolAppendMessage).toHaveBeenNthCalledWith(
@@ -1079,6 +1111,167 @@ describe("issue routes wakeup handling", () => {
           techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          coordinationOnly: false,
+        },
+      }),
+    );
+  });
+
+  it("projects coordinated intake issues without reassigning the root execution lane", async () => {
+    mockAgentGetById.mockImplementation(async (agentId: string) => {
+      if (agentId === "pm-1") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "pm",
+          status: "active",
+          title: "PM",
+          permissions: {},
+        };
+      }
+      if (agentId === "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "manager",
+          status: "active",
+          title: "Tech Lead",
+          permissions: {},
+        };
+      }
+      if (agentId === "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "reviewer",
+          status: "active",
+          title: "Reviewer",
+          permissions: {},
+        };
+      }
+      if (agentId === "dddddddd-dddd-4ddd-8ddd-dddddddddddd") {
+        return {
+          id: agentId,
+          companyId: "company-1",
+          role: "engineer",
+          status: "active",
+          title: "Engineer",
+          permissions: {},
+        };
+      }
+      return null;
+    });
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-300",
+      title: "Coordinated intake root",
+      description: "Human request",
+      status: "todo",
+      priority: "high",
+      projectId: null,
+      parentId: null,
+      hiddenAt: null,
+      goalId: null,
+      assigneeAgentId: null,
+      assigneeUserId: null,
+      createdByAgentId: null,
+      createdByUserId: "board-user",
+      requestDepth: 0,
+      checkoutRunId: null,
+      executionRunId: null,
+      executionAgentNameKey: null,
+      executionLockedAt: null,
+      startedAt: null,
+      completedAt: null,
+      cancelledAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      labels: [],
+      parent: null,
+      children: [],
+    });
+    mockIssueUpdate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-300",
+      title: "Coordinated intake root",
+      description: "Projected root",
+      status: "todo",
+      priority: "high",
+      projectId: null,
+    });
+    mockProtocolGetState.mockResolvedValue({
+      workflowState: "assigned",
+      techLeadAgentId: null,
+      reviewerAgentId: null,
+      qaAgentId: null,
+    });
+    mockProjectGetById.mockResolvedValue(null);
+    mockIssueCreateInternalWorkItem.mockResolvedValue({
+      id: "33333333-3333-4333-8333-333333333333",
+      identifier: "CLO-301",
+      title: "Child work item",
+      status: "backlog",
+      priority: "high",
+      projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "child-message-1", seq: 1 },
+      state: { workflowState: "assigned" },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/intake/projection",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("pm-1"),
+      body: {
+        reason: "Project the root into coordinated child work items only.",
+        techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        coordinationOnly: true,
+        root: {
+          structuredTitle: "Coordinated intake root",
+          projectId: null,
+          executionSummary: "Coordinate child delivery only.",
+          acceptanceCriteria: ["Child work items exist"],
+          definitionOfDone: ["Children run independently"],
+        },
+        workItems: [
+          {
+            title: "Child work item",
+            kind: "implementation",
+            projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+            priority: "high",
+            assigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            acceptanceCriteria: ["Scoped child work"],
+            definitionOfDone: ["Child is ready"],
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledTimes(1);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "33333333-3333-4333-8333-333333333333",
+        message: expect.objectContaining({
+          messageType: "ASSIGN_TASK",
+        }),
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        protocol: null,
+        warnings: [],
+        intakeProjection: {
+          techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          qaAgentId: null,
+          coordinationOnly: true,
         },
       }),
     );
@@ -1371,6 +1564,7 @@ describe("issue routes wakeup handling", () => {
         title: "Implement root fix",
         description: "Wire the execution path",
         kind: "implementation",
+        projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
         priority: "high",
         assigneeAgentId: "44444444-4444-4444-8444-444444444444",
         reviewerAgentId: "55555555-5555-4555-8555-555555555555",
@@ -1392,6 +1586,7 @@ describe("issue routes wakeup handling", () => {
     expect(mockIssueCreateInternalWorkItem).toHaveBeenCalledWith(
       expect.objectContaining({
         parentIssueId: "11111111-1111-4111-8111-111111111111",
+        projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
         kind: "implementation",
         labelNames: expect.arrayContaining(["team:internal", "work:implementation", "watch:reviewer", "watch:lead"]),
       }),

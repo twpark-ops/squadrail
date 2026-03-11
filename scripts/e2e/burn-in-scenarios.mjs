@@ -3,7 +3,7 @@ export const BURN_IN_BATCH_SCENARIOS = {
     "swiftsight-agent-tl-qa-loop",
     "swiftsight-cloud-pm-qa-lead-loop",
     "swiftcl-cto-cross-project-loop",
-    "swiftsight-cloud-claude-build-info",
+    "multi-project-coordinated-delivery",
     "swiftsight-worker-codex-clone-isolation",
   ],
 };
