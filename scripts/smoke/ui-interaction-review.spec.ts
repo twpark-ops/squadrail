@@ -14,6 +14,8 @@ type BrowserDiagnostics = {
   badResponses: string[];
 };
 
+const editorAssetPattern = /\/assets\/(mdx-editor|lexical|markdown)-/i;
+
 function attachDiagnostics(page: {
   on: (event: string, listener: (...args: any[]) => void) => void;
 }): BrowserDiagnostics {
@@ -75,6 +77,19 @@ function expectHealthyDiagnostics(diagnostics: BrowserDiagnostics): void {
   expect(diagnostics.pageErrors, "page errors").toEqual([]);
   expect(diagnostics.requestFailures, "request failures").toEqual([]);
   expect(diagnostics.badResponses, "bad responses").toEqual([]);
+}
+
+function trackFinishedRequests(page: {
+  on: (
+    event: string,
+    listener: (request: { url: () => string }) => void
+  ) => void;
+}): string[] {
+  const finishedRequests: string[] = [];
+  page.on("requestfinished", (request: { url: () => string }) => {
+    finishedRequests.push(request.url());
+  });
+  return finishedRequests;
 }
 
 test.describe.configure({ mode: "serial" });
@@ -180,6 +195,28 @@ test("desktop route and CTA flows", async ({ page }) => {
     path: path.join(outputDir, "qa-desktop-route-review.png"),
     fullPage: true,
   });
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("overview first load does not pull markdown editor vendors", async ({
+  page,
+}) => {
+  const diagnostics = attachDiagnostics(page);
+  const finishedRequests = trackFinishedRequests(page);
+
+  await page.goto(`${baseUrl}/SMO/overview`, { waitUntil: "networkidle" });
+  await expect(
+    page.getByRole("heading", { name: "Overview", exact: true })
+  ).toBeVisible();
+
+  const initialEditorRequests = finishedRequests.filter((url) =>
+    editorAssetPattern.test(url)
+  );
+
+  expect(
+    initialEditorRequests,
+    `Overview initial load should not request markdown editor vendors:\n${initialEditorRequests.join("\n")}`
+  ).toEqual([]);
   expectHealthyDiagnostics(diagnostics);
 });
 
