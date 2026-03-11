@@ -17,6 +17,7 @@ import {
 } from "@squadrail/db";
 import {
   extractProjectMentionIds,
+  normalizeAgentUrlKey,
   readProjectWorkspaceExecutionPolicyFromMetadata,
   stripProjectWorkspaceExecutionPolicyFromMetadata,
 } from "@squadrail/shared";
@@ -1245,7 +1246,13 @@ export function issueService(db: Db) {
       if (tokens.size === 0) return [];
       const rows = await db.select({ id: agents.id, name: agents.name })
         .from(agents).where(eq(agents.companyId, companyId));
-      return rows.filter(a => tokens.has(a.name.toLowerCase())).map(a => a.id);
+      return rows
+        .filter((agent) => {
+          const lowerName = agent.name.toLowerCase();
+          const slug = normalizeAgentUrlKey(agent.name);
+          return tokens.has(lowerName) || (slug ? tokens.has(slug.toLowerCase()) : false);
+        })
+        .map((agent) => agent.id);
     },
 
     findMentionedProjectIds: async (issueId: string) => {

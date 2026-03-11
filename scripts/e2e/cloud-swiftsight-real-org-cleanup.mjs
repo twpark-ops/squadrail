@@ -2,8 +2,6 @@
 
 import {
   buildE2eLabelSpecs,
-  collectIssueFamily,
-  collectTaggedIssues,
   hasAnyLabelId,
   needsE2eCancellation,
   shouldHideE2eIssue,
@@ -97,6 +95,14 @@ function isLikelyE2eIssue(issue, labelIds) {
   return false;
 }
 
+async function resolveLikelyE2eIssue(apiFn, issue, labelIds) {
+  if (!issue) return null;
+  if (isLikelyE2eIssue(issue, labelIds)) return issue;
+  if (!issue.parentId) return null;
+  const parent = await apiFn(`/api/issues/${issue.parentId}`).catch(() => null);
+  return parent && isLikelyE2eIssue(parent, labelIds) ? parent : null;
+}
+
 async function cancelIssue(issueId, reason, workflowStateBefore) {
   return api(`/api/issues/${issueId}/protocol/messages`, {
     method: "POST",
@@ -129,10 +135,7 @@ async function cancelIssue(issueId, reason, workflowStateBefore) {
 
 async function cleanupTaggedIssues(companyId, labelIds) {
   const issues = await api(`/api/companies/${companyId}/issues`);
-  const taggedRoots = collectTaggedIssues(issues, labelIds);
-  const taggedIssues = collectIssueFamily(
-    await Promise.all(taggedRoots.map((issue) => api(`/api/issues/${issue.id}`))),
-  );
+  const taggedIssues = issues.filter((issue) => isLikelyE2eIssue(issue, labelIds));
   const summary = {
     scanned: taggedIssues.length,
     cancelled: 0,
@@ -181,9 +184,10 @@ async function cleanupTaggedIssues(companyId, labelIds) {
     const issueId = run?.contextSnapshot?.issueId;
     const issue = issueId ? await api(`/api/issues/${issueId}`).catch(() => null) : null;
     if (!issue) continue;
+    const matchedIssue = await resolveLikelyE2eIssue(api, issue, labelIds);
     const shouldTreatAsE2e =
       issueIds.has(issue.id) ||
-      (issue.hiddenAt && isLikelyE2eIssue(issue, labelIds)) ||
+      Boolean(matchedIssue) ||
       (issue.hiddenAt && issue.parentId && String(issue.title ?? "").startsWith("Child delivery:"));
 
     if (!shouldTreatAsE2e) continue;

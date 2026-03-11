@@ -954,6 +954,11 @@ async function startReviewCommand(options) {
   );
   if (!summary) fail("Missing required option: --summary");
   const state = await getIssueState(issueId);
+  const workflowStateAfter = readOption(
+    options,
+    "workflow-after",
+    senderRole === "qa" ? "under_qa_review" : "under_review",
+  );
 
   const body = {
     messageType: "START_REVIEW",
@@ -964,7 +969,7 @@ async function startReviewCommand(options) {
     },
     recipients: [buildSelfRecipient(senderRole)],
     workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
-    workflowStateAfter: "under_review",
+    workflowStateAfter,
     summary,
     requiresAck: false,
     payload: {
@@ -1037,7 +1042,7 @@ async function approveImplementationCommand(options) {
     },
     recipients: [buildSelfRecipient(senderRole)],
     workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
-    workflowStateAfter: "approved",
+    workflowStateAfter: readOption(options, "workflow-after", "approved"),
     summary,
     requiresAck: false,
     payload: {

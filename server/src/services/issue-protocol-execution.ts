@@ -7,6 +7,7 @@ import { agentService } from "./agents.js";
 import { heartbeatService } from "./heartbeat.js";
 import {
   buildInternalWorkItemDispatchMetadata,
+  getInternalWorkItemKind,
   isLeadWatchEnabled,
   isReviewerWatchEnabled,
   leadSupervisorProtocolReason,
@@ -314,6 +315,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
   const source = protocolExecutionSource(input.message.messageType);
   const protocolPayload = asRecord(input.message.payload);
   const wakeHints = protocolWakeHints(protocolPayload);
+  const internalWorkItemKind = getInternalWorkItemKind(input.issueContext);
 
   const plan = input.message.recipients.map<ProtocolExecutionDispatchPlanItem>((recipient) => {
     const recipientHint = input.recipientHints?.find(
@@ -329,6 +331,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       recipient.recipientType === "agent" &&
       recipient.role === "reviewer" &&
       (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
+      internalWorkItemKind !== "implementation" &&
       isReviewerWatchEnabled(input.issueContext);
     const base = buildDispatchPlanBase({
       issueId: input.issueId,

@@ -138,7 +138,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
   });
 
-  it("wakes reviewer recipients for internal child issue assignment when watch mode is enabled", () => {
+  it("keeps reviewer recipients as notify_only for internal implementation child assignment even when watch mode is enabled", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "child-1",
       protocolMessageId: "msg-1c",
@@ -185,14 +185,64 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
 
     expect(plan[1]).toMatchObject({
-      kind: "wakeup",
-      reason: "issue_watch_assigned",
+      kind: "notify_only",
+      recipientRole: "reviewer",
       payload: {
         issueInternalWorkItem: true,
         rootIssueId: "root-1",
-        protocolDispatchMode: "reviewer_watch",
       },
       contextSnapshot: {
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+      },
+    });
+  });
+
+  it("still wakes reviewer recipients for internal review child assignment when watch mode is enabled", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "child-review-1",
+      protocolMessageId: "msg-1d",
+      senderAgentId: null,
+      issueContext: {
+        issueId: "child-review-1",
+        parentId: "root-1",
+        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
+        labelNames: ["team:internal", "work:review", "watch:reviewer", "watch:lead"],
+        techLeadAgentId: "lead-1",
+      },
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "assign review work item",
+        payload: {
+          goal: "review",
+          acceptanceCriteria: ["a"],
+          definitionOfDone: ["d"],
+          priority: "high",
+          assigneeAgentId: "00000000-0000-0000-0000-000000000002",
+          reviewerAgentId: "00000000-0000-0000-0000-000000000002",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      reason: "issue_watch_assigned",
+      payload: {
         issueInternalWorkItem: true,
         rootIssueId: "root-1",
         protocolDispatchMode: "reviewer_watch",

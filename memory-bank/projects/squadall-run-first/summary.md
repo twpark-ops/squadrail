@@ -34,6 +34,7 @@
 - 현재 harness는 projection 직후 root를 archive해서 child fan-out만 검증한다.
 - 제품 후속 과제는 dedicated `coordination-only root` 상태를 추가하는 것이다.
 - 최신 coordinated burn-in (`CLO-150`)에서는 root archive 이후 실제 child 3개 fan-out이 재확인됐다.
+- 구현 child에서 reviewer watch가 조기 개입해 `REASSIGN_TASK`를 발생시키던 문제를 확인했고, `work:implementation` child assignment에는 reviewer watch를 비활성화했다.
 - 현재 관측된 진행:
   - root `CLO-150`: `cancelled + hidden`
   - `CLO-151` swiftsight-agent child: `in_progress`
@@ -49,6 +50,19 @@
   - wait loop를 `issue + state + messages`만 poll하고 extended data는 completion 시점에만 읽도록 줄임
   - fresh bucket 재실행 `CLO-162`에서도 root fan-out 후 세 child engineer run이 모두 `running` 상태까지 올라감
   - 따라서 현재 실질 우선순위는 `coordinated burn-in completion 관찰` 다음 `blocked / legacy / protocol-required semantics cleanup`이다
+  - 이후 coordinated rerun `CLO-166`에서 `swiftsight-cloud` child는 더 이상 조기 `REASSIGN_TASK`로 되돌아가지 않았다.
+  - 새 병목은 `Claude` implementation lane이 clean workspace에서 `SUBMIT_FOR_REVIEW requires diff or commit artifact`에 막히는 것이었고, `clean committed workspace`에도 commit artifact를 자동 첨부하도록 수정했다.
+  - PM intake harness에는 두 번째 불필요한 `PATCH /issues/:id`가 있었고 제거했다.
+  - lingering coordinated child cleanup은 root family만으로는 부족했다. 실제 잔재 `CLO-144`처럼 `parent만 E2E root`인 child run이 agent를 점유하는 케이스가 있어서, cleanup을 `company issue list + parent chain + active runs` 기준으로 확장했다.
+- 최신 coordinated rerun `CLO-179`에서는 root 하나가 다시 child 3개로 fan-out됐고, `CLO-180`(agent), `CLO-181`(cloud), `CLO-182`(swiftcl) 모두 `ACK_ASSIGNMENT -> START_IMPLEMENTATION`까지 확인됐다.
+  - `CLO-181` cloud/claude lane은 이번에는 queued나 422 handoff 오류 없이 실제 구현 로그를 쓰기 시작했고, 이후 `SUBMIT_FOR_REVIEW -> START_REVIEW`까지 확인됐다.
+  - 즉 `clean committed workspace`의 review handoff bug는 coordinated burn-in 실데이터에서 해소됐다.
+  - 후속 관측에서 `CLO-181`은 실제로 `APPROVE_IMPLEMENTATION -> done`까지 닫혔다.
+  - `CLO-180`은 QA가 실제로 `REQUEST_CHANGES`를 보낸 뒤 engineer가 재작업하고 다시 `SUBMIT_FOR_REVIEW -> START_REVIEW -> APPROVE_IMPLEMENTATION -> START_REVIEW(qa) -> APPROVE_IMPLEMENTATION(qa) -> CLOSE_TASK`까지 닫혔다. 즉 `review -> QA -> 개발팀 재반환 -> 재검증 -> done` 루프가 실데이터로 검증됐다.
+  - `CLO-182`는 reviewer 변경 요청 후 engineer가 재작업을 완료했지만 `SUBMIT_FOR_REVIEW` helper/API artifact semantics 때문에 `REPORT_PROGRESS`로만 끝난 뒤 stale implementation 상태에 남는 케이스가 드러났다.
+  - recovery comment는 이슈에 정상 저장됐지만, plain comment만으로는 execution lock 우회가 되지 않고 `issue_comment_mentioned`가 필요했다.
+  - route patch로 assignee/reviewer/qa mention이 현재 protocol state를 읽어 `protocolRecipientRole`과 `protocolWorkflowStateAfter`를 함께 wake context에 싣도록 수정했다. 이걸로 `changes_requested` 상태의 engineer recovery가 다시 implementation lane으로 복귀할 수 있게 만들었다.
+  - 따라서 coordinated burn-in이 드러낸 다음 실제 blocker는 `QA/changes_requested recovery semantics`였고, 현재는 `slug-aware mention + protocol-state-aware recovery wake` 패치를 넣은 상태다.
 
 ## 현재 활성 슬라이스
 
@@ -60,7 +74,16 @@
 - `2-B coordinating-root drift containment`: `coordinationOnly` projection flag로 root drift 재현 제거
 - `2-C coordinated burn-in completion analysis`: 진행 중
   - 목표: child 3개가 reviewer/QA/close까지 닫히는지 확인
-  - 관찰 포인트: `dispatch_timeout`, `process_lost`, `protocol_required`, reviewer/QA 병목, root/child aggregation 누락
+  - 관찰 포인트: `dispatch_timeout`, `process_lost`, `protocol_required`, reviewer/QA 병목, root/child aggregation 누락, `changes_requested -> implementing` recovery
+  - 최신 실측 root: `CLO-179`
+  - 최신 child lanes:
+    - `CLO-180` swiftsight-agent
+    - `CLO-181` swiftsight-cloud
+    - `CLO-182` swiftcl
+  - 최신 상태:
+    - `CLO-181`: `done`
+    - `CLO-180`: `done` (QA change request loop 포함)
+    - `CLO-182`: reviewer change request 이후 stale implementation recovery semantics 확인 중
 
 ## 관련 문서
 
