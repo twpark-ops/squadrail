@@ -144,10 +144,47 @@ describe("rag-readiness-utils", () => {
     })).toEqual({
       status: "pass",
       failures: [],
+      functionalStatus: null,
+      functionalFailures: [],
+      historicalStatus: null,
+      historicalFailures: [],
       totalRuns: 4,
       candidateCacheHitRate: 0.5,
       finalCacheHitRate: 0.25,
       multiHopGraphExpandedRuns: 2,
+      matchingProjectCount: 1,
+      matchingRoleCount: 1,
+    });
+  });
+
+  it("splits functional readiness from historical hygiene failures", () => {
+    expect(summarizeKnowledgeQualityGate({
+      totalRuns: 2,
+      readinessGate: {
+        status: "warn",
+        failures: ["issue_memory_coverage"],
+      },
+      functionalReadinessGate: {
+        status: "pass",
+        failures: [],
+      },
+      historicalHygieneGate: {
+        status: "warn",
+        failures: ["issue_memory_coverage"],
+      },
+      perProject: [{ projectId: "proj-1" }],
+      perRole: [{ role: "engineer" }],
+    })).toEqual({
+      status: "warn",
+      failures: ["issue_memory_coverage"],
+      functionalStatus: "pass",
+      functionalFailures: [],
+      historicalStatus: "warn",
+      historicalFailures: ["issue_memory_coverage"],
+      totalRuns: 2,
+      candidateCacheHitRate: 0,
+      finalCacheHitRate: 0,
+      multiHopGraphExpandedRuns: 0,
       matchingProjectCount: 1,
       matchingRoleCount: 1,
     });

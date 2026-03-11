@@ -47,8 +47,15 @@ function toPositiveInt(value: string | undefined, fallback: number) {
   return Math.floor(parsed);
 }
 
+function sanitizeEmbeddingInput(text: string) {
+  return text
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, " ")
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, " ");
+}
+
 function normalizeEmbeddingInput(text: string) {
-  const normalized = text.replace(/\s+/g, " ").trim();
+  const normalized = sanitizeEmbeddingInput(text).replace(/\s+/g, " ").trim();
   if (normalized.length === 0) return "[blank]";
 
   if (normalized.length > DEFAULT_MAX_EMBEDDING_INPUT_CHARS) {
@@ -108,8 +115,12 @@ function isEmbeddingContextLimitError(error: unknown) {
   return error instanceof Error && /maximum context length/i.test(error.message);
 }
 
+function isEmbeddingRequestParseError(error: unknown) {
+  return error instanceof Error && /could not parse the json body of your request/i.test(error.message);
+}
+
 export function shrinkEmbeddingInputForRetry(text: string) {
-  const normalized = text.replace(/\s+/g, " ").trim();
+  const normalized = sanitizeEmbeddingInput(text).replace(/\s+/g, " ").trim();
   if (normalized.length === 0) return "[blank]";
 
   const base = normalized.endsWith(EMBEDDING_TRUNCATION_SUFFIX)
@@ -241,18 +252,20 @@ async function fetchOpenAiEmbeddings(
 async function fetchOpenAiEmbeddingsWithFallback(
   config: OpenAiEmbeddingConfig,
   inputs: string[],
+  options?: { parseRetryDepth?: number },
 ): Promise<{ model: string; embeddings: number[][]; promptTokens: number; totalTokens: number }> {
+  const parseRetryDepth = options?.parseRetryDepth ?? 0;
   try {
     return await fetchOpenAiEmbeddings(config, inputs);
   } catch (error) {
-    if (!isEmbeddingContextLimitError(error)) {
+    if (!isEmbeddingContextLimitError(error) && !isEmbeddingRequestParseError(error)) {
       throw error;
     }
 
     if (inputs.length > 1) {
       const midpoint = Math.ceil(inputs.length / 2);
-      const left = await fetchOpenAiEmbeddingsWithFallback(config, inputs.slice(0, midpoint));
-      const right = await fetchOpenAiEmbeddingsWithFallback(config, inputs.slice(midpoint));
+      const left = await fetchOpenAiEmbeddingsWithFallback(config, inputs.slice(0, midpoint), { parseRetryDepth });
+      const right = await fetchOpenAiEmbeddingsWithFallback(config, inputs.slice(midpoint), { parseRetryDepth });
       return {
         model: right.model || left.model,
         embeddings: [...left.embeddings, ...right.embeddings],
@@ -261,12 +274,19 @@ async function fetchOpenAiEmbeddingsWithFallback(
       };
     }
 
-    const reduced = shrinkEmbeddingInputForRetry(inputs[0] ?? "");
-    if (reduced === inputs[0]) {
+    const original = inputs[0] ?? "";
+    const normalized = normalizeEmbeddingInput(original);
+    if (isEmbeddingRequestParseError(error) && parseRetryDepth < 1) {
+      const retryInput = normalized || "[blank]";
+      return fetchOpenAiEmbeddingsWithFallback(config, [retryInput], { parseRetryDepth: parseRetryDepth + 1 });
+    }
+
+    const reduced = shrinkEmbeddingInputForRetry(original);
+    if (reduced === original) {
       throw error;
     }
 
-    return fetchOpenAiEmbeddingsWithFallback(config, [reduced]);
+    return fetchOpenAiEmbeddingsWithFallback(config, [reduced], { parseRetryDepth });
   }
 }
 
@@ -348,4 +368,5 @@ export {
   DEFAULT_OPENAI_EMBEDDING_MODEL,
   normalizeEmbeddingInput,
   resolveOpenAiEmbeddingConfig,
+  sanitizeEmbeddingInput,
 };

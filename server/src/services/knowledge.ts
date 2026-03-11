@@ -2353,14 +2353,20 @@ export function knowledgeService(db: Db) {
           .then((rows) => rows[0]?.count ?? 0),
       ]);
 
-      const readinessFailures = [
+      const functionalReadinessFailures = [
         ...(multiHopGraphExpandedRuns > 0 ? [] : ["multi_hop_graph"]),
         ...(candidateCacheHitCount > 0 || finalCacheHitCount > 0 ? [] : ["retrieval_cache"]),
         ...(codeHitCountTotal > 0 ? [] : ["code_evidence"]),
         ...(reviewHitCountTotal > 0 ? [] : ["review_evidence"]),
+      ];
+      const historicalHygieneFailures = [
         ...(issueTotalItems > 0 && issueLinkedDocumentCount < issueTotalItems ? ["issue_memory_coverage"] : []),
         ...(protocolTotalItems > 0 && protocolLinkedDocumentCount < protocolTotalItems ? ["protocol_memory_coverage"] : []),
         ...(reviewTotalItems > 0 && reviewLinkedDocumentCount < reviewTotalItems ? ["review_memory_coverage"] : []),
+      ];
+      const readinessFailures = [
+        ...functionalReadinessFailures,
+        ...historicalHygieneFailures,
       ];
 
       return {
@@ -2448,6 +2454,14 @@ export function knowledgeService(db: Db) {
         readinessGate: {
           status: readinessFailures.length === 0 ? "pass" : "warn",
           failures: readinessFailures,
+        },
+        functionalReadinessGate: {
+          status: functionalReadinessFailures.length === 0 ? "pass" : "warn",
+          failures: functionalReadinessFailures,
+        },
+        historicalHygieneGate: {
+          status: historicalHygieneFailures.length === 0 ? "pass" : "warn",
+          failures: historicalHygieneFailures,
         },
         perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),

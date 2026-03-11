@@ -366,8 +366,8 @@ async function main() {
   );
   assert(projectGate.multiHopGraphExpandedRuns > 0, "Project-scoped quality did not record multi-hop graph expansion");
   assert(
-    projectGate.status === "pass" || projectGate.failures.length === 0,
-    `Project-scoped readiness gate is not passing: ${JSON.stringify(projectGate)}`,
+    projectGate.functionalStatus === "pass" || projectGate.functionalFailures.length === 0,
+    `Project-scoped functional readiness gate is not passing: ${JSON.stringify(projectGate)}`,
   );
   assert(reviewerProjectGate.totalRuns > 0, "Reviewer project-scoped quality did not record any runs");
 

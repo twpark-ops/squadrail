@@ -235,6 +235,14 @@ export interface KnowledgeQualitySummary {
     status: "pass" | "warn";
     failures: string[];
   };
+  functionalReadinessGate?: {
+    status: "pass" | "warn";
+    failures: string[];
+  };
+  historicalHygieneGate?: {
+    status: "pass" | "warn";
+    failures: string[];
+  };
 }
 
 export const knowledgeApi = {

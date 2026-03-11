@@ -26,6 +26,12 @@
 - 현재 막는 것은 readiness gate와 historical coverage hygiene다.
 - 따라서 다음 구현은 retrieval 미세튜닝이 아니라 replay gate 정상화와 burn-in이다.
 
+## 현재 활성 슬라이스
+
+- `1-A commit-after ingest rollout`: 완료
+- `1-B historical backfill reliability`: embedding input sanitize + parse-error retry 1차 완료
+- `1-C readiness gate threshold split`: functional readiness / historical hygiene gate 분리 1차 완료
+
 ## 관련 문서
 
 - `docs/run-first-burn-in-priority-plan.md`
