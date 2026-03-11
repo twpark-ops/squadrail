@@ -57,3 +57,4 @@
 - perf scope:
   - main entry 약 `431kB`, `MarkdownEditor` async chunk 약 `816kB`
   - editor chunk warning은 줄었지만 아직 Vite large-chunk warning 기준(`500kB`)은 넘는다
+  - browser/server log 기준 일부 첫 진입 경로에서도 editor vendor(`mdx-editor` / `lexical` / `markdown`) 요청이 따라와서 완전한 lazy isolation은 아직 아니다
