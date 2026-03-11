@@ -9,12 +9,14 @@ import { projectsApi } from "../api/projects";
 import { queryKeys } from "../lib/queryKeys";
 import { appRoutes } from "../lib/appRoutes";
 import { Button } from "@/components/ui/button";
-import { Settings } from "lucide-react";
 import { CompanyPatternIcon } from "../components/CompanyPatternIcon";
+import { HeroSection } from "../components/HeroSection";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { MarkdownDiffView } from "../components/MarkdownDiffView";
 import { RoleSimulationConsole } from "../components/RoleSimulationConsole";
+import { SupportMetricCard } from "../components/SupportMetricCard";
 import { Field, ToggleField, HintIcon } from "../components/agent-config-primitives";
+import { Layers3, SearchCheck, Settings, ShieldCheck } from "lucide-react";
 import {
   ROLE_PACK_FILE_NAMES,
   type DoctorCheckStatus,
@@ -518,6 +520,12 @@ export function CompanySettings() {
       : null;
   const canSaveRolePackDraft = draftChangedFileCount > 0;
   const canPublishRolePackRevision = canSaveRolePackDraft && rolePackRevisionMessage.trim().length > 0;
+  const readinessStepCount = setupProgress ? Object.values(setupProgress.steps).filter(Boolean).length : 0;
+  const readinessTotalSteps = setupProgress ? Object.keys(setupProgress.steps).length : 0;
+  const activeDoctorReport = deepDoctorReport ?? doctorReport;
+  const doctorFailCount = activeDoctorReport
+    ? activeDoctorReport.checks.filter((check) => check.status === "fail").length
+    : 0;
 
   function updateRolePackDraft(filename: RolePackFileName, content: string) {
     if (!selectedRolePackId) return;
@@ -544,10 +552,51 @@ export function CompanySettings() {
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div className="flex items-center gap-2">
-        <Settings className="h-5 w-5 text-muted-foreground" />
-        <h1 className="text-lg font-semibold">Company Settings</h1>
+    <div className="max-w-5xl space-y-8">
+      <HeroSection
+        title="Company Settings"
+        subtitle="Tune setup readiness, role packs, retrieval policy, and operating defaults without leaving the company workspace."
+        eyebrow={selectedCompany.name}
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="rounded-[1rem] border border-border/80 bg-background/80 p-1.5">
+              <CompanyPatternIcon
+                companyName={companyName || selectedCompany.name}
+                brandColor={brandColor || null}
+                className="h-10 w-10 rounded-[0.9rem]"
+              />
+            </div>
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Settings}
+          label="Setup progress"
+          value={readinessTotalSteps > 0 ? `${readinessStepCount}/${readinessTotalSteps}` : "0/0"}
+          detail="Completed setup checkpoints for this company workspace."
+          tone="accent"
+        />
+        <SupportMetricCard
+          icon={SearchCheck}
+          label="Doctor failures"
+          value={doctorFailCount}
+          detail="Doctor checks currently failing in the latest visible report."
+          tone={doctorFailCount > 0 ? "warning" : "default"}
+        />
+        <SupportMetricCard
+          icon={Layers3}
+          label="Role packs"
+          value={rolePacks.length}
+          detail="Configured role pack sets available for this company."
+        />
+        <SupportMetricCard
+          icon={ShieldCheck}
+          label="Retrieval policies"
+          value={retrievalPolicies.length}
+          detail="Knowledge retrieval rules currently scoped to this company."
+        />
       </div>
 
       {/* General */}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PROJECT_COLORS, isUuidLike } from "@squadrail/shared";
+import { FolderKanban, Link2, Shapes, TimerReset } from "lucide-react";
 import { projectsApi } from "../api/projects";
 import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
@@ -12,11 +13,16 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { ProjectProperties } from "../components/ProjectProperties";
+import { HeroSection } from "../components/HeroSection";
 import { InlineEditor } from "../components/InlineEditor";
+import { PageTabBar } from "../components/PageTabBar";
 import { StatusBadge } from "../components/StatusBadge";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
 import { IssuesList } from "../components/IssuesList";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { projectRouteRef } from "../lib/utils";
+import { Tabs } from "@/components/ui/tabs";
 
 /* ── Top-level tab types ── */
 
@@ -295,62 +301,107 @@ export function ProjectDetail() {
     }
   };
 
+  const linkedGoalCount = new Set([
+    ...(project.goalIds ?? []),
+    ...project.goals.map((goal) => goal.id),
+    ...(project.goalId ? [project.goalId] : []),
+  ]).size;
+  const workspaceCount = project.workspaces.length;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-start gap-3">
-        <div className="h-7 flex items-center">
-          <ColorPicker
-            currentColor={project.color ?? "#6366f1"}
-            onSelect={(color) => updateProject.mutate({ color })}
-          />
-        </div>
-        <InlineEditor
-          value={project.name}
-          onSave={(name) => updateProject.mutate({ name })}
-          as="h2"
-          className="text-xl font-bold"
+    <div className="space-y-8">
+      <HeroSection
+        title={project.name}
+        subtitle={project.description ?? "Define the project surface, keep its linked workspaces clear, and route delivery work through the correct scope."}
+        eyebrow="Project Surface"
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="rounded-full border border-border/80 bg-background/80 p-1.5">
+              <ColorPicker
+                currentColor={project.color ?? "#6366f1"}
+                onSelect={(color) => updateProject.mutate({ color })}
+              />
+            </div>
+            <StatusBadge status={project.status} />
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={FolderKanban}
+          label="Status"
+          value={project.status.replace(/_/g, " ")}
+          detail="Current project state exposed to the rest of the delivery workspace."
+          tone="accent"
+        />
+        <SupportMetricCard
+          icon={Link2}
+          label="Workspaces"
+          value={workspaceCount}
+          detail="Execution roots and repositories currently bound to this project."
+        />
+        <SupportMetricCard
+          icon={Shapes}
+          label="Linked goals"
+          value={linkedGoalCount}
+          detail="Goal-level intent currently connected to this delivery scope."
+        />
+        <SupportMetricCard
+          icon={TimerReset}
+          label="Target date"
+          value={project.targetDate ?? "Unset"}
+          detail="Visible delivery target for the project, if one has already been defined."
         />
       </div>
 
-      {/* Top-level project tabs */}
-      <div className="flex items-center gap-1 border-b border-border">
-        <button
-          className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === "overview"
-              ? "border-foreground text-foreground"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-          onClick={() => handleTabChange("overview")}
-        >
-          Overview
-        </button>
-        <button
-          className={`px-3 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === "list"
-              ? "border-foreground text-foreground"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-          onClick={() => handleTabChange("list")}
-        >
-          List
-        </button>
-      </div>
+      <SupportPanel
+        title="Project workspace"
+        description="Keep the overview focused on scope definition and use the work tab when you need the underlying issue queue."
+        action={
+          <Tabs value={activeTab ?? "list"} onValueChange={(value) => handleTabChange(value as ProjectTab)}>
+            <PageTabBar
+              items={[
+                { value: "overview", label: "Overview" },
+                { value: "list", label: "Work" },
+              ]}
+              value={activeTab ?? "list"}
+              onValueChange={(value) => handleTabChange(value as ProjectTab)}
+            />
+          </Tabs>
+        }
+        contentClassName="space-y-4"
+      >
+        {activeTab === "overview" && (
+          <div className="space-y-4">
+            <div className="rounded-[1.25rem] border border-border/80 bg-background/70 px-4 py-4">
+              <div className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground">
+                Project name
+              </div>
+              <InlineEditor
+                value={project.name}
+                onSave={(name) => updateProject.mutate({ name })}
+                as="h2"
+                className="mt-2 text-2xl font-semibold tracking-[-0.04em]"
+              />
+            </div>
+            <div className="rounded-[1.25rem] border border-border/80 bg-background/70 px-4 py-4">
+              <OverviewContent
+                project={project}
+                onUpdate={(data) => updateProject.mutate(data)}
+                imageUploadHandler={async (file) => {
+                  const asset = await uploadImage.mutateAsync(file);
+                  return asset.contentPath;
+                }}
+              />
+            </div>
+          </div>
+        )}
 
-      {/* Tab content */}
-      {activeTab === "overview" && (
-        <OverviewContent
-          project={project}
-          onUpdate={(data) => updateProject.mutate(data)}
-          imageUploadHandler={async (file) => {
-            const asset = await uploadImage.mutateAsync(file);
-            return asset.contentPath;
-          }}
-        />
-      )}
-
-      {activeTab === "list" && project?.id && resolvedCompanyId && (
-        <ProjectIssuesList projectId={project.id} companyId={resolvedCompanyId} />
-      )}
+        {activeTab === "list" && project?.id && resolvedCompanyId && (
+          <ProjectIssuesList projectId={project.id} companyId={resolvedCompanyId} />
+        )}
+      </SupportPanel>
     </div>
   );
 }

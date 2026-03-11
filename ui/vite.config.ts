@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
+    modulePreload: false,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -13,16 +14,20 @@ export default defineConfig({
             return undefined;
           }
 
-          if (id.includes("@mdxeditor") || id.includes("lexical")) {
-            return "mdx-editor";
+          if (id.includes("/react-router") || id.includes("/@remix-run/")) {
+            return "router";
+          }
+
+          if (id.includes("/@tanstack/")) {
+            return "query";
+          }
+
+          if (id.includes("/@radix-ui/") || id.includes("/radix-ui/")) {
+            return "radix";
           }
 
           if (id.includes("@dnd-kit")) {
             return "dnd-kit";
-          }
-
-          if (id.includes("framer-motion")) {
-            return "motion";
           }
 
           return undefined;

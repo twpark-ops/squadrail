@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { MarkdownBody } from "./MarkdownBody";
-import { MarkdownEditor, type MentionOption } from "./MarkdownEditor";
+import { MarkdownEditor, type MentionOption } from "./MarkdownEditorLazy";
 
 interface InlineEditorProps {
   value: string;

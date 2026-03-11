@@ -150,7 +150,7 @@ export function Layout() {
       const shellRect = desktopSidebarShellRef.current?.getBoundingClientRect();
       const railRect = companyRailRef.current?.getBoundingClientRect();
       if (!shellRect) return;
-      const railWidth = railRect?.width ?? 82;
+      const railWidth = railRect?.width ?? 64;
       const nextWidth = event.clientX - shellRect.left - railWidth;
       setSidebarWidth(nextWidth);
     };
@@ -319,12 +319,12 @@ export function Layout() {
             id="main-content"
             tabIndex={-1}
             className={cn(
-              "relative flex-1 overflow-auto px-4 pb-8 pt-6 md:px-6 md:pb-10 md:pt-6 lg:px-8",
+              "relative flex-1 overflow-auto px-3 pb-7 pt-4 md:px-5 md:pb-8 md:pt-5 lg:px-6",
               isMobile && "pb-[calc(5.75rem+env(safe-area-inset-bottom))]",
             )}
             onScroll={handleMainScroll}
           >
-            <div className="mx-auto w-full max-w-[1600px]">
+            <div className="mx-auto w-full max-w-[1500px]">
               {showSetupGate && selectedCompany && setupProgress && (
                 <div className="mb-6 rounded-[1.6rem] border border-amber-300/32 bg-[color-mix(in_oklab,var(--card)_95%,#f5e7c6)] px-5 py-4 shadow-[0_14px_30px_rgba(180,129,18,0.06)]">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

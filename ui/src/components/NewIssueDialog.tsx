@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ChangeEvent } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type ChangeEvent,
+} from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
@@ -11,11 +18,7 @@ import { assetsApi } from "../api/assets";
 import { queryKeys } from "../lib/queryKeys";
 import { useProjectOrder } from "../hooks/useProjectOrder";
 import { issueUrl } from "../lib/utils";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -38,11 +41,27 @@ import {
   FileText as AttachmentIcon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { issueStatusText, issueStatusTextDefault, priorityColor, priorityColorDefault } from "../lib/status-colors";
-import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "./MarkdownEditor";
+import {
+  issueStatusText,
+  issueStatusTextDefault,
+  priorityColor,
+  priorityColorDefault,
+} from "../lib/status-colors";
+import {
+  MarkdownEditor,
+  type MarkdownEditorRef,
+  type MentionOption,
+} from "./MarkdownEditorLazy";
 import { AgentIcon } from "./AgentIconPicker";
-import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
-import { readJsonStorageAlias, writeJsonStorageAlias, removeStorageAlias } from "../lib/storage-aliases";
+import {
+  InlineEntitySelector,
+  type InlineEntityOption,
+} from "./InlineEntitySelector";
+import {
+  readJsonStorageAlias,
+  writeJsonStorageAlias,
+  removeStorageAlias,
+} from "../lib/storage-aliases";
 
 const DRAFT_KEY = "squadrail:issue-draft";
 const LEGACY_DRAFT_KEY = "squadrail:issue-draft";
@@ -125,7 +144,11 @@ function buildAssigneeAdapterOverrides(input: {
 }
 
 function loadDraft(): IssueDraft | null {
-  return readJsonStorageAlias<IssueDraft | null>(DRAFT_KEY, LEGACY_DRAFT_KEY, null);
+  return readJsonStorageAlias<IssueDraft | null>(
+    DRAFT_KEY,
+    LEGACY_DRAFT_KEY,
+    null
+  );
 }
 
 function saveDraft(draft: IssueDraft) {
@@ -137,18 +160,58 @@ function clearDraft() {
 }
 
 const statuses = [
-  { value: "backlog", label: "Backlog", color: issueStatusText.backlog ?? issueStatusTextDefault },
-  { value: "todo", label: "Todo", color: issueStatusText.todo ?? issueStatusTextDefault },
-  { value: "in_progress", label: "In Progress", color: issueStatusText.in_progress ?? issueStatusTextDefault },
-  { value: "in_review", label: "In Review", color: issueStatusText.in_review ?? issueStatusTextDefault },
-  { value: "done", label: "Done", color: issueStatusText.done ?? issueStatusTextDefault },
+  {
+    value: "backlog",
+    label: "Backlog",
+    color: issueStatusText.backlog ?? issueStatusTextDefault,
+  },
+  {
+    value: "todo",
+    label: "Todo",
+    color: issueStatusText.todo ?? issueStatusTextDefault,
+  },
+  {
+    value: "in_progress",
+    label: "In Progress",
+    color: issueStatusText.in_progress ?? issueStatusTextDefault,
+  },
+  {
+    value: "in_review",
+    label: "In Review",
+    color: issueStatusText.in_review ?? issueStatusTextDefault,
+  },
+  {
+    value: "done",
+    label: "Done",
+    color: issueStatusText.done ?? issueStatusTextDefault,
+  },
 ];
 
 const priorities = [
-  { value: "critical", label: "Critical", icon: AlertTriangle, color: priorityColor.critical ?? priorityColorDefault },
-  { value: "high", label: "High", icon: ArrowUp, color: priorityColor.high ?? priorityColorDefault },
-  { value: "medium", label: "Medium", icon: Minus, color: priorityColor.medium ?? priorityColorDefault },
-  { value: "low", label: "Low", icon: ArrowDown, color: priorityColor.low ?? priorityColorDefault },
+  {
+    value: "critical",
+    label: "Critical",
+    icon: AlertTriangle,
+    color: priorityColor.critical ?? priorityColorDefault,
+  },
+  {
+    value: "high",
+    label: "High",
+    icon: ArrowUp,
+    color: priorityColor.high ?? priorityColorDefault,
+  },
+  {
+    value: "medium",
+    label: "Medium",
+    icon: Minus,
+    color: priorityColor.medium ?? priorityColorDefault,
+  },
+  {
+    value: "low",
+    label: "Low",
+    icon: ArrowDown,
+    color: priorityColor.low ?? priorityColorDefault,
+  },
 ];
 
 export function NewIssueDialog() {
@@ -166,13 +229,15 @@ export function NewIssueDialog() {
   const [assigneeModelOverride, setAssigneeModelOverride] = useState("");
   const [assigneeThinkingEffort, setAssigneeThinkingEffort] = useState("");
   const [assigneeChrome, setAssigneeChrome] = useState(false);
-  const [assigneeUseProjectWorkspace, setAssigneeUseProjectWorkspace] = useState(true);
+  const [assigneeUseProjectWorkspace, setAssigneeUseProjectWorkspace] =
+    useState(true);
   const [expanded, setExpanded] = useState(false);
   const [dialogCompanyId, setDialogCompanyId] = useState<string | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveCompanyId = dialogCompanyId ?? selectedCompanyId;
-  const dialogCompany = companies.find((c) => c.id === effectiveCompanyId) ?? selectedCompany;
+  const dialogCompany =
+    companies.find((c) => c.id === effectiveCompanyId) ?? selectedCompany;
 
   // Popover states
   const [statusOpen, setStatusOpen] = useState(false);
@@ -206,9 +271,11 @@ export function NewIssueDialog() {
     userId: currentUserId,
   });
 
-  const assigneeAdapterType = (agents ?? []).find((agent) => agent.id === assigneeId)?.adapterType ?? null;
+  const assigneeAdapterType =
+    (agents ?? []).find((agent) => agent.id === assigneeId)?.adapterType ??
+    null;
   const supportsAssigneeOverrides = Boolean(
-    assigneeAdapterType && ISSUE_OVERRIDE_ADAPTER_TYPES.has(assigneeAdapterType),
+    assigneeAdapterType && ISSUE_OVERRIDE_ADAPTER_TYPES.has(assigneeAdapterType)
   );
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const options: MentionOption[] = [];
@@ -241,10 +308,15 @@ export function NewIssueDialog() {
   });
 
   const createIssue = useMutation({
-    mutationFn: ({ companyId, ...data }: { companyId: string } & Record<string, unknown>) =>
+    mutationFn: ({
+      companyId,
+      ...data
+    }: { companyId: string } & Record<string, unknown>) =>
       issuesApi.create(companyId, data),
     onSuccess: (issue) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(effectiveCompanyId!) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.list(effectiveCompanyId!),
+      });
       if (draftTimer.current) clearTimeout(draftTimer.current);
       clearDraft();
       reset();
@@ -254,7 +326,10 @@ export function NewIssueDialog() {
         title: `${issue.identifier ?? "Issue"} created`,
         body: issue.title,
         tone: "success",
-        action: { label: `View ${issue.identifier ?? "issue"}`, href: issueUrl(issue) },
+        action: {
+          label: `View ${issue.identifier ?? "issue"}`,
+          href: issueUrl(issue),
+        },
       });
     },
   });
@@ -267,15 +342,12 @@ export function NewIssueDialog() {
   });
 
   // Debounced draft saving
-  const scheduleSave = useCallback(
-    (draft: IssueDraft) => {
-      if (draftTimer.current) clearTimeout(draftTimer.current);
-      draftTimer.current = setTimeout(() => {
-        if (draft.title.trim()) saveDraft(draft);
-      }, DEBOUNCE_MS);
-    },
-    [],
-  );
+  const scheduleSave = useCallback((draft: IssueDraft) => {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      if (draft.title.trim()) saveDraft(draft);
+    }, DEBOUNCE_MS);
+  }, []);
 
   // Save draft on meaningful changes
   useEffect(() => {
@@ -350,7 +422,11 @@ export function NewIssueDialog() {
       assigneeAdapterType === "codex_local"
         ? ISSUE_THINKING_EFFORT_OPTIONS.codex_local
         : ISSUE_THINKING_EFFORT_OPTIONS.claude_local;
-    if (!validThinkingValues.some((option) => option.value === assigneeThinkingEffort)) {
+    if (
+      !validThinkingValues.some(
+        (option) => option.value === assigneeThinkingEffort
+      )
+    ) {
       setAssigneeThinkingEffort("");
     }
   }, [supportsAssigneeOverrides, assigneeAdapterType, assigneeThinkingEffort]);
@@ -440,16 +516,19 @@ export function NewIssueDialog() {
   }
 
   const hasDraft = title.trim().length > 0 || description.trim().length > 0;
-  const currentStatus = statuses.find((s) => s.value === status) ?? statuses[1]!;
+  const currentStatus =
+    statuses.find((s) => s.value === status) ?? statuses[1]!;
   const currentPriority = priorities.find((p) => p.value === priority);
   const currentAssignee = (agents ?? []).find((a) => a.id === assigneeId);
-  const currentProject = orderedProjects.find((project) => project.id === projectId);
+  const currentProject = orderedProjects.find(
+    (project) => project.id === projectId
+  );
   const assigneeOptionsTitle =
     assigneeAdapterType === "claude_local"
       ? "Claude options"
       : assigneeAdapterType === "codex_local"
-        ? "Codex options"
-        : "Agent options";
+      ? "Codex options"
+      : "Agent options";
   const thinkingEffortOptions =
     assigneeAdapterType === "codex_local"
       ? ISSUE_THINKING_EFFORT_OPTIONS.codex_local
@@ -463,7 +542,7 @@ export function NewIssueDialog() {
           label: agent.name,
           searchText: `${agent.name} ${agent.role} ${agent.title ?? ""}`,
         })),
-    [agents],
+    [agents]
   );
   const projectOptions = useMemo<InlineEntityOption[]>(
     () =>
@@ -472,7 +551,7 @@ export function NewIssueDialog() {
         label: project.name,
         searchText: project.description ?? "",
       })),
-    [orderedProjects],
+    [orderedProjects]
   );
   const modelOverrideOptions = useMemo<InlineEntityOption[]>(
     () =>
@@ -481,7 +560,7 @@ export function NewIssueDialog() {
         label: model.label,
         searchText: model.id,
       })),
-    [assigneeAdapterModels],
+    [assigneeAdapterModels]
   );
 
   return (
@@ -496,9 +575,7 @@ export function NewIssueDialog() {
         aria-describedby={undefined}
         className={cn(
           "p-0 gap-0 flex flex-col max-h-[calc(100dvh-2rem)]",
-          expanded
-            ? "sm:max-w-2xl h-[calc(100dvh-2rem)]"
-            : "sm:max-w-lg"
+          expanded ? "sm:max-w-2xl h-[calc(100dvh-2rem)]" : "sm:max-w-lg"
         )}
         onKeyDown={handleKeyDown}
       >
@@ -511,7 +588,7 @@ export function NewIssueDialog() {
                 <button
                   className={cn(
                     "px-1.5 py-0.5 rounded text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity",
-                    !dialogCompany?.brandColor && "bg-muted",
+                    !dialogCompany?.brandColor && "bg-muted"
                   )}
                   style={
                     dialogCompany?.brandColor
@@ -526,37 +603,39 @@ export function NewIssueDialog() {
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-48 p-1" align="start">
-                {companies.filter((c) => c.status !== "archived").map((c) => (
-                  <button
-                    key={c.id}
-                    className={cn(
-                      "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
-                      c.id === effectiveCompanyId && "bg-accent",
-                    )}
-                    onClick={() => {
-                      handleCompanyChange(c.id);
-                      setCompanyOpen(false);
-                    }}
-                  >
-                    <span
+                {companies
+                  .filter((c) => c.status !== "archived")
+                  .map((c) => (
+                    <button
+                      key={c.id}
                       className={cn(
-                        "px-1 py-0.5 rounded text-[10px] font-semibold leading-none",
-                        !c.brandColor && "bg-muted",
+                        "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
+                        c.id === effectiveCompanyId && "bg-accent"
                       )}
-                      style={
-                        c.brandColor
-                          ? {
-                              backgroundColor: c.brandColor,
-                              color: getContrastTextColor(c.brandColor),
-                            }
-                          : undefined
-                      }
+                      onClick={() => {
+                        handleCompanyChange(c.id);
+                        setCompanyOpen(false);
+                      }}
                     >
-                      {c.name.slice(0, 3).toUpperCase()}
-                    </span>
-                    <span className="truncate">{c.name}</span>
-                  </button>
-                ))}
+                      <span
+                        className={cn(
+                          "px-1 py-0.5 rounded text-[10px] font-semibold leading-none",
+                          !c.brandColor && "bg-muted"
+                        )}
+                        style={
+                          c.brandColor
+                            ? {
+                                backgroundColor: c.brandColor,
+                                color: getContrastTextColor(c.brandColor),
+                              }
+                            : undefined
+                        }
+                      >
+                        {c.name.slice(0, 3).toUpperCase()}
+                      </span>
+                      <span className="truncate">{c.name}</span>
+                    </button>
+                  ))}
               </PopoverContent>
             </Popover>
             <span className="text-muted-foreground/60">&rsaquo;</span>
@@ -569,7 +648,11 @@ export function NewIssueDialog() {
               className="text-muted-foreground"
               onClick={() => setExpanded(!expanded)}
             >
-              {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {expanded ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
             </Button>
             <Button
               variant="ghost"
@@ -627,7 +710,10 @@ export function NewIssueDialog() {
                 renderTriggerValue={(option) =>
                   option && currentAssignee ? (
                     <>
-                      <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <AgentIcon
+                        icon={currentAssignee.icon}
+                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      />
                       <span className="truncate">{option.label}</span>
                     </>
                   ) : (
@@ -635,11 +721,17 @@ export function NewIssueDialog() {
                   )
                 }
                 renderOption={(option) => {
-                  if (!option.id) return <span className="truncate">{option.label}</span>;
-                  const assignee = (agents ?? []).find((agent) => agent.id === option.id);
+                  if (!option.id)
+                    return <span className="truncate">{option.label}</span>;
+                  const assignee = (agents ?? []).find(
+                    (agent) => agent.id === option.id
+                  );
                   return (
                     <>
-                      <AgentIcon icon={assignee?.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <AgentIcon
+                        icon={assignee?.icon}
+                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      />
                       <span className="truncate">{option.label}</span>
                     </>
                   );
@@ -663,7 +755,9 @@ export function NewIssueDialog() {
                     <>
                       <span
                         className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: currentProject.color ?? "#6366f1" }}
+                        style={{
+                          backgroundColor: currentProject.color ?? "#6366f1",
+                        }}
                       />
                       <span className="truncate">{option.label}</span>
                     </>
@@ -672,8 +766,11 @@ export function NewIssueDialog() {
                   )
                 }
                 renderOption={(option) => {
-                  if (!option.id) return <span className="truncate">{option.label}</span>;
-                  const project = orderedProjects.find((item) => item.id === option.id);
+                  if (!option.id)
+                    return <span className="truncate">{option.label}</span>;
+                  const project = orderedProjects.find(
+                    (item) => item.id === option.id
+                  );
                   return (
                     <>
                       <span
@@ -695,7 +792,11 @@ export function NewIssueDialog() {
               className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
               onClick={() => setAssigneeOptionsOpen((open) => !open)}
             >
-              {assigneeOptionsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {assigneeOptionsOpen ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
               {assigneeOptionsTitle}
             </button>
             {assigneeOptionsOpen && (
@@ -713,7 +814,9 @@ export function NewIssueDialog() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs text-muted-foreground">Thinking effort</div>
+                  <div className="text-xs text-muted-foreground">
+                    Thinking effort
+                  </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {thinkingEffortOptions.map((option) => (
                       <button
@@ -731,7 +834,9 @@ export function NewIssueDialog() {
                 </div>
                 {assigneeAdapterType === "claude_local" && (
                   <div className="flex items-center justify-between rounded-md border border-border px-2 py-1.5">
-                    <div className="text-xs text-muted-foreground">Enable Chrome (--chrome)</div>
+                    <div className="text-xs text-muted-foreground">
+                      Enable Chrome (--chrome)
+                    </div>
                     <button
                       className={cn(
                         "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
@@ -749,18 +854,24 @@ export function NewIssueDialog() {
                   </div>
                 )}
                 <div className="flex items-center justify-between rounded-md border border-border px-2 py-1.5">
-                  <div className="text-xs text-muted-foreground">Use project workspace</div>
+                  <div className="text-xs text-muted-foreground">
+                    Use project workspace
+                  </div>
                   <button
                     className={cn(
                       "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
                       assigneeUseProjectWorkspace ? "bg-green-600" : "bg-muted"
                     )}
-                    onClick={() => setAssigneeUseProjectWorkspace((value) => !value)}
+                    onClick={() =>
+                      setAssigneeUseProjectWorkspace((value) => !value)
+                    }
                   >
                     <span
                       className={cn(
                         "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
-                        assigneeUseProjectWorkspace ? "translate-x-4.5" : "translate-x-0.5"
+                        assigneeUseProjectWorkspace
+                          ? "translate-x-4.5"
+                          : "translate-x-0.5"
                       )}
                     />
                   </button>
@@ -771,7 +882,12 @@ export function NewIssueDialog() {
         )}
 
         {/* Description */}
-        <div className={cn("px-4 pb-2 overflow-y-auto min-h-0 border-t border-border/60 pt-3", expanded ? "flex-1" : "")}>
+        <div
+          className={cn(
+            "px-4 pb-2 overflow-y-auto min-h-0 border-t border-border/60 pt-3",
+            expanded ? "flex-1" : ""
+          )}
+        >
           <MarkdownEditor
             ref={descriptionEditorRef}
             value={description}
@@ -779,7 +895,10 @@ export function NewIssueDialog() {
             placeholder="Add description..."
             bordered={false}
             mentions={mentionOptions}
-            contentClassName={cn("text-sm text-muted-foreground", expanded ? "min-h-[220px]" : "min-h-[120px]")}
+            contentClassName={cn(
+              "text-sm text-muted-foreground",
+              expanded ? "min-h-[220px]" : "min-h-[120px]"
+            )}
             imageUploadHandler={async (file) => {
               const asset = await uploadDescriptionImage.mutateAsync(file);
               return asset.contentPath;
@@ -805,7 +924,10 @@ export function NewIssueDialog() {
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
                     s.value === status && "bg-accent"
                   )}
-                  onClick={() => { setStatus(s.value); setStatusOpen(false); }}
+                  onClick={() => {
+                    setStatus(s.value);
+                    setStatusOpen(false);
+                  }}
                 >
                   <CircleDot className={cn("h-3 w-3", s.color)} />
                   {s.label}
@@ -820,7 +942,9 @@ export function NewIssueDialog() {
               <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
                 {currentPriority ? (
                   <>
-                    <currentPriority.icon className={cn("h-3 w-3", currentPriority.color)} />
+                    <currentPriority.icon
+                      className={cn("h-3 w-3", currentPriority.color)}
+                    />
                     {currentPriority.label}
                   </>
                 ) : (
@@ -839,7 +963,10 @@ export function NewIssueDialog() {
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
                     p.value === priority && "bg-accent"
                   )}
-                  onClick={() => { setPriority(p.value); setPriorityOpen(false); }}
+                  onClick={() => {
+                    setPriority(p.value);
+                    setPriorityOpen(false);
+                  }}
                 >
                   <p.icon className={cn("h-3 w-3", p.color)} />
                   {p.label}

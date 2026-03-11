@@ -27,40 +27,16 @@ import {
   thematicBreakPlugin,
   type RealmPlugin,
 } from "@mdxeditor/editor";
-import "@mdxeditor/editor/style.css";
-import { buildProjectMentionHref, parseProjectMentionHref } from "@squadrail/shared";
+import {
+  buildProjectMentionHref,
+  parseProjectMentionHref,
+} from "@squadrail/shared";
 import { cn } from "../lib/utils";
-
-/* ---- Mention types ---- */
-
-export interface MentionOption {
-  id: string;
-  name: string;
-  kind?: "agent" | "project";
-  projectId?: string;
-  projectColor?: string | null;
-}
-
-/* ---- Editor props ---- */
-
-interface MarkdownEditorProps {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  className?: string;
-  contentClassName?: string;
-  onBlur?: () => void;
-  imageUploadHandler?: (file: File) => Promise<string>;
-  bordered?: boolean;
-  /** List of mentionable entities. Enables @-mention autocomplete. */
-  mentions?: MentionOption[];
-  /** Called on Cmd/Ctrl+Enter */
-  onSubmit?: () => void;
-}
-
-export interface MarkdownEditorRef {
-  focus: () => void;
-}
+import type {
+  MarkdownEditorProps,
+  MarkdownEditorRef,
+  MentionOption,
+} from "./MarkdownEditor.types";
 
 /* ---- Mention detection helpers ---- */
 
@@ -149,18 +125,27 @@ function detectMention(container: HTMLElement): MentionState | null {
 
 function mentionMarkdown(option: MentionOption): string {
   if (option.kind === "project" && option.projectId) {
-    return `[@${option.name}](${buildProjectMentionHref(option.projectId, option.projectColor ?? null)}) `;
+    return `[@${option.name}](${buildProjectMentionHref(
+      option.projectId,
+      option.projectColor ?? null
+    )}) `;
   }
   return `@${option.name} `;
 }
 
 /** Replace `@<query>` in the markdown string with the selected mention token. */
-function applyMention(markdown: string, query: string, option: MentionOption): string {
+function applyMention(
+  markdown: string,
+  query: string,
+  option: MentionOption
+): string {
   const search = `@${query}`;
   const replacement = mentionMarkdown(option);
   const idx = markdown.lastIndexOf(search);
   if (idx === -1) return markdown;
-  return markdown.slice(0, idx) + replacement + markdown.slice(idx + search.length);
+  return (
+    markdown.slice(0, idx) + replacement + markdown.slice(idx + search.length)
+  );
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
@@ -190,18 +175,24 @@ function mentionChipStyle(color: string | null): CSSProperties | undefined {
 
 /* ---- Component ---- */
 
-export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(function MarkdownEditor({
-  value,
-  onChange,
-  placeholder,
-  className,
-  contentClassName,
-  onBlur,
-  imageUploadHandler,
-  bordered = true,
-  mentions,
-  onSubmit,
-}: MarkdownEditorProps, forwardedRef) {
+export const MarkdownEditor = forwardRef<
+  MarkdownEditorRef,
+  MarkdownEditorProps
+>(function MarkdownEditor(
+  {
+    value,
+    onChange,
+    placeholder,
+    className,
+    contentClassName,
+    onBlur,
+    imageUploadHandler,
+    bordered = true,
+    mentions,
+    onSubmit,
+  }: MarkdownEditorProps,
+  forwardedRef
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const ref = useRef<MDXEditorMethods>(null);
   const latestValueRef = useRef(value);
@@ -217,7 +208,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
   const [mentionState, setMentionState] = useState<MentionState | null>(null);
   const mentionStateRef = useRef<MentionState | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const mentionActive = mentionState !== null && mentions && mentions.length > 0;
+  const mentionActive =
+    mentionState !== null && mentions && mentions.length > 0;
   const projectColorById = useMemo(() => {
     const map = new Map<string, string | null>();
     for (const mention of mentions ?? []) {
@@ -234,11 +226,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
     return mentions.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 8);
   }, [mentionState?.query, mentions]);
 
-  useImperativeHandle(forwardedRef, () => ({
-    focus: () => {
-      ref.current?.focus(undefined, { defaultSelection: "rootEnd" });
-    },
-  }), []);
+  useImperativeHandle(
+    forwardedRef,
+    () => ({
+      focus: () => {
+        ref.current?.focus(undefined, { defaultSelection: "rootEnd" });
+      },
+    }),
+    []
+  );
 
   // Whether the image plugin should be included (boolean is stable across renders
   // as long as the handler presence doesn't toggle)
@@ -254,7 +250,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
             setUploadError(null);
             return src;
           } catch (err) {
-            const message = err instanceof Error ? err.message : "Image upload failed";
+            const message =
+              err instanceof Error ? err.message : "Image upload failed";
             setUploadError(message);
             throw err;
           }
@@ -289,7 +286,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
   }, [value]);
 
   const decorateProjectMentions = useCallback(() => {
-    const editable = containerRef.current?.querySelector('[contenteditable="true"]');
+    const editable = containerRef.current?.querySelector(
+      '[contenteditable="true"]'
+    );
     if (!editable) return;
     const links = editable.querySelectorAll("a");
     for (const node of links) {
@@ -307,7 +306,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         continue;
       }
 
-      const color = parsed.color ?? projectColorById.get(parsed.projectId) ?? null;
+      const color =
+        parsed.color ?? projectColorById.get(parsed.projectId) ?? null;
       link.dataset.projectMention = "true";
       link.classList.add("squadrail-project-mention-chip");
       link.setAttribute("contenteditable", "false");
@@ -354,7 +354,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
   }, [checkMention, mentions]);
 
   useEffect(() => {
-    const editable = containerRef.current?.querySelector('[contenteditable="true"]');
+    const editable = containerRef.current?.querySelector(
+      '[contenteditable="true"]'
+    );
     if (!editable) return;
     decorateProjectMentions();
     const observer = new MutationObserver(() => {
@@ -426,9 +428,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
             }
           }
           // Fallback: search for the replacement in text nodes
-          const editable = containerRef.current?.querySelector('[contenteditable="true"]');
+          const editable = containerRef.current?.querySelector(
+            '[contenteditable="true"]'
+          );
           if (!editable) return;
-          const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+          const walker = document.createTreeWalker(
+            editable,
+            NodeFilter.SHOW_TEXT
+          );
           let node: Text | null;
           while ((node = walker.nextNode() as Text | null)) {
             const text = node.textContent ?? "";
@@ -467,7 +474,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       mentionStateRef.current = null;
       setMentionState(null);
     },
-    [decorateProjectMentions, onChange],
+    [decorateProjectMentions, onChange]
   );
 
   function hasFilePayload(evt: DragEvent<HTMLDivElement>) {
@@ -481,9 +488,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       ref={containerRef}
       className={cn(
         "relative squadrail-mdxeditor-scope",
-        bordered ? "rounded-md border border-border bg-transparent" : "bg-transparent",
+        bordered
+          ? "rounded-md border border-border bg-transparent"
+          : "bg-transparent",
         isDragOver && "ring-1 ring-primary/60 bg-accent/20",
-        className,
+        className
       )}
       onKeyDownCapture={(e) => {
         // Cmd/Ctrl+Enter to submit
@@ -515,7 +524,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
             if (e.key === "ArrowDown") {
               e.preventDefault();
               e.stopPropagation();
-              setMentionIndex((prev) => Math.min(prev + 1, filteredMentions.length - 1));
+              setMentionIndex((prev) =>
+                Math.min(prev + 1, filteredMentions.length - 1)
+              );
               return;
             }
             if (e.key === "ArrowUp") {
@@ -562,10 +573,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
           onChange(next);
         }}
         onBlur={() => onBlur?.()}
-        className={cn("squadrail-mdxeditor", !bordered && "squadrail-mdxeditor--borderless")}
+        className={cn(
+          "squadrail-mdxeditor",
+          !bordered && "squadrail-mdxeditor--borderless"
+        )}
         contentEditableClassName={cn(
           "squadrail-mdxeditor-content focus:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:list-item",
-          contentClassName,
+          contentClassName
         )}
         overlayContainer={containerRef.current}
         plugins={plugins}
@@ -582,7 +596,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
               key={option.id}
               className={cn(
                 "flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left hover:bg-accent/50 transition-colors",
-                i === mentionIndex && "bg-accent",
+                i === mentionIndex && "bg-accent"
               )}
               onMouseDown={(e) => {
                 e.preventDefault(); // prevent blur
@@ -613,7 +627,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         <div
           className={cn(
             "pointer-events-none absolute inset-1 z-40 flex items-center justify-center rounded-md border border-dashed border-primary/80 bg-primary/10 text-xs font-medium text-primary",
-            !bordered && "inset-0 rounded-sm",
+            !bordered && "inset-0 rounded-sm"
           )}
         >
           Drop image to upload

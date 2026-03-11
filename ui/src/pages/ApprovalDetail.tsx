@@ -9,10 +9,13 @@ import { queryKeys } from "../lib/queryKeys";
 import { StatusBadge } from "../components/StatusBadge";
 import { Identity } from "../components/Identity";
 import { typeLabel, typeIcon, defaultTypeIcon, ApprovalPayloadRenderer } from "../components/ApprovalPayload";
+import { HeroSection } from "../components/HeroSection";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckCircle2, ChevronRight, Sparkles } from "lucide-react";
+import { CheckCircle2, ChevronRight, MessageSquareText, Sparkles, Shapes, ShieldCheck, UserRound } from "lucide-react";
 import type { ApprovalComment } from "@squadrail/shared";
 import { MarkdownBody } from "../components/MarkdownBody";
 
@@ -167,10 +170,55 @@ export function ApprovalDetail() {
         : {
             label: "Back to approvals",
             to: "/approvals",
-          };
+        };
+  const requesterName = approval.requestedByAgentId
+    ? agentNameById.get(approval.requestedByAgentId) ?? approval.requestedByAgentId.slice(0, 8)
+    : "Board";
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-4xl space-y-8">
+      <HeroSection
+        title={typeLabel[approval.type] ?? approval.type.replace(/_/g, " ")}
+        subtitle="Review the request payload, linked work, and conversation trail before resolving the decision."
+        eyebrow="Approval Detail"
+        actions={
+          <div className="flex items-center gap-3">
+            <StatusBadge status={approval.status} />
+            <Button size="sm" variant="outline" onClick={() => navigate(resolvedCta.to)}>
+              {resolvedCta.label}
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={ShieldCheck}
+          label="Status"
+          value={approval.status.replace(/_/g, " ")}
+          detail="Current board state for this approval request."
+          tone="accent"
+        />
+        <SupportMetricCard
+          icon={Shapes}
+          label="Request type"
+          value={typeLabel[approval.type] ?? approval.type.replace(/_/g, " ")}
+          detail="Approval category the system is asking the board to resolve."
+        />
+        <SupportMetricCard
+          icon={UserRound}
+          label="Requested by"
+          value={requesterName}
+          detail="Primary requester attached to this approval record."
+        />
+        <SupportMetricCard
+          icon={MessageSquareText}
+          label="Comments"
+          value={comments?.length ?? 0}
+          detail="Visible board comments and follow-up notes attached to this approval."
+        />
+      </div>
+
       {showApprovedBanner && (
         <div className="border border-green-300 dark:border-green-700/40 bg-green-50 dark:bg-green-900/20 rounded-lg px-4 py-3 animate-in fade-in zoom-in-95 duration-300">
           <div className="flex items-start justify-between gap-3">
@@ -197,7 +245,12 @@ export function ApprovalDetail() {
           </div>
         </div>
       )}
-      <div className="border border-border rounded-lg p-4 space-y-3">
+
+      <SupportPanel
+        title="Decision brief"
+        description="The approval payload should explain why this request exists, what it touches, and where the board should branch next."
+        contentClassName="space-y-4"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TypeIcon className="h-5 w-5 text-muted-foreground shrink-0" />
@@ -315,10 +368,13 @@ export function ApprovalDetail() {
             </Button>
           )}
         </div>
-      </div>
+      </SupportPanel>
 
-      <div className="border border-border rounded-lg p-4 space-y-3">
-        <h3 className="text-sm font-medium">Comments ({comments?.length ?? 0})</h3>
+      <SupportPanel
+        title={`Comments (${comments?.length ?? 0})`}
+        description="Use comments for decision rationale, revision guidance, and follow-up notes that other operators can reuse."
+        contentClassName="space-y-4"
+      >
         <div className="space-y-2">
           {(comments ?? []).map((comment: ApprovalComment) => (
             <div key={comment.id} className="border border-border/60 rounded-md p-3">
@@ -356,7 +412,7 @@ export function ApprovalDetail() {
             {addCommentMutation.isPending ? "Posting…" : "Post comment"}
           </Button>
         </div>
-      </div>
+      </SupportPanel>
     </div>
   );
 }

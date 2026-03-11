@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import type { Issue, LiveEvent } from "@squadrail/shared";
@@ -31,7 +37,9 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
-function summarizeEntry(entry: TranscriptEntry): { text: string; tone: FeedTone } | null {
+function summarizeEntry(
+  entry: TranscriptEntry
+): { text: string; tone: FeedTone } | null {
   if (entry.kind === "assistant") {
     const text = entry.text.trim();
     return text ? { text, tone: "assistant" } : null;
@@ -70,7 +78,7 @@ function createFeedItem(
   ts: string,
   text: string,
   tone: FeedTone,
-  nextId: number,
+  nextId: number
 ): FeedItem | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -90,7 +98,7 @@ function parseStdoutChunk(
   chunk: string,
   ts: string,
   pendingByRun: Map<string, string>,
-  nextIdRef: MutableRefObject<number>,
+  nextIdRef: MutableRefObject<number>
 ): FeedItem[] {
   const pendingKey = `${run.id}:stdout`;
   const combined = `${pendingByRun.get(pendingKey) ?? ""}${chunk}`;
@@ -98,7 +106,11 @@ function parseStdoutChunk(
   pendingByRun.set(pendingKey, split.pop() ?? "");
   const adapter = getUIAdapter(run.adapterType);
 
-  const summarized: Array<{ text: string; tone: FeedTone; thinkingDelta?: boolean }> = [];
+  const summarized: Array<{
+    text: string;
+    tone: FeedTone;
+    thinkingDelta?: boolean;
+  }> = [];
   const appendSummary = (entry: TranscriptEntry) => {
     if (entry.kind === "thinking" && entry.delta) {
       const text = entry.text;
@@ -107,7 +119,11 @@ function parseStdoutChunk(
       if (last && last.thinkingDelta) {
         last.text += text;
       } else {
-        summarized.push({ text: `[thinking] ${text}`, tone: "info", thinkingDelta: true });
+        summarized.push({
+          text: `[thinking] ${text}`,
+          tone: "info",
+          thinkingDelta: true,
+        });
       }
       return;
     }
@@ -123,7 +139,13 @@ function parseStdoutChunk(
     if (!trimmed) continue;
     const parsed = adapter.parseStdoutLine(trimmed, ts);
     if (parsed.length === 0) {
-      const fallback = createFeedItem(run, ts, trimmed, "info", nextIdRef.current++);
+      const fallback = createFeedItem(
+        run,
+        ts,
+        trimmed,
+        "info",
+        nextIdRef.current++
+      );
       if (fallback) items.push(fallback);
       continue;
     }
@@ -133,7 +155,13 @@ function parseStdoutChunk(
   }
 
   for (const summary of summarized) {
-    const item = createFeedItem(run, ts, summary.text, summary.tone, nextIdRef.current++);
+    const item = createFeedItem(
+      run,
+      ts,
+      summary.text,
+      summary.tone,
+      nextIdRef.current++
+    );
     if (item) items.push(item);
   }
 
@@ -145,7 +173,7 @@ function parseStderrChunk(
   chunk: string,
   ts: string,
   pendingByRun: Map<string, string>,
-  nextIdRef: MutableRefObject<number>,
+  nextIdRef: MutableRefObject<number>
 ): FeedItem[] {
   const pendingKey = `${run.id}:stderr`;
   const combined = `${pendingByRun.get(pendingKey) ?? ""}${chunk}`;
@@ -169,14 +197,17 @@ interface ActiveAgentsPanelProps {
 }
 
 export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
-  const [feedByRun, setFeedByRun] = useState<Map<string, FeedItem[]>>(new Map());
+  const [feedByRun, setFeedByRun] = useState<Map<string, FeedItem[]>>(
+    new Map()
+  );
   const seenKeysRef = useRef(new Set<string>());
   const pendingByRunRef = useRef(new Map<string, string>());
   const nextIdRef = useRef(1);
 
   const { data: liveRuns } = useQuery({
     queryKey: [...queryKeys.liveRuns(companyId), "dashboard"],
-    queryFn: () => heartbeatsApi.liveRunsForCompany(companyId, MIN_DASHBOARD_RUNS),
+    queryFn: () =>
+      heartbeatsApi.liveRunsForCompany(companyId, MIN_DASHBOARD_RUNS),
   });
 
   const runs = liveRuns ?? [];
@@ -195,7 +226,10 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
   }, [issues]);
 
   const runById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
-  const activeRunIds = useMemo(() => new Set(runs.filter(isRunActive).map((r) => r.id)), [runs]);
+  const activeRunIds = useMemo(
+    () => new Set(runs.filter(isRunActive).map((r) => r.id)),
+    [runs]
+  );
   const runningCount = runs.filter((run) => run.status === "running").length;
   const queuedCount = runs.filter((run) => run.status === "queued").length;
 
@@ -239,7 +273,9 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
     const connect = () => {
       if (closed) return;
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const url = `${protocol}://${window.location.host}/api/companies/${encodeURIComponent(companyId)}/events/ws`;
+      const url = `${protocol}://${
+        window.location.host
+      }/api/companies/${encodeURIComponent(companyId)}/events/ws`;
       socket = new WebSocket(url);
 
       socket.onmessage = (message) => {
@@ -262,27 +298,50 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
         if (!run) return;
 
         if (event.type === "heartbeat.run.event") {
-          const seq = typeof payload["seq"] === "number" ? payload["seq"] : null;
+          const seq =
+            typeof payload["seq"] === "number" ? payload["seq"] : null;
           const eventType = readString(payload["eventType"]) ?? "event";
           const messageText = readString(payload["message"]) ?? eventType;
-          const dedupeKey = `${runId}:event:${seq ?? `${eventType}:${messageText}:${event.createdAt}`}`;
+          const dedupeKey = `${runId}:event:${
+            seq ?? `${eventType}:${messageText}:${event.createdAt}`
+          }`;
           if (seenKeysRef.current.has(dedupeKey)) return;
           seenKeysRef.current.add(dedupeKey);
           if (seenKeysRef.current.size > 2000) seenKeysRef.current.clear();
-          const tone = eventType === "error" ? "error" : eventType === "lifecycle" ? "warn" : "info";
-          const item = createFeedItem(run, event.createdAt, messageText, tone, nextIdRef.current++);
+          const tone =
+            eventType === "error"
+              ? "error"
+              : eventType === "lifecycle"
+              ? "warn"
+              : "info";
+          const item = createFeedItem(
+            run,
+            event.createdAt,
+            messageText,
+            tone,
+            nextIdRef.current++
+          );
           if (item) appendItems(run.id, [item]);
           return;
         }
 
         if (event.type === "heartbeat.run.status") {
           const status = readString(payload["status"]) ?? "updated";
-          const dedupeKey = `${runId}:status:${status}:${readString(payload["finishedAt"]) ?? ""}`;
+          const dedupeKey = `${runId}:status:${status}:${
+            readString(payload["finishedAt"]) ?? ""
+          }`;
           if (seenKeysRef.current.has(dedupeKey)) return;
           seenKeysRef.current.add(dedupeKey);
           if (seenKeysRef.current.size > 2000) seenKeysRef.current.clear();
-          const tone = status === "failed" || status === "timed_out" ? "error" : "warn";
-          const item = createFeedItem(run, event.createdAt, `run ${status}`, tone, nextIdRef.current++);
+          const tone =
+            status === "failed" || status === "timed_out" ? "error" : "warn";
+          const item = createFeedItem(
+            run,
+            event.createdAt,
+            `run ${status}`,
+            tone,
+            nextIdRef.current++
+          );
           if (item) appendItems(run.id, [item]);
           return;
         }
@@ -290,12 +349,31 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
         if (event.type === "heartbeat.run.log") {
           const chunk = readString(payload["chunk"]);
           if (!chunk) return;
-          const stream = readString(payload["stream"]) === "stderr" ? "stderr" : "stdout";
+          const stream =
+            readString(payload["stream"]) === "stderr" ? "stderr" : "stdout";
           if (stream === "stderr") {
-            appendItems(run.id, parseStderrChunk(run, chunk, event.createdAt, pendingByRunRef.current, nextIdRef));
+            appendItems(
+              run.id,
+              parseStderrChunk(
+                run,
+                chunk,
+                event.createdAt,
+                pendingByRunRef.current,
+                nextIdRef
+              )
+            );
             return;
           }
-          appendItems(run.id, parseStdoutChunk(run, chunk, event.createdAt, pendingByRunRef.current, nextIdRef));
+          appendItems(
+            run.id,
+            parseStdoutChunk(
+              run,
+              chunk,
+              event.createdAt,
+              pendingByRunRef.current,
+              nextIdRef
+            )
+          );
         }
       };
 
@@ -323,14 +401,17 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
   }, [activeRunIds, companyId, runById]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-border/80 bg-background/72 px-4 py-3">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-border/80 bg-background/72 px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-foreground">
-            {runs.length === 0 ? "No live execution right now" : `${runs.length} active or recent agent sessions`}
+            {runs.length === 0
+              ? "No live execution right now"
+              : `${runs.length} active or recent agent sessions`}
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            Focus on the latest meaningful handoff instead of raw transcript walls.
+            Focus on the latest meaningful handoff instead of raw transcript
+            walls.
           </div>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -350,7 +431,7 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
           <p className="text-sm text-muted-foreground">No recent agent runs.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {runs.map((run) => (
             <AgentRunCard
               key={run.id}
@@ -383,39 +464,41 @@ function AgentRunCard({
     latest?.tone === "error"
       ? "text-red-600 dark:text-red-300"
       : latest?.tone === "warn"
-        ? "text-amber-600 dark:text-amber-300"
-        : latest?.tone === "assistant"
-          ? "text-emerald-700 dark:text-emerald-200"
-          : latest?.tone === "tool"
-            ? "text-cyan-700 dark:text-cyan-200"
-            : "text-foreground";
+      ? "text-amber-600 dark:text-amber-300"
+      : latest?.tone === "assistant"
+      ? "text-emerald-700 dark:text-emerald-200"
+      : latest?.tone === "tool"
+      ? "text-cyan-700 dark:text-cyan-200"
+      : "text-foreground";
   const fallbackText = isActive
     ? "Execution is live, waiting for the next meaningful event."
     : run.finishedAt
-      ? `Finished ${relativeTime(run.finishedAt)}`
-      : `Started ${relativeTime(run.createdAt)}`;
+    ? `Finished ${relativeTime(run.finishedAt)}`
+    : `Started ${relativeTime(run.createdAt)}`;
 
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[1.45rem] border bg-card/88 shadow-card",
-        isActive ? "border-primary/18" : "border-border/85",
+        "overflow-hidden rounded-[1.2rem] border bg-card/88 shadow-card",
+        isActive ? "border-primary/18" : "border-border/85"
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-3.5">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <span className="relative flex h-2.5 w-2.5 shrink-0">
               <span
                 className={cn(
                   "absolute inline-flex h-full w-full rounded-full",
-                  isActive ? "animate-ping bg-primary/55" : "bg-muted-foreground/25",
+                  isActive
+                    ? "animate-ping bg-primary/55"
+                    : "bg-muted-foreground/25"
                 )}
               />
               <span
                 className={cn(
                   "relative inline-flex h-2.5 w-2.5 rounded-full",
-                  isActive ? "bg-primary" : "bg-muted-foreground/45",
+                  isActive ? "bg-primary" : "bg-muted-foreground/45"
                 )}
               />
             </span>
@@ -425,7 +508,7 @@ function AgentRunCard({
             </span>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{run.triggerDetail ?? run.invocationSource}</span>
             <span className="text-border">•</span>
             <span>{relativeTime(run.startedAt ?? run.createdAt)}</span>
@@ -434,8 +517,14 @@ function AgentRunCard({
           {run.issueId && (
             <Link
               to={workIssuePath(issue?.identifier ?? run.issueId)}
-              className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground no-underline hover:border-primary/20 hover:text-primary"
-              title={issue?.title ? `${issue.identifier ?? run.issueId.slice(0, 8)} - ${issue.title}` : issue?.identifier ?? run.issueId.slice(0, 8)}
+              className="mt-2.5 inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground no-underline hover:border-primary/20 hover:text-primary"
+              title={
+                issue?.title
+                  ? `${issue.identifier ?? run.issueId.slice(0, 8)} - ${
+                      issue.title
+                    }`
+                  : issue?.identifier ?? run.issueId.slice(0, 8)
+              }
             >
               <span className="truncate">
                 {issue?.identifier ?? run.issueId.slice(0, 8)}
@@ -455,7 +544,7 @@ function AgentRunCard({
         </Link>
       </div>
 
-      <div className="border-t border-border/70 bg-background/66 px-4 py-4">
+      <div className="border-t border-border/70 bg-background/66 px-4 py-3.5">
         <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
           Latest signal
         </div>
@@ -463,11 +552,11 @@ function AgentRunCard({
           {latest?.text ?? fallbackText}
         </div>
         {recent.length > 1 && (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
             {recent.slice(0, -1).map((item) => (
               <span
                 key={item.id}
-                className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] text-muted-foreground"
+                className="rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground"
               >
                 {relativeTime(item.ts)} · {item.text.slice(0, 48)}
               </span>

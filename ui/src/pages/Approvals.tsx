@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import { useNavigate, useLocation } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ShieldCheck, Sparkles, Clock3, AlertTriangle } from "lucide-react";
+
+import { Tabs } from "@/components/ui/tabs";
+
 import { approvalsApi } from "../api/approvals";
 import { agentsApi } from "../api/agents";
-import { useCompany } from "../context/CompanyContext";
-import { useBreadcrumbs } from "../context/BreadcrumbContext";
-import { queryKeys } from "../lib/queryKeys";
-import { cn } from "../lib/utils";
-import { PageTabBar } from "../components/PageTabBar";
-import { Tabs } from "@/components/ui/tabs";
-import { ShieldCheck } from "lucide-react";
 import { ApprovalCard } from "../components/ApprovalCard";
+import { EmptyState } from "../components/EmptyState";
+import { HeroSection } from "../components/HeroSection";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { PageTabBar } from "../components/PageTabBar";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
+import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useCompany } from "../context/CompanyContext";
+import { queryKeys } from "../lib/queryKeys";
 
 type StatusFilter = "pending" | "all";
 
@@ -64,18 +70,39 @@ export function Approvals() {
     },
   });
 
-  const filtered = (data ?? [])
-    .filter(
-      (a) => statusFilter === "all" || a.status === "pending" || a.status === "revision_requested",
-    )
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const actionableCount = useMemo(
+    () => (data ?? []).filter((approval) => approval.status === "pending" || approval.status === "revision_requested").length,
+    [data],
+  );
+  const resolvedCount = useMemo(
+    () => (data ?? []).filter((approval) => approval.status === "approved" || approval.status === "rejected").length,
+    [data],
+  );
+  const revisionCount = useMemo(
+    () => (data ?? []).filter((approval) => approval.status === "revision_requested").length,
+    [data],
+  );
+  const activeRequesters = useMemo(
+    () =>
+      new Set(
+        (data ?? [])
+          .filter((approval) => approval.status === "pending" || approval.status === "revision_requested")
+          .map((approval) => approval.requestedByAgentId)
+          .filter((value): value is string => Boolean(value)),
+      ).size,
+    [data],
+  );
 
-  const pendingCount = (data ?? []).filter(
-    (a) => a.status === "pending" || a.status === "revision_requested",
-  ).length;
+  const filtered = useMemo(
+    () =>
+      (data ?? [])
+        .filter((approval) => statusFilter === "all" || approval.status === "pending" || approval.status === "revision_requested")
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [data, statusFilter],
+  );
 
   if (!selectedCompanyId) {
-    return <p className="text-sm text-muted-foreground">Select a company first.</p>;
+    return <EmptyState icon={ShieldCheck} message="Select a company to review approvals." />;
   }
 
   if (isLoading) {
@@ -83,50 +110,87 @@ export function Approvals() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Tabs value={statusFilter} onValueChange={(v) => navigate(`/approvals/${v}`)}>
-          <PageTabBar items={[
-            { value: "pending", label: <>Pending{pendingCount > 0 && (
-              <span className={cn(
-                "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                "bg-yellow-500/20 text-yellow-500"
-              )}>
-                {pendingCount}
-              </span>
-            )}</> },
-            { value: "all", label: "All" },
-          ]} />
-        </Tabs>
+    <div className="space-y-8">
+      <HeroSection
+        title="Approvals"
+        subtitle="Review the decisions waiting on human confirmation, revision loops, and recently resolved requests."
+        eyebrow="Decision Surface"
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Clock3}
+          label="Actionable"
+          value={actionableCount}
+          detail="Pending approvals and revision requests that still need a board decision."
+          tone={actionableCount > 0 ? "accent" : "default"}
+        />
+        <SupportMetricCard
+          icon={AlertTriangle}
+          label="Needs revision"
+          value={revisionCount}
+          detail="Requests that already bounced back and require a sharper decision path."
+          tone={revisionCount > 0 ? "warning" : "default"}
+        />
+        <SupportMetricCard
+          icon={Sparkles}
+          label="Resolved"
+          value={resolvedCount}
+          detail="Approved or rejected requests already cleared from the active decision queue."
+        />
+        <SupportMetricCard
+          icon={ShieldCheck}
+          label="Active requesters"
+          value={activeRequesters}
+          detail="Distinct agents currently waiting on a decision from the board surface."
+        />
       </div>
 
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
-      {actionError && <p className="text-sm text-destructive">{actionError}</p>}
-
-      {filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <ShieldCheck className="h-8 w-8 text-muted-foreground/30 mb-3" />
-          <p className="text-sm text-muted-foreground">
-            {statusFilter === "pending" ? "No pending approvals." : "No approvals yet."}
-          </p>
-        </div>
-      )}
-
-      {filtered.length > 0 && (
-        <div className="grid gap-3">
-          {filtered.map((approval) => (
-            <ApprovalCard
-              key={approval.id}
-              approval={approval}
-              requesterAgent={approval.requestedByAgentId ? (agents ?? []).find((a) => a.id === approval.requestedByAgentId) ?? null : null}
-              onApprove={() => approveMutation.mutate(approval.id)}
-              onReject={() => rejectMutation.mutate(approval.id)}
-              detailLink={`/approvals/${approval.id}`}
-              isPending={approveMutation.isPending || rejectMutation.isPending}
+      <SupportPanel
+        title="Approval queue"
+        description="Keep the default view focused on action. Use the archive tab only when you need broader approval history."
+        action={
+          <Tabs value={statusFilter} onValueChange={(value) => navigate(`/approvals/${value}`)}>
+            <PageTabBar
+              items={[
+                { value: "pending", label: `Actionable${actionableCount > 0 ? ` (${actionableCount})` : ""}` },
+                { value: "all", label: "All" },
+              ]}
+              value={statusFilter}
+              onValueChange={(value) => navigate(`/approvals/${value}`)}
             />
-          ))}
-        </div>
-      )}
+          </Tabs>
+        }
+        contentClassName="space-y-4"
+      >
+        {error ? <p className="text-sm text-destructive">{error.message}</p> : null}
+        {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+
+        {filtered.length === 0 ? (
+          <EmptyState
+            icon={ShieldCheck}
+            message={statusFilter === "pending" ? "No active approvals are waiting right now." : "No approvals have been created yet."}
+          />
+        ) : (
+          <div className="grid gap-3">
+            {filtered.map((approval) => (
+              <ApprovalCard
+                key={approval.id}
+                approval={approval}
+                requesterAgent={
+                  approval.requestedByAgentId
+                    ? (agents ?? []).find((agent) => agent.id === approval.requestedByAgentId) ?? null
+                    : null
+                }
+                onApprove={() => approveMutation.mutate(approval.id)}
+                onReject={() => rejectMutation.mutate(approval.id)}
+                detailLink={`/approvals/${approval.id}`}
+                isPending={approveMutation.isPending || rejectMutation.isPending}
+              />
+            ))}
+          </div>
+        )}
+      </SupportPanel>
     </div>
   );
 }

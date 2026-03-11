@@ -11,14 +11,17 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { GoalProperties } from "../components/GoalProperties";
 import { GoalTree } from "../components/GoalTree";
+import { HeroSection } from "../components/HeroSection";
 import { StatusBadge } from "../components/StatusBadge";
 import { InlineEditor } from "../components/InlineEditor";
 import { EntityRow } from "../components/EntityRow";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
 import { projectUrl } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus } from "lucide-react";
+import { Compass, Flag, Network, Plus } from "lucide-react";
 import type { Goal, Project } from "@squadrail/shared";
 
 export function GoalDetail() {
@@ -115,82 +118,125 @@ export function GoalDetail() {
   if (!goal) return null;
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs uppercase text-muted-foreground">
-            {goal.level}
-          </span>
-          <StatusBadge status={goal.status} />
-        </div>
+    <div className="space-y-8">
+      <HeroSection
+        title={goal.title}
+        subtitle={goal.description ?? "Clarify the intent above the work queue and connect the right sub-goals and projects to it."}
+        eyebrow="Goal Surface"
+        actions={
+          <div className="flex items-center gap-3">
+            <span className="rounded-full border border-border/80 bg-background/80 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              {goal.level}
+            </span>
+            <StatusBadge status={goal.status} />
+          </div>
+        }
+      />
 
-        <InlineEditor
-          value={goal.title}
-          onSave={(title) => updateGoal.mutate({ title })}
-          as="h2"
-          className="text-xl font-bold"
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Flag}
+          label="Status"
+          value={goal.status.replace(/_/g, " ")}
+          detail="Current state of this goal in the broader planning stack."
+          tone="accent"
         />
-
-        <InlineEditor
-          value={goal.description ?? ""}
-          onSave={(description) => updateGoal.mutate({ description })}
-          as="p"
-          className="text-sm text-muted-foreground"
-          placeholder="Add a description..."
-          multiline
-          imageUploadHandler={async (file) => {
-            const asset = await uploadImage.mutateAsync(file);
-            return asset.contentPath;
-          }}
+        <SupportMetricCard
+          icon={Compass}
+          label="Level"
+          value={goal.level}
+          detail="Hierarchy level used to position this goal in the planning tree."
+        />
+        <SupportMetricCard
+          icon={Network}
+          label="Sub-goals"
+          value={childGoals.length}
+          detail="Child goals currently nested under this parent objective."
+        />
+        <SupportMetricCard
+          icon={Plus}
+          label="Linked projects"
+          value={linkedProjects.length}
+          detail="Delivery scopes already tied directly to this goal."
         />
       </div>
 
-      <Tabs defaultValue="children">
-        <TabsList>
-          <TabsTrigger value="children">
-            Sub-Goals ({childGoals.length})
-          </TabsTrigger>
-          <TabsTrigger value="projects">
-            Projects ({linkedProjects.length})
-          </TabsTrigger>
-        </TabsList>
+      <SupportPanel
+        title="Goal workspace"
+        description="Use the child-goal tab to shape intent and the project tab to see which delivery scopes are already attached."
+        contentClassName="space-y-4"
+      >
+        <div className="rounded-[1.25rem] border border-border/80 bg-background/70 px-4 py-4">
+          <InlineEditor
+            value={goal.title}
+            onSave={(title) => updateGoal.mutate({ title })}
+            as="h2"
+            className="text-2xl font-semibold tracking-[-0.04em]"
+          />
 
-        <TabsContent value="children" className="mt-4 space-y-3">
-          <div className="flex items-center justify-start">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openNewGoal({ parentId: goalId })}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Sub Goal
-            </Button>
-          </div>
-          {childGoals.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No sub-goals.</p>
-          ) : (
-            <GoalTree goals={childGoals} goalLink={(g) => `/goals/${g.id}`} />
-          )}
-        </TabsContent>
+          <InlineEditor
+            value={goal.description ?? ""}
+            onSave={(description) => updateGoal.mutate({ description })}
+            as="p"
+            className="mt-3 text-sm text-muted-foreground"
+            placeholder="Add a description..."
+            multiline
+            imageUploadHandler={async (file) => {
+              const asset = await uploadImage.mutateAsync(file);
+              return asset.contentPath;
+            }}
+          />
+        </div>
 
-        <TabsContent value="projects" className="mt-4">
-          {linkedProjects.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No linked projects.</p>
-          ) : (
-            <div className="border border-border">
-              {linkedProjects.map((project) => (
-                <EntityRow
-                  key={project.id}
-                  title={project.name}
-                  subtitle={project.description ?? undefined}
-                  to={projectUrl(project)}
-                  trailing={<StatusBadge status={project.status} />}
-                />
-              ))}
+        <Tabs defaultValue="children">
+          <TabsList className="rounded-full border border-border/80 bg-background/80 p-1">
+            <TabsTrigger value="children">
+              Sub-Goals ({childGoals.length})
+            </TabsTrigger>
+            <TabsTrigger value="projects">
+              Projects ({linkedProjects.length})
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="children" className="mt-4 space-y-3">
+            <div className="flex items-center justify-start">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openNewGoal({ parentId: goalId })}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Sub Goal
+              </Button>
             </div>
-          )}
-        </TabsContent>
-      </Tabs>
+            {childGoals.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No sub-goals.</p>
+            ) : (
+              <div className="rounded-[1.25rem] border border-border/80 bg-background/70 px-4 py-4">
+                <GoalTree goals={childGoals} goalLink={(g) => `/goals/${g.id}`} />
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="projects" className="mt-4">
+            {linkedProjects.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No linked projects.</p>
+            ) : (
+              <div className="overflow-hidden rounded-[1.25rem] border border-border/80">
+                {linkedProjects.map((project) => (
+                  <EntityRow
+                    key={project.id}
+                    title={project.name}
+                    subtitle={project.description ?? undefined}
+                    to={projectUrl(project)}
+                    trailing={<StatusBadge status={project.status} />}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      </SupportPanel>
     </div>
   );
 }

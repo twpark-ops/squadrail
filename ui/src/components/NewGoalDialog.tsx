@@ -6,24 +6,16 @@ import { useCompany } from "../context/CompanyContext";
 import { goalsApi } from "../api/goals";
 import { assetsApi } from "../api/assets";
 import { queryKeys } from "../lib/queryKeys";
-import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Maximize2,
-  Minimize2,
-  Target,
-  Layers,
-} from "lucide-react";
+import { Maximize2, Minimize2, Target, Layers } from "lucide-react";
 import { cn } from "../lib/utils";
-import { MarkdownEditor, type MarkdownEditorRef } from "./MarkdownEditor";
+import { MarkdownEditor, type MarkdownEditorRef } from "./MarkdownEditorLazy";
 import { StatusBadge } from "./StatusBadge";
 
 const levelLabels: Record<string, string> = {
@@ -62,7 +54,9 @@ export function NewGoalDialog() {
     mutationFn: (data: Record<string, unknown>) =>
       goalsApi.create(selectedCompanyId!, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.goals.list(selectedCompanyId!) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.goals.list(selectedCompanyId!),
+      });
       reset();
       closeNewGoal();
     },
@@ -128,7 +122,9 @@ export function NewGoalDialog() {
               </span>
             )}
             <span className="text-muted-foreground/60">&rsaquo;</span>
-            <span>{newGoalDefaults.parentId ? "New sub-goal" : "New goal"}</span>
+            <span>
+              {newGoalDefaults.parentId ? "New sub-goal" : "New goal"}
+            </span>
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -137,13 +133,20 @@ export function NewGoalDialog() {
               className="text-muted-foreground"
               onClick={() => setExpanded(!expanded)}
             >
-              {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {expanded ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
             </Button>
             <Button
               variant="ghost"
               size="icon-xs"
               className="text-muted-foreground"
-              onClick={() => { reset(); closeNewGoal(); }}
+              onClick={() => {
+                reset();
+                closeNewGoal();
+              }}
             >
               <span className="text-lg leading-none">&times;</span>
             </Button>
@@ -175,7 +178,10 @@ export function NewGoalDialog() {
             onChange={setDescription}
             placeholder="Add description..."
             bordered={false}
-            contentClassName={cn("text-sm text-muted-foreground", expanded ? "min-h-[220px]" : "min-h-[120px]")}
+            contentClassName={cn(
+              "text-sm text-muted-foreground",
+              expanded ? "min-h-[220px]" : "min-h-[120px]"
+            )}
             imageUploadHandler={async (file) => {
               const asset = await uploadDescriptionImage.mutateAsync(file);
               return asset.contentPath;
@@ -200,7 +206,10 @@ export function NewGoalDialog() {
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 capitalize",
                     s === status && "bg-accent"
                   )}
-                  onClick={() => { setStatus(s); setStatusOpen(false); }}
+                  onClick={() => {
+                    setStatus(s);
+                    setStatusOpen(false);
+                  }}
                 >
                   {s}
                 </button>
@@ -224,7 +233,10 @@ export function NewGoalDialog() {
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
                     l === level && "bg-accent"
                   )}
-                  onClick={() => { setLevel(l); setLevelOpen(false); }}
+                  onClick={() => {
+                    setLevel(l);
+                    setLevelOpen(false);
+                  }}
                 >
                   {levelLabels[l] ?? l}
                 </button>
@@ -246,7 +258,10 @@ export function NewGoalDialog() {
                   "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
                   !appliedParentId && "bg-accent"
                 )}
-                onClick={() => { setParentId(""); setParentOpen(false); }}
+                onClick={() => {
+                  setParentId("");
+                  setParentOpen(false);
+                }}
               >
                 No parent
               </button>
@@ -257,7 +272,10 @@ export function NewGoalDialog() {
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 truncate",
                     g.id === appliedParentId && "bg-accent"
                   )}
-                  onClick={() => { setParentId(g.id); setParentOpen(false); }}
+                  onClick={() => {
+                    setParentId(g.id);
+                    setParentOpen(false);
+                  }}
                 >
                   {g.title}
                 </button>
@@ -273,7 +291,11 @@ export function NewGoalDialog() {
             disabled={!title.trim() || createGoal.isPending}
             onClick={handleSubmit}
           >
-            {createGoal.isPending ? "Creating…" : newGoalDefaults.parentId ? "Create sub-goal" : "Create goal"}
+            {createGoal.isPending
+              ? "Creating…"
+              : newGoalDefaults.parentId
+              ? "Create sub-goal"
+              : "Create goal"}
           </Button>
         </div>
       </DialogContent>

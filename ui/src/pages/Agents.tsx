@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Bot, Plus, List, GitBranch, SlidersHorizontal, Cpu, Activity } from "lucide-react";
 import type { Agent } from "@squadrail/shared";
 import { HeroSection } from "../components/HeroSection";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
 
 const adapterLabels: Record<string, string> = {
   claude_local: "Claude",
@@ -148,39 +150,40 @@ export function Agents() {
         }
       />
 
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            <Bot className="h-3.5 w-3.5" />
-            Total agents
-          </div>
-          <div className="mt-3 text-3xl font-semibold">{agents?.length ?? 0}</div>
-        </div>
-        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            <Activity className="h-3.5 w-3.5" />
-            Live execution
-          </div>
-          <div className="mt-3 text-3xl font-semibold">{liveAgentCount}</div>
-          <div className="mt-1 text-sm text-muted-foreground">Agents with running or queued heartbeat work.</div>
-        </div>
-        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            <Cpu className="h-3.5 w-3.5" />
-            Codex lanes
-          </div>
-          <div className="mt-3 text-3xl font-semibold">{codexCount}</div>
-        </div>
-        <div className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            <Cpu className="h-3.5 w-3.5" />
-            Claude lanes
-          </div>
-          <div className="mt-3 text-3xl font-semibold">{claudeCount}</div>
-        </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Bot}
+          label="Total agents"
+          value={agents?.length ?? 0}
+          detail="Visible execution and review lanes currently configured for this company."
+          tone="accent"
+        />
+        <SupportMetricCard
+          icon={Activity}
+          label="Live execution"
+          value={liveAgentCount}
+          detail="Agents with at least one queued or running heartbeat work item."
+        />
+        <SupportMetricCard
+          icon={Cpu}
+          label="Codex lanes"
+          value={codexCount}
+          detail="Agents currently configured against the Codex adapter surface."
+        />
+        <SupportMetricCard
+          icon={Cpu}
+          label="Claude lanes"
+          value={claudeCount}
+          detail="Agents currently configured against the Claude adapter surface."
+        />
       </div>
 
-      <section className="rounded-[1.8rem] border border-border bg-card px-5 py-5 shadow-card">
+      <SupportPanel
+        title="Agent directory controls"
+        description="Switch between the list and org views depending on whether you need scan-friendly status or reporting-line context."
+        className="shadow-card"
+        contentClassName="space-y-4"
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={tab} onValueChange={(v) => navigate(`/agents/${v}`)}>
           <PageTabBar
@@ -253,7 +256,7 @@ export function Agents() {
       {filtered.length > 0 && (
         <p className="mt-4 text-sm text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""} match the current view.</p>
       )}
-      </section>
+      </SupportPanel>
 
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 
