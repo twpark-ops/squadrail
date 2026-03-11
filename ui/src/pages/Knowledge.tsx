@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { companiesApi } from "@/api/companies";
 import { knowledgeApi, type KnowledgeDocument } from "@/api/knowledge";
-import { issuesApi } from "@/api/issues";
 import { projectsApi } from "@/api/projects";
 import { KnowledgeStats } from "@/components/knowledge/KnowledgeStats";
 import { ProjectDistribution } from "@/components/knowledge/ProjectDistribution";
@@ -22,6 +21,9 @@ import { KnowledgeSetupPanel } from "@/components/knowledge/KnowledgeSetupPanel"
 import { changeIssuePath } from "@/lib/appRoutes";
 import { queryKeys } from "@/lib/queryKeys";
 import { timeAgo } from "@/lib/timeAgo";
+
+type IssueLinkFilter = "all" | "issue_linked" | "ad_hoc";
+type FeedbackFilter = "all" | "with_feedback" | "pinned" | "hidden" | "no_feedback";
 
 function deriveFeedbackTarget(hit: {
   documentPath: string | null;
@@ -49,6 +51,21 @@ function deriveFeedbackTarget(hit: {
   };
 }
 
+function formatCacheStateLabel(value: string | null | undefined) {
+  if (!value) return "unknown";
+  return value.replaceAll("_", " ");
+}
+
+function formatRunLinkLabel(run: {
+  issueId: string | null;
+  issueIdentifier: string | null;
+  issueTitle: string | null;
+  retrievalRunId: string;
+}) {
+  if (run.issueId) return run.issueTitle ?? run.issueIdentifier ?? run.issueId;
+  return `Ad-hoc run · ${run.retrievalRunId.slice(0, 8)}`;
+}
+
 export function Knowledge() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -57,6 +74,8 @@ export function Knowledge() {
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"explore" | "setup">("explore");
+  const [issueLinkFilter, setIssueLinkFilter] = useState<IssueLinkFilter>("all");
+  const [feedbackFilter, setFeedbackFilter] = useState<FeedbackFilter>("all");
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Knowledge" }]);
@@ -114,14 +133,13 @@ export function Knowledge() {
 
   const retrievalFeedbackMutation = useMutation({
     mutationFn: (input: {
-      issueId: string;
+      issueId?: string | null;
       retrievalRunId: string;
       feedbackType: "operator_pin" | "operator_hide";
       targetType: "chunk" | "path" | "symbol" | "source_type";
       targetIds: string[];
       noteBody?: string | null;
-    }) => issuesApi.recordRetrievalFeedback(input.issueId, {
-      retrievalRunId: input.retrievalRunId,
+    }) => knowledgeApi.recordRetrievalFeedback(input.retrievalRunId, {
       feedbackType: input.feedbackType,
       targetType: input.targetType,
       targetIds: input.targetIds,
@@ -130,7 +148,9 @@ export function Knowledge() {
     onSuccess: (_, variables) => {
       void recentRunsQuery.refetch();
       void qualityQuery.refetch();
-      void queryClient.invalidateQueries({ queryKey: ["issue", variables.issueId] });
+      if (variables.issueId) {
+        void queryClient.invalidateQueries({ queryKey: ["issue", variables.issueId] });
+      }
       pushToast({
         title: variables.feedbackType === "operator_pin" ? "Retrieval hit pinned" : "Retrieval hit hidden",
         body: variables.targetIds[0] ?? variables.retrievalRunId,
@@ -171,6 +191,37 @@ export function Knowledge() {
   const dailyTrend = useMemo(
     () => qualityQuery.data?.dailyTrend?.slice(-7) ?? [],
     [qualityQuery.data?.dailyTrend],
+  );
+  const filteredRecentRuns = useMemo(() => {
+    const runs = recentRunsQuery.data ?? [];
+    return runs.filter((run) => {
+      const issueLinkMatched =
+        issueLinkFilter === "all"
+          ? true
+          : issueLinkFilter === "issue_linked"
+            ? Boolean(run.issueId)
+            : !run.issueId;
+      if (!issueLinkMatched) return false;
+
+      const feedback = run.feedbackSummary;
+      if (feedbackFilter === "all") return true;
+      if (feedbackFilter === "with_feedback") return feedback.totalCount > 0;
+      if (feedbackFilter === "pinned") return feedback.pinnedPathCount > 0;
+      if (feedbackFilter === "hidden") return feedback.hiddenPathCount > 0;
+      if (feedbackFilter === "no_feedback") return feedback.totalCount === 0;
+      return true;
+    });
+  }, [feedbackFilter, issueLinkFilter, recentRunsQuery.data]);
+  const feedbackRichRunCount = useMemo(
+    () => (recentRunsQuery.data ?? []).filter((run) => run.feedbackSummary.totalCount > 0).length,
+    [recentRunsQuery.data],
+  );
+  const topCandidateMissReasons = useMemo(
+    () =>
+      Object.entries(qualityQuery.data?.candidateCacheMissReasonCounts ?? {})
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 3),
+    [qualityQuery.data?.candidateCacheMissReasonCounts],
   );
   const maxDailyRuns = useMemo(
     () => dailyTrend.reduce((max, day) => Math.max(max, day.totalRuns), 0),
@@ -455,7 +506,7 @@ export function Knowledge() {
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <span className="rounded-full border border-border bg-background px-3 py-1.5">
-                      {recentRunsQuery.data?.length ?? 0} recent runs
+                      {filteredRecentRuns.length}/{recentRunsQuery.data?.length ?? 0} visible
                     </span>
                     <span className="rounded-full border border-border bg-background px-3 py-1.5">
                       {(((qualityQuery.data?.candidateCacheHitRate ?? 0)) * 100).toFixed(0)}% candidate cache
@@ -463,12 +514,66 @@ export function Knowledge() {
                     <span className="rounded-full border border-border bg-background px-3 py-1.5">
                       {(((qualityQuery.data?.finalCacheHitRate ?? 0)) * 100).toFixed(0)}% final cache
                     </span>
+                    <span className="rounded-full border border-border bg-background px-3 py-1.5">
+                      {feedbackRichRunCount} feedback-tuned
+                    </span>
                   </div>
                 </div>
 
-                {recentRunsQuery.data && recentRunsQuery.data.length > 0 ? (
+                <div className="mt-4 flex flex-col gap-3 rounded-[1.15rem] border border-border bg-background/65 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { value: "all", label: "All runs" },
+                      { value: "issue_linked", label: "Issue-linked" },
+                      { value: "ad_hoc", label: "Ad-hoc" },
+                    ] as const).map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        size="sm"
+                        variant={issueLinkFilter === option.value ? "default" : "outline"}
+                        className="rounded-full"
+                        onClick={() => setIssueLinkFilter(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { value: "all", label: "All feedback" },
+                      { value: "with_feedback", label: "Touched" },
+                      { value: "pinned", label: "Pinned" },
+                      { value: "hidden", label: "Hidden" },
+                      { value: "no_feedback", label: "Untouched" },
+                    ] as const).map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        size="sm"
+                        variant={feedbackFilter === option.value ? "default" : "outline"}
+                        className="rounded-full"
+                        onClick={() => setFeedbackFilter(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {topCandidateMissReasons.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    {topCandidateMissReasons.map(([reason, count]) => (
+                      <span key={reason} className="rounded-full border border-border bg-background px-3 py-1.5">
+                        candidate miss · {formatCacheStateLabel(reason)} · {count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {filteredRecentRuns.length > 0 ? (
                   <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                    {recentRunsQuery.data.map((run) => (
+                    {filteredRecentRuns.map((run) => (
                       <div key={run.retrievalRunId} className="rounded-[1.25rem] border border-border bg-background/80 p-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="space-y-2">
@@ -478,6 +583,9 @@ export function Knowledge() {
                               </span>
                               <span className="rounded-full border border-border bg-card px-2.5 py-1">
                                 {run.eventType}
+                              </span>
+                              <span className="rounded-full border border-border bg-card px-2.5 py-1">
+                                {run.issueId ? "issue-linked" : "ad-hoc"}
                               </span>
                               {run.candidateCacheHit && (
                                 <span className="rounded-full border border-emerald-300/70 bg-emerald-50 px-2.5 py-1 text-emerald-700">
@@ -497,12 +605,12 @@ export function Knowledge() {
                             </div>
                             <div>
                               <div className="text-sm font-semibold text-foreground">
-                                {run.issueIdentifier ?? run.issueTitle ?? run.retrievalRunId.slice(0, 8)}
+                                {run.issueIdentifier ?? run.issueTitle ?? `Run ${run.retrievalRunId.slice(0, 8)}`}
                               </div>
                               <div className="mt-1 text-sm text-muted-foreground">
                                 {run.issueId && (run.issueIdentifier ?? run.issueId) ? (
                                   <Link to={changeIssuePath(run.issueIdentifier ?? run.issueId)} className="font-medium text-primary hover:underline">
-                                    {run.issueTitle ?? "Open change view"}
+                                    {formatRunLinkLabel(run)}
                                   </Link>
                                 ) : (
                                   run.queryText
@@ -515,6 +623,49 @@ export function Knowledge() {
                             <div className="mt-1">
                               quality {run.confidenceLevel ?? "unknown"} · {run.graphHitCount} graph
                               {run.personalizationApplied ? ` · boost ${run.averagePersonalizationBoost.toFixed(2)}` : ""}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                          <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                              Candidate cache
+                            </div>
+                            <div className="mt-2 text-sm font-semibold text-foreground">
+                              {formatCacheStateLabel(run.candidateCacheState ?? (run.candidateCacheHit ? "hit" : "miss"))}
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {run.candidateCacheReason ? `${formatCacheStateLabel(run.candidateCacheReason)} · ` : ""}
+                              revision {run.candidateCacheMatchedRevision ?? "?"}
+                              {run.candidateCacheLatestKnownRevision != null
+                                ? ` / latest ${run.candidateCacheLatestKnownRevision}`
+                                : ""}
+                            </div>
+                          </div>
+                          <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                              Evidence mix
+                            </div>
+                            <div className="mt-2 text-sm font-semibold text-foreground">
+                              code {run.codeHitCount} · review {run.reviewHitCount}
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                              org-memory {run.organizationalMemoryHitCount} · graph depth {run.graphMaxDepth}
+                            </div>
+                          </div>
+                          <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                              Feedback provenance
+                            </div>
+                            <div className="mt-2 text-sm font-semibold text-foreground">
+                              {run.feedbackSummary.totalCount} events
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                              +{run.feedbackSummary.pinnedPathCount} pinned · -{run.feedbackSummary.hiddenPathCount} hidden
+                              {run.feedbackSummary.lastFeedbackAt
+                                ? ` · ${timeAgo(new Date(run.feedbackSummary.lastFeedbackAt))}`
+                                : ""}
                             </div>
                           </div>
                         </div>
@@ -546,46 +697,42 @@ export function Knowledge() {
                                       {hit.rationale ?? hit.textContent}
                                     </div>
                                   </div>
-                                  {run.issueId ? (
-                                    <div className="flex shrink-0 gap-2">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={retrievalFeedbackMutation.isPending}
-                                        onClick={() => retrievalFeedbackMutation.mutate({
-                                          issueId: run.issueId!,
-                                          retrievalRunId: run.retrievalRunId,
-                                          feedbackType: "operator_pin",
-                                          targetType: target.targetType,
-                                          targetIds: target.targetIds,
-                                          noteBody: `Pinned from knowledge surface: ${target.label}`,
-                                        })}
-                                      >
-                                        <Pin className="mr-2 h-3.5 w-3.5" />
-                                        Pin
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={retrievalFeedbackMutation.isPending}
-                                        onClick={() => retrievalFeedbackMutation.mutate({
-                                          issueId: run.issueId!,
-                                          retrievalRunId: run.retrievalRunId,
-                                          feedbackType: "operator_hide",
-                                          targetType: target.targetType,
-                                          targetIds: target.targetIds,
-                                          noteBody: `Hidden from knowledge surface: ${target.label}`,
-                                        })}
-                                      >
-                                        <PinOff className="mr-2 h-3.5 w-3.5" />
-                                        Hide
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <div className="text-xs text-muted-foreground">Issue-linked feedback unavailable</div>
-                                  )}
+                                  <div className="flex shrink-0 gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={retrievalFeedbackMutation.isPending}
+                                      onClick={() => retrievalFeedbackMutation.mutate({
+                                        issueId: run.issueId,
+                                        retrievalRunId: run.retrievalRunId,
+                                        feedbackType: "operator_pin",
+                                        targetType: target.targetType,
+                                        targetIds: target.targetIds,
+                                        noteBody: `Pinned from knowledge surface: ${target.label}`,
+                                      })}
+                                    >
+                                      <Pin className="mr-2 h-3.5 w-3.5" />
+                                      Pin
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={retrievalFeedbackMutation.isPending}
+                                      onClick={() => retrievalFeedbackMutation.mutate({
+                                        issueId: run.issueId,
+                                        retrievalRunId: run.retrievalRunId,
+                                        feedbackType: "operator_hide",
+                                        targetType: target.targetType,
+                                        targetIds: target.targetIds,
+                                        noteBody: `Hidden from knowledge surface: ${target.label}`,
+                                      })}
+                                    >
+                                      <PinOff className="mr-2 h-3.5 w-3.5" />
+                                      Hide
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -596,7 +743,7 @@ export function Knowledge() {
                   </div>
                 ) : (
                   <div className="mt-5 rounded-[1rem] border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                    Recent retrieval runs will appear here after the next brief generation.
+                    No retrieval runs match the current issue-link and feedback filters.
                   </div>
                 )}
               </section>

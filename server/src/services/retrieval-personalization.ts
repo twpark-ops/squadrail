@@ -86,6 +86,7 @@ type RetrievalFeedbackDescriptor = {
 
 type RetrievalRunFeedbackContext = {
   id: string;
+  issueId: string | null;
   actorRole: string;
   eventType: string;
   queryDebug: Record<string, unknown>;
@@ -405,7 +406,7 @@ function fallbackBriefScopes(input: {
 function buildFeedbackEvents(input: {
   companyId: string;
   projectId: string | null;
-  issueId: string;
+  issueId: string | null;
   retrievalRunId: string;
   feedbackMessageId: string | null;
   actorRole: string;
@@ -499,7 +500,7 @@ function buildFeedbackEvents(input: {
 function buildDirectTargetFeedbackEvents(input: {
   companyId: string;
   projectId: string | null;
-  issueId: string;
+  issueId: string | null;
   retrievalRunId: string;
   feedbackMessageId: string | null;
   actorRole: string;
@@ -665,6 +666,7 @@ export function retrievalPersonalizationService(db: Db) {
     const runs = await db
       .select({
         id: retrievalRuns.id,
+        issueId: retrievalRuns.issueId,
         actorRole: retrievalRuns.actorRole,
         eventType: retrievalRuns.eventType,
         queryDebug: retrievalRuns.queryDebug,
@@ -677,6 +679,7 @@ export function retrievalPersonalizationService(db: Db) {
       return {
         run: {
           id: run.id,
+          issueId: run.issueId,
           actorRole: run.actorRole,
           eventType: run.eventType,
           queryDebug: asRecord(run.queryDebug),
@@ -796,7 +799,7 @@ export function retrievalPersonalizationService(db: Db) {
 
   function buildManualTargetEvents(input: {
     companyId: string;
-    issueId: string;
+    issueId: string | null;
     projectId: string | null;
     retrievalRunId: string;
     actorRole: string;
@@ -869,7 +872,7 @@ export function retrievalPersonalizationService(db: Db) {
 
   async function recordRunFeedback(input: {
     companyId: string;
-    issueId: string;
+    issueId: string | null;
     feedbackMessageId: string | null;
     feedbackActorRole: string;
     descriptor: RetrievalFeedbackDescriptor;
@@ -906,7 +909,7 @@ export function retrievalPersonalizationService(db: Db) {
           : buildFeedbackEvents({
             companyId: input.companyId,
             projectId: entry.runProjectId,
-            issueId: input.issueId,
+            issueId: entry.run.issueId ?? input.issueId,
             retrievalRunId: entry.run.id,
             feedbackMessageId: input.feedbackMessageId,
             actorRole: entry.run.actorRole,
@@ -1032,7 +1035,7 @@ export function retrievalPersonalizationService(db: Db) {
 
     recordManualFeedback: async (input: {
       companyId: string;
-      issueId: string;
+      issueId?: string | null;
       issueProjectId: string | null;
       retrievalRunId: string;
       feedbackType: "operator_pin" | "operator_hide";
@@ -1056,7 +1059,7 @@ export function retrievalPersonalizationService(db: Db) {
       for (const entry of runs) {
         const targetEvents = buildManualTargetEvents({
           companyId: input.companyId,
-          issueId: input.issueId,
+          issueId: entry.run.issueId ?? input.issueId ?? null,
           projectId: entry.runProjectId ?? input.issueProjectId ?? null,
           retrievalRunId: entry.run.id,
           actorRole: entry.run.actorRole,
@@ -1086,7 +1089,7 @@ export function retrievalPersonalizationService(db: Db) {
 
       return recordRunFeedback({
         companyId: input.companyId,
-        issueId: input.issueId,
+        issueId: runs[0]?.run.issueId ?? input.issueId ?? null,
         feedbackMessageId: null,
         feedbackActorRole: input.actorRole ?? "human_board",
         descriptor,

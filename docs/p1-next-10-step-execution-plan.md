@@ -164,6 +164,24 @@ Slice 1 범위:
 9. Rerank provider abstraction
 10. Retrieval trend + real-org E2E gate
 
+## 현재 상태
+
+완료:
+
+1. Operator feedback surface expansion
+2. Feedback filters and issue-less handling
+3. Candidate cache provenance
+
+남은 다음 순서:
+
+4. Final-hit cache provenance
+5. Cache invalidation normalization
+6. Deeper chunk-link multi-hop
+7. Ranking stabilization phase 2
+8. Retrieval god-file refactor slice 1
+9. Rerank provider abstraction
+10. Retrieval trend + real-org E2E gate
+
 ## 검증 전략
 
 각 단계마다 아래를 유지한다.

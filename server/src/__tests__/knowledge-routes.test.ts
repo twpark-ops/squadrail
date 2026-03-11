@@ -8,6 +8,7 @@ const {
   mockGetRetrievalRunById,
   mockListRetrievalRunHits,
   mockListRecentRetrievalRuns,
+  mockRecordManualFeedback,
   mockGetKnowledgeOverview,
   mockSummarizeRetrievalQuality,
   mockGetDocumentById,
@@ -21,6 +22,7 @@ const {
   mockGetRetrievalRunById: vi.fn(),
   mockListRetrievalRunHits: vi.fn(),
   mockListRecentRetrievalRuns: vi.fn(),
+  mockRecordManualFeedback: vi.fn(),
   mockGetKnowledgeOverview: vi.fn(),
   mockSummarizeRetrievalQuality: vi.fn(),
   mockGetDocumentById: vi.fn(),
@@ -52,6 +54,9 @@ vi.mock("../services/index.js", () => ({
     updateDocumentMetadata: vi.fn(),
     listRetrievalPolicies: vi.fn(),
     upsertRetrievalPolicy: vi.fn(),
+  }),
+  retrievalPersonalizationService: () => ({
+    recordManualFeedback: mockRecordManualFeedback,
   }),
   logActivity: vi.fn(),
   projectService: () => ({
@@ -324,6 +329,53 @@ async function invokeRecentRetrievalRunsRoute(input: {
   return state;
 }
 
+async function invokeRetrievalFeedbackRoute(input: {
+  params: Record<string, string>;
+  body: Record<string, unknown>;
+}) {
+  const router = knowledgeRoutes({} as never) as any;
+  const handlers = findRouteLayer(router, "/knowledge/retrieval-runs/:id/feedback", "post");
+  const req = {
+    params: input.params,
+    body: input.body,
+    actor: buildBoardActor(),
+  };
+  const state: { statusCode: number; body: unknown } = {
+    statusCode: 200,
+    body: undefined,
+  };
+  const res = {
+    status(code: number) {
+      state.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      state.body = payload;
+      return this;
+    },
+  };
+
+  for (const handler of handlers) {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const result = handler(req, res, (error?: unknown) => {
+          if (error) reject(error);
+          else resolve();
+        });
+        if (result && typeof result.then === "function") {
+          result.then(() => resolve(), reject);
+          return;
+        }
+        if (handler.length < 3) resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  return state;
+}
+
 async function invokeDocumentChunksRoute(input: {
   params: Record<string, string>;
   query?: Record<string, string>;
@@ -549,6 +601,53 @@ describe("knowledge routes", () => {
         ],
       },
     ]);
+  });
+
+  it("records retrieval feedback for an issue-less retrieval run", async () => {
+    mockGetRetrievalRunById.mockResolvedValue({
+      id: "retrieval-2",
+      companyId: "company-1",
+      issueId: null,
+      queryDebug: {
+        issueProjectId: "project-1",
+      },
+    });
+    mockRecordManualFeedback.mockResolvedValue({
+      ok: true,
+      feedbackEventCount: 2,
+      profiledRunCount: 1,
+      retrievalRunIds: ["retrieval-2"],
+    });
+
+    const response = await invokeRetrievalFeedbackRoute({
+      params: { id: "retrieval-2" },
+      body: {
+        feedbackType: "operator_pin",
+        targetType: "path",
+        targetIds: ["src/retry.ts"],
+        noteBody: "Pinned from knowledge surface",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetRetrievalRunById).toHaveBeenCalledWith("retrieval-2");
+    expect(mockRecordManualFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        issueId: null,
+        issueProjectId: "project-1",
+        retrievalRunId: "retrieval-2",
+        feedbackType: "operator_pin",
+        targetType: "path",
+        targetIds: ["src/retry.ts"],
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        ok: true,
+        feedbackEventCount: 2,
+      }),
+    );
   });
 
   it("returns chunk links when includeLinks=true", async () => {

@@ -118,6 +118,15 @@ export interface RecentRetrievalRunSummary {
   topHitPath: string | null;
   topHitSourceType: string | null;
   topHitArtifactKind: string | null;
+  feedbackSummary: {
+    totalCount: number;
+    positiveCount: number;
+    negativeCount: number;
+    pinnedPathCount: number;
+    hiddenPathCount: number;
+    lastFeedbackAt: string | null;
+    feedbackTypeCounts: Record<string, number>;
+  };
   topHits: Array<{
     chunkId: string;
     finalRank: number | null;
@@ -255,6 +264,20 @@ export const knowledgeApi = {
     if (params.limit) queryParams.append("limit", params.limit.toString());
     return api.get<RecentRetrievalRunSummary[]>(`/knowledge/retrieval-runs?${queryParams.toString()}`);
   },
+  recordRetrievalFeedback: (
+    retrievalRunId: string,
+    data: {
+      feedbackType: "operator_pin" | "operator_hide";
+      targetType: "chunk" | "path" | "symbol" | "source_type";
+      targetIds: string[];
+      noteBody?: string | null;
+    },
+  ) => api.post<{
+    ok: boolean;
+    feedbackEventCount: number;
+    profiledRunCount: number;
+    retrievalRunIds: string[];
+  }>(`/knowledge/retrieval-runs/${retrievalRunId}/feedback`, data),
   getDocument: (documentId: string) =>
     api.get<KnowledgeDocument>(`/knowledge/documents/${documentId}`),
   getDocumentChunks: (documentId: string, options?: { includeLinks?: boolean }) => {

@@ -335,9 +335,14 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 요약 우선순위:
 
+완료:
+
 1. operator feedback surface expansion
 2. feedback filters + issue-less run handling
 3. candidate cache provenance surface
+
+다음:
+
 4. final-hit cache provenance surface
 5. cache invalidation normalization
 6. deeper chunk-link multi-hop

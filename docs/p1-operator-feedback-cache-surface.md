@@ -38,6 +38,13 @@
   - cache hit 상태
   - graph / personalization signal
   - top hit 5개
+- `POST /api/knowledge/retrieval-runs/:id/feedback`
+  - issue 없는 ad-hoc retrieval run도 직접 pin / hide 가능
+  - retrieval run 기준 feedback event / profile rebuild 수행
+- retrieval run read model에 추가
+  - feedback summary
+  - candidate cache provenance
+  - code / review / organizational memory hit mix
 
 ### Frontend
 
@@ -46,17 +53,22 @@
   - top hit preview
   - `Pin` / `Hide` 버튼
   - cache / graph / personalization 배지
+  - `issue-linked / ad-hoc` 필터
+  - `touched / pinned / hidden / untouched` 필터
+  - candidate cache state / revision provenance
+  - run-level feedback summary
 
 ### 검증
 
 - route/unit 테스트
 - UI typecheck
 - build / smoke
-- real-org readiness E2E
+- live recent runs API smoke
+- full test suite
 
 ## 남은 후속
 
-1. Knowledge 화면에서 feedback filters를 더 세분화
-2. candidate/final cache invalidation 사유 시각화
-3. multi-hop graph hit 설명 표면
-4. cross-issue memory reuse UI
+1. final-hit cache provenance를 동일 수준으로 더 강조
+2. candidate/final cache invalidation taxonomy 정규화
+3. deeper chunk-link multi-hop
+4. ranking stabilization phase 2
