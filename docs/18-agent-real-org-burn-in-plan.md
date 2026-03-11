@@ -120,6 +120,12 @@ burn-in 시작 전에 아래가 만족돼야 한다.
 5. 종료 / cleanup
 6. metric snapshot 저장
 
+실행 명령:
+
+```bash
+SQUADRAIL_BASE_URL=http://127.0.0.1:3144 pnpm e2e:cloud-swiftsight-burn-in
+```
+
 ### Burn-In Batch 2
 
 Batch 1에서 나온 blocked / timeout / retrieval issue를 반영한 뒤 같은 5개를 다시 실행한다.

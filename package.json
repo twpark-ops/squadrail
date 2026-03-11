@@ -27,6 +27,7 @@
     "smoke:local-ui-flow": "./scripts/smoke/local-ui-flow.sh",
     "e2e:full-delivery": "node scripts/e2e/full-delivery.mjs",
     "e2e:cloud-swiftsight-real-org": "node scripts/e2e/cloud-swiftsight-real-org.mjs",
+    "e2e:cloud-swiftsight-burn-in": "node scripts/e2e/cloud-swiftsight-burn-in.mjs",
     "e2e:cloud-swiftsight-real-org:cleanup": "node scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs",
     "e2e:cloud-swiftsight-real-org:nightly": "node scripts/e2e/nightly-cloud-swiftsight-real-org.mjs",
     "e2e:cloud-swiftsight-rag-readiness": "node scripts/e2e/cloud-swiftsight-rag-readiness.mjs",
