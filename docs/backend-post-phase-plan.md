@@ -258,6 +258,33 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
   - close follow-up only happens after final `approved`
 - Retrieval stabilization:
   - direct `exactPaths` / `symbolHints` are now graph seeds
+
+## 2026-03-12 구조화 후속
+
+최근 우선순위 배치에서 다음 세 항목을 함께 진행했다.
+
+1. `issue-retrieval.ts` refactor slice 1
+2. knowledge setup read-model cache / background refresh
+3. PR verify / release workflow
+
+현재 상태:
+
+- `issue-retrieval.ts`는 graph helper와 model rerank helper를 `server/src/services/retrieval/` 하위 모듈로 1차 분리했다.
+- 공통 문자열/path helper도 `server/src/services/retrieval/shared.ts`로 이동했다.
+- knowledge setup read path는 in-process `stale-while-revalidate` 캐시를 사용한다.
+  - fresh TTL: 15s
+  - stale TTL: 2m
+  - knowledge sync / org repair 후 cache invalidate
+- repo 루트에 `.github/workflows/pr-verify.yml`, `.github/workflows/release.yml`를 추가해 기본 verify/release train을 열었다.
+
+다음 순서:
+
+1. `issue-retrieval.ts` refactor slice 2
+   - scoring / cache codec / rationale helper 분리
+2. knowledge setup cache 확장
+   - background refresh signal / invalidation reason / metrics
+3. release workflow hardening
+   - publish guard / branch policy / preflight 분리
   - organizational memory metadata path boost is stabilized by artifact kind
   - engineer / reviewer source order prefers `code -> test_report -> review -> ... -> issue`
   - latest live `CLO-77` retrieval runs show TL / Engineer top hit source moving from `issue` to `review`

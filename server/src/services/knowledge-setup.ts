@@ -42,6 +42,17 @@ import {
 import { inspectWorkspaceVersionContext } from "./workspace-git-snapshot.js";
 
 const activeKnowledgeSyncJobs = new Set<string>();
+const KNOWLEDGE_SETUP_CACHE_FRESH_MS = 15_000;
+const KNOWLEDGE_SETUP_CACHE_STALE_MS = 2 * 60_000;
+
+type KnowledgeSetupCacheEntry = {
+  value: KnowledgeSetupView;
+  expiresAt: number;
+  staleUntil: number;
+};
+
+const knowledgeSetupReadModelCache = new Map<string, KnowledgeSetupCacheEntry>();
+const knowledgeSetupRefreshPromises = new Map<string, Promise<KnowledgeSetupView>>();
 
 type ActorInfo = {
   actorType: "agent" | "user" | "system";
@@ -54,6 +65,10 @@ type OrgSyncCandidate = {
   live: Awaited<ReturnType<ReturnType<typeof agentService>["list"]>>[number] | null;
   matchedBy: "bootstrap_slug" | "url_key" | "legacy_slug" | null;
 };
+
+function invalidateKnowledgeSetupCache(companyId: string) {
+  knowledgeSetupReadModelCache.delete(companyId);
+}
 
 function toIso(value: Date | string | null | undefined) {
   if (!value) return null;
@@ -340,7 +355,7 @@ export function knowledgeSetupService(db: Db) {
     });
   }
 
-  async function getKnowledgeSetup(companyId: string): Promise<KnowledgeSetupView> {
+  async function buildKnowledgeSetupView(companyId: string): Promise<KnowledgeSetupView> {
     const [setupProgress, orgSync, projectRows, recentJobs] = await Promise.all([
       setupSvc.getView(companyId),
       getOrgSync(companyId),
@@ -503,6 +518,45 @@ export function knowledgeSetupService(db: Db) {
       latestJob: recentJobs[0] ?? null,
       recentJobs,
     };
+  }
+
+  async function refreshKnowledgeSetupCache(companyId: string, force = false) {
+    if (!force) {
+      const inFlight = knowledgeSetupRefreshPromises.get(companyId);
+      if (inFlight) return inFlight;
+    }
+
+    const refreshPromise = buildKnowledgeSetupView(companyId)
+      .then((view) => {
+        const now = Date.now();
+        knowledgeSetupReadModelCache.set(companyId, {
+          value: view,
+          expiresAt: now + KNOWLEDGE_SETUP_CACHE_FRESH_MS,
+          staleUntil: now + KNOWLEDGE_SETUP_CACHE_STALE_MS,
+        });
+        return view;
+      })
+      .finally(() => {
+        knowledgeSetupRefreshPromises.delete(companyId);
+      });
+
+    knowledgeSetupRefreshPromises.set(companyId, refreshPromise);
+    return refreshPromise;
+  }
+
+  async function getKnowledgeSetup(companyId: string): Promise<KnowledgeSetupView> {
+    const cached = knowledgeSetupReadModelCache.get(companyId);
+    const now = Date.now();
+    if (cached && now < cached.expiresAt) {
+      return cached.value;
+    }
+
+    if (cached && now < cached.staleUntil) {
+      void refreshKnowledgeSetupCache(companyId).catch(() => {});
+      return cached.value;
+    }
+
+    return refreshKnowledgeSetupCache(companyId, true);
   }
 
   async function getKnowledgeSyncJob(companyId: string, jobId: string) {
@@ -681,6 +735,7 @@ export function knowledgeSetupService(db: Db) {
         globalSteps,
       }, finalStatus);
     } finally {
+      invalidateKnowledgeSetupCache(companyId);
       activeKnowledgeSyncJobs.delete(jobId);
     }
   }
@@ -750,6 +805,7 @@ export function knowledgeSetupService(db: Db) {
         resultJson: {},
       })),
     );
+    invalidateKnowledgeSetupCache(companyId);
 
     const scheduleExecution = () => {
       void executeKnowledgeSyncJob(companyId, job.id).catch(async (error) => {
@@ -900,6 +956,7 @@ export function knowledgeSetupService(db: Db) {
     }
 
     const orgSync = await getOrgSync(companyId);
+    invalidateKnowledgeSetupCache(companyId);
     return {
       companyId,
       createdAgentIds,
