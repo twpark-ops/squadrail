@@ -28,9 +28,9 @@ describe("retrieval personalization", () => {
     expect(profile.stats.operatorPinCount).toBe(1);
     expect(profile.stats.operatorHideCount).toBe(1);
     expect(profile.pathBoosts["src/retry.ts"]).toBeGreaterThan(0);
-    expect(profile.pathBoosts["docs/adr/retries.md"]).toBeLessThan(0);
     expect(profile.pathBoosts["src/important.ts"]).toBeGreaterThan(0);
-    expect(profile.pathBoosts["docs/noisy.md"]).toBeLessThan(0);
+    expect(profile.pathBoosts["docs/adr/retries.md"]).toBeUndefined();
+    expect(profile.pathBoosts["docs/noisy.md"]).toBeUndefined();
     expect(profile.symbolBoosts.retryWorker).toBeGreaterThan(0);
     expect(profile.sourceTypeBoosts.code).toBeGreaterThan(0);
   });
@@ -103,5 +103,30 @@ describe("retrieval personalization", () => {
     expect(boost.matchedPath).toBe("src/retry.ts");
     expect(boost.matchedSourceType).toBe("code");
     expect(boost.matchedSymbol).toBe("retryWorker");
+  });
+
+  it("does not apply path personalization to organizational memory hits", () => {
+    const boost = computeRetrievalPersonalizationBoost({
+      hit: {
+        sourceType: "issue",
+        path: "issues/CLO-65/issue.md",
+        symbolName: null,
+      },
+      profile: {
+        applied: true,
+        scopes: ["project"],
+        feedbackCount: 4,
+        positiveFeedbackCount: 4,
+        negativeFeedbackCount: 0,
+        sourceTypeBoosts: { issue: 0.14 },
+        pathBoosts: { "issues/CLO-65/issue.md": 0.55 },
+        symbolBoosts: {},
+      },
+    });
+
+    expect(boost.applied).toBe(true);
+    expect(boost.sourceTypeBoost).toBe(0.14);
+    expect(boost.pathBoost).toBe(0);
+    expect(boost.matchedPath).toBeNull();
   });
 });

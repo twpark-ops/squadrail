@@ -109,6 +109,23 @@ function normalizePath(value: string | null | undefined) {
   return value.replace(/\\/gu, "/").replace(/^\.\/+/u, "").trim() || null;
 }
 
+function isPersonalizablePathTarget(path: string | null | undefined) {
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) return false;
+  if (normalizedPath.startsWith("issues/")) return false;
+  if (normalizedPath.startsWith("docs/")) return false;
+  if (normalizedPath.startsWith(".squadrail-")) return false;
+  if (normalizedPath.endsWith(".md")) return false;
+  if (normalizedPath.endsWith(".rst")) return false;
+  if (normalizedPath.endsWith(".adoc")) return false;
+  if (normalizedPath.endsWith(".txt")) return false;
+  return true;
+}
+
+function isPathBoostEligibleSourceType(sourceType: string) {
+  return sourceType === "code" || sourceType === "test_report";
+}
+
 function sortBoostMap(input: Record<string, number>, limit: number) {
   return Object.fromEntries(
     Object.entries(input)
@@ -202,6 +219,7 @@ export function aggregateRetrievalFeedbackProfile(input: {
 
   for (const event of input.events) {
     if (event.targetType === "chunk") continue;
+    if (event.targetType === "path" && !isPersonalizablePathTarget(event.targetId)) continue;
     const current = grouped[event.targetType].get(event.targetId) ?? 0;
     grouped[event.targetType].set(event.targetId, current + event.weight);
   }
@@ -312,7 +330,10 @@ export function computeRetrievalPersonalizationBoost(input: {
 
   const normalizedPath = normalizePath(input.hit.path);
   const sourceTypeBoost = profile.sourceTypeBoosts[input.hit.sourceType] ?? 0;
-  const pathBoost = normalizedPath ? (profile.pathBoosts[normalizedPath] ?? 0) : 0;
+  const pathBoost =
+    normalizedPath && isPathBoostEligibleSourceType(input.hit.sourceType) && isPersonalizablePathTarget(normalizedPath)
+      ? (profile.pathBoosts[normalizedPath] ?? 0)
+      : 0;
   const symbolBoost = input.hit.symbolName ? (profile.symbolBoosts[input.hit.symbolName] ?? 0) : 0;
   const totalBoost = sourceTypeBoost + pathBoost + symbolBoost;
 
@@ -439,7 +460,7 @@ function buildFeedbackEvents(input: {
       metadata,
     });
     const normalizedPath = normalizePath(hit.documentPath);
-    if (normalizedPath) {
+    if (normalizedPath && isPathBoostEligibleSourceType(hit.sourceType) && isPersonalizablePathTarget(normalizedPath)) {
       events.push({
         companyId: input.companyId,
         projectId: input.projectId,
@@ -507,7 +528,7 @@ function buildDirectTargetFeedbackEvents(input: {
       weight: input.baseWeight,
       metadata: input.metadata,
     });
-    if (input.targetType === "path" && !emittedCodeSourceType) {
+    if (input.targetType === "path" && !emittedCodeSourceType && isPersonalizablePathTarget(targetId)) {
       events.push({
         companyId: input.companyId,
         projectId: input.projectId,
@@ -690,6 +711,56 @@ export function retrievalPersonalizationService(db: Db) {
         eventType: input.eventType,
       });
     }
+  }
+
+  async function rebuildAllProfiles(input: {
+    companyId: string;
+    projectIds?: string[];
+  }) {
+    const selectedProjectIds = Array.from(new Set((input.projectIds ?? []).filter(Boolean)));
+    const projectScopes = await db
+      .selectDistinct({
+        projectId: retrievalFeedbackEvents.projectId,
+        role: retrievalFeedbackEvents.actorRole,
+        eventType: retrievalFeedbackEvents.eventType,
+      })
+      .from(retrievalFeedbackEvents)
+      .where(and(
+        eq(retrievalFeedbackEvents.companyId, input.companyId),
+        selectedProjectIds.length > 0 ? inArray(retrievalFeedbackEvents.projectId, selectedProjectIds) : sql`true`,
+      ));
+    const globalScopes = await db
+      .selectDistinct({
+        role: retrievalFeedbackEvents.actorRole,
+        eventType: retrievalFeedbackEvents.eventType,
+      })
+      .from(retrievalFeedbackEvents)
+      .where(eq(retrievalFeedbackEvents.companyId, input.companyId));
+
+    let rebuilt = 0;
+    for (const scope of globalScopes) {
+      await rebuildRoleProfile({
+        companyId: input.companyId,
+        projectId: null,
+        role: scope.role,
+        eventType: scope.eventType,
+      });
+      rebuilt += 1;
+    }
+    for (const scope of projectScopes) {
+      await rebuildRoleProfile({
+        companyId: input.companyId,
+        projectId: scope.projectId ?? null,
+        role: scope.role,
+        eventType: scope.eventType,
+      });
+      rebuilt += 1;
+    }
+
+    return {
+      rebuilt,
+      scopes: globalScopes.length + projectScopes.length,
+    };
   }
 
   async function resolveFeedbackRunIds(input: {
@@ -1279,5 +1350,7 @@ export function retrievalPersonalizationService(db: Db) {
         profiledRunCount,
       };
     },
+
+    rebuildAllProfiles,
   };
 }

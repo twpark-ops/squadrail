@@ -982,6 +982,62 @@ export function knowledgeService(db: Db) {
       return updated ?? entry;
     },
 
+    inspectRetrievalCacheEntryState: async (input: {
+      companyId: string;
+      projectId?: string | null;
+      stage: string;
+      cacheKey: string;
+      knowledgeRevision?: number;
+    }) => {
+      const now = new Date();
+      const entries = await db
+        .select({
+          knowledgeRevision: retrievalCacheEntries.knowledgeRevision,
+          updatedAt: retrievalCacheEntries.updatedAt,
+          expiresAt: retrievalCacheEntries.expiresAt,
+        })
+        .from(retrievalCacheEntries)
+        .where(
+          and(
+            eq(retrievalCacheEntries.companyId, input.companyId),
+            eqNullable(retrievalCacheEntries.projectId, input.projectId ?? null),
+            eq(retrievalCacheEntries.stage, input.stage),
+            eq(retrievalCacheEntries.cacheKey, input.cacheKey),
+          ),
+        )
+        .orderBy(desc(retrievalCacheEntries.knowledgeRevision), desc(retrievalCacheEntries.updatedAt));
+
+      if (entries.length === 0) {
+        return {
+          state: "miss_cold" as const,
+          matchedRevision: null,
+          latestKnownRevision: null,
+          lastEntryUpdatedAt: null,
+        };
+      }
+
+      const expectedRevision = input.knowledgeRevision ?? 0;
+      const sameRevisionEntry = entries.find((entry) => entry.knowledgeRevision === expectedRevision) ?? null;
+      if (sameRevisionEntry) {
+        const expired = sameRevisionEntry.expiresAt != null && sameRevisionEntry.expiresAt.getTime() < now.getTime();
+        if (expired) {
+          return {
+            state: "miss_expired" as const,
+            matchedRevision: sameRevisionEntry.knowledgeRevision,
+            latestKnownRevision: entries[0]?.knowledgeRevision ?? sameRevisionEntry.knowledgeRevision,
+            lastEntryUpdatedAt: sameRevisionEntry.updatedAt,
+          };
+        }
+      }
+
+      return {
+        state: "miss_revision_changed" as const,
+        matchedRevision: sameRevisionEntry?.knowledgeRevision ?? null,
+        latestKnownRevision: entries[0]?.knowledgeRevision ?? null,
+        lastEntryUpdatedAt: (sameRevisionEntry ?? entries[0])?.updatedAt ?? null,
+      };
+    },
+
     upsertRetrievalCacheEntry: async (input: {
       companyId: string;
       projectId?: string | null;
@@ -1487,9 +1543,33 @@ export function knowledgeService(db: Db) {
               ? confidenceLevel
               : null,
           graphHitCount: readNumber(queryDebug.graphHitCount),
+          graphMaxDepth: readNumber(queryDebug.graphMaxDepth),
+          graphHopDepthCounts:
+            queryDebug.graphHopDepthCounts && typeof queryDebug.graphHopDepthCounts === "object" && !Array.isArray(queryDebug.graphHopDepthCounts)
+              ? queryDebug.graphHopDepthCounts as Record<string, number>
+              : {},
           multiHopGraphHitCount: readNumber(queryDebug.multiHopGraphHitCount),
+          organizationalMemoryHitCount: readNumber(quality.organizationalMemoryHitCount),
+          codeHitCount: readNumber(quality.codeHitCount),
+          reviewHitCount: readNumber(quality.reviewHitCount),
           candidateCacheHit: readBoolean(cache.candidateHit),
           finalCacheHit: readBoolean(cache.finalHit),
+          candidateCacheState: readString(cache.candidateState),
+          candidateCacheReason: readString(cache.candidateReason),
+          candidateCacheMatchedRevision:
+            typeof cache.candidateMatchedRevision === "number" ? cache.candidateMatchedRevision : null,
+          candidateCacheLatestKnownRevision:
+            typeof cache.candidateLatestKnownRevision === "number" ? cache.candidateLatestKnownRevision : null,
+          candidateCacheLastEntryUpdatedAt: readString(cache.candidateLastEntryUpdatedAt),
+          candidateCacheKeyFingerprint: readString(cache.candidateCacheKeyFingerprint),
+          finalCacheState: readString(cache.finalState),
+          finalCacheReason: readString(cache.finalReason),
+          finalCacheMatchedRevision:
+            typeof cache.finalMatchedRevision === "number" ? cache.finalMatchedRevision : null,
+          finalCacheLatestKnownRevision:
+            typeof cache.finalLatestKnownRevision === "number" ? cache.finalLatestKnownRevision : null,
+          finalCacheLastEntryUpdatedAt: readString(cache.finalLastEntryUpdatedAt),
+          finalCacheKeyFingerprint: readString(cache.finalCacheKeyFingerprint),
           personalizationApplied: readBoolean(personalization.applied),
           averagePersonalizationBoost: readNumber(personalization.averagePersonalizationBoost),
           topHitPath: readString(queryDebug.topHitPath),
@@ -1663,9 +1743,14 @@ export function knowledgeService(db: Db) {
       let symbolGraphExpandedRuns = 0;
       let multiHopGraphExpandedRuns = 0;
       let graphMaxDepthTotal = 0;
+      let organizationalMemoryHitCountTotal = 0;
+      let codeHitCountTotal = 0;
+      let reviewHitCountTotal = 0;
       const graphEntityTypeCounts: Record<string, number> = {};
       const edgeTypeCounts: Record<string, number> = {};
       const graphHopDepthCounts: Record<string, number> = {};
+      const candidateCacheMissReasonCounts: Record<string, number> = {};
+      const finalCacheMissReasonCounts: Record<string, number> = {};
       const dailyTrendSamples: KnowledgeQualityTrendSample[] = [];
 
       for (const row of rows) {
@@ -1691,6 +1776,11 @@ export function knowledgeService(db: Db) {
         const exactCommitMatchCountForRun = typeof quality.exactCommitMatchCount === "number"
           ? quality.exactCommitMatchCount
           : 0;
+        const organizationalMemoryHitCountForRun = typeof quality.organizationalMemoryHitCount === "number"
+          ? quality.organizationalMemoryHitCount
+          : 0;
+        const codeHitCountForRun = typeof quality.codeHitCount === "number" ? quality.codeHitCount : 0;
+        const reviewHitCountForRun = typeof quality.reviewHitCount === "number" ? quality.reviewHitCount : 0;
         const graphEntityTypes = Array.isArray(quality.graphEntityTypes)
           ? quality.graphEntityTypes.filter((value): value is string => typeof value === "string")
           : [];
@@ -1729,6 +1819,9 @@ export function knowledgeService(db: Db) {
         symbolGraphHitCountTotal += symbolGraphHitCount;
         edgeTraversalCountTotal += edgeTraversalCount;
         graphMaxDepthTotal += graphMaxDepth;
+        organizationalMemoryHitCountTotal += organizationalMemoryHitCountForRun;
+        codeHitCountTotal += codeHitCountForRun;
+        reviewHitCountTotal += reviewHitCountForRun;
         temporalHitCountTotal += temporalHitCount;
         branchAlignedTopHitCountTotal += branchAlignedTopHitCount;
         if (personalization.applied === true) personalizedRunCount += 1;
@@ -1741,6 +1834,14 @@ export function knowledgeService(db: Db) {
         if (cache.embeddingHit === true) embeddingCacheHitCount += 1;
         if (cache.candidateHit === true) candidateCacheHitCount += 1;
         if (cache.finalHit === true) finalCacheHitCount += 1;
+        const candidateState = typeof cache.candidateState === "string" ? cache.candidateState : null;
+        const finalState = typeof cache.finalState === "string" ? cache.finalState : null;
+        if (candidateState && candidateState !== "hit") {
+          candidateCacheMissReasonCounts[candidateState] = (candidateCacheMissReasonCounts[candidateState] ?? 0) + 1;
+        }
+        if (finalState && finalState !== "hit") {
+          finalCacheMissReasonCounts[finalState] = (finalCacheMissReasonCounts[finalState] ?? 0) + 1;
+        }
         staleVersionPenaltyCount += staleVersionPenaltyCountForRun;
         exactCommitMatchCount += exactCommitMatchCountForRun;
         if (graphHitCount > 0) graphExpandedRuns += 1;
@@ -2010,6 +2111,9 @@ export function knowledgeService(db: Db) {
         averageEvidenceCount: totalRuns > 0 ? evidenceCountTotal / totalRuns : 0,
         averageSourceDiversity: totalRuns > 0 ? sourceDiversityTotal / totalRuns : 0,
         averageGraphHitCount: totalRuns > 0 ? graphHitCountTotal / totalRuns : 0,
+        averageOrganizationalMemoryHitCount: totalRuns > 0 ? organizationalMemoryHitCountTotal / totalRuns : 0,
+        averageCodeHitCount: totalRuns > 0 ? codeHitCountTotal / totalRuns : 0,
+        averageReviewHitCount: totalRuns > 0 ? reviewHitCountTotal / totalRuns : 0,
         averageSymbolGraphHitCount: totalRuns > 0 ? symbolGraphHitCountTotal / totalRuns : 0,
         averageEdgeTraversalCount: totalRuns > 0 ? edgeTraversalCountTotal / totalRuns : 0,
         averageGraphMaxDepth: totalRuns > 0 ? graphMaxDepthTotal / totalRuns : 0,
@@ -2022,6 +2126,8 @@ export function knowledgeService(db: Db) {
         embeddingCacheHitRate: totalRuns > 0 ? embeddingCacheHitCount / totalRuns : 0,
         candidateCacheHitRate: totalRuns > 0 ? candidateCacheHitCount / totalRuns : 0,
         finalCacheHitRate: totalRuns > 0 ? finalCacheHitCount / totalRuns : 0,
+        candidateCacheMissReasonCounts,
+        finalCacheMissReasonCounts,
         feedbackEventCount: Number(feedbackStats.eventCount ?? 0),
         positiveFeedbackCount: Number(feedbackStats.positiveCount ?? 0),
         negativeFeedbackCount: Number(feedbackStats.negativeCount ?? 0),

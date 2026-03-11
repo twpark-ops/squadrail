@@ -1,0 +1,56 @@
+@startuml
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam ArrowColor #475569
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment left
+
+package "Operator Loop" {
+  [Feedback surface expansion] as A1
+  [Filters + issue-less handling] as A2
+}
+
+package "Cache Provenance" {
+  [Candidate cache provenance] as B1
+  [Final-hit cache provenance] as B2
+  [Invalidation normalization] as B3
+}
+
+package "Retrieval Quality" {
+  [Deeper chunk-link multi-hop] as C1
+  [Ranking stabilization phase 2] as C2
+}
+
+package "Maintainability" {
+  [God-file refactor slice 1] as D1
+  [Rerank provider abstraction] as D2
+}
+
+package "Proof" {
+  [Trend surface + real-org E2E gate] as E1
+}
+
+A1 --> A2
+A2 --> B1
+B1 --> B2
+B2 --> B3
+B3 --> C1
+C1 --> C2
+C2 --> D1
+D1 --> D2
+D2 --> E1
+
+note right of C1
+Success condition:
+multiHopGraphHitCount > 0
+in recent live run
+end note
+
+note right of E1
+Quality gates:
+typecheck
+tests
+build
+real-org readiness
+end note
+@enduml

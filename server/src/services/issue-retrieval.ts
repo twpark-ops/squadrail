@@ -121,6 +121,16 @@ export interface RetrievalHitView {
     matchedPath: string | null;
     matchedSymbol: string | null;
   } | null;
+  saturationMetadata?: {
+    penalty: number;
+    repeatedPathCount: number;
+    repeatedSourceTypeCount: number;
+    artifactClass: "issue" | "protocol" | "review" | null;
+  } | null;
+  diversityMetadata?: {
+    promotedReason: "exact_path_code" | "exact_path_test_report";
+    replacedSourceType: string | null;
+  } | null;
 }
 
 function serializeRetrievalHit(hit: RetrievalHitView) {
@@ -177,6 +187,14 @@ function deserializeRetrievalHit(value: unknown): RetrievalHitView | null {
       (record.personalizationMetadata && typeof record.personalizationMetadata === "object" && !Array.isArray(record.personalizationMetadata))
         ? record.personalizationMetadata as RetrievalHitView["personalizationMetadata"]
         : null,
+    saturationMetadata:
+      (record.saturationMetadata && typeof record.saturationMetadata === "object" && !Array.isArray(record.saturationMetadata))
+        ? record.saturationMetadata as RetrievalHitView["saturationMetadata"]
+        : null,
+    diversityMetadata:
+      (record.diversityMetadata && typeof record.diversityMetadata === "object" && !Array.isArray(record.diversityMetadata))
+        ? record.diversityMetadata as RetrievalHitView["diversityMetadata"]
+        : null,
   };
 }
 
@@ -204,6 +222,17 @@ interface RetrievalCachePayload {
   hits: RetrievalHitView[];
   quality: Record<string, unknown> | null;
   metadata: Record<string, unknown>;
+}
+
+type RetrievalCacheState = "hit" | "miss_cold" | "miss_revision_changed" | "miss_expired";
+
+interface RetrievalCacheInspectionResult {
+  state: RetrievalCacheState;
+  reason: RetrievalCacheState;
+  matchedRevision: number | null;
+  latestKnownRevision: number | null;
+  lastEntryUpdatedAt: string | null;
+  cacheKeyFingerprint: string;
 }
 
 interface ChunkGraphExpansionResult {
@@ -373,6 +402,8 @@ interface RetrievalRerankWeights {
   sourceTypeDecay: number;
   sourceTypeMinBoost: number;
   exactPathBoost: number;
+  exactPathCodeBridgeBoost: number;
+  exactPathTestBridgeBoost: number;
   fileNameBoost: number;
   metadataExactPathBoostMultiplier: number;
   metadataFileNameBoostMultiplier: number;
@@ -400,6 +431,7 @@ interface RetrievalRerankWeights {
   temporalStalePenalty: number;
   organizationalIssueMissPenalty: number;
   organizationalProtocolMissPenalty: number;
+  organizationalReviewMissPenalty: number;
 }
 
 type RetrievalPathBoostKind = "none" | "direct" | "metadata_exact" | "metadata_file";
@@ -457,7 +489,7 @@ interface BriefQualitySummary {
 }
 
 interface RetrievalGraphSeed {
-  entityType: "symbol" | "path" | "project";
+  entityType: "symbol" | "path" | "project" | "issue";
   entityId: string;
   seedBoost: number;
   seedReasons: string[];
@@ -506,6 +538,8 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   sourceTypeDecay: 0.15,
   sourceTypeMinBoost: 0.15,
   exactPathBoost: 2.5,
+  exactPathCodeBridgeBoost: 1.4,
+  exactPathTestBridgeBoost: 1.15,
   fileNameBoost: 0.9,
   metadataExactPathBoostMultiplier: 0.85,
   metadataFileNameBoostMultiplier: 0.7,
@@ -533,6 +567,7 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   temporalStalePenalty: -0.45,
   organizationalIssueMissPenalty: -1.1,
   organizationalProtocolMissPenalty: -0.45,
+  organizationalReviewMissPenalty: -1.35,
 } as const satisfies RetrievalRerankWeights;
 
 function summarizeBriefQuality(input: {
@@ -1191,6 +1226,14 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     sourceTypeDecay: readConfiguredNumber(weightsRecord.sourceTypeDecay, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.sourceTypeDecay),
     sourceTypeMinBoost: readConfiguredNumber(weightsRecord.sourceTypeMinBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.sourceTypeMinBoost),
     exactPathBoost: readConfiguredNumber(weightsRecord.exactPathBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.exactPathBoost),
+    exactPathCodeBridgeBoost: readConfiguredNumber(
+      weightsRecord.exactPathCodeBridgeBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.exactPathCodeBridgeBoost,
+    ),
+    exactPathTestBridgeBoost: readConfiguredNumber(
+      weightsRecord.exactPathTestBridgeBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.exactPathTestBridgeBoost,
+    ),
     fileNameBoost: readConfiguredNumber(weightsRecord.fileNameBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.fileNameBoost),
     metadataExactPathBoostMultiplier: readConfiguredNumber(
       weightsRecord.metadataExactPathBoostMultiplier,
@@ -1229,6 +1272,10 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     organizationalProtocolMissPenalty: readConfiguredNumber(
       weightsRecord.organizationalProtocolMissPenalty,
       DEFAULT_RETRIEVAL_RERANK_WEIGHTS.organizationalProtocolMissPenalty,
+    ),
+    organizationalReviewMissPenalty: readConfiguredNumber(
+      weightsRecord.organizationalReviewMissPenalty,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.organizationalReviewMissPenalty,
     ),
   } satisfies RetrievalRerankWeights;
 
@@ -1446,6 +1493,208 @@ function classifyOrganizationalArtifact(hit: RetrievalHitView): "issue" | "proto
   return null;
 }
 
+function buildRetrievalCacheInspectionResult(input: {
+  state: RetrievalCacheState;
+  cacheKey: string;
+  matchedRevision?: number | null;
+  latestKnownRevision?: number | null;
+  lastEntryUpdatedAt?: Date | string | null;
+}): RetrievalCacheInspectionResult {
+  const updatedAtValue = input.lastEntryUpdatedAt;
+  const updatedAt = updatedAtValue instanceof Date
+    ? updatedAtValue.toISOString()
+    : typeof updatedAtValue === "string"
+      ? updatedAtValue
+      : null;
+  return {
+    state: input.state,
+    reason: input.state,
+    matchedRevision: input.matchedRevision ?? null,
+    latestKnownRevision: input.latestKnownRevision ?? null,
+    lastEntryUpdatedAt: updatedAt,
+    cacheKeyFingerprint: input.cacheKey.slice(0, 12),
+  };
+}
+
+function shouldEscalateGraphSeed(input: {
+  entityType: RetrievalGraphSeed["entityType"];
+  currentSeed: RetrievalGraphSeed;
+  linkReason: string;
+  linkWeight: number;
+}) {
+  if (input.entityType !== "path" && input.entityType !== "symbol") return false;
+  if (input.linkWeight < 0.7) return false;
+  const hasDirectSignal = input.currentSeed.seedReasons.some((reason) =>
+    reason === "signal_exact_path"
+    || reason === "signal_symbol_hint"
+    || reason === "linked_path"
+    || reason === "linked_symbol");
+  if (!hasDirectSignal) return false;
+  return (
+    input.linkReason === "protocol_changed_path"
+    || input.linkReason === "protocol_issue_context"
+    || input.linkReason === "protocol_related_issue"
+    || input.linkReason === "issue_snapshot"
+  );
+}
+
+function deriveOrganizationalMemorySaturationPath(hit: RetrievalHitView) {
+  const changedPaths = Array.isArray(hit.documentMetadata.changedPaths)
+    ? hit.documentMetadata.changedPaths.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  const primaryChangedPath = changedPaths[0] ? normalizeHintPath(changedPaths[0]) : null;
+  if (primaryChangedPath) return primaryChangedPath;
+  return hit.path ? normalizeHintPath(hit.path) : null;
+}
+
+function isExecutableEvidenceSourceType(sourceType: string) {
+  return sourceType === "code" || sourceType === "test_report";
+}
+
+function matchesExactPathEvidence(hit: RetrievalHitView, signals: RetrievalSignals) {
+  const pathBoost = computeDocumentPathBoost(hit, signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
+  return pathBoost.kind === "direct";
+}
+
+function computeExecutablePathBridgeBoost(input: {
+  hit: RetrievalHitView;
+  pathBoost: RetrievalPathBoostResult;
+  weights: RetrievalRerankWeights;
+}) {
+  if (input.pathBoost.kind !== "direct") return 0;
+  if (input.hit.sourceType === "code") return input.weights.exactPathCodeBridgeBoost;
+  if (input.hit.sourceType === "test_report") return input.weights.exactPathTestBridgeBoost;
+  return 0;
+}
+
+export function applyOrganizationalMemorySaturationGuard(input: {
+  hits: RetrievalHitView[];
+  finalK: number;
+}) {
+  const inspectionLimit = Math.max(input.finalK * 4, input.finalK + 12);
+  const inspected = input.hits.slice(0, inspectionLimit);
+  const rest = input.hits.slice(inspectionLimit);
+  const pathCounts = new Map<string, number>();
+  const sourceCounts = new Map<string, number>();
+
+  const adjusted = inspected.map((hit) => {
+    const artifactClass = classifyOrganizationalArtifact(hit);
+    if (!artifactClass) {
+      return {
+        ...hit,
+        saturationMetadata: null,
+      } satisfies RetrievalHitView;
+    }
+
+    const normalizedPath = deriveOrganizationalMemorySaturationPath(hit);
+    const repeatedPathCount = normalizedPath ? (pathCounts.get(normalizedPath) ?? 0) : 0;
+    const repeatedSourceTypeCount = sourceCounts.get(hit.sourceType) ?? 0;
+    let penalty = 0;
+
+    if (repeatedPathCount >= 1) {
+      penalty -= Math.min(2.2, 0.92 * repeatedPathCount * (artifactClass === "review" ? 1.15 : 1));
+    }
+    if (repeatedSourceTypeCount >= 3) {
+      penalty -= Math.min(0.8, 0.18 * (repeatedSourceTypeCount - 2));
+    }
+
+    if (normalizedPath) {
+      pathCounts.set(normalizedPath, repeatedPathCount + 1);
+    }
+    sourceCounts.set(hit.sourceType, repeatedSourceTypeCount + 1);
+
+    if (penalty === 0) {
+      return {
+        ...hit,
+        saturationMetadata: {
+          penalty: 0,
+          repeatedPathCount,
+          repeatedSourceTypeCount,
+          artifactClass,
+        },
+      } satisfies RetrievalHitView;
+    }
+
+    return {
+      ...hit,
+      fusedScore: hit.fusedScore + penalty,
+      rerankScore: (hit.rerankScore ?? 0) + penalty,
+      saturationMetadata: {
+        penalty,
+        repeatedPathCount,
+        repeatedSourceTypeCount,
+        artifactClass,
+      },
+    } satisfies RetrievalHitView;
+  });
+
+  return [...adjusted, ...rest]
+    .sort((left, right) => {
+      if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
+      return right.updatedAt.getTime() - left.updatedAt.getTime();
+    });
+}
+
+export function applyEvidenceDiversityGuard(input: {
+  hits: RetrievalHitView[];
+  finalK: number;
+  signals: RetrievalSignals;
+}) {
+  if (input.finalK <= 0 || input.signals.exactPaths.length === 0) return input.hits;
+
+  if (input.hits.length <= input.finalK) return input.hits;
+
+  const selected = input.hits.slice(0, input.finalK);
+  if (selected.some((hit) => isExecutableEvidenceSourceType(hit.sourceType) && matchesExactPathEvidence(hit, input.signals))) {
+    return input.hits;
+  }
+
+  const promotedCandidate = input.hits.find((hit, index) =>
+    index >= input.finalK
+    && isExecutableEvidenceSourceType(hit.sourceType)
+    && matchesExactPathEvidence(hit, input.signals));
+  if (!promotedCandidate) return input.hits;
+
+  const replacementIndex = [...selected]
+    .map((hit, index) => ({ hit, index }))
+    .reverse()
+    .find(({ hit }) => classifyOrganizationalArtifact(hit) != null)?.index ?? (selected.length - 1);
+  const replaced = selected[replacementIndex] ?? null;
+  const promoted = {
+    ...promotedCandidate,
+    diversityMetadata: {
+      promotedReason: promotedCandidate.sourceType === "test_report" ? "exact_path_test_report" : "exact_path_code",
+      replacedSourceType: replaced?.sourceType ?? null,
+    },
+  } satisfies RetrievalHitView;
+
+  const adjustedSelected = selected.map((hit, index) => (index === replacementIndex ? promoted : hit));
+  let promotedRemoved = false;
+  const remainingHits = input.hits.filter((hit) => {
+    if (!promotedRemoved && hit.chunkId === promotedCandidate.chunkId) {
+      promotedRemoved = true;
+      return false;
+    }
+    return true;
+  });
+
+  return [
+    ...adjustedSelected,
+    ...remainingHits.slice(input.finalK),
+  ];
+}
+
+function appendUniqueRetrievalHits(baseHits: RetrievalHitView[], fallbackHits: RetrievalHitView[]) {
+  const seen = new Set(baseHits.map((hit) => hit.chunkId));
+  const appended = [...baseHits];
+  for (const hit of fallbackHits) {
+    if (seen.has(hit.chunkId)) continue;
+    seen.add(hit.chunkId);
+    appended.push(hit);
+  }
+  return appended;
+}
+
 function computeDocumentPathBoost(
   hit: RetrievalHitView,
   signals: RetrievalSignals,
@@ -1526,13 +1775,14 @@ function computeOrganizationalMemoryPenalty(input: {
   const artifactClass = classifyOrganizationalArtifact(input.hit);
   if (!artifactClass) return 0;
   if (input.pathBoost.kind === "direct" || input.symbolBoost > 0) return 0;
-  if (artifactClass === "review") return 0;
-
   if (artifactClass === "issue") {
     return input.weights.organizationalIssueMissPenalty;
   }
   if (artifactClass === "protocol") {
     return input.weights.organizationalProtocolMissPenalty;
+  }
+  if (artifactClass === "review") {
+    return input.weights.organizationalReviewMissPenalty;
   }
   return 0;
 }
@@ -1900,10 +2150,15 @@ export function rerankRetrievalHits(input: {
   const rerankConfig = input.rerankConfig ?? resolveRetrievalPolicyRerankConfig({
     allowedSourceTypes: input.signals.preferredSourceTypes,
   });
-  return input.hits
+  const scoredHits = input.hits
     .map((hit) => {
       const pathBoost = computeDocumentPathBoost(hit, input.signals, rerankConfig.weights);
       const symbolBoost = computeSymbolBoost(hit.symbolName, input.signals, rerankConfig.weights);
+      const executablePathBridgeBoost = computeExecutablePathBridgeBoost({
+        hit,
+        pathBoost,
+        weights: rerankConfig.weights,
+      });
       const organizationalMemoryPenalty = computeOrganizationalMemoryPenalty({
         hit,
         signals: input.signals,
@@ -1924,6 +2179,7 @@ export function rerankRetrievalHits(input: {
           rerankConfig,
         })
         + pathBoost.score
+        + executablePathBridgeBoost
         + symbolBoost
         + computeTagBoost(hit, input.signals, rerankConfig.weights)
         + computeLatestBoost(hit, rerankConfig.weights)
@@ -1969,8 +2225,16 @@ export function rerankRetrievalHits(input: {
     .sort((left, right) => {
       if (right.fusedScore !== left.fusedScore) return right.fusedScore - left.fusedScore;
       return right.updatedAt.getTime() - left.updatedAt.getTime();
-    })
-    .slice(0, input.finalK);
+    });
+
+  return applyEvidenceDiversityGuard({
+    hits: applyOrganizationalMemorySaturationGuard({
+      hits: scoredHits,
+      finalK: input.finalK,
+    }),
+    finalK: input.finalK,
+    signals: input.signals,
+  }).slice(0, input.finalK);
 }
 
 export function buildGraphExpansionSeeds(input: {
@@ -2159,6 +2423,9 @@ export function mergeGraphExpandedHits(input: {
           seedReasons: uniqueNonEmpty([...(existing.graphMetadata?.seedReasons ?? []), ...(hit.graphMetadata?.seedReasons ?? [])]),
           graphScore: Math.max(existing.graphMetadata?.graphScore ?? 0, hit.graphMetadata?.graphScore ?? 0),
           edgeTypes: uniqueNonEmpty([...(existing.graphMetadata?.edgeTypes ?? []), ...(hit.graphMetadata?.edgeTypes ?? [])]),
+          hopDepth: [existing.graphMetadata?.hopDepth, hit.graphMetadata?.hopDepth]
+            .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+            .sort((left, right) => right - left)[0],
         }
         : null,
     });
@@ -2418,6 +2685,11 @@ function buildHitRationale(input: {
   const pathBoost = computeDocumentPathBoost(input.hit, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
   const symbolBoost = computeSymbolBoost(input.hit.symbolName, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
   if (pathBoost.score > 0) reasons.push(pathBoost.kind === "direct" ? "path_match" : "metadata_path_match");
+  if (computeExecutablePathBridgeBoost({
+    hit: input.hit,
+    pathBoost,
+    weights: DEFAULT_RETRIEVAL_RERANK_WEIGHTS,
+  }) > 0) reasons.push("executable_path_bridge");
   if (symbolBoost > 0) reasons.push("symbol_match");
   if (computeTagBoost(input.hit, input.signals, DEFAULT_RETRIEVAL_RERANK_WEIGHTS) > 0) reasons.push("tag_match");
   const freshnessBoost = computeFreshnessBoost(input.hit, DEFAULT_RETRIEVAL_RERANK_WEIGHTS);
@@ -2439,6 +2711,8 @@ function buildHitRationale(input: {
   if ((input.hit.personalizationMetadata?.sourceTypeBoost ?? 0) !== 0) reasons.push("personalized_source_type");
   if ((input.hit.personalizationMetadata?.pathBoost ?? 0) !== 0) reasons.push("personalized_path");
   if ((input.hit.personalizationMetadata?.symbolBoost ?? 0) !== 0) reasons.push("personalized_symbol");
+  if ((input.hit.saturationMetadata?.penalty ?? 0) < 0) reasons.push("organizational_memory_saturation");
+  if (input.hit.diversityMetadata?.promotedReason) reasons.push("evidence_diversity_guard");
   switch (input.hit.temporalMetadata?.matchType) {
     case "exact_commit":
       reasons.push("exact_commit_match");
@@ -2970,7 +3244,18 @@ export function issueRetrievalService(db: Db) {
 
     let frontierSeeds = input.seeds;
     let excludedChunkIds = uniqueNonEmpty(input.excludeChunkIds);
-    const visitedSeedKeys = new Set(input.seeds.map((seed) => `${seed.entityType}:${seed.entityId}`));
+    const visitedSeedState = new Map<string, {
+      seedBoost: number;
+      seedReasons: string[];
+      escalationUsed: boolean;
+    }>(input.seeds.map((seed) => [
+      `${seed.entityType}:${seed.entityId}`,
+      {
+        seedBoost: seed.seedBoost,
+        seedReasons: seed.seedReasons,
+        escalationUsed: false,
+      },
+    ] as const));
     let hits: RetrievalHitView[] = [];
     let edgeTraversalCount = 0;
 
@@ -3002,16 +3287,34 @@ export function issueRetrievalService(db: Db) {
 
       const nextSeedMap = new Map<string, RetrievalGraphSeed>();
       for (const link of discoveredLinks) {
-        if (link.entityType !== "symbol" && link.entityType !== "path" && link.entityType !== "project") continue;
+        if (link.entityType !== "symbol" && link.entityType !== "path" && link.entityType !== "project" && link.entityType !== "issue") continue;
         const key = `${link.entityType}:${link.entityId}`;
-        if (visitedSeedKeys.has(key)) continue;
+        const visited = visitedSeedState.get(key);
+        const escalationAllowed = visited != null && shouldEscalateGraphSeed({
+          entityType: link.entityType as RetrievalGraphSeed["entityType"],
+          currentSeed: {
+            entityType: link.entityType as RetrievalGraphSeed["entityType"],
+            entityId: link.entityId,
+            seedBoost: visited.seedBoost,
+            seedReasons: visited.seedReasons,
+          },
+          linkReason: link.linkReason,
+          linkWeight: link.weight,
+        }) && visited.escalationUsed === false;
+        if (visited && !escalationAllowed) continue;
 
         const current = nextSeedMap.get(key);
         const nextSeed: RetrievalGraphSeed = {
-          entityType: link.entityType,
+          entityType: link.entityType as RetrievalGraphSeed["entityType"],
           entityId: link.entityId,
-          seedBoost: Math.min(2.8, Math.max(0.45, link.weight * (0.78 - hopDepth * 0.08))),
-          seedReasons: uniqueNonEmpty([`graph_hop:${link.linkReason}`]),
+          seedBoost: escalationAllowed
+            ? Math.min(3.1, Math.max((visited?.seedBoost ?? 0) + 0.45, link.weight * (0.88 - hopDepth * 0.05)))
+            : Math.min(2.8, Math.max(0.45, link.weight * (0.78 - hopDepth * 0.08))),
+          seedReasons: uniqueNonEmpty([
+            escalationAllowed
+              ? `graph_escalated_${link.entityType}:${link.linkReason}`
+              : `graph_hop:${link.linkReason}`,
+          ]),
         };
         if (!current) {
           nextSeedMap.set(key, nextSeed);
@@ -3028,7 +3331,14 @@ export function issueRetrievalService(db: Db) {
         .sort((left, right) => right.seedBoost - left.seedBoost)
         .slice(0, Math.max(input.limit * 4, 48));
       for (const seed of frontierSeeds) {
-        visitedSeedKeys.add(`${seed.entityType}:${seed.entityId}`);
+        const key = `${seed.entityType}:${seed.entityId}`;
+        const existing = visitedSeedState.get(key);
+        visitedSeedState.set(key, {
+          seedBoost: Math.max(existing?.seedBoost ?? 0, seed.seedBoost),
+          seedReasons: uniqueNonEmpty([...(existing?.seedReasons ?? []), ...seed.seedReasons]),
+          escalationUsed: Boolean(existing?.escalationUsed)
+            || seed.seedReasons.some((reason) => reason.startsWith("graph_escalated_")),
+        });
       }
     }
 
@@ -3489,24 +3799,59 @@ export function issueRetrievalService(db: Db) {
           personalizationFingerprint,
         });
 
-        const cachedCandidatePayload = readRetrievalCachePayload(
-          (await knowledge.getRetrievalCacheEntry({
-            companyId: input.companyId,
-            projectId: input.issue.projectId,
-            stage: "candidate_hits",
+        const candidateCacheEntry = await knowledge.getRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "candidate_hits",
+          cacheKey: candidateCacheKey,
+          knowledgeRevision: primaryKnowledgeRevision,
+        });
+        const candidateCacheInspection = candidateCacheEntry
+          ? buildRetrievalCacheInspectionResult({
+            state: "hit",
             cacheKey: candidateCacheKey,
-            knowledgeRevision: primaryKnowledgeRevision,
-          }))?.valueJson,
-        );
-        const cachedFinalPayload = readRetrievalCachePayload(
-          (await knowledge.getRetrievalCacheEntry({
-            companyId: input.companyId,
-            projectId: input.issue.projectId,
-            stage: "final_hits",
+            matchedRevision: candidateCacheEntry.knowledgeRevision,
+            latestKnownRevision: candidateCacheEntry.knowledgeRevision,
+            lastEntryUpdatedAt: candidateCacheEntry.updatedAt,
+          })
+          : buildRetrievalCacheInspectionResult({
+            cacheKey: candidateCacheKey,
+            ...(await knowledge.inspectRetrievalCacheEntryState({
+              companyId: input.companyId,
+              projectId: input.issue.projectId,
+              stage: "candidate_hits",
+              cacheKey: candidateCacheKey,
+              knowledgeRevision: primaryKnowledgeRevision,
+            })),
+          });
+        const cachedCandidatePayload = readRetrievalCachePayload(candidateCacheEntry?.valueJson);
+
+        const finalCacheEntry = await knowledge.getRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "final_hits",
+          cacheKey: finalCacheKey,
+          knowledgeRevision: primaryKnowledgeRevision,
+        });
+        const finalCacheInspection = finalCacheEntry
+          ? buildRetrievalCacheInspectionResult({
+            state: "hit",
             cacheKey: finalCacheKey,
-            knowledgeRevision: primaryKnowledgeRevision,
-          }))?.valueJson,
-        );
+            matchedRevision: finalCacheEntry.knowledgeRevision,
+            latestKnownRevision: finalCacheEntry.knowledgeRevision,
+            lastEntryUpdatedAt: finalCacheEntry.updatedAt,
+          })
+          : buildRetrievalCacheInspectionResult({
+            cacheKey: finalCacheKey,
+            ...(await knowledge.inspectRetrievalCacheEntryState({
+              companyId: input.companyId,
+              projectId: input.issue.projectId,
+              stage: "final_hits",
+              cacheKey: finalCacheKey,
+              knowledgeRevision: primaryKnowledgeRevision,
+            })),
+          });
+        const cachedFinalPayload = readRetrievalCachePayload(finalCacheEntry?.valueJson);
 
         let sparseHits: RetrievalCandidate[] = [];
         let pathHits: RetrievalCandidate[] = [];
@@ -3774,6 +4119,33 @@ export function issueRetrievalService(db: Db) {
               finalHits = symbolExpandedHits;
             }
           }
+          if (pathHits.length > 0) {
+            const exactPathFallbackHits = rerankRetrievalHits({
+              hits: pathHits.map((hit) => ({
+                ...hit,
+                fusedScore: hit.fusedScore ?? 0,
+              })),
+              signals: dynamicSignals,
+              issueId: input.issueId,
+              projectId: input.issue.projectId,
+              projectAffinityIds: dynamicSignals.projectAffinityIds,
+              linkMap: symbolCombinedLinkMap,
+              temporalContext,
+              documentVersionMap: await listDocumentVersionsForRetrieval({
+                db,
+                companyId: input.companyId,
+                documentIds: uniqueNonEmpty(pathHits.map((hit) => hit.documentId)),
+              }),
+              finalK: Math.max(policy.finalK, pathHits.length),
+              rerankConfig,
+              personalizationProfile,
+            }).filter((hit) => isExecutableEvidenceSourceType(hit.sourceType));
+            finalHits = applyEvidenceDiversityGuard({
+              hits: appendUniqueRetrievalHits(finalHits, exactPathFallbackHits),
+              finalK: policy.finalK,
+              signals: dynamicSignals,
+            }).slice(0, policy.finalK);
+          }
 
           const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
           const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
@@ -4008,6 +4380,18 @@ export function issueRetrievalService(db: Db) {
             candidateHit: candidateCacheHit,
             finalHit: finalCacheHit,
             revisionSignature,
+            candidateState: candidateCacheInspection.state,
+            candidateReason: candidateCacheInspection.reason,
+            candidateMatchedRevision: candidateCacheInspection.matchedRevision,
+            candidateLatestKnownRevision: candidateCacheInspection.latestKnownRevision,
+            candidateLastEntryUpdatedAt: candidateCacheInspection.lastEntryUpdatedAt,
+            candidateCacheKeyFingerprint: candidateCacheInspection.cacheKeyFingerprint,
+            finalState: finalCacheInspection.state,
+            finalReason: finalCacheInspection.reason,
+            finalMatchedRevision: finalCacheInspection.matchedRevision,
+            finalLatestKnownRevision: finalCacheInspection.latestKnownRevision,
+            finalLastEntryUpdatedAt: finalCacheInspection.lastEntryUpdatedAt,
+            finalCacheKeyFingerprint: finalCacheInspection.cacheKeyFingerprint,
           },
           exactPathSatisfied: dynamicSignals.exactPaths.length === 0
             ? true
