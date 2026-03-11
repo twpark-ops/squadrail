@@ -9,6 +9,7 @@ import {
   needsE2eCancellation,
   shouldHideE2eIssue,
 } from "./e2e-issue-utils.mjs";
+import { parseScenarioSelection } from "./burn-in-scenarios.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -1097,8 +1098,9 @@ async function main() {
   }
 
   const scenarios = buildScenarioDefinitions(context);
-  const selectedScenarios = SCENARIO_FILTER
-    ? scenarios.filter((scenario) => scenario.key === SCENARIO_FILTER)
+  const requestedScenarioKeys = parseScenarioSelection(SCENARIO_FILTER);
+  const selectedScenarios = requestedScenarioKeys.length > 0
+    ? scenarios.filter((scenario) => requestedScenarioKeys.includes(scenario.key))
     : scenarios.filter((scenario) => DEFAULT_ORG_LOOP_SCENARIO_KEYS.includes(scenario.key));
   assert(selectedScenarios.length > 0, `No scenarios selected for filter: ${SCENARIO_FILTER}`);
 
