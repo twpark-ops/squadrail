@@ -45,6 +45,9 @@
   - 첫 coordinated rerun에서는 hidden child의 lingering active run 때문에 `swiftcl` lane이 `dispatch_timeout`으로 막혔음
   - cleanup 범위를 `tagged root -> internal child family -> active heartbeat runs`로 넓혀 stale hidden child/run 정리 로직을 넣음
   - cleanup 후 rerun `CLO-158`은 `CLO-159`, `CLO-160`, `CLO-161` 세 child lane이 모두 `in_progress`까지 올라감
+  - 이후 burn-in wrapper가 `429`로 끊겼는데, 원인은 product protocol이 아니라 harness가 poll마다 `issue/state/messages/briefs/reviewCycles/violations`를 모두 조회한 관측 방식이었음
+  - wait loop를 `issue + state + messages`만 poll하고 extended data는 completion 시점에만 읽도록 줄임
+  - fresh bucket 재실행 `CLO-162`에서도 root fan-out 후 세 child engineer run이 모두 `running` 상태까지 올라감
   - 따라서 현재 실질 우선순위는 `coordinated burn-in completion 관찰` 다음 `blocked / legacy / protocol-required semantics cleanup`이다
 
 ## 현재 활성 슬라이스

@@ -1119,15 +1119,23 @@ function findMatchingMessage(messages, predicate) {
   return null;
 }
 
-async function getIssueSnapshot(issueId) {
-  const [issue, state, messages, briefs, reviewCycles, violations] = await Promise.all([
+async function getIssueSnapshot(issueId, options = {}) {
+  const includeExtended = options.includeExtended === true;
+  const requests = [
     api(`/api/issues/${issueId}`),
     api(`/api/issues/${issueId}/protocol/state`),
     api(`/api/issues/${issueId}/protocol/messages`),
-    api(`/api/issues/${issueId}/protocol/briefs`),
-    api(`/api/issues/${issueId}/protocol/review-cycles`),
-    api(`/api/issues/${issueId}/protocol/violations`),
-  ]);
+  ];
+
+  if (includeExtended) {
+    requests.push(
+      api(`/api/issues/${issueId}/protocol/briefs`),
+      api(`/api/issues/${issueId}/protocol/review-cycles`),
+      api(`/api/issues/${issueId}/protocol/violations`),
+    );
+  }
+
+  const [issue, state, messages, briefs = [], reviewCycles = [], violations = []] = await Promise.all(requests);
 
   return { issue, state, messages, briefs, reviewCycles, violations };
 }
@@ -1163,7 +1171,7 @@ async function waitForCompletion(issueId, scenario) {
     }
 
     if (snapshot.state?.workflowState === "done") {
-      return snapshot;
+      return getIssueSnapshot(issueId, { includeExtended: true });
     }
 
     const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
@@ -1188,7 +1196,7 @@ async function waitForCompletion(issueId, scenario) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
-  const snapshot = await getIssueSnapshot(issueId);
+  const snapshot = await getIssueSnapshot(issueId, { includeExtended: true });
   const trail = formatProtocolTrail(snapshot.messages);
   const violations = snapshot.violations.map((entry) => `${entry.code}:${entry.status}`).join(", ");
   throw new Error(
