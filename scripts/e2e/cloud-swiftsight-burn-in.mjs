@@ -60,6 +60,19 @@ async function runRealOrgScenarioBatch(scenarioSelection) {
   };
 }
 
+async function cleanupLingeringE2eIssues() {
+  const env = {
+    ...process.env,
+    SQUADRAIL_BASE_URL: BASE_URL,
+  };
+  const { stdout, stderr } = await execFileAsync("node", ["scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs"], {
+    cwd: process.cwd(),
+    env,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return { stdout, stderr };
+}
+
 async function enrichScenarioResult(result) {
   const issueId = result?.issueId;
   const issueIdentifier = result?.issueIdentifier ?? result?.identifier ?? null;
@@ -92,6 +105,11 @@ async function main() {
   note(`batch=${BATCH_KEY}`);
   note(`scenarioCount=${scenarios.length}`);
   note(`scenarios=${scenarios.join(", ")}`);
+
+  section("Cleanup Lingering E2E Issues");
+  const cleanup = await cleanupLingeringE2eIssues();
+  if (cleanup.stdout.trim()) note(cleanup.stdout.trim());
+  if (cleanup.stderr.trim()) note(cleanup.stderr.trim());
 
   section("Run Real-Org Batch");
   const run = await runRealOrgScenarioBatch(scenarios);
