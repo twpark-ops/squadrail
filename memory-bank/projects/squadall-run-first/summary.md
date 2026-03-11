@@ -108,10 +108,14 @@
   - UI regression은 smoke가 일부 있지만 change/merge/knowledge setup 핵심 표면을 지키는 회귀 테스트는 부족하다.
   - CI/release workflow는 repo 루트 기준 아직 부재다.
 - 따라서 `run first` 우선순위 다음 배치는 아래 순서로 본다.
-  1. merge candidate operator UI 완성
-  2. change surface를 실제 review desk로 승격
-  3. UI regression tests for change/merge/knowledge setup
-  4. `issues.ts` route split
-  5. `issue-retrieval.ts` refactor
-  6. knowledge setup read-model cache/background refresh
-  7. PR verify / release workflow 추가
+  1. `issues.ts` route split slice 2
+  2. `issue-retrieval.ts` refactor
+  3. knowledge setup read-model cache/background refresh
+  4. PR verify / release workflow 추가
+
+## 최근 진행
+
+- `issues.ts` route split slice 1 완료
+  - approvals, intake, protocol read, merge/change-surface, attachments를 `server/src/routes/issues/` 하위 모듈로 분리
+  - 메인 `issues.ts`는 create/update/delete/checkout/release, comments, protocol write 등 고변동 write path 중심으로 축소
+  - 집중 테스트 + 전체 `typecheck/test/build` 모두 통과

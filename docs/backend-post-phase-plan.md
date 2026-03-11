@@ -432,13 +432,19 @@ Knowledge follow-up은 CLI-first가 아니라 UI-first로 진행한다.
 
 우선순위:
 
-1. merge candidate operator UI 완성
-2. change surface를 실제 review desk로 승격
-3. change/merge/knowledge-setup UI regression tests
-4. `issues.ts` route split
-5. `issue-retrieval.ts` refactor
-6. knowledge setup read-model cache/background refresh
-7. PR verify / release workflow 추가
+1. `issues.ts` route split slice 2
+2. `issue-retrieval.ts` refactor
+3. knowledge setup read-model cache/background refresh
+4. PR verify / release workflow 추가
+
+상태:
+- `issues.ts` route split slice 1 완료
+  - approvals
+  - intake
+  - protocol read routes
+  - change/merge routes
+  - attachment routes
+- 메인 파일에는 create/update/delete/checkout/release, comments, protocol write 같은 고변동 흐름만 남긴 상태다.
 
 이 순서는 coordinated burn-in 이후 `run first, optimize later` 원칙과 충돌하지 않는다.
-의미는 retrieval 성능 미세조정보다 먼저, 이미 있는 backend 능력을 운영자 제품 표면으로 연결하고, 확장 전에 god-file과 release discipline을 정리하자는 것이다.
+의미는 UI-only 작업을 별도 worktree로 분리한 뒤, 백엔드 커널에서는 확장 전에 god-file과 release discipline을 정리하자는 것이다.
