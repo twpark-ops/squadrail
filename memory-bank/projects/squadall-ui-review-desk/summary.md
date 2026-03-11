@@ -30,13 +30,16 @@
 - `ui/vite.config.ts`
   - markdown/editor vendor chunk strategy를 세분화해 editor async bundle을 추가로 절감
   - `lexical` / `markdown` vendor를 editor shell에서 분리
+  - `vite/preload-helper`를 별도 chunk로 분리해 root entry가 editor vendor에 다시 묶이지 않게 고정
+- `scripts/smoke/ui-interaction-review.spec.ts`
+  - `Overview` first load에서 `mdx-editor` / `lexical` / `markdown` vendor 요청이 발생하지 않는 회귀 검증 추가
 
 ## 검증 상태
 
 - `pnpm --filter @squadrail/ui typecheck` 통과
 - `pnpm --filter @squadrail/ui build` 통과
 - `scripts/smoke/local-ui-flow.sh` 통과
-- `UI_REVIEW_BASE_URL=http://127.0.0.1:3386 pnpm exec playwright test scripts/smoke/ui-interaction-review.spec.ts scripts/smoke/ui-support-routes.spec.ts --reporter=line` 통과 (`7 passed`)
+- `UI_REVIEW_BASE_URL=http://127.0.0.1:3390 pnpm exec playwright test scripts/smoke/ui-interaction-review.spec.ts scripts/smoke/ui-support-routes.spec.ts --reporter=line` 통과 (`8 passed`)
 
 ## 회귀 테스트 메모
 
@@ -55,6 +58,7 @@
   - `GET /api/agents/:id/runtime-state`에서 duplicate-key 500이 발생할 수 있음
   - 이번 worktree에서는 UI-only 범위라 테스트 대상에서 제외
 - perf scope:
-  - main entry 약 `431kB`, `MarkdownEditor` async chunk 약 `816kB`
+  - main entry 약 `430kB`, `MarkdownEditor` async chunk 약 `815kB`
+  - root entry HTML은 editor CSS preload를 더 이상 포함하지 않는다
+  - `Overview` first-load 회귀 테스트 기준으로 editor vendor(`mdx-editor` / `lexical` / `markdown`)는 초기 요청에서 제거됐다
   - editor chunk warning은 줄었지만 아직 Vite large-chunk warning 기준(`500kB`)은 넘는다
-  - browser/server log 기준 일부 첫 진입 경로에서도 editor vendor(`mdx-editor` / `lexical` / `markdown`) 요청이 따라와서 완전한 lazy isolation은 아직 아니다
