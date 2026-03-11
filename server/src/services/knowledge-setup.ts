@@ -17,6 +17,7 @@ import {
 } from "@squadrail/db";
 import type {
   CreateKnowledgeSyncJob,
+  KnowledgeSetupCacheState,
   KnowledgeSetupProjectStatus,
   KnowledgeSetupProjectView,
   KnowledgeSetupView,
@@ -53,6 +54,12 @@ type KnowledgeSetupCacheEntry = {
 
 const knowledgeSetupReadModelCache = new Map<string, KnowledgeSetupCacheEntry>();
 const knowledgeSetupRefreshPromises = new Map<string, Promise<KnowledgeSetupView>>();
+const knowledgeSetupRefreshTelemetry = new Map<string, {
+  lastRefreshStartedAt: number | null;
+  lastRefreshCompletedAt: number | null;
+  lastRefreshErrorAt: number | null;
+  lastRefreshError: string | null;
+}>();
 
 type ActorInfo = {
   actorType: "agent" | "user" | "system";
@@ -68,6 +75,51 @@ type OrgSyncCandidate = {
 
 function invalidateKnowledgeSetupCache(companyId: string) {
   knowledgeSetupReadModelCache.delete(companyId);
+}
+
+function getKnowledgeSetupRefreshTelemetry(companyId: string) {
+  const existing = knowledgeSetupRefreshTelemetry.get(companyId);
+  if (existing) return existing;
+  const next = {
+    lastRefreshStartedAt: null,
+    lastRefreshCompletedAt: null,
+    lastRefreshErrorAt: null,
+    lastRefreshError: null,
+  };
+  knowledgeSetupRefreshTelemetry.set(companyId, next);
+  return next;
+}
+
+function toIsoFromEpochMs(value: number | null) {
+  return value ? new Date(value).toISOString() : null;
+}
+
+function withKnowledgeSetupCacheMeta(
+  view: KnowledgeSetupView,
+  input: {
+    state: KnowledgeSetupCacheState;
+    refreshInFlight: boolean;
+    freshUntil: number | null;
+    staleUntil: number | null;
+    lastRefreshStartedAt: number | null;
+    lastRefreshCompletedAt: number | null;
+    lastRefreshErrorAt: number | null;
+    lastRefreshError: string | null;
+  },
+): KnowledgeSetupView {
+  return {
+    ...view,
+    cache: {
+      state: input.state,
+      refreshInFlight: input.refreshInFlight,
+      freshUntil: toIsoFromEpochMs(input.freshUntil),
+      staleUntil: toIsoFromEpochMs(input.staleUntil),
+      lastRefreshStartedAt: toIsoFromEpochMs(input.lastRefreshStartedAt),
+      lastRefreshCompletedAt: toIsoFromEpochMs(input.lastRefreshCompletedAt),
+      lastRefreshErrorAt: toIsoFromEpochMs(input.lastRefreshErrorAt),
+      lastRefreshError: input.lastRefreshError,
+    },
+  };
 }
 
 function toIso(value: Date | string | null | undefined) {
@@ -511,6 +563,16 @@ export function knowledgeSetupService(db: Db) {
     return {
       companyId,
       generatedAt: new Date().toISOString(),
+      cache: {
+        state: "miss",
+        refreshInFlight: false,
+        freshUntil: null,
+        staleUntil: null,
+        lastRefreshStartedAt: null,
+        lastRefreshCompletedAt: null,
+        lastRefreshErrorAt: null,
+        lastRefreshError: null,
+      },
       setupProgressStatus: setupProgress.status,
       orgSync,
       projects: projectViews.sort((left, right) => left.projectName.localeCompare(right.projectName, "en")),
@@ -526,6 +588,11 @@ export function knowledgeSetupService(db: Db) {
       if (inFlight) return inFlight;
     }
 
+    const telemetry = getKnowledgeSetupRefreshTelemetry(companyId);
+    telemetry.lastRefreshStartedAt = Date.now();
+    telemetry.lastRefreshErrorAt = null;
+    telemetry.lastRefreshError = null;
+
     const refreshPromise = buildKnowledgeSetupView(companyId)
       .then((view) => {
         const now = Date.now();
@@ -534,7 +601,13 @@ export function knowledgeSetupService(db: Db) {
           expiresAt: now + KNOWLEDGE_SETUP_CACHE_FRESH_MS,
           staleUntil: now + KNOWLEDGE_SETUP_CACHE_STALE_MS,
         });
+        telemetry.lastRefreshCompletedAt = now;
         return view;
+      })
+      .catch((error) => {
+        telemetry.lastRefreshErrorAt = Date.now();
+        telemetry.lastRefreshError = error instanceof Error ? error.message : String(error);
+        throw error;
       })
       .finally(() => {
         knowledgeSetupRefreshPromises.delete(companyId);
@@ -547,16 +620,48 @@ export function knowledgeSetupService(db: Db) {
   async function getKnowledgeSetup(companyId: string): Promise<KnowledgeSetupView> {
     const cached = knowledgeSetupReadModelCache.get(companyId);
     const now = Date.now();
+    const telemetry = getKnowledgeSetupRefreshTelemetry(companyId);
+    const refreshInFlight = knowledgeSetupRefreshPromises.has(companyId);
     if (cached && now < cached.expiresAt) {
-      return cached.value;
+      return withKnowledgeSetupCacheMeta(cached.value, {
+        state: "fresh",
+        refreshInFlight,
+        freshUntil: cached.expiresAt,
+        staleUntil: cached.staleUntil,
+        lastRefreshStartedAt: telemetry.lastRefreshStartedAt,
+        lastRefreshCompletedAt: telemetry.lastRefreshCompletedAt,
+        lastRefreshErrorAt: telemetry.lastRefreshErrorAt,
+        lastRefreshError: telemetry.lastRefreshError,
+      });
     }
 
     if (cached && now < cached.staleUntil) {
       void refreshKnowledgeSetupCache(companyId).catch(() => {});
-      return cached.value;
+      return withKnowledgeSetupCacheMeta(cached.value, {
+        state: "stale",
+        refreshInFlight: true,
+        freshUntil: cached.expiresAt,
+        staleUntil: cached.staleUntil,
+        lastRefreshStartedAt: telemetry.lastRefreshStartedAt,
+        lastRefreshCompletedAt: telemetry.lastRefreshCompletedAt,
+        lastRefreshErrorAt: telemetry.lastRefreshErrorAt,
+        lastRefreshError: telemetry.lastRefreshError,
+      });
     }
 
-    return refreshKnowledgeSetupCache(companyId, true);
+    const view = await refreshKnowledgeSetupCache(companyId, true);
+    const refreshed = knowledgeSetupReadModelCache.get(companyId);
+    const latestTelemetry = getKnowledgeSetupRefreshTelemetry(companyId);
+    return withKnowledgeSetupCacheMeta(view, {
+      state: "miss",
+      refreshInFlight: false,
+      freshUntil: refreshed?.expiresAt ?? null,
+      staleUntil: refreshed?.staleUntil ?? null,
+      lastRefreshStartedAt: latestTelemetry.lastRefreshStartedAt,
+      lastRefreshCompletedAt: latestTelemetry.lastRefreshCompletedAt,
+      lastRefreshErrorAt: latestTelemetry.lastRefreshErrorAt,
+      lastRefreshError: latestTelemetry.lastRefreshError,
+    });
   }
 
   async function getKnowledgeSyncJob(companyId: string, jobId: string) {

@@ -472,6 +472,14 @@ Knowledge follow-up은 CLI-first가 아니라 UI-first로 진행한다.
   - change/merge routes
   - attachment routes
 - 메인 파일에는 create/update/delete/checkout/release, comments, protocol write 같은 고변동 흐름만 남긴 상태다.
+- `knowledge-setup` read model cache 1차 완료
+  - setup view는 15초 fresh / 2분 stale 캐시를 사용한다.
+  - stale 구간에서는 cached view를 반환하고 background refresh를 비동기로 시작한다.
+  - knowledge sync / org repair 시 cache invalidate를 수행한다.
+  - `KnowledgeSetupView.cache`에 `state`, `refreshInFlight`, `freshUntil`, `staleUntil`, `lastRefresh*`를 노출한다.
+- 루트 CI / release workflow 추가
+  - `.github/workflows/pr-verify.yml`
+  - `.github/workflows/release.yml`
 
 이 순서는 coordinated burn-in 이후 `run first, optimize later` 원칙과 충돌하지 않는다.
 의미는 UI-only 작업을 별도 worktree로 분리한 뒤, 백엔드 커널에서는 확장 전에 god-file과 release discipline을 정리하자는 것이다.

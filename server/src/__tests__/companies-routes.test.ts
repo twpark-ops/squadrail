@@ -377,6 +377,16 @@ describe("company routes", () => {
     mockKnowledgeSetupGetKnowledgeSetup.mockResolvedValue({
       companyId: "company-1",
       generatedAt: "2026-03-11T00:00:00.000Z",
+      cache: {
+        state: "fresh",
+        refreshInFlight: false,
+        freshUntil: "2026-03-11T00:00:15.000Z",
+        staleUntil: "2026-03-11T00:02:00.000Z",
+        lastRefreshStartedAt: "2026-03-11T00:00:00.000Z",
+        lastRefreshCompletedAt: "2026-03-11T00:00:01.000Z",
+        lastRefreshErrorAt: null,
+        lastRefreshError: null,
+      },
       setupProgressStatus: "first_issue_ready",
       orgSync: {
         companyId: "company-1",
@@ -409,6 +419,10 @@ describe("company routes", () => {
       companyId: "company-1",
       setupProgressStatus: "first_issue_ready",
       activeJobCount: 0,
+      cache: {
+        state: "fresh",
+        refreshInFlight: false,
+      },
     });
     expect(mockKnowledgeSetupGetKnowledgeSetup).toHaveBeenCalledWith("company-1");
   });
