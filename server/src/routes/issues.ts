@@ -4,16 +4,12 @@ import { z } from "zod";
 import { enqueueAfterDbCommit, runWithoutDbContext, type Db } from "@squadrail/db";
 import {
   addIssueCommentSchema,
-  createIssueAttachmentMetadataSchema,
   createInternalWorkItemSchema,
   createIssueLabelSchema,
   checkoutIssueSchema,
   createIssueSchema,
-  createPmIntakeIssueSchema,
-  createPmIntakeProjectionSchema,
   createIssueProtocolMessageSchema,
   type CreateIssueProtocolMessage,
-  linkIssueApprovalSchema,
   updateIssueSchema,
 } from "@squadrail/shared";
 import type { StorageService } from "../storage/types.js";
@@ -49,6 +45,11 @@ import {
   enrichProtocolMessageArtifactsFromRun,
   runMatchesIssueScope,
 } from "../services/protocol-run-artifacts.js";
+import { registerIssueApprovalRoutes } from "./issues/approvals-routes.js";
+import { registerIssueAttachmentRoutes } from "./issues/attachments-routes.js";
+import { registerIssueIntakeRoutes } from "./issues/intake-routes.js";
+import { registerIssueMergeRoutes } from "./issues/merge-routes.js";
+import { registerIssueProtocolReadRoutes } from "./issues/protocol-read-routes.js";
 
 const MAX_ATTACHMENT_BYTES = Number(process.env.SQUADRAIL_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_CONTENT_TYPES = new Set([
@@ -1435,6 +1436,75 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
   });
 
+  const routeContext = {
+    router,
+    db,
+    storage,
+    services: {
+      svc,
+      access,
+      heartbeat,
+      agentsSvc,
+      knowledge,
+      projectsSvc,
+      goalsSvc,
+      issueApprovalsSvc,
+      protocolExecution,
+      issueRetrieval,
+      protocolSvc,
+      organizationalMemory,
+      retrievalPersonalization,
+      mergeCandidatesSvc,
+    },
+    helpers: {
+      withContentPath,
+      scheduleIssueMemoryIngest,
+      scheduleProtocolMemoryIngest,
+      ensureIssueLabelsByName,
+      loadIssueChangeSurface,
+      syncMergeCandidateFromProtocolMessage,
+      runSingleFileUpload,
+      assertCanManageIssueApprovalLinks,
+      assertCanAssignTasks,
+      queueIssueWakeup,
+      assertInternalWorkItemAssignee,
+      assertInternalWorkItemReviewer,
+      assertInternalWorkItemQa,
+      assertInternalWorkItemLeadSupervisor,
+      buildTaskAssignmentSender,
+      createAndAssignInternalWorkItem,
+      appendProtocolMessageAndDispatch,
+      assertCanPostProtocolMessage,
+      recordProtocolViolation,
+      requireAgentRunId,
+      assertAgentRunCheckoutOwnership,
+      buildPmProjectionRootDescription,
+      resolvePmIntakeAgents,
+      derivePmIntakeIssueTitle,
+      buildPmIntakeIssueDescription,
+      buildPmIntakeAssignment,
+      normalizeProtocolRequestBodyAliases,
+      buildMergeAutomationPlan,
+      runMergeAutomationAction,
+    },
+    schemas: {
+      mergeCandidateActionSchema,
+      mergeCandidateAutomationSchema,
+      retrievalFeedbackSchema,
+    },
+    constants: {
+      maxAttachmentBytes: MAX_ATTACHMENT_BYTES,
+      allowedAttachmentContentTypes: ALLOWED_ATTACHMENT_CONTENT_TYPES,
+      pmIntakeLabelSpecs: PM_INTAKE_LABEL_SPECS,
+    },
+  };
+
+  registerIssueApprovalRoutes(routeContext);
+  registerIssueIntakeRoutes(routeContext);
+  registerIssueProtocolReadRoutes(routeContext);
+  registerIssueMergeRoutes(routeContext);
+  registerIssueAttachmentRoutes(routeContext);
+
   router.get("/companies/:companyId/issues", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -1575,77 +1645,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
     });
   });
 
-  router.get("/issues/:id/approvals", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const approvals = await issueApprovalsSvc.listApprovalsForIssue(id);
-    res.json(approvals);
-  });
-
-  router.post("/issues/:id/approvals", validate(linkIssueApprovalSchema), async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    if (!(await assertCanManageIssueApprovalLinks(req, res, issue.companyId))) return;
-
-    const actor = getActorInfo(req);
-    await issueApprovalsSvc.link(id, req.body.approvalId, {
-      agentId: actor.agentId,
-      userId: actor.actorType === "user" ? actor.actorId : null,
-    });
-
-    await logActivity(db, {
-      companyId: issue.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.approval_linked",
-      entityType: "issue",
-      entityId: issue.id,
-      details: { approvalId: req.body.approvalId },
-    });
-
-    const approvals = await issueApprovalsSvc.listApprovalsForIssue(id);
-    res.status(201).json(approvals);
-  });
-
-  router.delete("/issues/:id/approvals/:approvalId", async (req, res) => {
-    const id = req.params.id as string;
-    const approvalId = req.params.approvalId as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    if (!(await assertCanManageIssueApprovalLinks(req, res, issue.companyId))) return;
-
-    await issueApprovalsSvc.unlink(id, approvalId);
-
-    const actor = getActorInfo(req);
-    await logActivity(db, {
-      companyId: issue.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.approval_unlinked",
-      entityType: "issue",
-      entityId: issue.id,
-      details: { approvalId },
-    });
-
-    res.json({ ok: true });
-  });
-
   router.post("/companies/:companyId/issues", validate(createIssueSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -1692,302 +1691,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
     scheduleIssueMemoryIngest(issue.id, "create");
 
     res.status(201).json(issue);
-  });
-
-  router.post("/companies/:companyId/intake/issues", validate(createPmIntakeIssueSchema), async (req, res) => {
-    const companyId = req.params.companyId as string;
-    assertCompanyAccess(req, companyId);
-    await assertCanAssignTasks(req, companyId);
-
-    const actor = getActorInfo(req);
-    const companyAgents = await agentsSvc.list(companyId);
-    const { pmAgent, reviewerAgent } = resolvePmIntakeAgents({
-      agents: companyAgents,
-      pmAgentId: req.body.pmAgentId ?? null,
-      reviewerAgentId: req.body.reviewerAgentId ?? null,
-    });
-
-    const relatedIssueIdentifiers = req.body.relatedIssueIds?.length
-          ? (await Promise.all(req.body.relatedIssueIds.map(async (issueId: string) => {
-          const issue = await svc.getById(issueId);
-          return issue?.companyId === companyId ? (issue.identifier ?? issue.id) : null;
-        }))).filter((value): value is string => typeof value === "string")
-      : [];
-
-    const scopedProject =
-      req.body.projectId
-        ? await projectsSvc.getById(req.body.projectId)
-        : null;
-
-    if (scopedProject && scopedProject.companyId !== companyId) {
-      throw unprocessable("Selected project must belong to this company");
-    }
-
-    const title = derivePmIntakeIssueTitle({
-      title: req.body.title ?? null,
-      request: req.body.request,
-    });
-    const description = buildPmIntakeIssueDescription({
-      request: req.body.request,
-      projectName: scopedProject?.name ?? null,
-      relatedIssueIdentifiers,
-    });
-    const labels = await ensureIssueLabelsByName(companyId, PM_INTAKE_LABEL_SPECS);
-
-    const issue = await svc.create(companyId, {
-      projectId: req.body.projectId ?? null,
-      goalId: req.body.goalId ?? null,
-      parentId: null,
-      title,
-      description,
-      status: "backlog",
-      priority: req.body.priority,
-      assigneeAgentId: pmAgent.id,
-      assigneeUserId: null,
-      requestDepth: 0,
-      billingCode: null,
-      assigneeAdapterOverrides: null,
-      createdByAgentId: actor.agentId,
-      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
-      labelIds: labels.map((label) => label.id),
-    });
-
-    scheduleIssueMemoryIngest(issue.id, "create");
-
-    const sender = await buildTaskAssignmentSender(req, companyId);
-    const assignment = buildPmIntakeAssignment({
-      title,
-      priority: req.body.priority,
-      pmAgentId: pmAgent.id,
-      reviewerAgentId: reviewerAgent.id,
-      requestedDueAt: req.body.requestedDueAt ?? null,
-      relatedIssueIds: req.body.relatedIssueIds,
-      requiredKnowledgeTags: req.body.requiredKnowledgeTags,
-    });
-
-    const assignmentMessage: CreateIssueProtocolMessage = {
-      messageType: "ASSIGN_TASK",
-      sender,
-      recipients: [
-        {
-          recipientType: "agent",
-          recipientId: pmAgent.id,
-          role: "pm",
-        },
-        {
-          recipientType: "agent",
-          recipientId: reviewerAgent.id,
-          role: "reviewer",
-        },
-      ],
-      workflowStateBefore: "backlog",
-      workflowStateAfter: "assigned",
-      summary: assignment.summary,
-      requiresAck: false,
-      payload: assignment.payload,
-      artifacts: [],
-    };
-
-    let dispatch;
-    try {
-      dispatch = await appendProtocolMessageAndDispatch({
-        issue,
-        message: assignmentMessage,
-        actor,
-        asyncDispatch: true,
-      });
-    } catch (err) {
-      try {
-        await svc.remove(issue.id);
-      } catch (cleanupErr) {
-        logger.error(
-          { err: cleanupErr, issueId: issue.id, companyId },
-          "failed to clean up PM intake issue after initial assignment failed",
-        );
-      }
-      throw err;
-    }
-
-    await logActivity(db, {
-      companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.intake.created",
-      entityType: "issue",
-      entityId: issue.id,
-      details: {
-        identifier: issue.identifier,
-        pmAgentId: pmAgent.id,
-        reviewerAgentId: reviewerAgent.id,
-        projectId: issue.projectId,
-      },
-    });
-
-    const refreshedIssue = await svc.getById(issue.id) ?? issue;
-
-    res.status(201).json({
-      issue: refreshedIssue,
-      protocol: dispatch.result,
-      warnings: dispatch.warnings,
-      intake: {
-        pmAgentId: pmAgent.id,
-        reviewerAgentId: reviewerAgent.id,
-      },
-    });
-  });
-
-  router.post("/issues/:id/intake/projection", validate(createPmIntakeProjectionSchema), async (req, res) => {
-    const issueId = req.params.id as string;
-    const rootIssue = await svc.getById(issueId);
-    if (!rootIssue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-
-    assertCompanyAccess(req, rootIssue.companyId);
-    await assertCanAssignTasks(req, rootIssue.companyId);
-    if (rootIssue.parentId || rootIssue.hiddenAt) {
-      throw unprocessable("PM intake projection can only run on visible root issues");
-    }
-
-    const actor = getActorInfo(req);
-    const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
-    if (sender.role !== "pm" && sender.role !== "cto" && sender.role !== "human_board") {
-      throw forbidden("Only PM, CTO, or board actors can project intake issues");
-    }
-
-    const rootProtocolState = await protocolSvc.getState(rootIssue.id);
-    if (!rootProtocolState) {
-      throw conflict("PM intake projection requires initialized protocol state");
-    }
-
-    const techLead = await assertInternalWorkItemLeadSupervisor(rootIssue.companyId, req.body.techLeadAgentId);
-    const reviewer = await assertInternalWorkItemReviewer(rootIssue.companyId, req.body.reviewerAgentId);
-    const qaAgent = req.body.qaAgentId
-      ? await assertInternalWorkItemQa(rootIssue.companyId, req.body.qaAgentId)
-      : null;
-    const scopedProject =
-      req.body.root.projectId
-        ? await projectsSvc.getById(req.body.root.projectId)
-        : rootIssue.projectId
-          ? await projectsSvc.getById(rootIssue.projectId)
-          : null;
-    if (scopedProject && scopedProject.companyId !== rootIssue.companyId) {
-      throw unprocessable("Selected project must belong to the same company");
-    }
-
-    const nextDescription = buildPmProjectionRootDescription({
-      requestDescription: rootIssue.description,
-      projectName: scopedProject?.name ?? null,
-      techLeadName: techLead.name,
-      reviewerName: reviewer.name,
-      qaName: qaAgent?.name ?? null,
-      root: req.body.root,
-    });
-
-    const updatedRoot = await svc.update(rootIssue.id, {
-      title: req.body.root.structuredTitle ?? rootIssue.title,
-      description: nextDescription,
-      projectId: req.body.root.projectId === undefined ? rootIssue.projectId : req.body.root.projectId,
-      priority: req.body.root.priority ?? rootIssue.priority,
-    }) ?? rootIssue;
-    scheduleIssueMemoryIngest(rootIssue.id, "update");
-
-    let reassignDispatch: Awaited<ReturnType<typeof appendProtocolMessageAndDispatch>> | null = null;
-    if (!req.body.coordinationOnly) {
-      const reassignMessage: CreateIssueProtocolMessage = {
-        messageType: "REASSIGN_TASK",
-        sender,
-        recipients: [
-          {
-            recipientType: "agent",
-            recipientId: techLead.id,
-            role: "tech_lead",
-          },
-          {
-            recipientType: "agent",
-            recipientId: reviewer.id,
-            role: "reviewer",
-          },
-          ...(qaAgent
-            ? [{
-                recipientType: "agent" as const,
-                recipientId: qaAgent.id,
-                role: "qa" as const,
-              }]
-            : []),
-        ],
-        workflowStateBefore: rootProtocolState.workflowState as CreateIssueProtocolMessage["workflowStateBefore"],
-        workflowStateAfter: "assigned",
-        summary: `Route ${updatedRoot.identifier ?? updatedRoot.title} into ${techLead.name}'s TL lane`,
-        requiresAck: false,
-        payload: {
-          reason: req.body.reason,
-          newAssigneeAgentId: techLead.id,
-          newReviewerAgentId: reviewer.id,
-          newQaAgentId: qaAgent?.id ?? null,
-          carryForwardBriefVersion: req.body.carryForwardBriefVersion ?? null,
-        },
-        artifacts: [],
-      };
-
-      reassignDispatch = await appendProtocolMessageAndDispatch({
-        issue: updatedRoot,
-        message: reassignMessage,
-        actor,
-        asyncDispatch: true,
-      });
-    }
-
-    const projectedWorkItems = [];
-    for (const workItem of req.body.workItems) {
-      const projected = await createAndAssignInternalWorkItem({
-        rootIssue: updatedRoot,
-        actor,
-        sender,
-        rootProtocolState,
-        leadAgentIdOverride: techLead.id,
-        body: {
-          ...workItem,
-          qaAgentId: workItem.qaAgentId ?? qaAgent?.id ?? null,
-        },
-      });
-      projectedWorkItems.push(projected.issue);
-    }
-
-    await logActivity(db, {
-      companyId: rootIssue.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.intake.projected",
-      entityType: "issue",
-      entityId: rootIssue.id,
-      details: {
-        identifier: updatedRoot.identifier,
-        techLeadAgentId: techLead.id,
-        reviewerAgentId: reviewer.id,
-        qaAgentId: qaAgent?.id ?? null,
-        coordinationOnly: req.body.coordinationOnly ?? false,
-        projectedWorkItemCount: projectedWorkItems.length,
-      },
-    });
-
-    res.status(201).json({
-      issue: updatedRoot,
-      protocol: reassignDispatch?.result ?? null,
-      warnings: reassignDispatch?.warnings ?? [],
-      projectedWorkItems,
-      intakeProjection: {
-        techLeadAgentId: techLead.id,
-        reviewerAgentId: reviewer.id,
-        qaAgentId: qaAgent?.id ?? null,
-        coordinationOnly: req.body.coordinationOnly ?? false,
-      },
-    });
   });
 
   router.patch("/issues/:id", validate(updateIssueSchema), async (req, res) => {
@@ -2336,418 +2039,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
     res.json(comments);
   });
 
-  router.get("/issues/:id/protocol/state", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const state = await protocolSvc.getState(id);
-    res.json(state);
-  });
-
-  router.get("/issues/:id/protocol/messages", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const messages = await protocolSvc.listMessages(id);
-    res.json(messages);
-  });
-
-  router.get("/issues/:id/protocol/briefs", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-
-    const scope =
-      typeof req.query.scope === "string" && req.query.scope.trim().length > 0
-        ? req.query.scope.trim()
-        : null;
-    const latest = req.query.latest === "true";
-
-    if (latest && scope) {
-      const brief = await knowledge.getLatestTaskBrief(id, scope);
-      if (!brief) {
-        res.status(404).json({ error: "Brief not found" });
-        return;
-      }
-      res.json(brief);
-      return;
-    }
-
-    const briefs = await knowledge.listTaskBriefs({
-      issueId: id,
-      briefScope: scope,
-      limit: 20,
-    });
-    res.json(briefs);
-  });
-
-  router.get("/issues/:id/protocol/review-cycles", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const reviewCycles = await protocolSvc.listReviewCycles(id);
-    res.json(reviewCycles);
-  });
-
-  router.get("/issues/:id/protocol/violations", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-
-    const status =
-      typeof req.query.status === "string" && req.query.status.trim().length > 0
-        ? req.query.status.trim()
-        : null;
-
-    const violations = await protocolSvc.listViolations({
-      issueId: id,
-      status,
-    });
-    res.json(violations);
-  });
-
-  router.get("/issues/:id/change-surface", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const surface = await loadIssueChangeSurface(issue);
-    res.json(surface);
-  });
-
-  router.post("/issues/:id/retrieval-feedback", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    if (req.actor.type !== "board") {
-      res.status(403).json({ error: "Only board users can record retrieval feedback" });
-      return;
-    }
-
-    const parsed = retrievalFeedbackSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
-      return;
-    }
-
-    const actor = getActorInfo(req);
-    const result = await retrievalPersonalization.recordManualFeedback({
-      companyId: issue.companyId,
-      issueId: issue.id,
-      issueProjectId: issue.projectId ?? null,
-      retrievalRunId: parsed.data.retrievalRunId,
-      feedbackType: parsed.data.feedbackType,
-      targetType: parsed.data.targetType,
-      targetIds: parsed.data.targetIds,
-      actorRole: "human_board",
-      noteBody: parsed.data.noteBody ?? null,
-    });
-
-    await logActivity(db, {
-      companyId: issue.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.retrieval_feedback.recorded",
-      entityType: "issue",
-      entityId: issue.id,
-      details: {
-        retrievalRunId: parsed.data.retrievalRunId,
-        feedbackType: parsed.data.feedbackType,
-        targetType: parsed.data.targetType,
-        targetIds: parsed.data.targetIds,
-        feedbackEventCount: result.feedbackEventCount,
-      },
-    });
-
-    res.json(result);
-  });
-
-  router.get("/issues/:id/merge-candidate", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const surface = await loadIssueChangeSurface(issue);
-    if (!surface.mergeCandidate) {
-      res.status(404).json({ error: "Merge candidate not found" });
-      return;
-    }
-    res.json(surface.mergeCandidate);
-  });
-
-  router.get("/issues/:id/merge-candidate/plan", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const surface = await loadIssueChangeSurface(issue);
-    if (!surface.mergeCandidate) {
-      res.status(404).json({ error: "Merge candidate not found" });
-      return;
-    }
-
-    const project = issue.projectId ? await projectsSvc.getById(issue.projectId) : null;
-    const targetBaseBranch =
-      typeof req.query.targetBaseBranch === "string" && req.query.targetBaseBranch.trim().length > 0
-        ? req.query.targetBaseBranch.trim()
-        : null;
-    const integrationBranchName =
-      typeof req.query.integrationBranchName === "string" && req.query.integrationBranchName.trim().length > 0
-        ? req.query.integrationBranchName.trim()
-        : null;
-    const remoteName =
-      typeof req.query.remoteName === "string" && req.query.remoteName.trim().length > 0
-        ? req.query.remoteName.trim()
-        : null;
-
-    const plan = await buildMergeAutomationPlan({
-      issue: {
-        id: issue.id,
-        identifier: issue.identifier ?? null,
-        title: issue.title,
-        projectId: issue.projectId ?? null,
-      },
-      project: project
-        ? {
-            id: project.id,
-            name: project.name,
-            primaryWorkspace: project.primaryWorkspace
-              ? {
-                  id: project.primaryWorkspace.id,
-                  name: project.primaryWorkspace.name,
-                  cwd: project.primaryWorkspace.cwd,
-                  repoRef: project.primaryWorkspace.repoRef,
-                }
-              : null,
-          }
-        : null,
-      candidate: surface.mergeCandidate,
-      targetBaseBranch,
-      integrationBranchName,
-      remoteName,
-    });
-
-    res.json(plan);
-  });
-
-  router.post("/issues/:id/merge-candidate/actions", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    if (req.actor.type !== "board") {
-      res.status(403).json({ error: "Only board users can resolve merge candidates" });
-      return;
-    }
-
-    const parsed = mergeCandidateActionSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
-      return;
-    }
-
-    const surface = await loadIssueChangeSurface(issue);
-    if (!surface.mergeCandidate) {
-      res.status(409).json({ error: "Issue has no merge candidate" });
-      return;
-    }
-
-    const actor = getActorInfo(req);
-    const nextState = parsed.data.actionType === "mark_merged" ? "merged" : "rejected";
-    await mergeCandidatesSvc.upsertDecision({
-      companyId: issue.companyId,
-      issueId: issue.id,
-      closeMessageId: surface.mergeCandidate.closeMessageId,
-      state: nextState,
-      sourceBranch: surface.mergeCandidate.sourceBranch,
-      workspacePath: surface.mergeCandidate.workspacePath,
-      headSha: surface.mergeCandidate.headSha,
-      diffStat: surface.mergeCandidate.diffStat,
-      targetBaseBranch: parsed.data.targetBaseBranch ?? surface.mergeCandidate.targetBaseBranch,
-      mergeCommitSha: parsed.data.mergeCommitSha ?? surface.mergeCandidate.mergeCommitSha,
-      operatorActorType: actor.actorType,
-      operatorActorId: actor.actorId,
-      operatorNote: parsed.data.noteBody ?? null,
-    });
-
-    try {
-      await retrievalPersonalization.recordMergeCandidateOutcomeFeedback({
-        companyId: issue.companyId,
-        issueId: issue.id,
-        issueProjectId: issue.projectId ?? null,
-        closeMessageId: surface.mergeCandidate.closeMessageId,
-        outcome: nextState === "merged" ? "merge_completed" : "merge_rejected",
-        changedFiles: surface.changedFiles,
-        noteBody: parsed.data.noteBody ?? null,
-        actorRole: "human_board",
-        mergeCommitSha: parsed.data.mergeCommitSha ?? surface.mergeCandidate.mergeCommitSha ?? null,
-        mergeStatus: nextState,
-      });
-    } catch (err) {
-      logger.error(
-        {
-          err,
-          issueId: issue.id,
-          actionType: parsed.data.actionType,
-        },
-        "Merge candidate retrieval feedback recording failed",
-      );
-    }
-
-    await logActivity(db, {
-      companyId: issue.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.merge_candidate.resolved",
-      entityType: "issue",
-      entityId: issue.id,
-      details: {
-        actionType: parsed.data.actionType,
-        targetBaseBranch: parsed.data.targetBaseBranch ?? surface.mergeCandidate.targetBaseBranch,
-        mergeCommitSha: parsed.data.mergeCommitSha ?? surface.mergeCandidate.mergeCommitSha,
-      },
-    });
-
-    const refreshed = await loadIssueChangeSurface(issue);
-    res.json(refreshed.mergeCandidate);
-  });
-
-  router.post("/issues/:id/merge-candidate/automation", async (req, res) => {
-    const id = req.params.id as string;
-    const issue = await svc.getById(id);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    if (req.actor.type !== "board") {
-      res.status(403).json({ error: "Only board users can automate merge candidates" });
-      return;
-    }
-
-    const parsed = mergeCandidateAutomationSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
-      return;
-    }
-
-    const surface = await loadIssueChangeSurface(issue);
-    if (!surface.mergeCandidate) {
-      res.status(409).json({ error: "Issue has no merge candidate" });
-      return;
-    }
-
-    const project = issue.projectId ? await projectsSvc.getById(issue.projectId) : null;
-    const plan = await buildMergeAutomationPlan({
-      issue: {
-        id: issue.id,
-        identifier: issue.identifier ?? null,
-        title: issue.title,
-        projectId: issue.projectId ?? null,
-      },
-      project: project
-        ? {
-            id: project.id,
-            name: project.name,
-            primaryWorkspace: project.primaryWorkspace
-              ? {
-                  id: project.primaryWorkspace.id,
-                  name: project.primaryWorkspace.name,
-                  cwd: project.primaryWorkspace.cwd,
-                  repoRef: project.primaryWorkspace.repoRef,
-                }
-              : null,
-          }
-        : null,
-      candidate: surface.mergeCandidate,
-      targetBaseBranch: parsed.data.targetBaseBranch ?? null,
-      integrationBranchName: parsed.data.integrationBranchName ?? null,
-      remoteName: parsed.data.remoteName ?? null,
-    });
-
-    const actor = getActorInfo(req);
-    const result = await runMergeAutomationAction({
-      actionType: parsed.data.actionType,
-      plan,
-      candidate: surface.mergeCandidate,
-      targetBaseBranch: parsed.data.targetBaseBranch ?? null,
-      integrationBranchName: parsed.data.integrationBranchName ?? null,
-      remoteName: parsed.data.remoteName ?? null,
-      branchName: parsed.data.branchName ?? null,
-      pushAfterAction: parsed.data.pushAfterAction === true,
-    });
-
-    if (result.automationMetadataPatch) {
-      await mergeCandidatesSvc.patchAutomationMetadata(issue.id, result.automationMetadataPatch);
-    }
-
-    await logActivity(db, {
-      companyId: issue.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.merge_candidate.automation",
-      entityType: "issue",
-      entityId: issue.id,
-      details: {
-        actionType: parsed.data.actionType,
-        targetBaseBranch: result.plan.targetBaseBranch,
-        targetBranch: result.targetBranch ?? null,
-        pushed: result.pushed ?? false,
-        patchPath: result.patchPath ?? null,
-        prBundlePath: result.prBundlePath ?? null,
-        mergeCommitSha: result.mergeCommitSha ?? null,
-      },
-    });
-
-    const refreshed = await loadIssueChangeSurface(issue);
-    res.json({
-      result,
-      mergeCandidate: refreshed.mergeCandidate,
-    });
-  });
-
   router.post("/issues/:id/protocol/messages", async (req, res, next) => {
     const id = req.params.id as string;
     const issue = await svc.getById(id);
@@ -3094,170 +2385,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
     })();
 
     res.status(201).json(comment);
-  });
-
-  router.get("/issues/:id/attachments", async (req, res) => {
-    const issueId = req.params.id as string;
-    const issue = await svc.getById(issueId);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    assertCompanyAccess(req, issue.companyId);
-    const attachments = await svc.listAttachments(issueId);
-    res.json(attachments.map(withContentPath));
-  });
-
-  router.post("/companies/:companyId/issues/:issueId/attachments", async (req, res) => {
-    const companyId = req.params.companyId as string;
-    const issueId = req.params.issueId as string;
-    assertCompanyAccess(req, companyId);
-    const issue = await svc.getById(issueId);
-    if (!issue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
-    if (issue.companyId !== companyId) {
-      res.status(422).json({ error: "Issue does not belong to company" });
-      return;
-    }
-
-    try {
-      await runSingleFileUpload(req, res);
-    } catch (err) {
-      if (err instanceof multer.MulterError) {
-        if (err.code === "LIMIT_FILE_SIZE") {
-          res.status(422).json({ error: `Attachment exceeds ${MAX_ATTACHMENT_BYTES} bytes` });
-          return;
-        }
-        res.status(400).json({ error: err.message });
-        return;
-      }
-      throw err;
-    }
-
-    const file = (req as Request & { file?: { mimetype: string; buffer: Buffer; originalname: string } }).file;
-    if (!file) {
-      res.status(400).json({ error: "Missing file field 'file'" });
-      return;
-    }
-    const contentType = (file.mimetype || "").toLowerCase();
-    if (!ALLOWED_ATTACHMENT_CONTENT_TYPES.has(contentType)) {
-      res.status(422).json({ error: `Unsupported attachment type: ${contentType || "unknown"}` });
-      return;
-    }
-    if (file.buffer.length <= 0) {
-      res.status(422).json({ error: "Attachment is empty" });
-      return;
-    }
-
-    const parsedMeta = createIssueAttachmentMetadataSchema.safeParse(req.body ?? {});
-    if (!parsedMeta.success) {
-      res.status(400).json({ error: "Invalid attachment metadata", details: parsedMeta.error.issues });
-      return;
-    }
-
-    const actor = getActorInfo(req);
-    const stored = await storage.putFile({
-      companyId,
-      namespace: `issues/${issueId}`,
-      originalFilename: file.originalname || null,
-      contentType,
-      body: file.buffer,
-    });
-
-    const attachment = await svc.createAttachment({
-      issueId,
-      issueCommentId: parsedMeta.data.issueCommentId ?? null,
-      provider: stored.provider,
-      objectKey: stored.objectKey,
-      contentType: stored.contentType,
-      byteSize: stored.byteSize,
-      sha256: stored.sha256,
-      originalFilename: stored.originalFilename,
-      createdByAgentId: actor.agentId,
-      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
-    });
-
-    await logActivity(db, {
-      companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.attachment_added",
-      entityType: "issue",
-      entityId: issueId,
-      details: {
-        attachmentId: attachment.id,
-        originalFilename: attachment.originalFilename,
-        contentType: attachment.contentType,
-        byteSize: attachment.byteSize,
-      },
-    });
-
-    res.status(201).json(withContentPath(attachment));
-  });
-
-  router.get("/attachments/:attachmentId/content", async (req, res, next) => {
-    const attachmentId = req.params.attachmentId as string;
-    const attachment = await svc.getAttachmentById(attachmentId);
-    if (!attachment) {
-      res.status(404).json({ error: "Attachment not found" });
-      return;
-    }
-    assertCompanyAccess(req, attachment.companyId);
-
-    const object = await storage.getObject(attachment.companyId, attachment.objectKey);
-    res.setHeader("Content-Type", attachment.contentType || object.contentType || "application/octet-stream");
-    res.setHeader("Content-Length", String(attachment.byteSize || object.contentLength || 0));
-    res.setHeader("Cache-Control", "private, max-age=60");
-    const filename = attachment.originalFilename ?? "attachment";
-    res.setHeader("Content-Disposition", `inline; filename=\"${filename.replaceAll("\"", "")}\"`);
-
-    object.stream.on("error", (err) => {
-      next(err);
-    });
-    object.stream.pipe(res);
-  });
-
-  router.delete("/attachments/:attachmentId", async (req, res) => {
-    const attachmentId = req.params.attachmentId as string;
-    const attachment = await svc.getAttachmentById(attachmentId);
-    if (!attachment) {
-      res.status(404).json({ error: "Attachment not found" });
-      return;
-    }
-    assertCompanyAccess(req, attachment.companyId);
-
-    try {
-      await storage.deleteObject(attachment.companyId, attachment.objectKey);
-    } catch (err) {
-      logger.warn({ err, attachmentId }, "storage delete failed while removing attachment");
-    }
-
-    const removed = await svc.removeAttachment(attachmentId);
-    if (!removed) {
-      res.status(404).json({ error: "Attachment not found" });
-      return;
-    }
-
-    const actor = getActorInfo(req);
-    await logActivity(db, {
-      companyId: removed.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "issue.attachment_removed",
-      entityType: "issue",
-      entityId: removed.issueId,
-      details: {
-        attachmentId: removed.id,
-      },
-    });
-
-    res.json({ ok: true });
   });
 
   return router;
