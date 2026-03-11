@@ -107,6 +107,15 @@ const TIMEOUT_RULES: TimeoutRule[] = [
     baselineMessageTypes: ["REQUEST_CHANGES"],
   },
   {
+    timeoutCode: "blocked_resolution_timeout",
+    states: ["blocked"],
+    reminderAfterMs: 2 * MS.hour,
+    escalationAfterMs: 8 * MS.hour,
+    reminderRole: "tech_lead",
+    escalationRole: "human_board",
+    baselineMessageTypes: ["ESCALATE_BLOCKER"],
+  },
+  {
     timeoutCode: "close_timeout",
     states: ["approved"],
     reminderAfterMs: 4 * MS.hour,
@@ -125,6 +134,10 @@ const TIMEOUT_RULES: TimeoutRule[] = [
     baselineMessageTypes: ["REQUEST_HUMAN_DECISION"],
   },
 ];
+
+export function resolveTimeoutRulesForState(workflowState: IssueProtocolWorkflowState) {
+  return TIMEOUT_RULES.filter((rule) => rule.states.includes(workflowState));
+}
 
 function resolveRecipient(
   state: typeof issueProtocolState.$inferSelect,
@@ -248,9 +261,7 @@ export function issueProtocolTimeoutService(db: Db) {
 
       for (const state of candidateStates) {
         const stateMessages = messagesByIssueId.get(state.issueId) ?? [];
-        const applicableRules = TIMEOUT_RULES.filter((rule) =>
-          rule.states.includes(state.workflowState as IssueProtocolWorkflowState),
-        );
+        const applicableRules = resolveTimeoutRulesForState(state.workflowState as IssueProtocolWorkflowState);
 
         for (const rule of applicableRules) {
           const baselineAt = latestRelevantTimestamp(state, stateMessages, rule);

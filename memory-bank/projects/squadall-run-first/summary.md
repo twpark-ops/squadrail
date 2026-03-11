@@ -6,6 +6,8 @@
 
 - 방향은 `AI software company / autonomous org`로 일관된다.
 - 다만 retrieval 최적화 비중이 burn-in보다 앞서기 시작해 우선순위를 재정렬했다.
+- `peer engineer` (예: Codex + Claude 공동 구현)는 유효한 후속 기능이지만, 현재 기본 커널에는 포함하지 않는다.
+- 현재 제품 기준 기본 실행 모델은 `single engineer per child + reviewer + QA`이며, peer mode는 선택형 고도화로 뒤로 미룬다.
 
 ## 현재 우선순위
 
@@ -63,7 +65,10 @@
   - recovery comment는 이슈에 정상 저장됐지만, plain comment만으로는 execution lock 우회가 되지 않고 `issue_comment_mentioned`가 필요했다.
   - route patch로 assignee/reviewer/qa mention이 현재 protocol state를 읽어 `protocolRecipientRole`과 `protocolWorkflowStateAfter`를 함께 wake context에 싣도록 수정했다. 이걸로 `changes_requested` 상태의 engineer recovery가 다시 implementation lane으로 복귀할 수 있게 만들었다.
   - 이후 protocol helper를 보정해 `submit-for-review`에만 git artifact를 자동 첨부하도록 고쳤고, `CLO-182`는 실제로 `SUBMIT_FOR_REVIEW -> START_REVIEW -> APPROVE_IMPLEMENTATION -> START_REVIEW(qa) -> APPROVE_IMPLEMENTATION(qa) -> CLOSE_TASK`까지 닫혔다.
-  - 따라서 최신 coordinated burn-in 기준으로 `CLO-180`, `CLO-181`, `CLO-182` 세 child 모두 reviewer/QA/done까지 닫히는 것이 실데이터로 확인됐다. 즉 root 하나에서 fan-out된 multi-project child lane이 review와 QA 반환 루프까지 포함해 완주 가능하다는 것이 검증됐다.
+- 따라서 최신 coordinated burn-in 기준으로 `CLO-180`, `CLO-181`, `CLO-182` 세 child 모두 reviewer/QA/done까지 닫히는 것이 실데이터로 확인됐다. 즉 root 하나에서 fan-out된 multi-project child lane이 review와 QA 반환 루프까지 포함해 완주 가능하다는 것이 검증됐다.
+- burn-in이 닫힌 현재 활성 최우선은 `blocked / legacy / protocol semantics cleanup`이다.
+- 첫 정리 항목으로 `protocol_required_retry`는 이제 current workflow state가 requirement lane과 일치할 때만 다시 enqueue한다.
+- `blocked` 상태는 별도 `blocked_resolution_timeout` 규칙으로 reminder/escalation을 탄다.
 
 ## 현재 활성 슬라이스
 
@@ -91,3 +96,22 @@
 - `docs/run-first-burn-in-priority-plan.md`
 - `docs/backend-post-phase-plan.md`
 - `docs/autonomous-org-full-loop-plan.md`
+
+## 추가 우선순위 보정
+
+- 현재 제품 평가는 `retrieval 미세튜닝`보다 `operator UX + 구조 부채 + release discipline`이 더 직접적인 레벨업 포인트다.
+- 검토 결과:
+  - merge candidate backend는 이미 있으나, operator action UI는 아직 완성 전이다.
+  - change surface는 read-only evidence panel에 가깝고, 실제 review desk로는 부족하다.
+  - `issues.ts`와 `issue-retrieval.ts`는 여전히 god-file 리스크가 크다.
+  - knowledge setup read model은 프로젝트 수가 늘면 sync 상태 조회가 느려질 가능성이 있다.
+  - UI regression은 smoke가 일부 있지만 change/merge/knowledge setup 핵심 표면을 지키는 회귀 테스트는 부족하다.
+  - CI/release workflow는 repo 루트 기준 아직 부재다.
+- 따라서 `run first` 우선순위 다음 배치는 아래 순서로 본다.
+  1. merge candidate operator UI 완성
+  2. change surface를 실제 review desk로 승격
+  3. UI regression tests for change/merge/knowledge setup
+  4. `issues.ts` route split
+  5. `issue-retrieval.ts` refactor
+  6. knowledge setup read-model cache/background refresh
+  7. PR verify / release workflow 추가

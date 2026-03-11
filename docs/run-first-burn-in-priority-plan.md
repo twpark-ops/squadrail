@@ -31,6 +31,16 @@
 
 즉 현재 병목은 `retrieval 기능 부족`보다 `실행 검증과 운영 게이트 정리`다.
 
+최신 burn-in 기준으로는 `root coordinating issue -> child fan-out -> parallel execution -> reviewer -> QA -> done`이 실제로 닫혔다.
+따라서 현재 활성 최우선은 이제 `blocked / legacy / protocol semantics cleanup`이다.
+
+추가 제품 판단:
+
+- `peer engineer` (예: Codex + Claude 같은 child에서 상호 보완) 모드는 유효한 확장 방향이다.
+- 다만 이 기능은 현재 커널의 필수가 아니라 `optional team preset`에 가깝다.
+- 기본 실행 모델은 계속 `single engineer per child + reviewer + QA`로 유지한다.
+- 따라서 peer mode는 현재 burn-in / blocked semantics 정리 이후의 후순위 항목으로 다룬다.
+
 ## 재정렬된 우선순위
 
 ### 1. Replay E2E Gate Normalization
@@ -88,6 +98,8 @@
 
 ### 3. Blocked Timeout + Legacy Semantics Cleanup
 
+상태: 진행 중
+
 목표:
 
 - burn-in에서 노이즈를 만드는 blocked / timeout / legacy protocol 경로를 줄인다.
@@ -97,6 +109,12 @@
 - blocked escalation semantics 정리
 - legacy alias / legacy review mode 정리
 - timeout reminder와 escalation 의미 정리
+- protocol-required retry가 stale workflow state를 따라 재기동하지 않게 축소
+
+현재 반영:
+
+- `blocked_resolution_timeout` 추가
+- `protocol_required_retry`를 workflow-state-aware로 제한
 
 ### 4. Retrieval God-File Refactor
 

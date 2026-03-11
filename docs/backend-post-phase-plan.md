@@ -38,6 +38,11 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 세부 이유와 실행 순서는 [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)에서 관리한다.
 
+최신 상태:
+
+- coordinated burn-in은 `root CLO 1개 -> multi-project child fan-out -> reviewer -> QA -> done`까지 실데이터로 닫혔다.
+- 따라서 즉시 다음 우선순위는 `blocked / legacy / protocol semantics cleanup`이다.
+
 ## `.paperclip`에서 채택한 백엔드 참고점
 
 전체를 가져오지는 않는다. 아래 두 축만 흡수한다.
@@ -420,3 +425,20 @@ Knowledge follow-up은 CLI-first가 아니라 UI-first로 진행한다.
 
 - [knowledge-setup-sync-ui-first-spec.md](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.md)
 - [knowledge-setup-sync-ui-first-spec.puml](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.puml)
+
+## Operator UX / Structural Debt Reprioritization
+
+최신 검토 기준, backend capability를 이미 가진 영역에서 다음 제품 레벨업 포인트는 retrieval 미세조정보다 operator UX 연결과 구조 부채 정리다.
+
+우선순위:
+
+1. merge candidate operator UI 완성
+2. change surface를 실제 review desk로 승격
+3. change/merge/knowledge-setup UI regression tests
+4. `issues.ts` route split
+5. `issue-retrieval.ts` refactor
+6. knowledge setup read-model cache/background refresh
+7. PR verify / release workflow 추가
+
+이 순서는 coordinated burn-in 이후 `run first, optimize later` 원칙과 충돌하지 않는다.
+의미는 retrieval 성능 미세조정보다 먼저, 이미 있는 backend 능력을 운영자 제품 표면으로 연결하고, 확장 전에 god-file과 release discipline을 정리하자는 것이다.
