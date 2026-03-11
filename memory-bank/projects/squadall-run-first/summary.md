@@ -59,10 +59,11 @@
   - 즉 `clean committed workspace`의 review handoff bug는 coordinated burn-in 실데이터에서 해소됐다.
   - 후속 관측에서 `CLO-181`은 실제로 `APPROVE_IMPLEMENTATION -> done`까지 닫혔다.
   - `CLO-180`은 QA가 실제로 `REQUEST_CHANGES`를 보낸 뒤 engineer가 재작업하고 다시 `SUBMIT_FOR_REVIEW -> START_REVIEW -> APPROVE_IMPLEMENTATION -> START_REVIEW(qa) -> APPROVE_IMPLEMENTATION(qa) -> CLOSE_TASK`까지 닫혔다. 즉 `review -> QA -> 개발팀 재반환 -> 재검증 -> done` 루프가 실데이터로 검증됐다.
-  - `CLO-182`는 reviewer 변경 요청 후 engineer가 재작업을 완료했지만 `SUBMIT_FOR_REVIEW` helper/API artifact semantics 때문에 `REPORT_PROGRESS`로만 끝난 뒤 stale implementation 상태에 남는 케이스가 드러났다.
+  - `CLO-182`는 reviewer 변경 요청 후 engineer가 재작업을 완료했지만 초기에 `SUBMIT_FOR_REVIEW` helper/API artifact semantics 때문에 `REPORT_PROGRESS`로만 끝난 뒤 stale implementation 상태에 남는 케이스가 드러났다.
   - recovery comment는 이슈에 정상 저장됐지만, plain comment만으로는 execution lock 우회가 되지 않고 `issue_comment_mentioned`가 필요했다.
   - route patch로 assignee/reviewer/qa mention이 현재 protocol state를 읽어 `protocolRecipientRole`과 `protocolWorkflowStateAfter`를 함께 wake context에 싣도록 수정했다. 이걸로 `changes_requested` 상태의 engineer recovery가 다시 implementation lane으로 복귀할 수 있게 만들었다.
-  - 따라서 coordinated burn-in이 드러낸 다음 실제 blocker는 `QA/changes_requested recovery semantics`였고, 현재는 `slug-aware mention + protocol-state-aware recovery wake` 패치를 넣은 상태다.
+  - 이후 protocol helper를 보정해 `submit-for-review`에만 git artifact를 자동 첨부하도록 고쳤고, `CLO-182`는 실제로 `SUBMIT_FOR_REVIEW -> START_REVIEW -> APPROVE_IMPLEMENTATION -> START_REVIEW(qa) -> APPROVE_IMPLEMENTATION(qa) -> CLOSE_TASK`까지 닫혔다.
+  - 따라서 최신 coordinated burn-in 기준으로 `CLO-180`, `CLO-181`, `CLO-182` 세 child 모두 reviewer/QA/done까지 닫히는 것이 실데이터로 확인됐다. 즉 root 하나에서 fan-out된 multi-project child lane이 review와 QA 반환 루프까지 포함해 완주 가능하다는 것이 검증됐다.
 
 ## 현재 활성 슬라이스
 
@@ -83,7 +84,7 @@
   - 최신 상태:
     - `CLO-181`: `done`
     - `CLO-180`: `done` (QA change request loop 포함)
-    - `CLO-182`: reviewer change request 이후 stale implementation recovery semantics 확인 중
+    - `CLO-182`: `done` (reviewer change request recovery + QA gate 포함)
 
 ## 관련 문서
 
