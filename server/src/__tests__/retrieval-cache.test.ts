@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildRetrievalCacheInspectionResult,
   buildRetrievalCacheIdentity,
   buildPersonalizationFingerprint,
   buildRetrievalStageCacheKey,
@@ -153,5 +154,48 @@ describe("retrieval cache normalization", () => {
     });
 
     expect(firstFingerprint).toBe(secondFingerprint);
+  });
+
+  it("reports exact-hit cache fingerprints and provenance", () => {
+    expect(buildRetrievalCacheInspectionResult({
+      state: "hit",
+      cacheKey: "requested-key-1234567890",
+      requestedCacheKey: "requested-key-1234567890",
+      matchedCacheKey: "requested-key-1234567890",
+      provenance: "exact_key",
+    })).toEqual({
+      state: "hit",
+      reason: "hit",
+      provenance: "exact_key",
+      matchedRevision: null,
+      latestKnownRevision: null,
+      lastEntryUpdatedAt: null,
+      cacheKeyFingerprint: "requested-ke",
+      requestedCacheKeyFingerprint: "requested-ke",
+      matchedCacheKeyFingerprint: "requested-ke",
+    });
+  });
+
+  it("keeps requested and matched fingerprints separate for compatible hits", () => {
+    expect(buildRetrievalCacheInspectionResult({
+      state: "hit",
+      cacheKey: "requested-key-1234567890",
+      requestedCacheKey: "requested-key-1234567890",
+      matchedCacheKey: "matched-key-abcdef12345",
+      provenance: "feedback_drift",
+      matchedRevision: 7,
+      latestKnownRevision: 7,
+      lastEntryUpdatedAt: "2026-03-12T01:23:45.000Z",
+    })).toEqual({
+      state: "hit",
+      reason: "hit",
+      provenance: "feedback_drift",
+      matchedRevision: 7,
+      latestKnownRevision: 7,
+      lastEntryUpdatedAt: "2026-03-12T01:23:45.000Z",
+      cacheKeyFingerprint: "matched-key-",
+      requestedCacheKeyFingerprint: "requested-ke",
+      matchedCacheKeyFingerprint: "matched-key-",
+    });
   });
 });
