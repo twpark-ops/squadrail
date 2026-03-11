@@ -103,16 +103,46 @@ export interface RecentRetrievalRunSummary {
   finalCacheHit: boolean;
   candidateCacheState?: string | null;
   candidateCacheReason?: string | null;
+  candidateCacheProvenance?: string | null;
   candidateCacheMatchedRevision?: number | null;
   candidateCacheLatestKnownRevision?: number | null;
   candidateCacheLastEntryUpdatedAt?: string | null;
   candidateCacheKeyFingerprint?: string | null;
+  candidateRequestedCacheKeyFingerprint?: string | null;
+  candidateMatchedCacheKeyFingerprint?: string | null;
   finalCacheState?: string | null;
   finalCacheReason?: string | null;
+  finalCacheProvenance?: string | null;
   finalCacheMatchedRevision?: number | null;
   finalCacheLatestKnownRevision?: number | null;
   finalCacheLastEntryUpdatedAt?: string | null;
   finalCacheKeyFingerprint?: string | null;
+  finalRequestedCacheKeyFingerprint?: string | null;
+  finalMatchedCacheKeyFingerprint?: string | null;
+  candidateCache?: {
+    hit: boolean;
+    state?: string | null;
+    reason?: string | null;
+    provenance?: string | null;
+    matchedRevision?: number | null;
+    latestKnownRevision?: number | null;
+    lastEntryUpdatedAt?: string | null;
+    cacheKeyFingerprint?: string | null;
+    requestedCacheKeyFingerprint?: string | null;
+    matchedCacheKeyFingerprint?: string | null;
+  };
+  finalCache?: {
+    hit: boolean;
+    state?: string | null;
+    reason?: string | null;
+    provenance?: string | null;
+    matchedRevision?: number | null;
+    latestKnownRevision?: number | null;
+    lastEntryUpdatedAt?: string | null;
+    cacheKeyFingerprint?: string | null;
+    requestedCacheKeyFingerprint?: string | null;
+    matchedCacheKeyFingerprint?: string | null;
+  };
   personalizationApplied: boolean;
   averagePersonalizationBoost: number;
   topHitPath: string | null;
@@ -212,6 +242,9 @@ export interface KnowledgeQualitySummary {
   finalCacheHitRate: number;
   candidateCacheMissReasonCounts: Record<string, number>;
   finalCacheMissReasonCounts: Record<string, number>;
+  candidateCacheProvenanceCounts?: Record<string, number>;
+  finalCacheProvenanceCounts?: Record<string, number>;
+  topHitSourceTypeCounts?: Record<string, number>;
   feedbackEventCount: number;
   positiveFeedbackCount: number;
   negativeFeedbackCount: number;
@@ -230,6 +263,13 @@ export interface KnowledgeQualitySummary {
     candidateCacheHits: number;
     finalCacheHits: number;
     personalizedRuns: number;
+    roleCounts?: Record<string, number>;
+    projectCounts?: Record<string, number>;
+    topHitSourceTypeCounts?: Record<string, number>;
+    candidateCacheReasonCounts?: Record<string, number>;
+    finalCacheReasonCounts?: Record<string, number>;
+    candidateCacheProvenanceCounts?: Record<string, number>;
+    finalCacheProvenanceCounts?: Record<string, number>;
   }>;
   readinessGate?: {
     status: "pass" | "warn";
@@ -243,6 +283,13 @@ export interface KnowledgeQualitySummary {
     status: "pass" | "warn";
     failures: string[];
   };
+  perSourceType?: Array<{
+    sourceType: string;
+    totalRuns: number;
+    lowConfidenceRuns: number;
+    candidateCacheHitCount: number;
+    finalCacheHitCount: number;
+  }>;
 }
 
 export const knowledgeApi = {

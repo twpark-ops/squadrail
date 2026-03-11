@@ -14,6 +14,13 @@ describe("knowledge quality daily trend", () => {
           candidateCacheHit: true,
           finalCacheHit: false,
           personalized: true,
+          actorRole: "reviewer",
+          issueProjectId: "project-a",
+          topHitSourceType: "code",
+          candidateCacheReason: "hit",
+          finalCacheReason: "miss_cold",
+          candidateCacheProvenance: "exact_key",
+          finalCacheProvenance: null,
         },
         {
           createdAt: new Date("2026-03-09T18:30:00Z"),
@@ -23,6 +30,13 @@ describe("knowledge quality daily trend", () => {
           candidateCacheHit: false,
           finalCacheHit: true,
           personalized: false,
+          actorRole: "engineer",
+          issueProjectId: "project-a",
+          topHitSourceType: "review",
+          candidateCacheReason: "miss_feedback_changed",
+          finalCacheReason: "hit",
+          candidateCacheProvenance: null,
+          finalCacheProvenance: "feedback_drift",
         },
         {
           createdAt: new Date("2026-03-10T09:00:00Z"),
@@ -32,6 +46,13 @@ describe("knowledge quality daily trend", () => {
           candidateCacheHit: false,
           finalCacheHit: false,
           personalized: true,
+          actorRole: "reviewer",
+          issueProjectId: "project-b",
+          topHitSourceType: "code",
+          candidateCacheReason: "miss_policy_changed",
+          finalCacheReason: "miss_revision_changed",
+          candidateCacheProvenance: null,
+          finalCacheProvenance: null,
         },
       ],
     });
@@ -48,6 +69,31 @@ describe("knowledge quality daily trend", () => {
       candidateCacheHits: 1,
       finalCacheHits: 1,
       personalizedRuns: 1,
+      roleCounts: {
+        reviewer: 1,
+        engineer: 1,
+      },
+      projectCounts: {
+        "project-a": 2,
+      },
+      topHitSourceTypeCounts: {
+        code: 1,
+        review: 1,
+      },
+      candidateCacheReasonCounts: {
+        hit: 1,
+        miss_feedback_changed: 1,
+      },
+      finalCacheReasonCounts: {
+        miss_cold: 1,
+        hit: 1,
+      },
+      candidateCacheProvenanceCounts: {
+        exact_key: 1,
+      },
+      finalCacheProvenanceCounts: {
+        feedback_drift: 1,
+      },
     });
     expect(march10).toMatchObject({
       totalRuns: 1,
@@ -57,6 +103,21 @@ describe("knowledge quality daily trend", () => {
       candidateCacheHits: 0,
       finalCacheHits: 0,
       personalizedRuns: 1,
+      roleCounts: {
+        reviewer: 1,
+      },
+      projectCounts: {
+        "project-b": 1,
+      },
+      topHitSourceTypeCounts: {
+        code: 1,
+      },
+      candidateCacheReasonCounts: {
+        miss_policy_changed: 1,
+      },
+      finalCacheReasonCounts: {
+        miss_revision_changed: 1,
+      },
     });
   });
 });

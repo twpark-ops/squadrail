@@ -305,13 +305,21 @@ export type RetrievalCacheState =
   | "miss_policy_changed"
   | "miss_feedback_changed";
 
+export type RetrievalCacheHitProvenance =
+  | "exact_key"
+  | "normalized_input"
+  | "feedback_drift";
+
 export interface RetrievalCacheInspectionResult {
   state: RetrievalCacheState;
   reason: RetrievalCacheState;
+  provenance: RetrievalCacheHitProvenance | null;
   matchedRevision: number | null;
   latestKnownRevision: number | null;
   lastEntryUpdatedAt: string | null;
   cacheKeyFingerprint: string;
+  requestedCacheKeyFingerprint: string;
+  matchedCacheKeyFingerprint: string | null;
 }
 
 interface ChunkGraphExpansionResult {
@@ -340,6 +348,36 @@ function readCachedBriefQualitySummary(value: Record<string, unknown> | null | u
   if (!value) return null;
   const confidenceLevel = typeof value.confidenceLevel === "string" ? value.confidenceLevel : null;
   if (confidenceLevel !== "high" && confidenceLevel !== "medium" && confidenceLevel !== "low") return null;
+  const candidateCacheReason =
+    value.candidateCacheReason === "hit"
+    || value.candidateCacheReason === "miss_cold"
+    || value.candidateCacheReason === "miss_revision_changed"
+    || value.candidateCacheReason === "miss_expired"
+    || value.candidateCacheReason === "miss_policy_changed"
+    || value.candidateCacheReason === "miss_feedback_changed"
+      ? value.candidateCacheReason
+      : null;
+  const finalCacheReason =
+    value.finalCacheReason === "hit"
+    || value.finalCacheReason === "miss_cold"
+    || value.finalCacheReason === "miss_revision_changed"
+    || value.finalCacheReason === "miss_expired"
+    || value.finalCacheReason === "miss_policy_changed"
+    || value.finalCacheReason === "miss_feedback_changed"
+      ? value.finalCacheReason
+      : null;
+  const candidateCacheProvenance =
+    value.candidateCacheProvenance === "exact_key"
+    || value.candidateCacheProvenance === "normalized_input"
+    || value.candidateCacheProvenance === "feedback_drift"
+      ? value.candidateCacheProvenance
+      : null;
+  const finalCacheProvenance =
+    value.finalCacheProvenance === "exact_key"
+    || value.finalCacheProvenance === "normalized_input"
+    || value.finalCacheProvenance === "feedback_drift"
+      ? value.finalCacheProvenance
+      : null;
   return {
     confidenceLevel,
     evidenceCount: typeof value.evidenceCount === "number" ? value.evidenceCount : 0,
@@ -377,6 +415,11 @@ function readCachedBriefQualitySummary(value: Record<string, unknown> | null | u
     sourceDiversity: typeof value.sourceDiversity === "number" ? value.sourceDiversity : 0,
     candidateCacheHit: value.candidateCacheHit === true,
     finalCacheHit: value.finalCacheHit === true,
+    candidateCacheReason,
+    finalCacheReason,
+    candidateCacheProvenance,
+    finalCacheProvenance,
+    exactPathSatisfied: value.exactPathSatisfied !== false,
     degradedReasons: Array.isArray(value.degradedReasons) ? value.degradedReasons.filter((entry): entry is string => typeof entry === "string") : [],
   };
 }
@@ -553,7 +596,19 @@ interface BriefQualitySummary {
   sourceDiversity: number;
   candidateCacheHit: boolean;
   finalCacheHit: boolean;
+  candidateCacheReason: RetrievalCacheState | null;
+  finalCacheReason: RetrievalCacheState | null;
+  candidateCacheProvenance: RetrievalCacheHitProvenance | null;
+  finalCacheProvenance: RetrievalCacheHitProvenance | null;
+  exactPathSatisfied: boolean;
   degradedReasons: string[];
+}
+
+interface RetrievalCacheIdentityView {
+  queryFingerprint: string | null;
+  policyFingerprint: string | null;
+  feedbackFingerprint: string | null;
+  revisionSignature: string | null;
 }
 
 export interface RetrievalGraphSeed {
@@ -662,6 +717,9 @@ function summarizeBriefQuality(input: {
   crossProjectRequested: boolean;
   candidateCacheHit?: boolean;
   finalCacheHit?: boolean;
+  candidateCacheInspection?: Pick<RetrievalCacheInspectionResult, "reason" | "provenance">;
+  finalCacheInspection?: Pick<RetrievalCacheInspectionResult, "reason" | "provenance">;
+  exactPathSatisfied?: boolean;
 }): BriefQualitySummary {
   const evidenceCount = input.finalHits.length;
   const sourceDiversity = new Set(
@@ -751,8 +809,53 @@ function summarizeBriefQuality(input: {
     sourceDiversity,
     candidateCacheHit: input.candidateCacheHit === true,
     finalCacheHit: input.finalCacheHit === true,
+    candidateCacheReason: input.candidateCacheInspection?.reason ?? null,
+    finalCacheReason: input.finalCacheInspection?.reason ?? null,
+    candidateCacheProvenance: input.candidateCacheInspection?.provenance ?? null,
+    finalCacheProvenance: input.finalCacheInspection?.provenance ?? null,
+    exactPathSatisfied: input.exactPathSatisfied !== false,
     degradedReasons,
   };
+}
+
+function readRetrievalCacheIdentityView(value: unknown): RetrievalCacheIdentityView {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      queryFingerprint: null,
+      policyFingerprint: null,
+      feedbackFingerprint: null,
+      revisionSignature: null,
+    };
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    queryFingerprint: typeof record.queryFingerprint === "string" ? record.queryFingerprint : null,
+    policyFingerprint: typeof record.policyFingerprint === "string" ? record.policyFingerprint : null,
+    feedbackFingerprint: typeof record.feedbackFingerprint === "string" ? record.feedbackFingerprint : null,
+    revisionSignature: typeof record.revisionSignature === "string" ? record.revisionSignature : null,
+  };
+}
+
+function resolveRetrievalCacheHitProvenance(input: {
+  requestedCacheKey: string;
+  matchedCacheKey: string;
+  requestedFeedbackFingerprint: string | null;
+  matchedFeedbackFingerprint: string | null;
+}): RetrievalCacheHitProvenance {
+  if (input.requestedCacheKey === input.matchedCacheKey) return "exact_key";
+  if (input.requestedFeedbackFingerprint !== input.matchedFeedbackFingerprint) return "feedback_drift";
+  return "normalized_input";
+}
+
+function isExactPathSatisfied(input: {
+  finalHits: RetrievalHitView[];
+  exactPaths: string[];
+}) {
+  if (input.exactPaths.length === 0) return true;
+  return input.finalHits.some((hit) => {
+    const candidatePath = hit.path ? normalizeHintPath(hit.path) : null;
+    return candidatePath != null && input.exactPaths.includes(candidatePath);
+  });
 }
 
 function buildKnowledgeRevisionSignature(input: {
@@ -3083,15 +3186,33 @@ export function issueRetrievalService(db: Db) {
           identity: candidateCacheIdentity,
         });
         const candidateCacheInspection = candidateCacheEntry
-          ? buildRetrievalCacheInspectionResult({
-            state: "hit",
-            cacheKey: candidateCacheEntry.cacheKey,
-            matchedRevision: candidateCacheEntry.knowledgeRevision,
-            latestKnownRevision: candidateCacheEntry.knowledgeRevision,
-            lastEntryUpdatedAt: candidateCacheEntry.updatedAt,
-          })
+          ? (() => {
+            const entry = candidateCacheEntry!;
+            const entryValue = asRecord(entry.valueJson);
+            const entryMetadata = asRecord(entryValue?.metadata);
+            const matchedIdentity = readRetrievalCacheIdentityView(
+              entryMetadata?.cacheIdentity,
+            );
+            return buildRetrievalCacheInspectionResult({
+              state: "hit",
+              cacheKey: candidateCacheKey,
+              requestedCacheKey: candidateCacheKey,
+              matchedCacheKey: entry.cacheKey,
+              provenance: resolveRetrievalCacheHitProvenance({
+                requestedCacheKey: candidateCacheKey,
+                matchedCacheKey: entry.cacheKey,
+                requestedFeedbackFingerprint: candidateCacheIdentity.feedbackFingerprint,
+                matchedFeedbackFingerprint: matchedIdentity.feedbackFingerprint,
+              }),
+              matchedRevision: entry.knowledgeRevision,
+              latestKnownRevision: entry.knowledgeRevision,
+              lastEntryUpdatedAt: entry.updatedAt,
+            });
+          })()
           : buildRetrievalCacheInspectionResult({
             cacheKey: candidateCacheKey,
+            requestedCacheKey: candidateCacheKey,
+            matchedCacheKey: null,
             ...(await knowledge.inspectRetrievalCacheEntryState({
               companyId: input.companyId,
               projectId: input.issue.projectId,
@@ -3119,15 +3240,33 @@ export function issueRetrievalService(db: Db) {
           identity: finalCacheIdentity,
         });
         const finalCacheInspection = finalCacheEntry
-          ? buildRetrievalCacheInspectionResult({
-            state: "hit",
-            cacheKey: finalCacheEntry.cacheKey,
-            matchedRevision: finalCacheEntry.knowledgeRevision,
-            latestKnownRevision: finalCacheEntry.knowledgeRevision,
-            lastEntryUpdatedAt: finalCacheEntry.updatedAt,
-          })
+          ? (() => {
+            const entry = finalCacheEntry!;
+            const entryValue = asRecord(entry.valueJson);
+            const entryMetadata = asRecord(entryValue?.metadata);
+            const matchedIdentity = readRetrievalCacheIdentityView(
+              entryMetadata?.cacheIdentity,
+            );
+            return buildRetrievalCacheInspectionResult({
+              state: "hit",
+              cacheKey: finalCacheKey,
+              requestedCacheKey: finalCacheKey,
+              matchedCacheKey: entry.cacheKey,
+              provenance: resolveRetrievalCacheHitProvenance({
+                requestedCacheKey: finalCacheKey,
+                matchedCacheKey: entry.cacheKey,
+                requestedFeedbackFingerprint: finalCacheIdentity.feedbackFingerprint,
+                matchedFeedbackFingerprint: matchedIdentity.feedbackFingerprint,
+              }),
+              matchedRevision: entry.knowledgeRevision,
+              latestKnownRevision: entry.knowledgeRevision,
+              lastEntryUpdatedAt: entry.updatedAt,
+            });
+          })()
           : buildRetrievalCacheInspectionResult({
             cacheKey: finalCacheKey,
+            requestedCacheKey: finalCacheKey,
+            matchedCacheKey: null,
             ...(await knowledge.inspectRetrievalCacheEntryState({
               companyId: input.companyId,
               projectId: input.issue.projectId,
@@ -3464,6 +3603,10 @@ export function issueRetrievalService(db: Db) {
 
           const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
           const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
+          const exactPathSatisfied = isExactPathSatisfied({
+            finalHits,
+            exactPaths: dynamicSignals.exactPaths,
+          });
           briefQuality = summarizeBriefQuality({
             finalHits,
             queryEmbedding,
@@ -3493,6 +3636,9 @@ export function issueRetrievalService(db: Db) {
             crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
             candidateCacheHit,
             finalCacheHit: false,
+            candidateCacheInspection,
+            finalCacheInspection,
+            exactPathSatisfied,
           });
 
           await knowledge.upsertRetrievalCacheEntry({
@@ -3515,6 +3661,10 @@ export function issueRetrievalService(db: Db) {
         }
 
         if (!briefQuality) {
+          const exactPathSatisfied = isExactPathSatisfied({
+            finalHits,
+            exactPaths: dynamicSignals.exactPaths,
+          });
           briefQuality = summarizeBriefQuality({
             finalHits,
             queryEmbedding,
@@ -3544,12 +3694,23 @@ export function issueRetrievalService(db: Db) {
             crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
             candidateCacheHit,
             finalCacheHit,
+            candidateCacheInspection,
+            finalCacheInspection,
+            exactPathSatisfied,
           });
         } else {
           briefQuality = {
             ...briefQuality,
             candidateCacheHit,
             finalCacheHit,
+            candidateCacheReason: candidateCacheInspection.reason,
+            finalCacheReason: finalCacheInspection.reason,
+            candidateCacheProvenance: candidateCacheInspection.provenance,
+            finalCacheProvenance: finalCacheInspection.provenance,
+            exactPathSatisfied: isExactPathSatisfied({
+              finalHits,
+              exactPaths: dynamicSignals.exactPaths,
+            }),
           };
         }
 
@@ -3595,6 +3756,10 @@ export function issueRetrievalService(db: Db) {
         };
         const combinedGraphMaxDepth = Math.max(chunkGraphResult.graphMaxDepth, symbolGraphResult.graphMaxDepth);
         if (!briefQuality) {
+          const exactPathSatisfied = isExactPathSatisfied({
+            finalHits,
+            exactPaths: dynamicSignals.exactPaths,
+          });
           briefQuality = summarizeBriefQuality({
             finalHits,
             queryEmbedding,
@@ -3616,6 +3781,9 @@ export function issueRetrievalService(db: Db) {
             crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
             candidateCacheHit,
             finalCacheHit,
+            candidateCacheInspection,
+            finalCacheInspection,
+            exactPathSatisfied,
           });
         }
         const resolvedBriefQuality = briefQuality;
@@ -3701,23 +3869,27 @@ export function issueRetrievalService(db: Db) {
             revisionSignature,
             candidateState: candidateCacheInspection.state,
             candidateReason: candidateCacheInspection.reason,
+            candidateProvenance: candidateCacheInspection.provenance,
             candidateMatchedRevision: candidateCacheInspection.matchedRevision,
             candidateLatestKnownRevision: candidateCacheInspection.latestKnownRevision,
             candidateLastEntryUpdatedAt: candidateCacheInspection.lastEntryUpdatedAt,
             candidateCacheKeyFingerprint: candidateCacheInspection.cacheKeyFingerprint,
+            candidateRequestedCacheKeyFingerprint: candidateCacheInspection.requestedCacheKeyFingerprint,
+            candidateMatchedCacheKeyFingerprint: candidateCacheInspection.matchedCacheKeyFingerprint,
             finalState: finalCacheInspection.state,
             finalReason: finalCacheInspection.reason,
+            finalProvenance: finalCacheInspection.provenance,
             finalMatchedRevision: finalCacheInspection.matchedRevision,
             finalLatestKnownRevision: finalCacheInspection.latestKnownRevision,
             finalLastEntryUpdatedAt: finalCacheInspection.lastEntryUpdatedAt,
             finalCacheKeyFingerprint: finalCacheInspection.cacheKeyFingerprint,
+            finalRequestedCacheKeyFingerprint: finalCacheInspection.requestedCacheKeyFingerprint,
+            finalMatchedCacheKeyFingerprint: finalCacheInspection.matchedCacheKeyFingerprint,
           },
-          exactPathSatisfied: dynamicSignals.exactPaths.length === 0
-            ? true
-            : finalHits.some((hit) => {
-              const candidatePath = hit.path ? normalizeHintPath(hit.path) : null;
-              return candidatePath != null && dynamicSignals.exactPaths.includes(candidatePath);
-            }),
+          exactPathSatisfied: isExactPathSatisfied({
+            finalHits,
+            exactPaths: dynamicSignals.exactPaths,
+          }),
           personalization: {
             applied: personalizationProfile.applied,
             scopes: personalizationProfile.scopes,

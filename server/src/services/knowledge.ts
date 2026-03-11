@@ -71,6 +71,13 @@ export type KnowledgeQualityTrendSample = {
   candidateCacheHit: boolean;
   finalCacheHit: boolean;
   personalized: boolean;
+  actorRole: string | null;
+  issueProjectId: string | null;
+  topHitSourceType: string | null;
+  candidateCacheReason: string | null;
+  finalCacheReason: string | null;
+  candidateCacheProvenance: string | null;
+  finalCacheProvenance: string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -88,6 +95,11 @@ function readNumber(value: unknown, fallback = 0) {
 
 function readBoolean(value: unknown) {
   return value === true;
+}
+
+function incrementCount(counter: Record<string, number>, key: string | null | undefined, amount = 1) {
+  if (typeof key !== "string" || key.trim().length === 0) return;
+  counter[key] = (counter[key] ?? 0) + amount;
 }
 
 type RetrievalCacheIdentityView = {
@@ -120,6 +132,13 @@ export function buildKnowledgeQualityDailyTrend(input: {
     candidateCacheHits: number;
     finalCacheHits: number;
     personalizedRuns: number;
+    roleCounts: Record<string, number>;
+    projectCounts: Record<string, number>;
+    topHitSourceTypeCounts: Record<string, number>;
+    candidateCacheReasonCounts: Record<string, number>;
+    finalCacheReasonCounts: Record<string, number>;
+    candidateCacheProvenanceCounts: Record<string, number>;
+    finalCacheProvenanceCounts: Record<string, number>;
   }>();
 
   for (let offset = input.days - 1; offset >= 0; offset -= 1) {
@@ -133,6 +152,13 @@ export function buildKnowledgeQualityDailyTrend(input: {
       candidateCacheHits: 0,
       finalCacheHits: 0,
       personalizedRuns: 0,
+      roleCounts: {},
+      projectCounts: {},
+      topHitSourceTypeCounts: {},
+      candidateCacheReasonCounts: {},
+      finalCacheReasonCounts: {},
+      candidateCacheProvenanceCounts: {},
+      finalCacheProvenanceCounts: {},
     });
   }
 
@@ -147,6 +173,13 @@ export function buildKnowledgeQualityDailyTrend(input: {
     if (sample.candidateCacheHit) bucket.candidateCacheHits += 1;
     if (sample.finalCacheHit) bucket.finalCacheHits += 1;
     if (sample.personalized) bucket.personalizedRuns += 1;
+    incrementCount(bucket.roleCounts, sample.actorRole);
+    incrementCount(bucket.projectCounts, sample.issueProjectId);
+    incrementCount(bucket.topHitSourceTypeCounts, sample.topHitSourceType);
+    incrementCount(bucket.candidateCacheReasonCounts, sample.candidateCacheReason);
+    incrementCount(bucket.finalCacheReasonCounts, sample.finalCacheReason);
+    incrementCount(bucket.candidateCacheProvenanceCounts, sample.candidateCacheProvenance);
+    incrementCount(bucket.finalCacheProvenanceCounts, sample.finalCacheProvenance);
   }
 
   return Array.from(bucketMap.values());
@@ -1752,13 +1785,20 @@ export function knowledgeService(db: Db) {
           }));
 
         const confidenceLevel = readString(quality.confidenceLevel);
+        const issueProjectId = readString(row.issueProjectId) ?? readString(queryDebug.issueProjectId);
+        const candidateCacheState = readString(cache.candidateState);
+        const candidateCacheReason = readString(cache.candidateReason) ?? candidateCacheState;
+        const finalCacheState = readString(cache.finalState);
+        const finalCacheReason = readString(cache.finalReason) ?? finalCacheState;
+        const candidateCacheProvenance = readString(cache.candidateProvenance);
+        const finalCacheProvenance = readString(cache.finalProvenance);
         return {
           retrievalRunId: row.retrievalRunId,
           companyId: row.companyId,
           issueId: row.issueId,
           issueIdentifier: row.issueIdentifier,
           issueTitle: row.issueTitle,
-          issueProjectId: row.issueProjectId,
+          issueProjectId,
           actorRole: row.actorRole,
           eventType: row.eventType,
           workflowState: row.workflowState,
@@ -1780,22 +1820,52 @@ export function knowledgeService(db: Db) {
           reviewHitCount: readNumber(quality.reviewHitCount),
           candidateCacheHit: readBoolean(cache.candidateHit),
           finalCacheHit: readBoolean(cache.finalHit),
-          candidateCacheState: readString(cache.candidateState),
-          candidateCacheReason: readString(cache.candidateReason),
+          candidateCacheState,
+          candidateCacheReason,
+          candidateCacheProvenance,
           candidateCacheMatchedRevision:
             typeof cache.candidateMatchedRevision === "number" ? cache.candidateMatchedRevision : null,
           candidateCacheLatestKnownRevision:
             typeof cache.candidateLatestKnownRevision === "number" ? cache.candidateLatestKnownRevision : null,
           candidateCacheLastEntryUpdatedAt: readString(cache.candidateLastEntryUpdatedAt),
           candidateCacheKeyFingerprint: readString(cache.candidateCacheKeyFingerprint),
-          finalCacheState: readString(cache.finalState),
-          finalCacheReason: readString(cache.finalReason),
+          candidateRequestedCacheKeyFingerprint: readString(cache.candidateRequestedCacheKeyFingerprint),
+          candidateMatchedCacheKeyFingerprint: readString(cache.candidateMatchedCacheKeyFingerprint),
+          finalCacheState,
+          finalCacheReason,
+          finalCacheProvenance,
           finalCacheMatchedRevision:
             typeof cache.finalMatchedRevision === "number" ? cache.finalMatchedRevision : null,
           finalCacheLatestKnownRevision:
             typeof cache.finalLatestKnownRevision === "number" ? cache.finalLatestKnownRevision : null,
           finalCacheLastEntryUpdatedAt: readString(cache.finalLastEntryUpdatedAt),
           finalCacheKeyFingerprint: readString(cache.finalCacheKeyFingerprint),
+          finalRequestedCacheKeyFingerprint: readString(cache.finalRequestedCacheKeyFingerprint),
+          finalMatchedCacheKeyFingerprint: readString(cache.finalMatchedCacheKeyFingerprint),
+          candidateCache: {
+            hit: readBoolean(cache.candidateHit),
+            state: candidateCacheState,
+            reason: candidateCacheReason,
+            provenance: candidateCacheProvenance,
+            matchedRevision: typeof cache.candidateMatchedRevision === "number" ? cache.candidateMatchedRevision : null,
+            latestKnownRevision: typeof cache.candidateLatestKnownRevision === "number" ? cache.candidateLatestKnownRevision : null,
+            lastEntryUpdatedAt: readString(cache.candidateLastEntryUpdatedAt),
+            cacheKeyFingerprint: readString(cache.candidateCacheKeyFingerprint),
+            requestedCacheKeyFingerprint: readString(cache.candidateRequestedCacheKeyFingerprint),
+            matchedCacheKeyFingerprint: readString(cache.candidateMatchedCacheKeyFingerprint),
+          },
+          finalCache: {
+            hit: readBoolean(cache.finalHit),
+            state: finalCacheState,
+            reason: finalCacheReason,
+            provenance: finalCacheProvenance,
+            matchedRevision: typeof cache.finalMatchedRevision === "number" ? cache.finalMatchedRevision : null,
+            latestKnownRevision: typeof cache.finalLatestKnownRevision === "number" ? cache.finalLatestKnownRevision : null,
+            lastEntryUpdatedAt: readString(cache.finalLastEntryUpdatedAt),
+            cacheKeyFingerprint: readString(cache.finalCacheKeyFingerprint),
+            requestedCacheKeyFingerprint: readString(cache.finalRequestedCacheKeyFingerprint),
+            matchedCacheKeyFingerprint: readString(cache.finalMatchedCacheKeyFingerprint),
+          },
           personalizationApplied: readBoolean(personalization.applied),
           averagePersonalizationBoost: readNumber(personalization.averagePersonalizationBoost),
           topHitPath: readString(queryDebug.topHitPath),
@@ -1938,6 +2008,8 @@ export function knowledgeService(db: Db) {
         lowConfidenceRuns: number;
         projectMismatchCount: number;
         exactPathMissCount: number;
+        candidateCacheHitCount: number;
+        finalCacheHitCount: number;
       }>();
       const perProject = new Map<string, {
         projectId: string;
@@ -1945,6 +2017,15 @@ export function knowledgeService(db: Db) {
         totalRuns: number;
         lowConfidenceRuns: number;
         projectMismatchCount: number;
+        candidateCacheHitCount: number;
+        finalCacheHitCount: number;
+      }>();
+      const perSourceType = new Map<string, {
+        sourceType: string;
+        totalRuns: number;
+        lowConfidenceRuns: number;
+        candidateCacheHitCount: number;
+        finalCacheHitCount: number;
       }>();
       const lowConfidenceSamples: Array<{
         retrievalRunId: string;
@@ -1993,6 +2074,9 @@ export function knowledgeService(db: Db) {
       const graphHopDepthCounts: Record<string, number> = {};
       const candidateCacheMissReasonCounts: Record<string, number> = {};
       const finalCacheMissReasonCounts: Record<string, number> = {};
+      const candidateCacheProvenanceCounts: Record<string, number> = {};
+      const finalCacheProvenanceCounts: Record<string, number> = {};
+      const topHitSourceTypeCounts: Record<string, number> = {};
       const dailyTrendSamples: KnowledgeQualityTrendSample[] = [];
 
       for (const row of rows) {
@@ -2046,6 +2130,21 @@ export function knowledgeService(db: Db) {
         const exactPathSatisfied = debug.exactPathSatisfied === true;
         const topHitProjectId = typeof debug.topHitProjectId === "string" ? debug.topHitProjectId : null;
         const issueProjectId = typeof debug.issueProjectId === "string" ? debug.issueProjectId : null;
+        const topHitSourceType = typeof debug.topHitSourceType === "string" ? debug.topHitSourceType : null;
+        const candidateCacheReason =
+          typeof cache.candidateReason === "string"
+            ? cache.candidateReason
+            : typeof cache.candidateState === "string"
+              ? cache.candidateState
+              : null;
+        const finalCacheReason =
+          typeof cache.finalReason === "string"
+            ? cache.finalReason
+            : typeof cache.finalState === "string"
+              ? cache.finalState
+              : null;
+        const candidateCacheProvenance = typeof cache.candidateProvenance === "string" ? cache.candidateProvenance : null;
+        const finalCacheProvenance = typeof cache.finalProvenance === "string" ? cache.finalProvenance : null;
         const projectAffinityIds = Array.isArray(debug.projectAffinityIds)
           ? debug.projectAffinityIds.filter((value): value is string => typeof value === "string")
           : [];
@@ -2076,14 +2175,15 @@ export function knowledgeService(db: Db) {
         if (cache.embeddingHit === true) embeddingCacheHitCount += 1;
         if (cache.candidateHit === true) candidateCacheHitCount += 1;
         if (cache.finalHit === true) finalCacheHitCount += 1;
-        const candidateState = typeof cache.candidateState === "string" ? cache.candidateState : null;
-        const finalState = typeof cache.finalState === "string" ? cache.finalState : null;
-        if (candidateState && candidateState !== "hit") {
-          candidateCacheMissReasonCounts[candidateState] = (candidateCacheMissReasonCounts[candidateState] ?? 0) + 1;
+        if (candidateCacheReason && candidateCacheReason !== "hit") {
+          candidateCacheMissReasonCounts[candidateCacheReason] = (candidateCacheMissReasonCounts[candidateCacheReason] ?? 0) + 1;
         }
-        if (finalState && finalState !== "hit") {
-          finalCacheMissReasonCounts[finalState] = (finalCacheMissReasonCounts[finalState] ?? 0) + 1;
+        if (finalCacheReason && finalCacheReason !== "hit") {
+          finalCacheMissReasonCounts[finalCacheReason] = (finalCacheMissReasonCounts[finalCacheReason] ?? 0) + 1;
         }
+        incrementCount(candidateCacheProvenanceCounts, candidateCacheProvenance);
+        incrementCount(finalCacheProvenanceCounts, finalCacheProvenance);
+        incrementCount(topHitSourceTypeCounts, topHitSourceType);
         staleVersionPenaltyCount += staleVersionPenaltyCountForRun;
         exactCommitMatchCount += exactCommitMatchCountForRun;
         if (graphHitCount > 0) graphExpandedRuns += 1;
@@ -2142,11 +2242,15 @@ export function knowledgeService(db: Db) {
           lowConfidenceRuns: 0,
           projectMismatchCount: 0,
           exactPathMissCount: 0,
+          candidateCacheHitCount: 0,
+          finalCacheHitCount: 0,
         };
         roleEntry.totalRuns += 1;
         if (confidenceLevel === "low") roleEntry.lowConfidenceRuns += 1;
         if (hasProjectMismatch) roleEntry.projectMismatchCount += 1;
         if (!exactPathSatisfied && Number(debug.exactPathCount ?? 0) > 0) roleEntry.exactPathMissCount += 1;
+        if (cache.candidateHit === true) roleEntry.candidateCacheHitCount += 1;
+        if (cache.finalHit === true) roleEntry.finalCacheHitCount += 1;
         perRole.set(row.actorRole, roleEntry);
 
         if (issueProjectId) {
@@ -2156,11 +2260,30 @@ export function knowledgeService(db: Db) {
             totalRuns: 0,
             lowConfidenceRuns: 0,
             projectMismatchCount: 0,
+            candidateCacheHitCount: 0,
+            finalCacheHitCount: 0,
           };
           projectEntry.totalRuns += 1;
           if (confidenceLevel === "low") projectEntry.lowConfidenceRuns += 1;
           if (hasProjectMismatch) projectEntry.projectMismatchCount += 1;
+          if (cache.candidateHit === true) projectEntry.candidateCacheHitCount += 1;
+          if (cache.finalHit === true) projectEntry.finalCacheHitCount += 1;
           perProject.set(issueProjectId, projectEntry);
+        }
+
+        if (topHitSourceType) {
+          const sourceTypeEntry = perSourceType.get(topHitSourceType) ?? {
+            sourceType: topHitSourceType,
+            totalRuns: 0,
+            lowConfidenceRuns: 0,
+            candidateCacheHitCount: 0,
+            finalCacheHitCount: 0,
+          };
+          sourceTypeEntry.totalRuns += 1;
+          if (confidenceLevel === "low") sourceTypeEntry.lowConfidenceRuns += 1;
+          if (cache.candidateHit === true) sourceTypeEntry.candidateCacheHitCount += 1;
+          if (cache.finalHit === true) sourceTypeEntry.finalCacheHitCount += 1;
+          perSourceType.set(topHitSourceType, sourceTypeEntry);
         }
 
         dailyTrendSamples.push({
@@ -2171,6 +2294,13 @@ export function knowledgeService(db: Db) {
           candidateCacheHit: cache.candidateHit === true,
           finalCacheHit: cache.finalHit === true,
           personalized: personalization.applied === true,
+          actorRole: row.actorRole,
+          issueProjectId,
+          topHitSourceType,
+          candidateCacheReason,
+          finalCacheReason,
+          candidateCacheProvenance,
+          finalCacheProvenance,
         });
       }
 
@@ -2399,6 +2529,9 @@ export function knowledgeService(db: Db) {
         finalCacheHitRate: totalRuns > 0 ? finalCacheHitCount / totalRuns : 0,
         candidateCacheMissReasonCounts,
         finalCacheMissReasonCounts,
+        candidateCacheProvenanceCounts,
+        finalCacheProvenanceCounts,
+        topHitSourceTypeCounts,
         feedbackEventCount: Number(feedbackStats.eventCount ?? 0),
         positiveFeedbackCount: Number(feedbackStats.positiveCount ?? 0),
         negativeFeedbackCount: Number(feedbackStats.negativeCount ?? 0),
@@ -2465,6 +2598,7 @@ export function knowledgeService(db: Db) {
         },
         perRole: Array.from(perRole.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         perProject: Array.from(perProject.values()).sort((left, right) => right.totalRuns - left.totalRuns),
+        perSourceType: Array.from(perSourceType.values()).sort((left, right) => right.totalRuns - left.totalRuns),
         samples: {
           lowConfidence: lowConfidenceSamples,
           projectMismatch: projectMismatchSamples,

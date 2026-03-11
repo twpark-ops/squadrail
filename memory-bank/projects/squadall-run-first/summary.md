@@ -148,16 +148,31 @@
     - scoring / rationale helper를 `server/src/services/retrieval/scoring.ts`로 이동
   - `rerank provider abstraction` 1차 완료
     - provider config / transport를 `server/src/services/knowledge-rerank/` 하위 모듈로 분리
-  - `execution lane classifier + fast lane optimization + lane-aware multi-hop` 완료
-    - `server/src/services/execution-lanes.ts` 추가
-    - retrieval은 `fast / normal / deep` lane을 분류해 dense/sparse/rerank/finalK, model candidate count, graph hop depth, brief evidence 개수를 lane-aware하게 조정
-    - wake payload / contextSnapshot / taskBrief에도 `executionLane`을 기록
-    - retrieval cache identity / stage key에도 lane을 포함
-    - replay 실측 기준 `candidateCacheHit`, `finalCacheHit`, `exactPathSatisfied`, `multiHopGraphHitCount=8`까지 확인
+- `execution lane classifier + fast lane optimization + lane-aware multi-hop` 완료
+  - `server/src/services/execution-lanes.ts` 추가
+  - retrieval은 `fast / normal / deep` lane을 분류해 dense/sparse/rerank/finalK, model candidate count, graph hop depth, brief evidence 개수를 lane-aware하게 조정
+  - wake payload / contextSnapshot / taskBrief에도 `executionLane`을 기록
+  - retrieval cache identity / stage key에도 lane을 포함
+  - replay 실측 기준 `candidateCacheHit`, `finalCacheHit`, `exactPathSatisfied`, `multiHopGraphHitCount=8`까지 확인
+- `ranking/cache/trend consolidation` 1차 완료
+  - retrieval run cache inspection에 `exact_key / normalized_input / feedback_drift` provenance를 추가
+  - candidate/final cache 모두 requested/matched cache key fingerprint를 분리해 recent runs에 노출
+  - `/api/knowledge/quality` daily trend에 role/project/sourceType/cache reason/provenance bucket을 추가
+  - summary에 `candidateCacheProvenanceCounts`, `finalCacheProvenanceCounts`, `topHitSourceTypeCounts`, `perSourceType`를 추가
+  - brief quality에도 candidate/final cache reason/provenance와 `exactPathSatisfied`를 포함해 E2E/inspection 경로를 일치시킴
+  - focused retrieval tests + 전체 `typecheck/test/build` 모두 통과
 
 ## 현재 남은 우선순위
 
-1. ranking/cache/trend consolidation
-2. cross-issue memory reuse
-3. rerank provider abstraction 2차
-4. execution lane / fast lane 실운영 계측
+1. cross-issue memory reuse
+2. rerank provider abstraction 2차
+3. execution lane / fast lane 실운영 계측
+
+## 다음 세션 핸드오프
+
+- 다음 확인 순서는 `docs/backend-post-phase-plan.md` -> `docs/run-first-burn-in-priority-plan.md` -> `memory-bank/projects/squadall-run-first/summary.md`다.
+- 다음 시작 작업은 바로 `cross-issue memory reuse`다.
+- 기본 검증 순서는 `pnpm -r typecheck` -> `pnpm test:run` -> `pnpm build`다.
+- retrieval 쪽만 수정할 때는 먼저 `pnpm vitest run server/src/__tests__/issue-retrieval.test.ts`와 `pnpm vitest run server/src/__tests__/knowledge-reranking.test.ts`를 좁게 돌린다.
+- 건드리지 말아야 할 경로는 `memory-bank/README.md`와 `memory-bank/projects/squadall-ui-only-followup/`다.
+- 제품 방향은 계속 `standardized software delivery org kernel`이며, `peer mode`는 후순위다.

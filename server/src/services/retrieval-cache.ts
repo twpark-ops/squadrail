@@ -183,6 +183,9 @@ export function buildRetrievalCacheIdentity(input: {
 export function buildRetrievalCacheInspectionResult(input: {
   state: RetrievalCacheState;
   cacheKey: string;
+  requestedCacheKey?: string;
+  matchedCacheKey?: string | null;
+  provenance?: RetrievalCacheInspectionResult["provenance"];
   matchedRevision?: number | null;
   latestKnownRevision?: number | null;
   lastEntryUpdatedAt?: Date | string | null;
@@ -193,12 +196,18 @@ export function buildRetrievalCacheInspectionResult(input: {
     : typeof updatedAtValue === "string"
       ? updatedAtValue
       : null;
+  const requestedCacheKey = input.requestedCacheKey ?? input.cacheKey;
+  const matchedCacheKey = input.matchedCacheKey ?? (input.state === "hit" ? input.cacheKey : null);
+  const primaryCacheKey = matchedCacheKey ?? requestedCacheKey;
   return {
     state: input.state,
     reason: input.state,
+    provenance: input.provenance ?? null,
     matchedRevision: input.matchedRevision ?? null,
     latestKnownRevision: input.latestKnownRevision ?? null,
     lastEntryUpdatedAt: updatedAt,
-    cacheKeyFingerprint: input.cacheKey.slice(0, 12),
+    cacheKeyFingerprint: primaryCacheKey.slice(0, 12),
+    requestedCacheKeyFingerprint: requestedCacheKey.slice(0, 12),
+    matchedCacheKeyFingerprint: matchedCacheKey ? matchedCacheKey.slice(0, 12) : null,
   };
 }
