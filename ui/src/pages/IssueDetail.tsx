@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams, Link, useNavigate, useLocation } from "@/lib/router";
-import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueries,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { issuesApi } from "../api/issues";
 import { activityApi } from "../api/activity";
 import { heartbeatsApi } from "../api/heartbeats";
@@ -20,17 +25,30 @@ import { CommentThread } from "../components/CommentThread";
 import { IssueProperties } from "../components/IssueProperties";
 import { LiveRunWidget } from "../components/LiveRunWidget";
 import { ProtocolActionConsole } from "../components/ProtocolActionConsole";
-import type { MentionOption } from "../components/MarkdownEditor";
+import type { MentionOption } from "../components/MarkdownEditor.types";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { StatusBadge } from "../components/StatusBadge";
 import { Identity } from "../components/Identity";
 import { Separator } from "@/components/ui/separator";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BriefPanelV2 } from "../components/BriefPanelV2";
@@ -106,7 +124,8 @@ function humanizeValue(value: unknown): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return null;
   return value as Record<string, unknown>;
 }
 
@@ -121,18 +140,28 @@ function readBriefQuality(brief: IssueTaskBrief): BriefQualitySnapshot | null {
   const quality = asRecord(asRecord(brief.contentJson)?.quality);
   if (!quality) return null;
   const confidenceLevel = quality.confidenceLevel;
-  if (confidenceLevel !== "high" && confidenceLevel !== "medium" && confidenceLevel !== "low") return null;
+  if (
+    confidenceLevel !== "high" &&
+    confidenceLevel !== "medium" &&
+    confidenceLevel !== "low"
+  )
+    return null;
   return {
     confidenceLevel,
-    evidenceCount: typeof quality.evidenceCount === "number" ? quality.evidenceCount : 0,
+    evidenceCount:
+      typeof quality.evidenceCount === "number" ? quality.evidenceCount : 0,
     denseEnabled: quality.denseEnabled === true,
     degradedReasons: Array.isArray(quality.degradedReasons)
-      ? quality.degradedReasons.filter((reason): reason is string => typeof reason === "string")
+      ? quality.degradedReasons.filter(
+          (reason): reason is string => typeof reason === "string"
+        )
       : [],
   };
 }
 
-function briefQualityBadgeClass(confidenceLevel: BriefQualitySnapshot["confidenceLevel"]) {
+function briefQualityBadgeClass(
+  confidenceLevel: BriefQualitySnapshot["confidenceLevel"]
+) {
   switch (confidenceLevel) {
     case "high":
       return "border-emerald-300 bg-emerald-50 text-emerald-700";
@@ -182,11 +211,14 @@ function formatProtocolValue(value: string | null | undefined) {
 }
 
 function collectProtocolEvidence(message: IssueProtocolMessage) {
-  const payload = ((message.payload ?? {}) as unknown) as Record<string, unknown>;
+  const payload = (message.payload ?? {}) as unknown as Record<string, unknown>;
   const evidence: string[] = [];
   const artifactLabels = (message.artifacts ?? [])
     .map((artifact) => artifact.label ?? artifact.uri)
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0
+    );
 
   for (const key of [
     "evidence",
@@ -202,14 +234,18 @@ function collectProtocolEvidence(message: IssueProtocolMessage) {
     const value = payload[key];
     if (!Array.isArray(value)) continue;
     for (const entry of value) {
-      if (typeof entry === "string" && entry.trim().length > 0) evidence.push(entry.trim());
+      if (typeof entry === "string" && entry.trim().length > 0)
+        evidence.push(entry.trim());
     }
   }
 
   return Array.from(new Set([...evidence, ...artifactLabels])).slice(0, 8);
 }
 
-function readProtocolStringArray(payload: Record<string, unknown>, key: string) {
+function readProtocolStringArray(
+  payload: Record<string, unknown>,
+  key: string
+) {
   const value = payload[key];
   if (!Array.isArray(value)) return [];
   return value
@@ -261,7 +297,9 @@ type ProtocolReviewHandoffSnapshot = {
   residualRisks: string[];
 };
 
-function readProtocolReviewHandoff(message: IssueProtocolMessage): ProtocolReviewHandoffSnapshot | null {
+function readProtocolReviewHandoff(
+  message: IssueProtocolMessage
+): ProtocolReviewHandoffSnapshot | null {
   if (message.messageType !== "SUBMIT_FOR_REVIEW") return null;
   const payload = asRecord(message.payload) ?? {};
   return {
@@ -285,15 +323,22 @@ type ProtocolChangeRequestSnapshot = {
   }>;
 };
 
-function readProtocolChangeRequest(message: IssueProtocolMessage): ProtocolChangeRequestSnapshot | null {
+function readProtocolChangeRequest(
+  message: IssueProtocolMessage
+): ProtocolChangeRequestSnapshot | null {
   if (message.messageType !== "REQUEST_CHANGES") return null;
   const payload = asRecord(message.payload) ?? {};
-  const rawRequests = Array.isArray(payload.changeRequests) ? payload.changeRequests : [];
+  const rawRequests = Array.isArray(payload.changeRequests)
+    ? payload.changeRequests
+    : [];
   return {
     reviewSummary: readProtocolString(payload, "reviewSummary"),
     requiredEvidence: readProtocolStringArray(payload, "requiredEvidence"),
     changeRequests: rawRequests
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      .filter(
+        (entry): entry is Record<string, unknown> =>
+          Boolean(entry) && typeof entry === "object"
+      )
       .map((entry) => ({
         title: readProtocolString(entry, "title"),
         reason: readProtocolString(entry, "reason"),
@@ -311,7 +356,9 @@ type ProtocolApprovalSnapshot = {
   followUpActions: string[];
 };
 
-function readProtocolApproval(message: IssueProtocolMessage): ProtocolApprovalSnapshot | null {
+function readProtocolApproval(
+  message: IssueProtocolMessage
+): ProtocolApprovalSnapshot | null {
   if (message.messageType !== "APPROVE_IMPLEMENTATION") return null;
   const payload = asRecord(message.payload) ?? {};
   return {
@@ -332,7 +379,9 @@ type ProtocolCloseSnapshot = {
   mergeStatus: string | null;
 };
 
-function readProtocolClose(message: IssueProtocolMessage): ProtocolCloseSnapshot | null {
+function readProtocolClose(
+  message: IssueProtocolMessage
+): ProtocolCloseSnapshot | null {
   if (message.messageType !== "CLOSE_TASK") return null;
   const payload = asRecord(message.payload) ?? {};
   return {
@@ -353,7 +402,9 @@ type ChangeWorkspaceSnapshot = {
   workspaceStatus: string | null;
 };
 
-function readChangeWorkspaceSnapshot(resultJson: Record<string, unknown> | null | undefined): ChangeWorkspaceSnapshot | null {
+function readChangeWorkspaceSnapshot(
+  resultJson: Record<string, unknown> | null | undefined
+): ChangeWorkspaceSnapshot | null {
   const root = asRecord(resultJson);
   const snapshot = asRecord(root?.workspaceGitSnapshot);
   if (!snapshot) return null;
@@ -438,38 +489,54 @@ function violationRecommendation(code: string) {
 
 function buildProtocolRecoveryAlerts(
   protocolMessages: IssueProtocolMessage[],
-  protocolViolations: IssueProtocolViolation[],
+  protocolViolations: IssueProtocolViolation[]
 ): ProtocolRecoveryAlert[] {
   const timeoutAlerts = protocolMessages.flatMap((message) => {
-    if (message.messageType !== "TIMEOUT_ESCALATION" && message.messageType !== "SYSTEM_REMINDER") return [];
+    if (
+      message.messageType !== "TIMEOUT_ESCALATION" &&
+      message.messageType !== "SYSTEM_REMINDER"
+    )
+      return [];
     const payload = asRecord(message.payload) ?? {};
     const timeoutCode =
       typeof payload.timeoutCode === "string"
         ? payload.timeoutCode
         : typeof payload.reminderCode === "string"
-          ? payload.reminderCode
-          : "unknown_timeout";
+        ? payload.reminderCode
+        : "unknown_timeout";
     const metadata: string[] = [];
     if (typeof payload.expiredActorRole === "string") {
-      metadata.push(`Expired role: ${formatProtocolValue(payload.expiredActorRole)}`);
+      metadata.push(
+        `Expired role: ${formatProtocolValue(payload.expiredActorRole)}`
+      );
     }
     if (typeof payload.nextEscalationTarget === "string") {
-      metadata.push(`Escalates to: ${formatProtocolValue(payload.nextEscalationTarget)}`);
+      metadata.push(
+        `Escalates to: ${formatProtocolValue(payload.nextEscalationTarget)}`
+      );
     }
     if (typeof payload.reminderMessage === "string") {
       metadata.push(payload.reminderMessage);
     }
-    return [{
-      id: message.id,
-      kind: "timeout" as const,
-      severity: message.messageType === "TIMEOUT_ESCALATION" ? "high" as const : "medium" as const,
-      title: formatProtocolValue(timeoutCode),
-      detail: message.summary,
-      recommendation: timeoutRecommendation(timeoutCode),
-      statusLabel: message.messageType === "TIMEOUT_ESCALATION" ? "Escalated" : "Reminder",
-      createdAt: new Date(message.createdAt),
-      metadata,
-    }];
+    return [
+      {
+        id: message.id,
+        kind: "timeout" as const,
+        severity:
+          message.messageType === "TIMEOUT_ESCALATION"
+            ? ("high" as const)
+            : ("medium" as const),
+        title: formatProtocolValue(timeoutCode),
+        detail: message.summary,
+        recommendation: timeoutRecommendation(timeoutCode),
+        statusLabel:
+          message.messageType === "TIMEOUT_ESCALATION"
+            ? "Escalated"
+            : "Reminder",
+        createdAt: new Date(message.createdAt),
+        metadata,
+      },
+    ];
   });
 
   const violationAlerts = protocolViolations.map((violation) => {
@@ -481,14 +548,19 @@ function buildProtocolRecoveryAlerts(
       metadata.push(`Reason: ${formatProtocolValue(violation.details.reason)}`);
     }
     if (typeof violation.details.messageType === "string") {
-      metadata.push(`Message: ${formatProtocolValue(violation.details.messageType)}`);
+      metadata.push(
+        `Message: ${formatProtocolValue(violation.details.messageType)}`
+      );
     }
     return {
       id: violation.id,
       kind: "violation" as const,
       severity: violation.severity,
       title: formatProtocolValue(violation.violationCode),
-      detail: violation.status === "open" ? "Protocol action was rejected and still needs correction." : "Historical protocol violation.",
+      detail:
+        violation.status === "open"
+          ? "Protocol action was rejected and still needs correction."
+          : "Historical protocol violation.",
       recommendation: violationRecommendation(violation.violationCode),
       statusLabel: formatProtocolValue(violation.status),
       createdAt: new Date(violation.createdAt),
@@ -497,27 +569,38 @@ function buildProtocolRecoveryAlerts(
   });
 
   const integrityAlerts = protocolMessages.flatMap((message) => {
-    if (!message.integrityStatus || message.integrityStatus === "verified") return [];
+    if (!message.integrityStatus || message.integrityStatus === "verified")
+      return [];
     const metadata: string[] = [];
-    if (message.integritySignature) metadata.push(`Signature: ${message.integritySignature.slice(0, 12)}…`);
-    if (message.payloadSha256) metadata.push(`Payload hash: ${message.payloadSha256.slice(0, 12)}…`);
-    return [{
-      id: `integrity:${message.id}`,
-      kind: "violation" as const,
-      severity: message.integrityStatus === "tampered" ? "critical" as const : "medium" as const,
-      title: message.integrityStatus === "legacy_unsealed" ? "Legacy unsealed protocol message" : "Protocol integrity check failed",
-      detail:
-        message.integrityStatus === "legacy_unsealed"
-          ? "This message predates tamper-evident sealing."
-          : "The stored protocol message no longer matches its integrity signature chain.",
-      recommendation:
-        message.integrityStatus === "legacy_unsealed"
-          ? "Historical messages remain readable, but rely on newer sealed protocol traffic for strict audit trails."
-          : "Treat this issue timeline as compromised until a board operator reviews the message history.",
-      statusLabel: formatProtocolValue(message.integrityStatus),
-      createdAt: new Date(message.createdAt),
-      metadata,
-    }];
+    if (message.integritySignature)
+      metadata.push(`Signature: ${message.integritySignature.slice(0, 12)}…`);
+    if (message.payloadSha256)
+      metadata.push(`Payload hash: ${message.payloadSha256.slice(0, 12)}…`);
+    return [
+      {
+        id: `integrity:${message.id}`,
+        kind: "violation" as const,
+        severity:
+          message.integrityStatus === "tampered"
+            ? ("critical" as const)
+            : ("medium" as const),
+        title:
+          message.integrityStatus === "legacy_unsealed"
+            ? "Legacy unsealed protocol message"
+            : "Protocol integrity check failed",
+        detail:
+          message.integrityStatus === "legacy_unsealed"
+            ? "This message predates tamper-evident sealing."
+            : "The stored protocol message no longer matches its integrity signature chain.",
+        recommendation:
+          message.integrityStatus === "legacy_unsealed"
+            ? "Historical messages remain readable, but rely on newer sealed protocol traffic for strict audit trails."
+            : "Treat this issue timeline as compromised until a board operator reviews the message history.",
+        statusLabel: formatProtocolValue(message.integrityStatus),
+        createdAt: new Date(message.createdAt),
+        metadata,
+      },
+    ];
   });
 
   return [...timeoutAlerts, ...violationAlerts, ...integrityAlerts]
@@ -525,7 +608,10 @@ function buildProtocolRecoveryAlerts(
     .slice(0, 10);
 }
 
-function formatAction(action: string, details?: Record<string, unknown> | null): string {
+function formatAction(
+  action: string,
+  details?: Record<string, unknown> | null
+): string {
   if (action === "issue.updated" && details) {
     const previous = (details._previous ?? {}) as Record<string, unknown>;
     const parts: string[] = [];
@@ -534,7 +620,9 @@ function formatAction(action: string, details?: Record<string, unknown> | null):
       const from = previous.status;
       parts.push(
         from
-          ? `changed the status from ${humanizeValue(from)} to ${humanizeValue(details.status)}`
+          ? `changed the status from ${humanizeValue(from)} to ${humanizeValue(
+              details.status
+            )}`
           : `changed the status to ${humanizeValue(details.status)}`
       );
     }
@@ -542,26 +630,38 @@ function formatAction(action: string, details?: Record<string, unknown> | null):
       const from = previous.priority;
       parts.push(
         from
-          ? `changed the priority from ${humanizeValue(from)} to ${humanizeValue(details.priority)}`
+          ? `changed the priority from ${humanizeValue(
+              from
+            )} to ${humanizeValue(details.priority)}`
           : `changed the priority to ${humanizeValue(details.priority)}`
       );
     }
-    if (details.assigneeAgentId !== undefined || details.assigneeUserId !== undefined) {
+    if (
+      details.assigneeAgentId !== undefined ||
+      details.assigneeUserId !== undefined
+    ) {
       parts.push(
         details.assigneeAgentId || details.assigneeUserId
           ? "assigned the issue"
-          : "unassigned the issue",
+          : "unassigned the issue"
       );
     }
     if (details.title !== undefined) parts.push("updated the title");
-    if (details.description !== undefined) parts.push("updated the description");
+    if (details.description !== undefined)
+      parts.push("updated the description");
 
     if (parts.length > 0) return parts.join(", ");
   }
   return ACTION_LABELS[action] ?? action.replace(/[._]/g, " ");
 }
 
-function ActorIdentity({ evt, agentMap }: { evt: ActivityEvent; agentMap: Map<string, Agent> }) {
+function ActorIdentity({
+  evt,
+  agentMap,
+}: {
+  evt: ActivityEvent;
+  agentMap: Map<string, Agent>;
+}) {
   const id = evt.actorId;
   if (evt.actorType === "agent") {
     const agent = agentMap.get(id);
@@ -581,8 +681,11 @@ export function IssueDetail() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const issueSection = location.pathname.includes("/changes/") ? "Changes" : "Work";
-  const issueBasePath = issueSection === "Changes" ? appRoutes.changes : appRoutes.work;
+  const issueSection = location.pathname.includes("/changes/")
+    ? "Changes"
+    : "Work";
+  const issueBasePath =
+    issueSection === "Changes" ? appRoutes.changes : appRoutes.work;
   const [moreOpen, setMoreOpen] = useState(false);
   const [mobilePropsOpen, setMobilePropsOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("brief");
@@ -593,7 +696,11 @@ export function IssueDetail() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const { data: issue, isLoading, error } = useQuery({
+  const {
+    data: issue,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: queryKeys.issues.detail(issueId!),
     queryFn: () => issuesApi.get(issueId!),
     enabled: !!issueId,
@@ -697,15 +804,16 @@ export function IssueDetail() {
     if (activeRun) runIds.add(activeRun.id);
     return runIds.size;
   }, [activeRun, liveRuns]);
-  const primaryLiveRunStartedAt = primaryLiveRun?.startedAt ?? primaryLiveRun?.createdAt ?? null;
+  const primaryLiveRunStartedAt =
+    primaryLiveRun?.startedAt ?? primaryLiveRun?.createdAt ?? null;
   const primaryLiveAdapterLabel = primaryLiveRun?.adapterType
     ? formatProtocolValue(primaryLiveRun.adapterType)
     : null;
   const primaryLiveTrigger = primaryLiveRun?.triggerDetail
     ? primaryLiveRun.triggerDetail
     : primaryLiveRun?.invocationSource
-      ? formatProtocolValue(primaryLiveRun.invocationSource)
-      : null;
+    ? formatProtocolValue(primaryLiveRun.invocationSource)
+    : null;
 
   // Filter out runs already shown by the live widget to avoid duplication
   const timelineRuns = useMemo(() => {
@@ -740,12 +848,14 @@ export function IssueDetail() {
   });
 
   const retrievalRunHitsQueries = useQueries({
-    queries: (changeSurface?.retrievalContext.latestRuns ?? []).slice(0, 3).map((run) => ({
-      queryKey: ["knowledge", "retrieval-run-hits", run.retrievalRunId],
-      queryFn: () => knowledgeApi.getRetrievalRunHits(run.retrievalRunId),
-      enabled: issueSection === "Changes",
-      staleTime: 15_000,
-    })),
+    queries: (changeSurface?.retrievalContext.latestRuns ?? [])
+      .slice(0, 3)
+      .map((run) => ({
+        queryKey: ["knowledge", "retrieval-run-hits", run.retrievalRunId],
+        queryFn: () => knowledgeApi.getRetrievalRunHits(run.retrievalRunId),
+        enabled: issueSection === "Changes",
+        staleTime: 15_000,
+      })),
   });
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
   const { orderedProjects } = useProjectOrder({
@@ -789,18 +899,25 @@ export function IssueDetail() {
     const detailChildren = issue.internalWorkItems ?? [];
     const visibleChildren = (allIssues ?? [])
       .filter((i) => i.parentId === issue.id)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
     const combined = [...detailChildren];
     const seen = new Set(detailChildren.map((child) => child.id));
     for (const child of visibleChildren) {
       if (seen.has(child.id)) continue;
       combined.push(child);
     }
-    return combined.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return combined.sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
   }, [allIssues, issue]);
 
   const commentReassignOptions = useMemo(() => {
-    const options: Array<{ id: string; label: string; searchText?: string }> = [];
+    const options: Array<{ id: string; label: string; searchText?: string }> =
+      [];
     const activeAgents = [...(agents ?? [])]
       .filter((agent) => agent.status !== "terminated")
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -821,7 +938,10 @@ export function IssueDetail() {
   }, [issue?.assigneeAgentId, issue?.assigneeUserId]);
 
   const commentsWithRunMeta = useMemo(() => {
-    const runMetaByCommentId = new Map<string, { runId: string; runAgentId: string | null }>();
+    const runMetaByCommentId = new Map<
+      string,
+      { runId: string; runAgentId: string | null }
+    >();
     const agentIdByRunId = new Map<string, string>();
     for (const run of linkedRuns ?? []) {
       agentIdByRunId.set(run.runId, run.agentId);
@@ -829,7 +949,8 @@ export function IssueDetail() {
     for (const evt of activity ?? []) {
       if (evt.action !== "issue.comment_added" || !evt.runId) continue;
       const details = evt.details ?? {};
-      const commentId = typeof details["commentId"] === "string" ? details["commentId"] : null;
+      const commentId =
+        typeof details["commentId"] === "string" ? details["commentId"] : null;
       if (!commentId || runMetaByCommentId.has(commentId)) continue;
       runMetaByCommentId.set(commentId, {
         runId: evt.runId,
@@ -842,62 +963,97 @@ export function IssueDetail() {
     });
   }, [activity, comments, linkedRuns]);
 
-  const latestBriefs = useMemo(() => latestBriefsByScope(protocolBriefs), [protocolBriefs]);
+  const latestBriefs = useMemo(
+    () => latestBriefsByScope(protocolBriefs),
+    [protocolBriefs]
+  );
   const briefSnapshots = useMemo(() => {
-    return latestBriefs.reduce<Partial<Record<string, DashboardBriefSnapshot>>>((acc, brief) => {
-      acc[brief.briefScope] = {
-        id: brief.id,
-        briefScope: brief.briefScope,
-        briefVersion: brief.briefVersion,
-        workflowState: brief.workflowState,
-        retrievalRunId: brief.retrievalRunId,
-        createdAt: brief.createdAt,
-        preview: truncate(brief.contentMarkdown, 1200),
-      };
-      return acc;
-    }, {});
+    return latestBriefs.reduce<Partial<Record<string, DashboardBriefSnapshot>>>(
+      (acc, brief) => {
+        acc[brief.briefScope] = {
+          id: brief.id,
+          briefScope: brief.briefScope,
+          briefVersion: brief.briefVersion,
+          workflowState: brief.workflowState,
+          retrievalRunId: brief.retrievalRunId,
+          createdAt: brief.createdAt,
+          preview: truncate(brief.contentMarkdown, 1200),
+        };
+        return acc;
+      },
+      {}
+    );
   }, [latestBriefs]);
-  const protocolTimeline = useMemo(() => [...protocolMessages].slice(-12).reverse(), [protocolMessages]);
+  const protocolTimeline = useMemo(
+    () => [...protocolMessages].slice(-12).reverse(),
+    [protocolMessages]
+  );
   const openViolations = useMemo(
     () => protocolViolations.filter((violation) => violation.status === "open"),
-    [protocolViolations],
+    [protocolViolations]
   );
   const protocolRecoveryAlerts = useMemo(
     () => buildProtocolRecoveryAlerts(protocolMessages, protocolViolations),
-    [protocolMessages, protocolViolations],
+    [protocolMessages, protocolViolations]
   );
   const openTimeoutAlertCount = useMemo(
-    () => protocolMessages.filter((message) => message.messageType === "TIMEOUT_ESCALATION").length,
-    [protocolMessages],
+    () =>
+      protocolMessages.filter(
+        (message) => message.messageType === "TIMEOUT_ESCALATION"
+      ).length,
+    [protocolMessages]
   );
   const integrityIssueCount = useMemo(
-    () => protocolMessages.filter((message) => message.integrityStatus && message.integrityStatus !== "verified").length,
-    [protocolMessages],
+    () =>
+      protocolMessages.filter(
+        (message) =>
+          message.integrityStatus && message.integrityStatus !== "verified"
+      ).length,
+    [protocolMessages]
   );
-  const latestReviewCycle = useMemo(() => reviewCycles[0] ?? null, [reviewCycles]);
+  const latestReviewCycle = useMemo(
+    () => reviewCycles[0] ?? null,
+    [reviewCycles]
+  );
   const latestReviewSubmission = useMemo(
-    () => [...protocolMessages].reverse().find((message) => message.messageType === "SUBMIT_FOR_REVIEW") ?? null,
-    [protocolMessages],
+    () =>
+      [...protocolMessages]
+        .reverse()
+        .find((message) => message.messageType === "SUBMIT_FOR_REVIEW") ?? null,
+    [protocolMessages]
   );
   const latestApprovalMessage = useMemo(
-    () => [...protocolMessages].reverse().find((message) => message.messageType === "APPROVE_IMPLEMENTATION") ?? null,
-    [protocolMessages],
+    () =>
+      [...protocolMessages]
+        .reverse()
+        .find((message) => message.messageType === "APPROVE_IMPLEMENTATION") ??
+      null,
+    [protocolMessages]
   );
   const latestCloseMessage = useMemo(
-    () => [...protocolMessages].reverse().find((message) => message.messageType === "CLOSE_TASK") ?? null,
-    [protocolMessages],
+    () =>
+      [...protocolMessages]
+        .reverse()
+        .find((message) => message.messageType === "CLOSE_TASK") ?? null,
+    [protocolMessages]
   );
   const latestReviewHandoff = useMemo(
-    () => (latestReviewSubmission ? readProtocolReviewHandoff(latestReviewSubmission) : null),
-    [latestReviewSubmission],
+    () =>
+      latestReviewSubmission
+        ? readProtocolReviewHandoff(latestReviewSubmission)
+        : null,
+    [latestReviewSubmission]
   );
   const latestApprovalSnapshot = useMemo(
-    () => (latestApprovalMessage ? readProtocolApproval(latestApprovalMessage) : null),
-    [latestApprovalMessage],
+    () =>
+      latestApprovalMessage
+        ? readProtocolApproval(latestApprovalMessage)
+        : null,
+    [latestApprovalMessage]
   );
   const latestCloseSnapshot = useMemo(
     () => (latestCloseMessage ? readProtocolClose(latestCloseMessage) : null),
-    [latestCloseMessage],
+    [latestCloseMessage]
   );
   const latestWorkspaceSnapshot = useMemo(() => {
     for (const run of linkedRuns ?? []) {
@@ -908,9 +1064,12 @@ export function IssueDetail() {
   }, [linkedRuns]);
   const latestReviewArtifacts = useMemo(() => {
     const artifacts = latestReviewSubmission?.artifacts ?? [];
-    const diffArtifacts = artifacts.filter((artifact) => artifact.kind === "diff");
+    const diffArtifacts = artifacts.filter(
+      (artifact) => artifact.kind === "diff"
+    );
     const verificationArtifacts = artifacts.filter(
-      (artifact) => artifact.kind === "test_run" || artifact.kind === "build_run",
+      (artifact) =>
+        artifact.kind === "test_run" || artifact.kind === "build_run"
     );
     return {
       diffArtifacts,
@@ -922,14 +1081,18 @@ export function IssueDetail() {
       retrievalRunHitsQueries
         .map((query) => query.data)
         .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
-    [retrievalRunHitsQueries],
+    [retrievalRunHitsQueries]
   );
   const retrievalRunById = useMemo(
-    () => new Map(retrievalRunDetails.map((entry) => [entry.retrievalRun.id, entry])),
-    [retrievalRunDetails],
+    () =>
+      new Map(
+        retrievalRunDetails.map((entry) => [entry.retrievalRun.id, entry])
+      ),
+    [retrievalRunDetails]
   );
   const latestRetrievalRuns = changeSurface?.retrievalContext.latestRuns ?? [];
-  const retrievalFeedbackSummary = changeSurface?.retrievalContext.feedbackSummary ?? null;
+  const retrievalFeedbackSummary =
+    changeSurface?.retrievalContext.feedbackSummary ?? null;
 
   const issueCostSummary = useMemo(() => {
     let input = 0;
@@ -948,7 +1111,7 @@ export function IssueDetail() {
         usage,
         "cachedInputTokens",
         "cached_input_tokens",
-        "cache_read_input_tokens",
+        "cache_read_input_tokens"
       );
       const runCost =
         usageNumber(usage, "costUsd", "cost_usd", "total_cost_usd") ||
@@ -973,29 +1136,64 @@ export function IssueDetail() {
   }, [linkedRuns]);
 
   const invalidateIssue = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.changeSurface(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolState(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolMessages(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolBriefs(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolReviewCycles(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolViolations(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.activity(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.runs(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.approvals(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.attachments(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.liveRuns(issueId!) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.activeRun(issueId!) });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.detail(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.changeSurface(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.protocolState(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.protocolMessages(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.protocolBriefs(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.protocolReviewCycles(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.protocolViolations(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.activity(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.runs(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.approvals(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.attachments(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.liveRuns(issueId!),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.issues.activeRun(issueId!),
+    });
     if (selectedCompanyId) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardProtocolQueue(selectedCompanyId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedCompanyId) });
-      queryClient.invalidateQueries({ queryKey: ["knowledge", "quality", selectedCompanyId] });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.list(selectedCompanyId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboardProtocolQueue(selectedCompanyId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboard(selectedCompanyId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["knowledge", "quality", selectedCompanyId],
+      });
     }
   };
 
   const updateIssue = useMutation({
-    mutationFn: (data: Record<string, unknown>) => issuesApi.update(issueId!, data),
+    mutationFn: (data: Record<string, unknown>) =>
+      issuesApi.update(issueId!, data),
     onSuccess: (updated) => {
       invalidateIssue();
       const issueRef = updated.identifier ?? `Issue ${updated.id.slice(0, 8)}`;
@@ -1004,7 +1202,10 @@ export function IssueDetail() {
         title: `${issueRef} updated`,
         body: truncate(updated.title, 96),
         tone: "success",
-        action: { label: `View ${issueRef}`, href: `${issueBasePath}/${updated.identifier ?? updated.id}` },
+        action: {
+          label: `View ${issueRef}`,
+          href: `${issueBasePath}/${updated.identifier ?? updated.id}`,
+        },
       });
     },
   });
@@ -1014,14 +1215,23 @@ export function IssueDetail() {
       issuesApi.addComment(issueId!, body, reopen),
     onSuccess: (comment) => {
       invalidateIssue();
-      queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(issueId!) });
-      const issueRef = issue?.identifier ?? (issueId ? `Issue ${issueId.slice(0, 8)}` : "Issue");
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.comments(issueId!),
+      });
+      const issueRef =
+        issue?.identifier ??
+        (issueId ? `Issue ${issueId.slice(0, 8)}` : "Issue");
       pushToast({
         dedupeKey: `activity:issue.comment_added:${issueId}:${comment.id}`,
         title: `Comment posted on ${issueRef}`,
         body: issue?.title ? truncate(issue.title, 96) : undefined,
         tone: "success",
-        action: issueId ? { label: `View ${issueRef}`, href: `${issueBasePath}/${issue?.identifier ?? issueId}` } : undefined,
+        action: issueId
+          ? {
+              label: `View ${issueRef}`,
+              href: `${issueBasePath}/${issue?.identifier ?? issueId}`,
+            }
+          : undefined,
       });
     },
   });
@@ -1044,14 +1254,23 @@ export function IssueDetail() {
       }),
     onSuccess: (updated) => {
       invalidateIssue();
-      queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(issueId!) });
-      const issueRef = updated.identifier ?? (issueId ? `Issue ${issueId.slice(0, 8)}` : "Issue");
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.comments(issueId!),
+      });
+      const issueRef =
+        updated.identifier ??
+        (issueId ? `Issue ${issueId.slice(0, 8)}` : "Issue");
       pushToast({
         dedupeKey: `activity:issue.reassigned:${updated.id}`,
         title: `${issueRef} reassigned`,
         body: issue?.title ? truncate(issue.title, 96) : undefined,
         tone: "success",
-        action: issueId ? { label: `View ${issueRef}`, href: `${issueBasePath}/${issue?.identifier ?? issueId}` } : undefined,
+        action: issueId
+          ? {
+              label: `View ${issueRef}`,
+              href: `${issueBasePath}/${issue?.identifier ?? issueId}`,
+            }
+          : undefined,
       });
     },
   });
@@ -1063,7 +1282,9 @@ export function IssueDetail() {
     },
     onSuccess: () => {
       setAttachmentError(null);
-      queryClient.invalidateQueries({ queryKey: queryKeys.issues.attachments(issueId!) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.attachments(issueId!),
+      });
       invalidateIssue();
     },
     onError: (err) => {
@@ -1072,10 +1293,13 @@ export function IssueDetail() {
   });
 
   const deleteAttachment = useMutation({
-    mutationFn: (attachmentId: string) => issuesApi.deleteAttachment(attachmentId),
+    mutationFn: (attachmentId: string) =>
+      issuesApi.deleteAttachment(attachmentId),
     onSuccess: () => {
       setAttachmentError(null);
-      queryClient.invalidateQueries({ queryKey: queryKeys.issues.attachments(issueId!) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.attachments(issueId!),
+      });
       invalidateIssue();
     },
     onError: (err) => {
@@ -1084,23 +1308,32 @@ export function IssueDetail() {
   });
 
   const createProtocolMessage = useMutation({
-    mutationFn: (message: Parameters<typeof issuesApi.createProtocolMessage>[1]) =>
-      issuesApi.createProtocolMessage(issueId!, message),
+    mutationFn: (
+      message: Parameters<typeof issuesApi.createProtocolMessage>[1]
+    ) => issuesApi.createProtocolMessage(issueId!, message),
     onSuccess: () => {
       invalidateIssue();
-      const issueRef = issue?.identifier ?? (issueId ? `Issue ${issueId.slice(0, 8)}` : "Issue");
+      const issueRef =
+        issue?.identifier ??
+        (issueId ? `Issue ${issueId.slice(0, 8)}` : "Issue");
       pushToast({
         dedupeKey: `activity:issue.protocol_message.created:${issueId}`,
         title: `Protocol action posted on ${issueRef}`,
         body: issue?.title ? truncate(issue.title, 96) : undefined,
         tone: "success",
-        action: issueId ? { label: `View ${issueRef}`, href: `${issueBasePath}/${issue?.identifier ?? issueId}` } : undefined,
+        action: issueId
+          ? {
+              label: `View ${issueRef}`,
+              href: `${issueBasePath}/${issue?.identifier ?? issueId}`,
+            }
+          : undefined,
       });
     },
     onError: (err) => {
       pushToast({
         title: "Protocol action failed",
-        body: err instanceof Error ? err.message : "Failed to post protocol action",
+        body:
+          err instanceof Error ? err.message : "Failed to post protocol action",
         tone: "error",
       });
     },
@@ -1117,10 +1350,15 @@ export function IssueDetail() {
     onSuccess: (_, variables) => {
       invalidateIssue();
       for (const run of latestRetrievalRuns) {
-        queryClient.invalidateQueries({ queryKey: ["knowledge", "retrieval-run-hits", run.retrievalRunId] });
+        queryClient.invalidateQueries({
+          queryKey: ["knowledge", "retrieval-run-hits", run.retrievalRunId],
+        });
       }
       pushToast({
-        title: variables.feedbackType === "operator_pin" ? "Retrieval hit pinned" : "Retrieval hit hidden",
+        title:
+          variables.feedbackType === "operator_pin"
+            ? "Retrieval hit pinned"
+            : "Retrieval hit hidden",
         body: variables.targetIds[0] ?? variables.retrievalRunId,
         tone: "success",
       });
@@ -1128,7 +1366,10 @@ export function IssueDetail() {
     onError: (err) => {
       pushToast({
         title: "Retrieval feedback failed",
-        body: err instanceof Error ? err.message : "Failed to record retrieval feedback",
+        body:
+          err instanceof Error
+            ? err.message
+            : "Failed to record retrieval feedback",
         tone: "error",
       });
     },
@@ -1151,13 +1392,17 @@ export function IssueDetail() {
   useEffect(() => {
     if (issue) {
       openPanel(
-        <IssueProperties issue={issue} onUpdate={(data) => updateIssue.mutate(data)} />
+        <IssueProperties
+          issue={issue}
+          onUpdate={(data) => updateIssue.mutate(data)}
+        />
       );
     }
     return () => closePanel();
   }, [issue]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Loading...</p>;
+  if (isLoading)
+    return <p className="text-sm text-muted-foreground">Loading...</p>;
   if (error) return <p className="text-sm text-destructive">{error.message}</p>;
   if (!issue) return null;
 
@@ -1173,10 +1418,16 @@ export function IssueDetail() {
     }
   };
 
-  const isImageAttachment = (attachment: IssueAttachment) => attachment.contentType.startsWith("image/");
+  const isImageAttachment = (attachment: IssueAttachment) =>
+    attachment.contentType.startsWith("image/");
 
   return (
-    <div className={cn(issueSection === "Changes" ? "max-w-5xl" : "max-w-2xl", "space-y-6")}>
+    <div
+      className={cn(
+        issueSection === "Changes" ? "max-w-5xl" : "max-w-2xl",
+        "space-y-6"
+      )}
+    >
       {/* Parent chain breadcrumb */}
       {ancestors.length > 0 && (
         <nav className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
@@ -1193,7 +1444,9 @@ export function IssueDetail() {
             </span>
           ))}
           <ChevronRight className="h-3 w-3 shrink-0" />
-          <span className="text-foreground/60 truncate max-w-[200px]">{issue.title}</span>
+          <span className="text-foreground/60 truncate max-w-[200px]">
+            {issue.title}
+          </span>
         </nav>
       )}
 
@@ -1213,9 +1466,12 @@ export function IssueDetail() {
                 Change Review Surface
               </div>
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight">Change Evidence</h2>
+                <h2 className="text-2xl font-semibold tracking-tight">
+                  Change Evidence
+                </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Branch, diff, verification signals, and merge handoff captured from the delivery loop.
+                  Branch, diff, verification signals, and merge handoff captured
+                  from the delivery loop.
                 </p>
               </div>
             </div>
@@ -1240,7 +1496,8 @@ export function IssueDetail() {
                 Branch
               </div>
               <div className="mt-3 text-sm font-semibold text-foreground">
-                {latestWorkspaceSnapshot?.branchName ?? "No implementation branch yet"}
+                {latestWorkspaceSnapshot?.branchName ??
+                  "No implementation branch yet"}
               </div>
               {latestWorkspaceSnapshot?.headSha && (
                 <div className="mt-1 font-['IBM_Plex_Mono'] text-xs text-muted-foreground">
@@ -1254,10 +1511,13 @@ export function IssueDetail() {
                 Diff Coverage
               </div>
               <div className="mt-3 text-2xl font-semibold text-foreground">
-                {latestWorkspaceSnapshot?.changedFiles.length ?? latestReviewHandoff?.changedFiles.length ?? 0}
+                {latestWorkspaceSnapshot?.changedFiles.length ??
+                  latestReviewHandoff?.changedFiles.length ??
+                  0}
               </div>
               <div className="mt-1 text-sm text-muted-foreground">
-                {latestWorkspaceSnapshot?.diffStat ?? "Changed files captured from review handoff."}
+                {latestWorkspaceSnapshot?.diffStat ??
+                  "Changed files captured from review handoff."}
               </div>
             </div>
             <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
@@ -1269,7 +1529,8 @@ export function IssueDetail() {
                 {latestReviewArtifacts.verificationArtifacts.length}
               </div>
               <div className="mt-1 text-sm text-muted-foreground">
-                Corroborated test/build artifacts attached to the latest review submission.
+                Corroborated test/build artifacts attached to the latest review
+                submission.
               </div>
             </div>
             <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
@@ -1278,7 +1539,8 @@ export function IssueDetail() {
                 Approval
               </div>
               <div className="mt-3 text-sm font-semibold text-foreground">
-                {latestApprovalSnapshot?.approvalSummary ?? "No approval summary yet"}
+                {latestApprovalSnapshot?.approvalSummary ??
+                  "No approval summary yet"}
               </div>
             </div>
           </div>
@@ -1288,19 +1550,27 @@ export function IssueDetail() {
               <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
                 Changed Files
               </div>
-              {((latestWorkspaceSnapshot?.changedFiles.length ?? 0) > 0 || (latestReviewHandoff?.changedFiles.length ?? 0) > 0) ? (
+              {(latestWorkspaceSnapshot?.changedFiles.length ?? 0) > 0 ||
+              (latestReviewHandoff?.changedFiles.length ?? 0) > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(latestWorkspaceSnapshot?.changedFiles.length
                     ? latestWorkspaceSnapshot.changedFiles
                     : latestReviewHandoff?.changedFiles ?? []
-                  ).slice(0, 10).map((file) => (
-                    <span key={file} className="rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground">
-                      {file}
-                    </span>
-                  ))}
+                  )
+                    .slice(0, 10)
+                    .map((file) => (
+                      <span
+                        key={file}
+                        className="rounded-full border border-border bg-card px-3 py-1 text-xs text-foreground"
+                      >
+                        {file}
+                      </span>
+                    ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-muted-foreground">No changed file manifest has been attached yet.</p>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  No changed file manifest has been attached yet.
+                </p>
               )}
             </div>
             <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
@@ -1309,7 +1579,9 @@ export function IssueDetail() {
               </div>
               <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                 {latestCloseSnapshot?.closureSummary && (
-                  <p className="text-foreground">{latestCloseSnapshot.closureSummary}</p>
+                  <p className="text-foreground">
+                    {latestCloseSnapshot.closureSummary}
+                  </p>
                 )}
                 {latestCloseSnapshot?.verificationSummary && (
                   <p>Verification: {latestCloseSnapshot.verificationSummary}</p>
@@ -1317,7 +1589,9 @@ export function IssueDetail() {
                 {latestCloseSnapshot?.rollbackPlan && (
                   <p>Rollback: {latestCloseSnapshot.rollbackPlan}</p>
                 )}
-                {!latestCloseSnapshot && <p>No close handoff has been recorded yet.</p>}
+                {!latestCloseSnapshot && (
+                  <p>No close handoff has been recorded yet.</p>
+                )}
               </div>
             </div>
           </div>
@@ -1330,7 +1604,8 @@ export function IssueDetail() {
                     Retrieval Feedback
                   </div>
                   <div className="mt-1 text-sm text-muted-foreground">
-                    Pin or hide evidence directly from the change surface to steer follow-up briefs.
+                    Pin or hide evidence directly from the change surface to
+                    steer follow-up briefs.
                   </div>
                 </div>
                 {retrievalFeedbackSummary && (
@@ -1341,20 +1616,27 @@ export function IssueDetail() {
                 )}
               </div>
               {latestRetrievalRuns.length === 0 ? (
-                <p className="mt-4 text-sm text-muted-foreground">No retrieval-backed brief has been attached yet.</p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  No retrieval-backed brief has been attached yet.
+                </p>
               ) : (
                 <div className="mt-4 space-y-4">
                   {latestRetrievalRuns.map((run) => {
                     const runDetail = retrievalRunById.get(run.retrievalRunId);
                     const hits = (runDetail?.hits ?? []).slice(0, 5);
                     return (
-                      <div key={run.retrievalRunId} className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                      <div
+                        key={run.retrievalRunId}
+                        className="rounded-[1rem] border border-border bg-card px-3 py-3"
+                      >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium text-foreground">
                               {formatProtocolValue(run.briefScope)}
                             </span>
-                            <span className="font-mono">{run.retrievalRunId.slice(0, 8)}</span>
+                            <span className="font-mono">
+                              {run.retrievalRunId.slice(0, 8)}
+                            </span>
                             {run.candidateCacheHit && (
                               <span className="rounded-full border border-emerald-300/70 bg-emerald-50 px-2.5 py-1 text-emerald-700">
                                 candidate cache
@@ -1377,7 +1659,9 @@ export function IssueDetail() {
                           </div>
                         </div>
                         {hits.length === 0 ? (
-                          <p className="mt-3 text-sm text-muted-foreground">Retrieval hits are loading or unavailable.</p>
+                          <p className="mt-3 text-sm text-muted-foreground">
+                            Retrieval hits are loading or unavailable.
+                          </p>
                         ) : (
                           <div className="mt-3 space-y-2">
                             {hits.map((hit) => {
@@ -1399,27 +1683,37 @@ export function IssueDetail() {
                                           {hit.sourceType}
                                         </span>
                                         {hit.documentPath && (
-                                          <span className="font-mono text-xs text-foreground/80">{hit.documentPath}</span>
+                                          <span className="font-mono text-xs text-foreground/80">
+                                            {hit.documentPath}
+                                          </span>
                                         )}
                                       </div>
                                       <div className="text-sm font-medium text-foreground">
-                                        {hit.documentTitle ?? hit.symbolName ?? hit.chunkId.slice(0, 8)}
+                                        {hit.documentTitle ??
+                                          hit.symbolName ??
+                                          hit.chunkId.slice(0, 8)}
                                       </div>
-                                      <div className="line-clamp-2 text-sm text-muted-foreground">{hit.rationale ?? hit.textContent}</div>
+                                      <div className="line-clamp-2 text-sm text-muted-foreground">
+                                        {hit.rationale ?? hit.textContent}
+                                      </div>
                                     </div>
                                     <div className="flex shrink-0 gap-2">
                                       <Button
                                         type="button"
                                         size="sm"
                                         variant="outline"
-                                        disabled={recordRetrievalFeedback.isPending}
-                                        onClick={() => recordRetrievalFeedback.mutate({
-                                          retrievalRunId: run.retrievalRunId,
-                                          feedbackType: "operator_pin",
-                                          targetType: target.targetType,
-                                          targetIds: target.targetIds,
-                                          noteBody: `Pinned from change surface: ${target.label}`,
-                                        })}
+                                        disabled={
+                                          recordRetrievalFeedback.isPending
+                                        }
+                                        onClick={() =>
+                                          recordRetrievalFeedback.mutate({
+                                            retrievalRunId: run.retrievalRunId,
+                                            feedbackType: "operator_pin",
+                                            targetType: target.targetType,
+                                            targetIds: target.targetIds,
+                                            noteBody: `Pinned from change surface: ${target.label}`,
+                                          })
+                                        }
                                       >
                                         <Pin className="mr-2 h-3.5 w-3.5" />
                                         Pin
@@ -1428,14 +1722,18 @@ export function IssueDetail() {
                                         type="button"
                                         size="sm"
                                         variant="ghost"
-                                        disabled={recordRetrievalFeedback.isPending}
-                                        onClick={() => recordRetrievalFeedback.mutate({
-                                          retrievalRunId: run.retrievalRunId,
-                                          feedbackType: "operator_hide",
-                                          targetType: target.targetType,
-                                          targetIds: target.targetIds,
-                                          noteBody: `Hidden from change surface: ${target.label}`,
-                                        })}
+                                        disabled={
+                                          recordRetrievalFeedback.isPending
+                                        }
+                                        onClick={() =>
+                                          recordRetrievalFeedback.mutate({
+                                            retrievalRunId: run.retrievalRunId,
+                                            feedbackType: "operator_hide",
+                                            targetType: target.targetType,
+                                            targetIds: target.targetIds,
+                                            noteBody: `Hidden from change surface: ${target.label}`,
+                                          })
+                                        }
                                       >
                                         <PinOff className="mr-2 h-3.5 w-3.5" />
                                         Hide
@@ -1459,23 +1757,33 @@ export function IssueDetail() {
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">Pinned paths</div>
+                  <div className="text-xs text-muted-foreground">
+                    Pinned paths
+                  </div>
                   <div className="mt-1 text-2xl font-semibold text-foreground">
                     {retrievalFeedbackSummary?.pinnedPathCount ?? 0}
                   </div>
                 </div>
                 <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">Hidden paths</div>
+                  <div className="text-xs text-muted-foreground">
+                    Hidden paths
+                  </div>
                   <div className="mt-1 text-2xl font-semibold text-foreground">
                     {retrievalFeedbackSummary?.hiddenPathCount ?? 0}
                   </div>
                 </div>
                 <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">Latest retrieval runs</div>
-                  <div className="mt-1 text-2xl font-semibold text-foreground">{latestRetrievalRuns.length}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Latest retrieval runs
+                  </div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">
+                    {latestRetrievalRuns.length}
+                  </div>
                 </div>
                 <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
-                  <div className="text-xs text-muted-foreground">Last feedback</div>
+                  <div className="text-xs text-muted-foreground">
+                    Last feedback
+                  </div>
                   <div className="mt-1 text-sm font-medium text-foreground">
                     {retrievalFeedbackSummary?.lastFeedbackAt
                       ? relativeTime(retrievalFeedbackSummary.lastFeedbackAt)
@@ -1498,7 +1806,9 @@ export function IssueDetail() {
             priority={issue.priority}
             onChange={(priority) => updateIssue.mutate({ priority })}
           />
-          <span className="text-sm font-mono text-muted-foreground shrink-0">{issue.identifier ?? issue.id.slice(0, 8)}</span>
+          <span className="text-sm font-mono text-muted-foreground shrink-0">
+            {issue.identifier ?? issue.id.slice(0, 8)}
+          </span>
 
           {hasLiveRuns && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-medium text-cyan-600 dark:text-cyan-400 shrink-0">
@@ -1516,7 +1826,10 @@ export function IssueDetail() {
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded px-1 -mx-1 py-0.5 min-w-0"
             >
               <Hexagon className="h-3 w-3 shrink-0" />
-              <span className="truncate">{(projects ?? []).find((p) => p.id === issue.projectId)?.name ?? issue.projectId.slice(0, 8)}</span>
+              <span className="truncate">
+                {(projects ?? []).find((p) => p.id === issue.projectId)?.name ??
+                  issue.projectId.slice(0, 8)}
+              </span>
             </Link>
           ) : (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground opacity-50 px-1 -mx-1 py-0.5">
@@ -1541,7 +1854,9 @@ export function IssueDetail() {
                 </span>
               ))}
               {(issue.labels ?? []).length > 4 && (
-                <span className="text-[10px] text-muted-foreground">+{(issue.labels ?? []).length - 4}</span>
+                <span className="text-[10px] text-muted-foreground">
+                  +{(issue.labels ?? []).length - 4}
+                </span>
               )}
             </div>
           )}
@@ -1562,7 +1877,9 @@ export function IssueDetail() {
               size="icon-xs"
               className={cn(
                 "shrink-0 transition-opacity duration-200",
-                panelVisible ? "opacity-0 pointer-events-none w-0 overflow-hidden" : "opacity-100",
+                panelVisible
+                  ? "opacity-0 pointer-events-none w-0 overflow-hidden"
+                  : "opacity-100"
               )}
               onClick={() => setPanelVisible(true)}
               title="Show properties"
@@ -1576,21 +1893,21 @@ export function IssueDetail() {
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
-            <PopoverContent className="w-44 p-1" align="end">
-              <button
-                className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
-                onClick={() => {
-                  updateIssue.mutate(
-                    { hiddenAt: new Date().toISOString() },
-                    { onSuccess: () => navigate(appRoutes.work) },
-                  );
-                  setMoreOpen(false);
-                }}
-              >
-                <EyeOff className="h-3 w-3" />
-                Hide this Issue
-              </button>
-            </PopoverContent>
+              <PopoverContent className="w-44 p-1" align="end">
+                <button
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
+                  onClick={() => {
+                    updateIssue.mutate(
+                      { hiddenAt: new Date().toISOString() },
+                      { onSuccess: () => navigate(appRoutes.work) }
+                    );
+                    setMoreOpen(false);
+                  }}
+                >
+                  <EyeOff className="h-3 w-3" />
+                  Hide this Issue
+                </button>
+              </PopoverContent>
             </Popover>
           </div>
         </div>
@@ -1657,16 +1974,25 @@ export function IssueDetail() {
                 {primaryLiveRun.agentName} is actively working on this issue
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {primaryLiveAdapterLabel && <span>Engine: {primaryLiveAdapterLabel}</span>}
-                {primaryLiveTrigger && <span>Trigger: {primaryLiveTrigger}</span>}
-                {primaryLiveRunStartedAt && <span>Started {relativeTime(primaryLiveRunStartedAt)}</span>}
+                {primaryLiveAdapterLabel && (
+                  <span>Engine: {primaryLiveAdapterLabel}</span>
+                )}
+                {primaryLiveTrigger && (
+                  <span>Trigger: {primaryLiveTrigger}</span>
+                )}
+                {primaryLiveRunStartedAt && (
+                  <span>Started {relativeTime(primaryLiveRunStartedAt)}</span>
+                )}
                 <span>Run {primaryLiveRun.id.slice(0, 8)}</span>
-                {liveRunCount > 1 && <span>{liveRunCount} live runs attached</span>}
+                {liveRunCount > 1 && (
+                  <span>{liveRunCount} live runs attached</span>
+                )}
               </div>
             </div>
             <div className="max-w-sm text-xs leading-5 text-muted-foreground">
-              This issue already triggered a real Claude Code or Codex run through the API workflow.
-              Follow the live log below to inspect progress and runtime events.
+              This issue already triggered a real Claude Code or Codex run
+              through the API workflow. Follow the live log below to inspect
+              progress and runtime events.
             </div>
           </div>
           <div className="mt-3">
@@ -1685,7 +2011,10 @@ export function IssueDetail() {
             {formatProtocolValue(protocolState?.workflowState ?? issue.status)}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Coarse status: {formatProtocolValue(protocolState?.coarseIssueStatus ?? issue.status)}
+            Coarse status:{" "}
+            {formatProtocolValue(
+              protocolState?.coarseIssueStatus ?? issue.status
+            )}
           </div>
           {protocolState?.blockedCode && (
             <div className="mt-2 inline-flex rounded-full border border-amber-400 px-2 py-0.5 text-[11px] text-amber-700">
@@ -1701,21 +2030,48 @@ export function IssueDetail() {
           <div className="mt-2 space-y-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0">Lead</span>
-              {protocolState?.techLeadAgentId && agentMap.get(protocolState.techLeadAgentId)
-                ? <Identity name={agentMap.get(protocolState.techLeadAgentId)?.name ?? protocolState.techLeadAgentId.slice(0, 8)} size="sm" />
-                : <span>Unassigned</span>}
+              {protocolState?.techLeadAgentId &&
+              agentMap.get(protocolState.techLeadAgentId) ? (
+                <Identity
+                  name={
+                    agentMap.get(protocolState.techLeadAgentId)?.name ??
+                    protocolState.techLeadAgentId.slice(0, 8)
+                  }
+                  size="sm"
+                />
+              ) : (
+                <span>Unassigned</span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0">Engineer</span>
-              {protocolState?.primaryEngineerAgentId && agentMap.get(protocolState.primaryEngineerAgentId)
-                ? <Identity name={agentMap.get(protocolState.primaryEngineerAgentId)?.name ?? protocolState.primaryEngineerAgentId.slice(0, 8)} size="sm" />
-                : <span>Unassigned</span>}
+              {protocolState?.primaryEngineerAgentId &&
+              agentMap.get(protocolState.primaryEngineerAgentId) ? (
+                <Identity
+                  name={
+                    agentMap.get(protocolState.primaryEngineerAgentId)?.name ??
+                    protocolState.primaryEngineerAgentId.slice(0, 8)
+                  }
+                  size="sm"
+                />
+              ) : (
+                <span>Unassigned</span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0">Reviewer</span>
-              {protocolState?.reviewerAgentId && agentMap.get(protocolState.reviewerAgentId)
-                ? <Identity name={agentMap.get(protocolState.reviewerAgentId)?.name ?? protocolState.reviewerAgentId.slice(0, 8)} size="sm" />
-                : <span>Unassigned</span>}
+              {protocolState?.reviewerAgentId &&
+              agentMap.get(protocolState.reviewerAgentId) ? (
+                <Identity
+                  name={
+                    agentMap.get(protocolState.reviewerAgentId)?.name ??
+                    protocolState.reviewerAgentId.slice(0, 8)
+                  }
+                  size="sm"
+                />
+              ) : (
+                <span>Unassigned</span>
+              )}
             </div>
           </div>
         </div>
@@ -1737,7 +2093,9 @@ export function IssueDetail() {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-medium text-muted-foreground">Attachments</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">
+            Attachments
+          </h3>
           <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
@@ -1762,12 +2120,15 @@ export function IssueDetail() {
           <p className="text-xs text-destructive">{attachmentError}</p>
         )}
 
-        {(!attachments || attachments.length === 0) ? (
+        {!attachments || attachments.length === 0 ? (
           <p className="text-xs text-muted-foreground">No attachments yet.</p>
         ) : (
           <div className="space-y-2">
             {attachments.map((attachment) => (
-              <div key={attachment.id} className="border border-border rounded-md p-2">
+              <div
+                key={attachment.id}
+                className="border border-border rounded-md p-2"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <a
                     href={attachment.contentPath}
@@ -1789,10 +2150,15 @@ export function IssueDetail() {
                   </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  {attachment.contentType} · {(attachment.byteSize / 1024).toFixed(1)} KB
+                  {attachment.contentType} ·{" "}
+                  {(attachment.byteSize / 1024).toFixed(1)} KB
                 </p>
                 {isImageAttachment(attachment) && (
-                  <a href={attachment.contentPath} target="_blank" rel="noreferrer">
+                  <a
+                    href={attachment.contentPath}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     <img
                       src={attachment.contentPath}
                       alt={attachment.originalFilename ?? "attachment"}
@@ -1809,7 +2175,11 @@ export function IssueDetail() {
 
       <Separator />
 
-      <Tabs value={detailTab} onValueChange={setDetailTab} className="space-y-3">
+      <Tabs
+        value={detailTab}
+        onValueChange={setDetailTab}
+        className="space-y-3"
+      >
         <TabsList variant="line" className="w-full justify-start gap-1">
           <TabsTrigger value="brief" className="gap-1.5">
             <Lightbulb className="h-3.5 w-3.5" />
@@ -1855,45 +2225,74 @@ export function IssueDetail() {
                 <section className="rounded-lg border border-border bg-card px-4 py-4">
                   <div className="flex items-center gap-2">
                     <BookText className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold text-foreground">Task Briefs</h3>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Task Briefs
+                    </h3>
                   </div>
                   {latestBriefs.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">
-                      No role-scoped briefs yet. Retrieval will populate this once protocol handoffs start.
+                      No role-scoped briefs yet. Retrieval will populate this
+                      once protocol handoffs start.
                     </p>
                   ) : (
                     <div className="mt-3 space-y-3">
                       {latestBriefs.map((brief) => {
                         const quality = readBriefQuality(brief);
                         return (
-                          <div key={brief.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3">
+                          <div
+                            key={brief.id}
+                            className="rounded-md border border-border/80 bg-background/70 px-3 py-3"
+                          >
                             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                               <span className="rounded-full border border-border px-2 py-0.5">
                                 {formatProtocolValue(brief.briefScope)}
                               </span>
                               <span>v{brief.briefVersion}</span>
-                              <span>{formatProtocolValue(brief.workflowState)}</span>
-                              {brief.retrievalRunId && <span className="font-mono">{brief.retrievalRunId.slice(0, 8)}</span>}
-                              <span className="ml-auto">{relativeTime(brief.createdAt)}</span>
+                              <span>
+                                {formatProtocolValue(brief.workflowState)}
+                              </span>
+                              {brief.retrievalRunId && (
+                                <span className="font-mono">
+                                  {brief.retrievalRunId.slice(0, 8)}
+                                </span>
+                              )}
+                              <span className="ml-auto">
+                                {relativeTime(brief.createdAt)}
+                              </span>
                             </div>
                             {quality && (
                               <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <Badge variant="outline" className={briefQualityBadgeClass(quality.confidenceLevel)}>
+                                <Badge
+                                  variant="outline"
+                                  className={briefQualityBadgeClass(
+                                    quality.confidenceLevel
+                                  )}
+                                >
                                   {quality.confidenceLevel} confidence
                                 </Badge>
-                                <Badge variant="outline">{quality.evidenceCount} evidence</Badge>
                                 <Badge variant="outline">
-                                  {quality.denseEnabled ? "semantic ready" : "semantic off"}
+                                  {quality.evidenceCount} evidence
+                                </Badge>
+                                <Badge variant="outline">
+                                  {quality.denseEnabled
+                                    ? "semantic ready"
+                                    : "semantic off"}
                                 </Badge>
                               </div>
                             )}
                             {quality && quality.degradedReasons.length > 0 && (
                               <p className="mt-2 text-xs text-amber-700">
-                                Limited context: {quality.degradedReasons.map(formatBriefQualityReason).join(", ")}
+                                Limited context:{" "}
+                                {quality.degradedReasons
+                                  .map(formatBriefQualityReason)
+                                  .join(", ")}
                               </p>
                             )}
                             <pre className="mt-3 whitespace-pre-wrap text-sm text-foreground">
-                              {brief.contentMarkdown.split(/\r?\n/).slice(0, 12).join("\n")}
+                              {brief.contentMarkdown
+                                .split(/\r?\n/)
+                                .slice(0, 12)
+                                .join("\n")}
                             </pre>
                           </div>
                         );
@@ -1905,7 +2304,9 @@ export function IssueDetail() {
                 <section className="rounded-lg border border-border bg-card px-4 py-4">
                   <div className="flex items-center gap-2">
                     <Workflow className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold text-foreground">Protocol Timeline</h3>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Protocol Timeline
+                    </h3>
                   </div>
                   {protocolTimeline.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">
@@ -1915,12 +2316,17 @@ export function IssueDetail() {
                     <div className="mt-3 space-y-3">
                       {protocolTimeline.map((message) => {
                         const evidence = collectProtocolEvidence(message);
-                        const reviewHandoff = readProtocolReviewHandoff(message);
-                        const changeRequest = readProtocolChangeRequest(message);
+                        const reviewHandoff =
+                          readProtocolReviewHandoff(message);
+                        const changeRequest =
+                          readProtocolChangeRequest(message);
                         const approvalSnapshot = readProtocolApproval(message);
                         const closeSnapshot = readProtocolClose(message);
                         return (
-                          <div key={message.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3">
+                          <div
+                            key={message.id}
+                            className="rounded-md border border-border/80 bg-background/70 px-3 py-3"
+                          >
                             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                               <span className="rounded-full border border-border px-2 py-0.5">
                                 {formatProtocolValue(message.messageType)}
@@ -1931,25 +2337,39 @@ export function IssueDetail() {
                                     "rounded-full border px-2 py-0.5",
                                     message.integrityStatus === "verified"
                                       ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                      : message.integrityStatus === "legacy_unsealed"
-                                        ? "border-amber-300 bg-amber-50 text-amber-700"
-                                        : "border-red-300 bg-red-50 text-red-700",
+                                      : message.integrityStatus ===
+                                        "legacy_unsealed"
+                                      ? "border-amber-300 bg-amber-50 text-amber-700"
+                                      : "border-red-300 bg-red-50 text-red-700"
                                   )}
                                 >
                                   {formatProtocolValue(message.integrityStatus)}
                                 </span>
                               )}
-                              <span>{formatProtocolValue(message.sender.role)}</span>
                               <span>
-                                {`${formatProtocolValue(message.workflowStateBefore)} -> ${formatProtocolValue(message.workflowStateAfter)}`}
+                                {formatProtocolValue(message.sender.role)}
                               </span>
-                              <span className="ml-auto">{relativeTime(message.createdAt)}</span>
+                              <span>
+                                {`${formatProtocolValue(
+                                  message.workflowStateBefore
+                                )} -> ${formatProtocolValue(
+                                  message.workflowStateAfter
+                                )}`}
+                              </span>
+                              <span className="ml-auto">
+                                {relativeTime(message.createdAt)}
+                              </span>
                             </div>
-                            <p className="mt-2 text-sm font-medium text-foreground">{message.summary}</p>
+                            <p className="mt-2 text-sm font-medium text-foreground">
+                              {message.summary}
+                            </p>
                             {message.recipients.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                                 {message.recipients.map((recipient) => (
-                                  <span key={`${message.id}:${recipient.recipientId}:${recipient.role}`} className="rounded-full border border-border px-2 py-0.5">
+                                  <span
+                                    key={`${message.id}:${recipient.recipientId}:${recipient.role}`}
+                                    className="rounded-full border border-border px-2 py-0.5"
+                                  >
                                     {formatProtocolValue(recipient.role)}
                                   </span>
                                 ))}
@@ -1962,7 +2382,10 @@ export function IssueDetail() {
                                 </div>
                                 <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
                                   {evidence.map((item) => (
-                                    <li key={`${message.id}:${item}`} className="flex gap-2">
+                                    <li
+                                      key={`${message.id}:${item}`}
+                                      className="flex gap-2"
+                                    >
                                       <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
                                       <span>{item}</span>
                                     </li>
@@ -1977,7 +2400,9 @@ export function IssueDetail() {
                                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Implementation Summary
                                     </div>
-                                    <p className="mt-2 text-sm text-foreground">{reviewHandoff.implementationSummary}</p>
+                                    <p className="mt-2 text-sm text-foreground">
+                                      {reviewHandoff.implementationSummary}
+                                    </p>
                                   </div>
                                 )}
                                 {reviewHandoff.diffSummary && (
@@ -1985,23 +2410,37 @@ export function IssueDetail() {
                                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Diff Summary
                                     </div>
-                                    <p className="mt-2 text-sm text-foreground">{reviewHandoff.diffSummary}</p>
+                                    <p className="mt-2 text-sm text-foreground">
+                                      {reviewHandoff.diffSummary}
+                                    </p>
                                   </div>
                                 )}
                                 {[
                                   ["Changed Files", reviewHandoff.changedFiles],
                                   ["Test Results", reviewHandoff.testResults],
-                                  ["Review Checklist", reviewHandoff.reviewChecklist],
-                                  ["Residual Risks", reviewHandoff.residualRisks],
+                                  [
+                                    "Review Checklist",
+                                    reviewHandoff.reviewChecklist,
+                                  ],
+                                  [
+                                    "Residual Risks",
+                                    reviewHandoff.residualRisks,
+                                  ],
                                 ].map(([title, items]) =>
                                   Array.isArray(items) && items.length > 0 ? (
-                                    <div key={`${message.id}:${title}`} className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                    <div
+                                      key={`${message.id}:${title}`}
+                                      className="rounded-md border border-border/70 bg-card px-3 py-3"
+                                    >
                                       <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                         {title}
                                       </div>
                                       <ul className="mt-2 space-y-1 text-sm text-foreground">
                                         {items.map((item) => (
-                                          <li key={`${message.id}:${title}:${item}`} className="flex gap-2">
+                                          <li
+                                            key={`${message.id}:${title}:${item}`}
+                                            className="flex gap-2"
+                                          >
                                             <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
                                             <span>{item}</span>
                                           </li>
@@ -2019,7 +2458,9 @@ export function IssueDetail() {
                                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Review Summary
                                     </div>
-                                    <p className="mt-2 text-sm text-foreground">{changeRequest.reviewSummary}</p>
+                                    <p className="mt-2 text-sm text-foreground">
+                                      {changeRequest.reviewSummary}
+                                    </p>
                                   </div>
                                 )}
                                 {changeRequest.requiredEvidence.length > 0 && (
@@ -2028,37 +2469,61 @@ export function IssueDetail() {
                                       Required Evidence
                                     </div>
                                     <ul className="mt-2 space-y-1 text-sm text-foreground">
-                                      {changeRequest.requiredEvidence.map((item) => (
-                                        <li key={`${message.id}:requiredEvidence:${item}`} className="flex gap-2">
-                                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
-                                          <span>{item}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {changeRequest.changeRequests.map((request, index) => (
-                                  <div key={`${message.id}:changeRequest:${index}`} className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2">
-                                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                      Change Request {index + 1}
-                                    </div>
-                                    {request.title && <p className="mt-2 text-sm font-medium text-foreground">{request.title}</p>}
-                                    {request.reason && <p className="mt-1 text-sm text-foreground">{request.reason}</p>}
-                                    {request.suggestedAction && (
-                                      <p className="mt-2 text-sm text-muted-foreground">Suggested action: {request.suggestedAction}</p>
-                                    )}
-                                    {request.affectedFiles.length > 0 && (
-                                      <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                                        {request.affectedFiles.map((item) => (
-                                          <li key={`${message.id}:affected:${index}:${item}`} className="flex gap-2">
+                                      {changeRequest.requiredEvidence.map(
+                                        (item) => (
+                                          <li
+                                            key={`${message.id}:requiredEvidence:${item}`}
+                                            className="flex gap-2"
+                                          >
                                             <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
                                             <span>{item}</span>
                                           </li>
-                                        ))}
-                                      </ul>
-                                    )}
+                                        )
+                                      )}
+                                    </ul>
                                   </div>
-                                ))}
+                                )}
+                                {changeRequest.changeRequests.map(
+                                  (request, index) => (
+                                    <div
+                                      key={`${message.id}:changeRequest:${index}`}
+                                      className="rounded-md border border-border/70 bg-card px-3 py-3 md:col-span-2"
+                                    >
+                                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                        Change Request {index + 1}
+                                      </div>
+                                      {request.title && (
+                                        <p className="mt-2 text-sm font-medium text-foreground">
+                                          {request.title}
+                                        </p>
+                                      )}
+                                      {request.reason && (
+                                        <p className="mt-1 text-sm text-foreground">
+                                          {request.reason}
+                                        </p>
+                                      )}
+                                      {request.suggestedAction && (
+                                        <p className="mt-2 text-sm text-muted-foreground">
+                                          Suggested action:{" "}
+                                          {request.suggestedAction}
+                                        </p>
+                                      )}
+                                      {request.affectedFiles.length > 0 && (
+                                        <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                                          {request.affectedFiles.map((item) => (
+                                            <li
+                                              key={`${message.id}:affected:${index}:${item}`}
+                                              className="flex gap-2"
+                                            >
+                                              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
+                                              <span>{item}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  )
+                                )}
                               </div>
                             )}
                             {approvalSnapshot && (
@@ -2068,23 +2533,43 @@ export function IssueDetail() {
                                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Approval Summary
                                     </div>
-                                    <p className="mt-2 text-sm text-foreground">{approvalSnapshot.approvalSummary}</p>
+                                    <p className="mt-2 text-sm text-foreground">
+                                      {approvalSnapshot.approvalSummary}
+                                    </p>
                                   </div>
                                 )}
                                 {[
-                                  ["Approval Checklist", approvalSnapshot.approvalChecklist],
-                                  ["Verified Evidence", approvalSnapshot.verifiedEvidence],
-                                  ["Residual Risks", approvalSnapshot.residualRisks],
-                                  ["Follow-up Actions", approvalSnapshot.followUpActions],
+                                  [
+                                    "Approval Checklist",
+                                    approvalSnapshot.approvalChecklist,
+                                  ],
+                                  [
+                                    "Verified Evidence",
+                                    approvalSnapshot.verifiedEvidence,
+                                  ],
+                                  [
+                                    "Residual Risks",
+                                    approvalSnapshot.residualRisks,
+                                  ],
+                                  [
+                                    "Follow-up Actions",
+                                    approvalSnapshot.followUpActions,
+                                  ],
                                 ].map(([title, items]) =>
                                   Array.isArray(items) && items.length > 0 ? (
-                                    <div key={`${message.id}:${title}`} className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                    <div
+                                      key={`${message.id}:${title}`}
+                                      className="rounded-md border border-border/70 bg-card px-3 py-3"
+                                    >
                                       <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                         {title}
                                       </div>
                                       <ul className="mt-2 space-y-1 text-sm text-foreground">
                                         {items.map((item) => (
-                                          <li key={`${message.id}:${title}:${item}`} className="flex gap-2">
+                                          <li
+                                            key={`${message.id}:${title}:${item}`}
+                                            className="flex gap-2"
+                                          >
                                             <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
                                             <span>{item}</span>
                                           </li>
@@ -2102,7 +2587,9 @@ export function IssueDetail() {
                                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Closure Summary
                                     </div>
-                                    <p className="mt-2 text-sm text-foreground">{closeSnapshot.closureSummary}</p>
+                                    <p className="mt-2 text-sm text-foreground">
+                                      {closeSnapshot.closureSummary}
+                                    </p>
                                   </div>
                                 )}
                                 {closeSnapshot.verificationSummary && (
@@ -2110,7 +2597,9 @@ export function IssueDetail() {
                                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Verification Summary
                                     </div>
-                                    <p className="mt-2 text-sm text-foreground">{closeSnapshot.verificationSummary}</p>
+                                    <p className="mt-2 text-sm text-foreground">
+                                      {closeSnapshot.verificationSummary}
+                                    </p>
                                   </div>
                                 )}
                                 {closeSnapshot.rollbackPlan && (
@@ -2118,21 +2607,35 @@ export function IssueDetail() {
                                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                       Rollback Plan
                                     </div>
-                                    <p className="mt-2 text-sm text-foreground">{closeSnapshot.rollbackPlan}</p>
+                                    <p className="mt-2 text-sm text-foreground">
+                                      {closeSnapshot.rollbackPlan}
+                                    </p>
                                   </div>
                                 )}
                                 {[
-                                  ["Final Artifacts", closeSnapshot.finalArtifacts],
-                                  ["Remaining Risks", closeSnapshot.remainingRisks],
+                                  [
+                                    "Final Artifacts",
+                                    closeSnapshot.finalArtifacts,
+                                  ],
+                                  [
+                                    "Remaining Risks",
+                                    closeSnapshot.remainingRisks,
+                                  ],
                                 ].map(([title, items]) =>
                                   Array.isArray(items) && items.length > 0 ? (
-                                    <div key={`${message.id}:${title}`} className="rounded-md border border-border/70 bg-card px-3 py-3">
+                                    <div
+                                      key={`${message.id}:${title}`}
+                                      className="rounded-md border border-border/70 bg-card px-3 py-3"
+                                    >
                                       <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                         {title}
                                       </div>
                                       <ul className="mt-2 space-y-1 text-sm text-foreground">
                                         {items.map((item) => (
-                                          <li key={`${message.id}:${title}:${item}`} className="flex gap-2">
+                                          <li
+                                            key={`${message.id}:${title}:${item}`}
+                                            className="flex gap-2"
+                                          >
                                             <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
                                             <span>{item}</span>
                                           </li>
@@ -2155,21 +2658,41 @@ export function IssueDetail() {
                 <section className="rounded-lg border border-border bg-card px-4 py-4">
                   <div className="flex items-center gap-2">
                     <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold text-foreground">Review Cycles</h3>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Review Cycles
+                    </h3>
                   </div>
                   {reviewCycles.length === 0 ? (
-                    <p className="mt-3 text-sm text-muted-foreground">No review cycles yet.</p>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      No review cycles yet.
+                    </p>
                   ) : (
                     <div className="mt-3 space-y-2">
                       {reviewCycles.slice(0, 6).map((cycle) => (
-                        <div key={cycle.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3 text-sm">
+                        <div
+                          key={cycle.id}
+                          className="rounded-md border border-border/80 bg-background/70 px-3 py-3 text-sm"
+                        >
                           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span className="rounded-full border border-border px-2 py-0.5">Cycle {cycle.cycleNumber}</span>
-                            <span>{cycle.outcome ? formatProtocolValue(cycle.outcome) : "Open"}</span>
-                            <span className="ml-auto">{relativeTime(cycle.openedAt)}</span>
+                            <span className="rounded-full border border-border px-2 py-0.5">
+                              Cycle {cycle.cycleNumber}
+                            </span>
+                            <span>
+                              {cycle.outcome
+                                ? formatProtocolValue(cycle.outcome)
+                                : "Open"}
+                            </span>
+                            <span className="ml-auto">
+                              {relativeTime(cycle.openedAt)}
+                            </span>
                           </div>
                           <div className="mt-2 text-xs text-muted-foreground">
-                            Reviewer {cycle.reviewerAgentId ? cycle.reviewerAgentId.slice(0, 8) : cycle.reviewerUserId ? "board" : "unassigned"}
+                            Reviewer{" "}
+                            {cycle.reviewerAgentId
+                              ? cycle.reviewerAgentId.slice(0, 8)
+                              : cycle.reviewerUserId
+                              ? "board"
+                              : "unassigned"}
                           </div>
                         </div>
                       ))}
@@ -2180,43 +2703,62 @@ export function IssueDetail() {
                 <section className="rounded-lg border border-border bg-card px-4 py-4">
                   <div className="flex items-center gap-2">
                     <TriangleAlert className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold text-foreground">Escalations &amp; Recovery</h3>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Escalations &amp; Recovery
+                    </h3>
                   </div>
                   {protocolRecoveryAlerts.length === 0 ? (
-                    <p className="mt-3 text-sm text-muted-foreground">No timeout escalations or recovery guidance yet.</p>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      No timeout escalations or recovery guidance yet.
+                    </p>
                   ) : (
                     <div className="mt-3 space-y-2">
                       {protocolRecoveryAlerts.map((alert) => (
-                        <div key={alert.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3 text-sm">
+                        <div
+                          key={alert.id}
+                          className="rounded-md border border-border/80 bg-background/70 px-3 py-3 text-sm"
+                        >
                           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                             <span
                               className={cn(
                                 "rounded-full border px-2 py-0.5",
-                                alert.severity === "critical" || alert.severity === "high"
+                                alert.severity === "critical" ||
+                                  alert.severity === "high"
                                   ? "border-red-400 text-red-700"
                                   : alert.severity === "medium"
-                                    ? "border-amber-400 text-amber-700"
-                                    : "border-border",
+                                  ? "border-amber-400 text-amber-700"
+                                  : "border-border"
                               )}
                             >
                               {formatProtocolValue(alert.statusLabel)}
                             </span>
                             <span>{formatProtocolValue(alert.kind)}</span>
                             <span>{formatProtocolValue(alert.severity)}</span>
-                            <span className="ml-auto">{relativeTime(alert.createdAt)}</span>
+                            <span className="ml-auto">
+                              {relativeTime(alert.createdAt)}
+                            </span>
                           </div>
-                          <p className="mt-2 text-sm font-medium text-foreground">{alert.title}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{alert.detail}</p>
+                          <p className="mt-2 text-sm font-medium text-foreground">
+                            {alert.title}
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {alert.detail}
+                          </p>
                           <div className="mt-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
                             <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                               Recommended next action
                             </div>
-                            <p className="mt-1 text-sm text-foreground">{alert.recommendation}</p>
+                            <p className="mt-1 text-sm text-foreground">
+                              {alert.recommendation}
+                            </p>
                           </div>
                           {alert.metadata.length > 0 && (
                             <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
                               {alert.metadata.map((entry) => (
-                                <li key={`${alert.id}:${entry}`} className="flex gap-2">
+                                <li
+                                  key={`${alert.id}:${entry}`}
+                                  className="flex gap-2"
+                                >
                                   <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/40" />
                                   <span>{entry}</span>
                                 </li>
@@ -2232,23 +2774,38 @@ export function IssueDetail() {
                 <section className="rounded-lg border border-border bg-card px-4 py-4">
                   <div className="flex items-center gap-2">
                     <TriangleAlert className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold text-foreground">Protocol Violations</h3>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Protocol Violations
+                    </h3>
                   </div>
                   {protocolViolations.length === 0 ? (
-                    <p className="mt-3 text-sm text-muted-foreground">No protocol violations recorded.</p>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      No protocol violations recorded.
+                    </p>
                   ) : (
                     <div className="mt-3 space-y-2">
                       {protocolViolations.slice(0, 8).map((violation) => (
-                        <div key={violation.id} className="rounded-md border border-border/80 bg-background/70 px-3 py-3 text-sm">
+                        <div
+                          key={violation.id}
+                          className="rounded-md border border-border/80 bg-background/70 px-3 py-3 text-sm"
+                        >
                           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span className={cn(
-                              "rounded-full border px-2 py-0.5",
-                              violation.status === "open" ? "border-red-400 text-red-700" : "border-border",
-                            )}>
+                            <span
+                              className={cn(
+                                "rounded-full border px-2 py-0.5",
+                                violation.status === "open"
+                                  ? "border-red-400 text-red-700"
+                                  : "border-border"
+                              )}
+                            >
                               {formatProtocolValue(violation.status)}
                             </span>
-                            <span>{formatProtocolValue(violation.severity)}</span>
-                            <span className="ml-auto">{relativeTime(violation.createdAt)}</span>
+                            <span>
+                              {formatProtocolValue(violation.severity)}
+                            </span>
+                            <span className="ml-auto">
+                              {relativeTime(violation.createdAt)}
+                            </span>
                           </div>
                           <p className="mt-2 text-sm font-medium text-foreground">
                             {formatProtocolValue(violation.violationCode)}
@@ -2268,12 +2825,22 @@ export function IssueDetail() {
                   <section className="rounded-lg border border-border bg-card px-4 py-4">
                     <div className="flex items-center gap-2">
                       <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                      <h3 className="text-sm font-semibold text-foreground">Current Review Snapshot</h3>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Current Review Snapshot
+                      </h3>
                     </div>
                     <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                       <div>Latest cycle: {latestReviewCycle.cycleNumber}</div>
-                      <div>Outcome: {latestReviewCycle.outcome ? formatProtocolValue(latestReviewCycle.outcome) : "Open"}</div>
-                      <div>Submitted message: {latestReviewCycle.submittedMessageId.slice(0, 8)}</div>
+                      <div>
+                        Outcome:{" "}
+                        {latestReviewCycle.outcome
+                          ? formatProtocolValue(latestReviewCycle.outcome)
+                          : "Open"}
+                      </div>
+                      <div>
+                        Submitted message:{" "}
+                        {latestReviewCycle.submittedMessageId.slice(0, 8)}
+                      </div>
                     </div>
                   </section>
                 )}
@@ -2295,7 +2862,11 @@ export function IssueDetail() {
             mentions={mentionOptions}
             onAdd={async (body, reopen, reassignment) => {
               if (reassignment) {
-                await addCommentAndReassign.mutateAsync({ body, reopen, reassignment });
+                await addCommentAndReassign.mutateAsync({
+                  body,
+                  reopen,
+                  reassignment,
+                });
                 return;
               }
               await addComment.mutateAsync({ body, reopen });
@@ -2315,30 +2886,36 @@ export function IssueDetail() {
             <p className="text-xs text-muted-foreground">No sub-issues.</p>
           ) : (
             <div className="space-y-3">
-              {issue.internalWorkItemSummary && issue.internalWorkItemSummary.total > 0 && (
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">Open</div>
-                    <div>
-                      {issue.internalWorkItemSummary.todo + issue.internalWorkItemSummary.inProgress + issue.internalWorkItemSummary.inReview + issue.internalWorkItemSummary.blocked}
-                      {" / "}
-                      {issue.internalWorkItemSummary.total}
+              {issue.internalWorkItemSummary &&
+                issue.internalWorkItemSummary.total > 0 && (
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                      <div className="font-medium text-foreground">Open</div>
+                      <div>
+                        {issue.internalWorkItemSummary.todo +
+                          issue.internalWorkItemSummary.inProgress +
+                          issue.internalWorkItemSummary.inReview +
+                          issue.internalWorkItemSummary.blocked}
+                        {" / "}
+                        {issue.internalWorkItemSummary.total}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                      <div className="font-medium text-foreground">Blocked</div>
+                      <div>{issue.internalWorkItemSummary.blocked}</div>
+                    </div>
+                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                      <div className="font-medium text-foreground">
+                        In Review
+                      </div>
+                      <div>{issue.internalWorkItemSummary.inReview}</div>
+                    </div>
+                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                      <div className="font-medium text-foreground">Done</div>
+                      <div>{issue.internalWorkItemSummary.done}</div>
                     </div>
                   </div>
-                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">Blocked</div>
-                    <div>{issue.internalWorkItemSummary.blocked}</div>
-                  </div>
-                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">In Review</div>
-                    <div>{issue.internalWorkItemSummary.inReview}</div>
-                  </div>
-                  <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">Done</div>
-                    <div>{issue.internalWorkItemSummary.done}</div>
-                  </div>
-                </div>
-              )}
+                )}
               <div className="border border-border rounded-lg divide-y divide-border">
                 {childIssues.map((child) => (
                   <Link
@@ -2359,12 +2936,17 @@ export function IssueDetail() {
                         </span>
                       )}
                     </div>
-                    {child.assigneeAgentId && (() => {
-                      const name = agentMap.get(child.assigneeAgentId)?.name;
-                      return name
-                        ? <Identity name={name} size="sm" />
-                        : <span className="text-muted-foreground font-mono">{child.assigneeAgentId.slice(0, 8)}</span>;
-                    })()}
+                    {child.assigneeAgentId &&
+                      (() => {
+                        const name = agentMap.get(child.assigneeAgentId)?.name;
+                        return name ? (
+                          <Identity name={name} size="sm" />
+                        ) : (
+                          <span className="text-muted-foreground font-mono">
+                            {child.assigneeAgentId.slice(0, 8)}
+                          </span>
+                        );
+                      })()}
                   </Link>
                 ))}
               </div>
@@ -2378,10 +2960,15 @@ export function IssueDetail() {
           ) : (
             <div className="space-y-1.5">
               {activity.slice(0, 20).map((evt) => (
-                <div key={evt.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div
+                  key={evt.id}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
                   <ActorIdentity evt={evt} agentMap={agentMap} />
                   <span>{formatAction(evt.action, evt.details)}</span>
-                  <span className="ml-auto shrink-0">{relativeTime(evt.createdAt)}</span>
+                  <span className="ml-auto shrink-0">
+                    {relativeTime(evt.createdAt)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -2392,7 +2979,9 @@ export function IssueDetail() {
       {linkedApprovals && linkedApprovals.length > 0 && (
         <Collapsible
           open={secondaryOpen.approvals}
-          onOpenChange={(open) => setSecondaryOpen((prev) => ({ ...prev, approvals: open }))}
+          onOpenChange={(open) =>
+            setSecondaryOpen((prev) => ({ ...prev, approvals: open }))
+          }
           className="rounded-lg border border-border"
         >
           <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-left">
@@ -2400,7 +2989,10 @@ export function IssueDetail() {
               Linked Approvals ({linkedApprovals.length})
             </span>
             <ChevronDown
-              className={cn("h-4 w-4 text-muted-foreground transition-transform", secondaryOpen.approvals && "rotate-180")}
+              className={cn(
+                "h-4 w-4 text-muted-foreground transition-transform",
+                secondaryOpen.approvals && "rotate-180"
+              )}
             />
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -2414,11 +3006,17 @@ export function IssueDetail() {
                   <div className="flex items-center gap-2">
                     <StatusBadge status={approval.status} />
                     <span className="font-medium">
-                      {approval.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                      {approval.type
+                        .replace(/_/g, " ")
+                        .replace(/\b\w/g, (c) => c.toUpperCase())}
                     </span>
-                    <span className="font-mono text-muted-foreground">{approval.id.slice(0, 8)}</span>
+                    <span className="font-mono text-muted-foreground">
+                      {approval.id.slice(0, 8)}
+                    </span>
                   </div>
-                  <span className="text-muted-foreground">{relativeTime(approval.createdAt)}</span>
+                  <span className="text-muted-foreground">
+                    {relativeTime(approval.createdAt)}
+                  </span>
                 </Link>
               ))}
             </div>
@@ -2429,19 +3027,28 @@ export function IssueDetail() {
       {linkedRuns && linkedRuns.length > 0 && (
         <Collapsible
           open={secondaryOpen.cost}
-          onOpenChange={(open) => setSecondaryOpen((prev) => ({ ...prev, cost: open }))}
+          onOpenChange={(open) =>
+            setSecondaryOpen((prev) => ({ ...prev, cost: open }))
+          }
           className="rounded-lg border border-border"
         >
           <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-left">
-            <span className="text-sm font-medium text-muted-foreground">Cost Summary</span>
+            <span className="text-sm font-medium text-muted-foreground">
+              Cost Summary
+            </span>
             <ChevronDown
-              className={cn("h-4 w-4 text-muted-foreground transition-transform", secondaryOpen.cost && "rotate-180")}
+              className={cn(
+                "h-4 w-4 text-muted-foreground transition-transform",
+                secondaryOpen.cost && "rotate-180"
+              )}
             />
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="border-t border-border px-3 py-2">
               {!issueCostSummary.hasCost && !issueCostSummary.hasTokens ? (
-                <div className="text-xs text-muted-foreground">No cost data yet.</div>
+                <div className="text-xs text-muted-foreground">
+                  No cost data yet.
+                </div>
               ) : (
                 <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                   {issueCostSummary.hasCost && (
@@ -2453,8 +3060,14 @@ export function IssueDetail() {
                     <span>
                       Tokens {formatTokens(issueCostSummary.totalTokens)}
                       {issueCostSummary.cached > 0
-                        ? ` (in ${formatTokens(issueCostSummary.input)}, out ${formatTokens(issueCostSummary.output)}, cached ${formatTokens(issueCostSummary.cached)})`
-                        : ` (in ${formatTokens(issueCostSummary.input)}, out ${formatTokens(issueCostSummary.output)})`}
+                        ? ` (in ${formatTokens(
+                            issueCostSummary.input
+                          )}, out ${formatTokens(
+                            issueCostSummary.output
+                          )}, cached ${formatTokens(issueCostSummary.cached)})`
+                        : ` (in ${formatTokens(
+                            issueCostSummary.input
+                          )}, out ${formatTokens(issueCostSummary.output)})`}
                     </span>
                   )}
                 </div>
@@ -2466,13 +3079,20 @@ export function IssueDetail() {
 
       {/* Mobile properties drawer */}
       <Sheet open={mobilePropsOpen} onOpenChange={setMobilePropsOpen}>
-        <SheetContent side="bottom" className="max-h-[85dvh] pb-[env(safe-area-inset-bottom)]">
+        <SheetContent
+          side="bottom"
+          className="max-h-[85dvh] pb-[env(safe-area-inset-bottom)]"
+        >
           <SheetHeader>
             <SheetTitle className="text-sm">Properties</SheetTitle>
           </SheetHeader>
           <ScrollArea className="flex-1 overflow-y-auto">
             <div className="px-4 pb-4">
-              <IssueProperties issue={issue} onUpdate={(data) => updateIssue.mutate(data)} inline />
+              <IssueProperties
+                issue={issue}
+                onUpdate={(data) => updateIssue.mutate(data)}
+                inline
+              />
             </div>
           </ScrollArea>
         </SheetContent>

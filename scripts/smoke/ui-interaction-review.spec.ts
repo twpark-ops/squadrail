@@ -14,7 +14,9 @@ type BrowserDiagnostics = {
   badResponses: string[];
 };
 
-function attachDiagnostics(page: { on: (event: string, listener: (...args: any[]) => void) => void }): BrowserDiagnostics {
+function attachDiagnostics(page: {
+  on: (event: string, listener: (...args: any[]) => void) => void;
+}): BrowserDiagnostics {
   const diagnostics: BrowserDiagnostics = {
     consoleErrors: [],
     pageErrors: [],
@@ -30,18 +32,40 @@ function attachDiagnostics(page: { on: (event: string, listener: (...args: any[]
   page.on("pageerror", (error: Error) => {
     diagnostics.pageErrors.push(error.message);
   });
-  page.on("requestfailed", (request: { method: () => string; url: () => string; failure: () => { errorText?: string } | null }) => {
-    const failure = request.failure();
-    if (failure?.errorText === "net::ERR_ABORTED") {
-      return;
+  page.on(
+    "requestfailed",
+    (request: {
+      method: () => string;
+      url: () => string;
+      failure: () => { errorText?: string } | null;
+    }) => {
+      const failure = request.failure();
+      if (failure?.errorText === "net::ERR_ABORTED") {
+        return;
+      }
+      diagnostics.requestFailures.push(
+        `${request.method()} ${request.url()} :: ${
+          failure?.errorText ?? "unknown failure"
+        }`
+      );
     }
-    diagnostics.requestFailures.push(`${request.method()} ${request.url()} :: ${failure?.errorText ?? "unknown failure"}`);
-  });
-  page.on("response", (response: { status: () => number; url: () => string; request: () => { method: () => string } }) => {
-    if (response.status() >= 400) {
-      diagnostics.badResponses.push(`${response.request().method()} ${response.url()} :: ${response.status()}`);
+  );
+  page.on(
+    "response",
+    (response: {
+      status: () => number;
+      url: () => string;
+      request: () => { method: () => string };
+    }) => {
+      if (response.status() >= 400) {
+        diagnostics.badResponses.push(
+          `${response
+            .request()
+            .method()} ${response.url()} :: ${response.status()}`
+        );
+      }
     }
-  });
+  );
 
   return diagnostics;
 }
@@ -63,11 +87,26 @@ test("desktop route and CTA flows", async ({ page }) => {
   const diagnostics = attachDiagnostics(page);
 
   await page.goto(`${baseUrl}/SMO/overview`);
-  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Overview", exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("Live operations").first()).toBeVisible();
+  await page.getByRole("button", { name: /Reorder companies/i }).click();
+  await expect(
+    page.getByRole("button", { name: /Finish company order/i })
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Finish company order/i }).click();
+  await expect(
+    page.getByRole("button", { name: /Reorder companies/i })
+  ).toBeVisible();
   await page.getByRole("button", { name: /Command K/i }).click();
-  await expect(page.getByPlaceholder("Search issues, agents, projects...")).toBeVisible();
+  await expect(
+    page.getByPlaceholder("Search issues, agents, projects...")
+  ).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByPlaceholder("Search issues, agents, projects...")).toHaveCount(0);
+  await expect(
+    page.getByPlaceholder("Search issues, agents, projects...")
+  ).toHaveCount(0);
 
   await page.getByRole("button", { name: "New Issue", exact: true }).click();
   await expect(page.getByPlaceholder("Issue title")).toBeVisible();
@@ -76,24 +115,37 @@ test("desktop route and CTA flows", async ({ page }) => {
 
   await page.getByRole("link", { name: /Open work queue/i }).click();
   await expect(page).toHaveURL(/\/SMO\/work$/);
-  await expect(page.getByRole("heading", { name: "Work", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Work", exact: true })
+  ).toBeVisible();
 
-  await page.getByRole("link", { name: /Smoke protocol issue/i }).first().click();
+  await page
+    .getByRole("link", { name: /Smoke protocol issue/i })
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/SMO\/work\/SMO-1$/);
   await expect(page.getByText("Smoke protocol issue").first()).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/overview`);
   await page.getByRole("link", { name: /Open runtime board/i }).click();
   await expect(page).toHaveURL(/\/SMO\/runs$/);
-  await expect(page.getByRole("heading", { name: "Runs", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Runs", exact: true })
+  ).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/changes`);
-  await expect(page.getByRole("heading", { name: "Changes", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Changes", exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("Ready for review").first()).toBeVisible();
   await page.getByRole("link", { name: /Inspect linked work/i }).click();
   await expect(page).toHaveURL(/\/SMO\/work\/SMO-1$/);
 
   await page.goto(`${baseUrl}/SMO/changes`);
-  await page.getByRole("link", { name: /Open review/i }).first().click();
+  await page
+    .getByRole("link", { name: /Open review/i })
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/SMO\/changes\/SMO-1$/);
   await expect(page.getByText("Smoke protocol issue").first()).toBeVisible();
 
@@ -102,14 +154,19 @@ test("desktop route and CTA flows", async ({ page }) => {
   await expect(page).toHaveURL(/\/SMO\/work\/.+$/);
   await expect(page.getByText("Smoke protocol issue").first()).toBeVisible();
   await page.goto(`${baseUrl}/SMO/runs`);
-  await page.getByRole("link", { name: /Run detail/i }).first().click();
+  await page
+    .getByRole("link", { name: /Run detail/i })
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/SMO\/agents\/.*\/runs\/.*/);
   await expect(page.getByText("Smoke Engineer").first()).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/team`);
   await page.getByRole("link", { name: "Open agents", exact: true }).click();
   await expect(page).toHaveURL(/\/SMO\/agents\/all$/);
-  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Agents", exact: true })
+  ).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/team`);
   await page.getByRole("link", { name: "Org chart", exact: true }).click();
@@ -117,31 +174,118 @@ test("desktop route and CTA flows", async ({ page }) => {
   await expect(page.getByText("Smoke Engineer").first()).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/knowledge`);
-  await expect(page.getByRole("heading", { name: "Knowledge Base", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Knowledge Base", exact: true })
+  ).toBeVisible();
+  await expect(page.getByText("Knowledge Map").first()).toBeVisible();
   await page.getByRole("button", { name: /Refresh/i }).click();
   await expect(page.getByRole("button", { name: /Refresh/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Export/i })).toBeDisabled();
 
-  await page.screenshot({ path: path.join(outputDir, "qa-desktop-route-review.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(outputDir, "qa-desktop-route-review.png"),
+    fullPage: true,
+  });
   expectHealthyDiagnostics(diagnostics);
 });
 
-test("add company onboarding opens and closes with updated shell", async ({ page }) => {
+test("company rail stored order persists after reload", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/overview`);
+
+  const companies = (await page.evaluate(async () => {
+    const response = await fetch("/api/companies");
+    return response.json();
+  })) as Array<{ id: string; issuePrefix?: string }>;
+
+  const smokeRecord = companies.find(
+    (company) => company.issuePrefix === "SMO"
+  );
+  const secondaryRecord = companies.find(
+    (company) => company.issuePrefix && company.issuePrefix !== "SMO"
+  );
+  if (!smokeRecord || !secondaryRecord?.issuePrefix) {
+    throw new Error("Expected a secondary company in the company rail");
+  }
+
+  const smokeCompany = page.locator('a[href="/SMO/overview"]').first();
+  const secondaryCompany = page
+    .locator(`a[href="/${secondaryRecord.issuePrefix}/overview"]`)
+    .first();
+
+  await expect(smokeCompany).toBeVisible();
+  await expect(secondaryCompany).toBeVisible();
+
+  const smokeBefore = await smokeCompany.boundingBox();
+  const secondaryBefore = await secondaryCompany.boundingBox();
+  if (!smokeBefore || !secondaryBefore) {
+    throw new Error("Company rail items were not measurable before drag");
+  }
+
+  expect(secondaryBefore.y).toBeGreaterThan(smokeBefore.y);
+
+  await page.evaluate(
+    ({ smokeId, secondaryId }) => {
+      localStorage.setItem(
+        "squadrail.companyOrder",
+        JSON.stringify([secondaryId, smokeId])
+      );
+    },
+    {
+      smokeId: smokeRecord.id,
+      secondaryId: secondaryRecord.id,
+    }
+  );
+  await page.reload();
+
+  await expect(smokeCompany).toBeVisible();
+  await expect(secondaryCompany).toBeVisible();
+
+  const smokeAfter = await smokeCompany.boundingBox();
+  const secondaryAfter = await secondaryCompany.boundingBox();
+  if (!smokeAfter || !secondaryAfter) {
+    throw new Error("Company rail items were not measurable after reload");
+  }
+
+  expect(secondaryAfter.y).toBeLessThan(smokeAfter.y);
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("add company onboarding opens and closes with updated shell", async ({
+  page,
+}) => {
   const diagnostics = attachDiagnostics(page);
 
   await page.goto(`${baseUrl}/SMO/overview`);
   await page.getByRole("button", { name: /Add company/i }).click();
 
-  await expect(page.getByRole("heading", { name: "Create the operating company", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Create the operating company",
+      exact: true,
+    })
+  ).toBeVisible();
   await expect(page.getByText("Studio setup").first()).toBeVisible();
   await expect(page.getByLabel("Close setup")).toBeVisible();
-  await expect(page.getByText("Company identity", { exact: true })).toBeVisible();
-  await expect(page.getByText("What gets created now", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Company identity", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText("What gets created now", { exact: true })
+  ).toBeVisible();
 
-  await page.screenshot({ path: path.join(outputDir, "qa-add-company-onboarding.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(outputDir, "qa-add-company-onboarding.png"),
+    fullPage: true,
+  });
 
   await page.getByLabel("Close setup").click();
-  await expect(page.getByRole("heading", { name: "Create the operating company", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", {
+      name: "Create the operating company",
+      exact: true,
+    })
+  ).toHaveCount(0);
   expectHealthyDiagnostics(diagnostics);
 });
 
@@ -155,19 +299,28 @@ test("mobile bottom nav stays usable", async ({ browser }) => {
   const diagnostics = attachDiagnostics(page);
 
   await page.goto(`${baseUrl}/SMO/overview`);
-  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Overview", exact: true })
+  ).toBeVisible();
 
   const mobileNav = page.getByLabel("Mobile navigation");
 
   await mobileNav.getByRole("link", { name: "Work", exact: true }).click();
   await expect(page).toHaveURL(/\/SMO\/work$/);
-  await expect(page.getByRole("heading", { name: "Work", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Work", exact: true })
+  ).toBeVisible();
 
   await mobileNav.getByRole("link", { name: "Runs", exact: true }).click();
   await expect(page).toHaveURL(/\/SMO\/runs$/);
-  await expect(page.getByRole("heading", { name: "Runs", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Runs", exact: true })
+  ).toBeVisible();
 
-  await page.screenshot({ path: path.join(outputDir, "qa-mobile-nav-review.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(outputDir, "qa-mobile-nav-review.png"),
+    fullPage: true,
+  });
   expectHealthyDiagnostics(diagnostics);
   await context.close();
 });
@@ -178,16 +331,31 @@ test("dark mode surfaces stay readable", async ({ page }) => {
   await page.goto(`${baseUrl}/SMO/overview`);
   await page.getByRole("button", { name: /Switch to dark mode/i }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
-  await page.screenshot({ path: path.join(outputDir, "qa-dark-overview-review.png"), fullPage: true });
+  await expect(
+    page.getByRole("heading", { name: "Overview", exact: true })
+  ).toBeVisible();
+  await page.screenshot({
+    path: path.join(outputDir, "qa-dark-overview-review.png"),
+    fullPage: true,
+  });
 
   await page.goto(`${baseUrl}/SMO/knowledge`);
-  await expect(page.getByRole("heading", { name: "Knowledge Base", exact: true })).toBeVisible();
-  await page.screenshot({ path: path.join(outputDir, "qa-dark-knowledge-review.png"), fullPage: true });
+  await expect(
+    page.getByRole("heading", { name: "Knowledge Base", exact: true })
+  ).toBeVisible();
+  await page.screenshot({
+    path: path.join(outputDir, "qa-dark-knowledge-review.png"),
+    fullPage: true,
+  });
 
   await page.goto(`${baseUrl}/SMO/runs`);
-  await expect(page.getByRole("heading", { name: "Runs", exact: true })).toBeVisible();
-  await page.screenshot({ path: path.join(outputDir, "qa-dark-runs-review.png"), fullPage: true });
+  await expect(
+    page.getByRole("heading", { name: "Runs", exact: true })
+  ).toBeVisible();
+  await page.screenshot({
+    path: path.join(outputDir, "qa-dark-runs-review.png"),
+    fullPage: true,
+  });
 
   expectHealthyDiagnostics(diagnostics);
 });

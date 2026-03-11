@@ -4,7 +4,11 @@ import { useCompany } from "../context/CompanyContext";
 import { useDialog } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { companiesApi } from "../api/companies";
+import { CompanyPatternIcon } from "../components/CompanyPatternIcon";
 import { queryKeys } from "../lib/queryKeys";
+import { HeroSection } from "../components/HeroSection";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
 import { formatCents, relativeTime } from "../lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,6 +30,8 @@ import {
   CircleDot,
   DollarSign,
   Calendar,
+  Building2,
+  ShieldCheck,
 } from "lucide-react";
 
 export function Companies() {
@@ -87,22 +93,69 @@ export function Companies() {
     setEditName("");
   }
 
+  const totalCompanies = companies.length;
+  const activeCompanies = companies.filter((company) => company.status === "active").length;
+  const totalAgents = companies.reduce(
+    (sum, company) => sum + (stats?.[company.id]?.agentCount ?? 0),
+    0,
+  );
+  const totalIssues = companies.reduce(
+    (sum, company) => sum + (stats?.[company.id]?.issueCount ?? 0),
+    0,
+  );
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <Button size="sm" onClick={() => openOnboarding()}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          New Company
-        </Button>
+    <div className="space-y-8">
+      <HeroSection
+        title="Companies"
+        subtitle="Manage the operating companies, their visual identity, and the live delivery footprint each one carries."
+        eyebrow="Workspace Directory"
+        actions={
+          <Button size="sm" onClick={() => openOnboarding()}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            New Company
+          </Button>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Building2}
+          label="Companies"
+          value={totalCompanies}
+          detail="Distinct operating companies currently configured in this control plane."
+          tone="accent"
+        />
+        <SupportMetricCard
+          icon={ShieldCheck}
+          label="Active"
+          value={activeCompanies}
+          detail="Companies that are currently enabled for daily delivery and runtime activity."
+        />
+        <SupportMetricCard
+          icon={Users}
+          label="Agents"
+          value={totalAgents}
+          detail="Total configured agents across the visible company directory."
+        />
+        <SupportMetricCard
+          icon={CircleDot}
+          label="Issues"
+          value={totalIssues}
+          detail="Combined tracked work items across every configured company."
+        />
       </div>
 
-      <div className="h-6">
-        {loading && <p className="text-sm text-muted-foreground">Loading companies...</p>}
-        {error && <p className="text-sm text-destructive">{error.message}</p>}
-      </div>
+      <SupportPanel
+        title="Company directory"
+        description="Keep this page focused on company selection, identity, and portfolio health. Detailed setup work belongs in each company settings surface."
+        contentClassName="space-y-4"
+      >
+        {loading ? <p className="text-sm text-muted-foreground">Loading companies...</p> : null}
+        {error ? <p className="text-sm text-destructive">{error.message}</p> : null}
 
-      <div className="grid gap-4">
-        {companies.map((company) => {
+        <div className="grid gap-4">
+          {companies.map((company) => {
           const selected = company.id === selectedCompanyId;
           const isEditing = editingId === company.id;
           const isConfirmingDelete = confirmDeleteId === company.id;
@@ -128,15 +181,21 @@ export function Companies() {
                   setSelectedCompanyId(company.id);
                 }
               }}
-              className={`group text-left bg-card border rounded-lg p-5 transition-colors cursor-pointer ${
+              className={`group cursor-pointer rounded-[1.45rem] border bg-[linear-gradient(180deg,color-mix(in_oklab,var(--card)_92%,var(--background)),color-mix(in_oklab,var(--card)_86%,var(--accent)))] p-5 text-left transition-colors ${
                 selected
-                  ? "border-primary ring-1 ring-primary"
+                  ? "border-primary/40 ring-1 ring-primary/30"
                   : "border-border hover:border-muted-foreground/30"
               }`}
             >
               {/* Header row: name + menu */}
               <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <CompanyPatternIcon
+                    companyName={company.name}
+                    brandColor={company.brandColor ?? null}
+                    className="h-11 w-11 shrink-0 rounded-[1rem]"
+                  />
+                  <div className="min-w-0 flex-1">
                   {isEditing ? (
                     <div
                       className="flex items-center gap-2"
@@ -196,6 +255,7 @@ export function Companies() {
                       {company.description}
                     </p>
                   )}
+                  </div>
                 </div>
 
                 {/* Three-dot menu */}
@@ -290,8 +350,9 @@ export function Companies() {
               )}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </SupportPanel>
     </div>
   );
 }

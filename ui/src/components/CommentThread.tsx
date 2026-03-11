@@ -1,15 +1,33 @@
-import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { Link, useLocation } from "@/lib/router";
 import type { IssueComment, Agent } from "@squadrail/shared";
 import { Button } from "@/components/ui/button";
 import { FileText as AttachmentIcon } from "lucide-react";
 import { Identity } from "./Identity";
-import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
+import {
+  InlineEntitySelector,
+  type InlineEntityOption,
+} from "./InlineEntitySelector";
 import { MarkdownBody } from "./MarkdownBody";
-import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "./MarkdownEditor";
+import {
+  MarkdownEditor,
+  type MarkdownEditorRef,
+  type MentionOption,
+} from "./MarkdownEditorLazy";
 import { StatusBadge } from "./StatusBadge";
 import { formatDateTime } from "../lib/utils";
-import { readStorageAlias, writeStorageAlias, removeStorageAlias } from "../lib/storage-aliases";
+import {
+  readStorageAlias,
+  writeStorageAlias,
+  removeStorageAlias,
+} from "../lib/storage-aliases";
 
 interface CommentWithRunMeta extends IssueComment {
   runId?: string | null;
@@ -32,7 +50,11 @@ interface CommentReassignment {
 interface CommentThreadProps {
   comments: CommentWithRunMeta[];
   linkedRuns?: LinkedRunItem[];
-  onAdd: (body: string, reopen?: boolean, reassignment?: CommentReassignment) => Promise<void>;
+  onAdd: (
+    body: string,
+    reopen?: boolean,
+    reassignment?: CommentReassignment
+  ) => Promise<void>;
   issueStatus?: string;
   agentMap?: Map<string, Agent>;
   imageUploadHandler?: (file: File) => Promise<string>;
@@ -84,7 +106,12 @@ function parseReassignment(target: string): CommentReassignment | null {
 }
 
 type TimelineItem =
-  | { kind: "comment"; id: string; createdAtMs: number; comment: CommentWithRunMeta }
+  | {
+      kind: "comment";
+      id: string;
+      createdAtMs: number;
+      comment: CommentWithRunMeta;
+    }
   | { kind: "run"; id: string; createdAtMs: number; run: LinkedRunItem };
 
 const TimelineList = memo(function TimelineList({
@@ -97,7 +124,9 @@ const TimelineList = memo(function TimelineList({
   highlightCommentId?: string | null;
 }) {
   if (timeline.length === 0) {
-    return <p className="text-sm text-muted-foreground">No comments or runs yet.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">No comments or runs yet.</p>
+    );
   }
 
   return (
@@ -106,11 +135,17 @@ const TimelineList = memo(function TimelineList({
         if (item.kind === "run") {
           const run = item.run;
           return (
-            <div key={`run:${run.runId}`} className="border border-border bg-accent/20 p-3 overflow-hidden min-w-0 rounded-sm">
+            <div
+              key={`run:${run.runId}`}
+              className="border border-border bg-accent/20 p-3 overflow-hidden min-w-0 rounded-sm"
+            >
               <div className="flex items-center justify-between mb-2">
                 <Link to={`/agents/${run.agentId}`} className="hover:underline">
                   <Identity
-                    name={agentMap?.get(run.agentId)?.name ?? run.agentId.slice(0, 8)}
+                    name={
+                      agentMap?.get(run.agentId)?.name ??
+                      run.agentId.slice(0, 8)
+                    }
                     size="sm"
                   />
                 </Link>
@@ -138,13 +173,21 @@ const TimelineList = memo(function TimelineList({
           <div
             key={comment.id}
             id={`comment-${comment.id}`}
-            className={`border p-3 overflow-hidden min-w-0 rounded-sm transition-colors duration-1000 ${isHighlighted ? "border-primary/50 bg-primary/5" : "border-border"}`}
+            className={`border p-3 overflow-hidden min-w-0 rounded-sm transition-colors duration-1000 ${
+              isHighlighted ? "border-primary/50 bg-primary/5" : "border-border"
+            }`}
           >
             <div className="flex items-center justify-between mb-1">
               {comment.authorAgentId ? (
-                <Link to={`/agents/${comment.authorAgentId}`} className="hover:underline">
+                <Link
+                  to={`/agents/${comment.authorAgentId}`}
+                  className="hover:underline"
+                >
                   <Identity
-                    name={agentMap?.get(comment.authorAgentId)?.name ?? comment.authorAgentId.slice(0, 8)}
+                    name={
+                      agentMap?.get(comment.authorAgentId)?.name ??
+                      comment.authorAgentId.slice(0, 8)
+                    }
                     size="sm"
                   />
                 </Link>
@@ -202,7 +245,9 @@ export function CommentThread({
   const [submitting, setSubmitting] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const [reassignTarget, setReassignTarget] = useState(currentAssigneeValue);
-  const [highlightCommentId, setHighlightCommentId] = useState<string | null>(null);
+  const [highlightCommentId, setHighlightCommentId] = useState<string | null>(
+    null
+  );
   const editorRef = useRef<MarkdownEditorRef>(null);
   const attachInputRef = useRef<HTMLInputElement | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -287,12 +332,19 @@ export function CommentThread({
   async function handleSubmit() {
     const trimmed = body.trim();
     if (!trimmed) return;
-    const hasReassignment = enableReassign && reassignTarget !== currentAssigneeValue;
-    const reassignment = hasReassignment ? parseReassignment(reassignTarget) : null;
+    const hasReassignment =
+      enableReassign && reassignTarget !== currentAssigneeValue;
+    const reassignment = hasReassignment
+      ? parseReassignment(reassignTarget)
+      : null;
 
     setSubmitting(true);
     try {
-      await onAdd(trimmed, isClosed && reopen ? true : undefined, reassignment ?? undefined);
+      await onAdd(
+        trimmed,
+        isClosed && reopen ? true : undefined,
+        reassignment ?? undefined
+      );
       setBody("");
       if (draftKey) clearDraft(draftKey);
       setReopen(false);
@@ -318,9 +370,15 @@ export function CommentThread({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold">Comments &amp; Runs ({timeline.length})</h3>
+      <h3 className="text-sm font-semibold">
+        Comments &amp; Runs ({timeline.length})
+      </h3>
 
-      <TimelineList timeline={timeline} agentMap={agentMap} highlightCommentId={highlightCommentId} />
+      <TimelineList
+        timeline={timeline}
+        agentMap={agentMap}
+        highlightCommentId={highlightCommentId}
+      />
 
       {liveRunSlot}
 

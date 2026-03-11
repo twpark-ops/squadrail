@@ -16,7 +16,9 @@ import { AgentConfigForm } from "../components/AgentConfigForm";
 import { adapterLabels, roleLabels } from "../components/agent-config-primitives";
 import { getUIAdapter, buildTranscript } from "../adapters";
 import type { TranscriptEntry } from "../adapters";
+import { HeroSection } from "../components/HeroSection";
 import { StatusBadge } from "../components/StatusBadge";
+import { SupportMetricCard } from "../components/SupportMetricCard";
 import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { CopyText } from "../components/CopyText";
@@ -428,133 +430,132 @@ export function AgentDetail() {
   if (!agent) return null;
   const isPendingApproval = agent.status === "pending_approval";
   const showConfigActionBar = activeView === "configure" && configDirty;
+  const liveRunCount = (heartbeats ?? []).filter((run) => run.status === "running" || run.status === "queued").length;
 
   return (
     <div className={cn("space-y-6", isMobile && showConfigActionBar && "pb-24")}>
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3 min-w-0">
-          <AgentIconPicker
-            value={agent.icon}
-            onChange={(icon) => updateIcon.mutate(icon)}
-          >
-            <button className="shrink-0 flex items-center justify-center h-12 w-12 rounded-lg bg-accent hover:bg-accent/80 transition-colors">
-              <AgentIcon icon={agent.icon} className="h-6 w-6" />
-            </button>
-          </AgentIconPicker>
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold truncate">{agent.name}</h2>
-            <p className="text-sm text-muted-foreground truncate">
-              {roleLabels[agent.role] ?? agent.role}
-              {agent.title ? ` - ${agent.title}` : ""}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openNewIssue({ assigneeAgentId: agent.id })}
-          >
-            <Plus className="h-3.5 w-3.5 sm:mr-1" />
-            <span className="hidden sm:inline">Assign Task</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => agentAction.mutate("invoke")}
-            disabled={agentAction.isPending || isPendingApproval}
-          >
-            <Play className="h-3.5 w-3.5 sm:mr-1" />
-            <span className="hidden sm:inline">Invoke</span>
-          </Button>
-          {agent.status === "paused" ? (
+      <HeroSection
+        title={agent.name}
+        subtitle={
+          <span>
+            {roleLabels[agent.role] ?? agent.role}
+            {agent.title ? ` - ${agent.title}` : ""}
+          </span>
+        }
+        eyebrow="Agent Surface"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <AgentIconPicker
+              value={agent.icon}
+              onChange={(icon) => updateIcon.mutate(icon)}
+            >
+              <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.95rem] border border-border/80 bg-background/80 transition-colors hover:bg-accent/40">
+                <AgentIcon icon={agent.icon} className="h-5 w-5" />
+              </button>
+            </AgentIconPicker>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => agentAction.mutate("resume")}
+              onClick={() => openNewIssue({ assigneeAgentId: agent.id })}
+            >
+              <Plus className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Assign Task</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => agentAction.mutate("invoke")}
               disabled={agentAction.isPending || isPendingApproval}
             >
               <Play className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Resume</span>
+              <span className="hidden sm:inline">Invoke</span>
             </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => agentAction.mutate("pause")}
-              disabled={agentAction.isPending || isPendingApproval}
-            >
-              <Pause className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Pause</span>
-            </Button>
-          )}
-          <span className="hidden sm:inline"><StatusBadge status={agent.status} /></span>
-          {mobileLiveRun && (
-            <Link
-              to={`/agents/${canonicalAgentRef}/runs/${mobileLiveRun.id}`}
-              className="sm:hidden flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 transition-colors no-underline"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-              </span>
-              <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">Live</span>
-            </Link>
-          )}
-
-          {/* Overflow menu */}
-          <Popover open={moreOpen} onOpenChange={setMoreOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon-xs">
-                <MoreHorizontal className="h-4 w-4" />
+            {agent.status === "paused" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => agentAction.mutate("resume")}
+                disabled={agentAction.isPending || isPendingApproval}
+              >
+                <Play className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Resume</span>
               </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-44 p-1" align="end">
-              <button
-                className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
-                onClick={() => {
-                  navigate(`/agents/${canonicalAgentRef}/configure`);
-                  setMoreOpen(false);
-                }}
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => agentAction.mutate("pause")}
+                disabled={agentAction.isPending || isPendingApproval}
               >
-                <Settings className="h-3 w-3" />
-                Configure Agent
-              </button>
-              <button
-                className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
-                onClick={() => {
-                  navigator.clipboard.writeText(agent.id);
-                  setMoreOpen(false);
-                }}
+                <Pause className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Pause</span>
+              </Button>
+            )}
+            <span className="hidden sm:inline"><StatusBadge status={agent.status} /></span>
+            {mobileLiveRun && (
+              <Link
+                to={`/agents/${canonicalAgentRef}/runs/${mobileLiveRun.id}`}
+                className="sm:hidden flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 transition-colors no-underline"
               >
-                <Copy className="h-3 w-3" />
-                Copy Agent ID
-              </button>
-              <button
-                className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
-                onClick={() => {
-                  resetTaskSession.mutate(null);
-                  setMoreOpen(false);
-                }}
-              >
-                <RotateCcw className="h-3 w-3" />
-                Reset Sessions
-              </button>
-              <button
-                className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
-                onClick={() => {
-                  agentAction.mutate("terminate");
-                  setMoreOpen(false);
-                }}
-              >
-                <Trash2 className="h-3 w-3" />
-                Terminate
-              </button>
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                </span>
+                <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">Live</span>
+              </Link>
+            )}
+            <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon-xs">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-44 p-1" align="end">
+                <button
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
+                  onClick={() => {
+                    navigate(`/agents/${canonicalAgentRef}/configure`);
+                    setMoreOpen(false);
+                  }}
+                >
+                  <Settings className="h-3 w-3" />
+                  Configure Agent
+                </button>
+                <button
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
+                  onClick={() => {
+                    navigator.clipboard.writeText(agent.id);
+                    setMoreOpen(false);
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                  Copy Agent ID
+                </button>
+                <button
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
+                  onClick={() => {
+                    resetTaskSession.mutate(null);
+                    setMoreOpen(false);
+                  }}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Reset Sessions
+                </button>
+                <button
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
+                  onClick={() => {
+                    agentAction.mutate("terminate");
+                    setMoreOpen(false);
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Terminate
+                </button>
+              </PopoverContent>
+            </Popover>
+          </div>
+        }
+      />
 
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
       {isPendingApproval && (
@@ -562,6 +563,34 @@ export function AgentDetail() {
           This agent is pending board approval and cannot be invoked yet.
         </p>
       )}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Loader2}
+          label="Live runs"
+          value={liveRunCount}
+          detail="Queued or running heartbeat executions currently attached to this agent."
+          tone={liveRunCount > 0 ? "accent" : "default"}
+        />
+        <SupportMetricCard
+          icon={CheckCircle2}
+          label="Assigned issues"
+          value={assignedIssues.length}
+          detail="Open work items directly assigned to this agent in the delivery queue."
+        />
+        <SupportMetricCard
+          icon={ChevronDown}
+          label="Direct reports"
+          value={directReports.length}
+          detail="Active child agents currently reporting to this lane owner."
+        />
+        <SupportMetricCard
+          icon={Timer}
+          label="Runtime state"
+          value={runtimeState?.sessionId ? "session attached" : (runtimeState?.lastRunStatus ?? "idle")}
+          detail="Latest runtime attachment or last run status currently exposed by the control plane."
+        />
+      </div>
 
       {/* Floating Save/Cancel (desktop) */}
       {!isMobile && (

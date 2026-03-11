@@ -87,7 +87,10 @@ export function DashboardOptimized() {
     enabled: !!selectedCompanyId,
   });
 
-  const recentActivity = useMemo(() => (activity ?? []).slice(0, 8), [activity]);
+  const recentActivity = useMemo(
+    () => (activity ?? []).slice(0, 8),
+    [activity]
+  );
 
   const agentMap = useMemo(() => {
     const map = new Map<string, Agent>();
@@ -97,7 +100,8 @@ export function DashboardOptimized() {
 
   const entityNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues ?? []) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
+    for (const i of issues ?? [])
+      map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
     for (const a of agents ?? []) map.set(`agent:${a.id}`, a.name);
     return map;
   }, [issues, agents]);
@@ -119,7 +123,12 @@ export function DashboardOptimized() {
         />
       );
     }
-    return <EmptyState icon={LayoutDashboard} message="Create or select a company to view the operations console." />;
+    return (
+      <EmptyState
+        icon={LayoutDashboard}
+        message="Create or select a company to view the operations console."
+      />
+    );
   }
 
   if (isLoading) {
@@ -128,7 +137,9 @@ export function DashboardOptimized() {
 
   const hasNoAgents = agents !== undefined && agents.length === 0;
   const company = companies.find((c) => c.id === selectedCompanyId);
-  const activeIssues = issues?.filter((i) => i.status !== "done" && i.status !== "cancelled").length ?? 0;
+  const activeIssues =
+    issues?.filter((i) => i.status !== "done" && i.status !== "cancelled")
+      .length ?? 0;
   const buckets = protocolQueue?.buckets;
   const recoveryItems = recoveryQueue?.items ?? [];
   const recoveryPreview = recoveryItems.slice(0, 3);
@@ -137,16 +148,46 @@ export function DashboardOptimized() {
   const reviewReady = data?.protocol.reviewQueueCount ?? 0;
   const blockedCount = data?.protocol.blockedQueueCount ?? 0;
   const humanDecisionCount = data?.protocol.awaitingHumanDecisionCount ?? 0;
+  const prioritySignals = data
+    ? [
+        {
+          label: "Execution queue",
+          value: data.protocol.executionQueueCount,
+          detail: `${data.tasks.inProgress} moving now`,
+          to: appRoutes.work,
+        },
+        {
+          label: "Review backlog",
+          value: reviewReady,
+          detail: `${data.protocol.readyToCloseCount} near close`,
+          to: appRoutes.changes,
+        },
+        {
+          label: "Blocked / human",
+          value: blockedCount + humanDecisionCount,
+          detail: `${blockedCount} blocked · ${humanDecisionCount} human`,
+          to: appRoutes.work,
+        },
+        {
+          label: "Heartbeat runs",
+          value: runningRuns + queuedRuns,
+          detail: `${runningRuns} live · ${queuedRuns} queued`,
+          to: appRoutes.runs,
+        },
+      ]
+    : [];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <HeroSection
         eyebrow="Mission control"
         title="Overview"
         subtitle={
           <span>
-            {company?.name ?? "Operations"} is running {agents?.length ?? 0} agents across {activeIssues} active issues.
-            Use this surface for attention routing, not deep execution or recovery work.
+            {company?.name ?? "Operations"} is running {agents?.length ?? 0}{" "}
+            agents across {activeIssues} active issues. Start with live
+            execution and elevated blockers, then move into `Work`, `Changes`,
+            or `Runs` for action.
           </span>
         }
         actions={
@@ -176,11 +217,14 @@ export function DashboardOptimized() {
               <Bot className="h-5 w-5" />
             </div>
             <p className="text-sm font-medium text-amber-950 dark:text-amber-50">
-              No agents are active yet. Seed the squad and assign an engine first.
+              No agents are active yet. Seed the squad and assign an engine
+              first.
             </p>
           </div>
           <button
-            onClick={() => openOnboarding({ initialStep: 2, companyId: selectedCompanyId! })}
+            onClick={() =>
+              openOnboarding({ initialStep: 2, companyId: selectedCompanyId! })
+            }
             className="shrink-0 rounded-full border border-amber-300/28 bg-white/72 px-4 py-2 text-sm font-semibold text-amber-900 transition-colors hover:bg-white hover:text-amber-950 dark:border-amber-300/16 dark:bg-white/8 dark:text-amber-50 dark:hover:bg-white/12"
           >
             Open setup
@@ -190,52 +234,38 @@ export function DashboardOptimized() {
 
       {data && (
         <>
-          <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <h2 className="text-2xl font-bold tracking-tight">System Status</h2>
-                <p className="text-sm text-muted-foreground">
-                  Queue pressure, review readiness, and execution risks in one pass.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <MetricCardV2
-                  icon={CircleDot}
-                  value={data.protocol.executionQueueCount}
-                  label="Execution Queue"
-                  to={appRoutes.work}
-                  description={<span>{data.tasks.inProgress} issues actively moving through implementation.</span>}
-                />
-                <MetricCardV2
-                  icon={GitPullRequestArrow}
-                  value={reviewReady}
-                  label="Review Backlog"
-                  to={appRoutes.changes}
-                  description={<span>{data.protocol.readyToCloseCount} are already near close readiness.</span>}
-                />
-                <MetricCardV2
-                  icon={AlertTriangle}
-                  value={blockedCount + humanDecisionCount}
-                  label="Blocked / Human"
-                  to={appRoutes.work}
-                  description={<span>{blockedCount} blocked, {humanDecisionCount} waiting on a board or operator decision.</span>}
-                />
-                <MetricCardV2
-                  icon={Clock3}
-                  value={runningRuns + queuedRuns}
-                  label="Heartbeat Runs"
-                  to={appRoutes.runs}
-                  description={<span>{runningRuns} running, {queuedRuns} queued across the selected company.</span>}
-                />
-              </div>
-            </div>
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {prioritySignals.map((signal) => (
+              <Link
+                key={signal.label}
+                to={signal.to}
+                className="rounded-[1.1rem] border border-border bg-card px-4 py-3 no-underline shadow-card transition-colors hover:border-primary/18 hover:bg-accent/24"
+              >
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  {signal.label}
+                </div>
+                <div className="mt-1.5 flex items-end justify-between gap-3">
+                  <div className="text-[2rem] font-semibold tracking-[-0.05em] text-foreground">
+                    {signal.value}
+                  </div>
+                  <div className="text-right text-xs text-muted-foreground">
+                    {signal.detail}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </section>
 
-            <section className="rounded-[1.75rem] border border-border bg-card px-5 py-5 shadow-card">
-              <div className="flex items-start justify-between gap-4">
+          <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-foreground">Recovery Attention</h2>
+                  <h2 className="text-xl font-semibold tracking-tight">
+                    Live operations
+                  </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Keep recovery visible here, but move actual operator handling into `Runs`.
+                    See who is active now and what signal is worth escalating
+                    before reading queue summaries.
                   </p>
                 </div>
                 <Link
@@ -245,36 +275,72 @@ export function DashboardOptimized() {
                   Open Runs
                 </Link>
               </div>
+              <ActiveAgentsPanel companyId={selectedCompanyId!} />
+            </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
-                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Open recovery items</div>
-                  <div className="mt-2 text-3xl font-semibold text-foreground">{recoveryItems.length}</div>
-                  <div className="mt-2 text-sm text-muted-foreground">Runtime, timeout, integrity, or violation work waiting for operator attention.</div>
+            <section className="rounded-[1.55rem] border border-border bg-card px-5 py-5 shadow-card">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Recovery Attention
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Keep recovery visible here, but do the actual operator
+                    handling inside `Runs`.
+                  </p>
                 </div>
-                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
-                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Protocol risk</div>
-                  <div className="mt-2 text-3xl font-semibold text-foreground">{data.protocol.openViolationCount}</div>
-                  <div className="mt-2 text-sm text-muted-foreground">{data.protocol.protocolMessagesLast24h} protocol messages recorded in the last 24 hours.</div>
-                </div>
-                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
-                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Execution risk</div>
-                  <div className="mt-2 text-3xl font-semibold text-foreground">
-                    {data.executionReliability.dispatchTimeoutsLast24h + data.executionReliability.workspaceBlockedLast24h}
+                <span className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                  Escalate fast
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                <div className="rounded-[1.1rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                    Open recovery items
                   </div>
-                  <div className="mt-2 text-sm text-muted-foreground">
-                    Timeout and workspace-block signals that should not stay buried in a queue list.
+                  <div className="mt-1.5 text-[2rem] font-semibold text-foreground">
+                    {recoveryItems.length}
+                  </div>
+                  <div className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                    Runtime, timeout, integrity, or violation work waiting for
+                    operator attention.
+                  </div>
+                </div>
+                <div className="rounded-[1.1rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                    Protocol risk
+                  </div>
+                  <div className="mt-1.5 text-[2rem] font-semibold text-foreground">
+                    {data.protocol.openViolationCount}
+                  </div>
+                  <div className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                    {data.protocol.protocolMessagesLast24h} protocol messages
+                    recorded in the last 24 hours.
+                  </div>
+                </div>
+                <div className="rounded-[1.1rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                    Execution risk
+                  </div>
+                  <div className="mt-1.5 text-[2rem] font-semibold text-foreground">
+                    {data.executionReliability.dispatchTimeoutsLast24h +
+                      data.executionReliability.workspaceBlockedLast24h}
+                  </div>
+                  <div className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                    Timeout and workspace-block signals that should not stay
+                    buried in a queue list.
                   </div>
                 </div>
               </div>
 
               {recoveryPreview.length > 0 && (
-                <div className="mt-5 space-y-3">
+                <div className="mt-4 space-y-2.5">
                   {recoveryPreview.map((item) => (
                     <Link
                       key={`${item.issueId}-${item.code ?? "runtime"}`}
                       to={appRoutes.runs}
-                      className="block rounded-[1.2rem] border border-border bg-background/74 px-4 py-4 no-underline transition-colors hover:border-primary/18 hover:bg-accent/28"
+                      className="block rounded-[1rem] border border-border bg-background/74 px-4 py-3.5 no-underline transition-colors hover:border-primary/18 hover:bg-accent/28"
                     >
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span className="rounded-full border border-border px-2 py-0.5">
@@ -282,8 +348,12 @@ export function DashboardOptimized() {
                         </span>
                         <span>{item.severity}</span>
                       </div>
-                      <div className="mt-2 text-sm font-semibold text-foreground">{item.title}</div>
-                      <div className="mt-1 text-sm text-muted-foreground">{item.nextAction}</div>
+                      <div className="mt-2 text-sm font-semibold text-foreground">
+                        {item.title}
+                      </div>
+                      <div className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {item.nextAction}
+                      </div>
                     </Link>
                   ))}
                 </div>
@@ -293,28 +363,26 @@ export function DashboardOptimized() {
 
           <section className="space-y-4">
             <div className="space-y-1">
-              <h2 className="text-2xl font-bold tracking-tight">Live Agents</h2>
+              <h2 className="text-xl font-semibold tracking-tight">
+                Protocol queues
+              </h2>
               <p className="text-sm text-muted-foreground">
-                See who is active now, what issue they are touching, and the latest meaningful signal.
+                Four high-signal lanes for delivery flow. Deep recovery work
+                stays in `Runs`.
               </p>
             </div>
-            <ActiveAgentsPanel companyId={selectedCompanyId!} />
-          </section>
-
-          <section className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-2xl font-bold tracking-tight">Protocol Queues</h2>
-              <p className="text-sm text-muted-foreground">
-                Four high-signal lanes for delivery flow. Deep recovery work stays in `Runs`.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
               <MetricCardV2
                 icon={MessageSquareMore}
                 value={data.protocol.handoffBlockerCount}
                 label="Handoff Blockers"
                 to={appRoutes.changes}
-                description={<span>{humanDecisionCount} need explicit human judgment, close handoff, or approval routing.</span>}
+                description={
+                  <span>
+                    {humanDecisionCount} need explicit human judgment, close
+                    handoff, or approval routing.
+                  </span>
+                }
               />
               <QueueCardV2
                 title="Execution Queue"
@@ -355,36 +423,43 @@ export function DashboardOptimized() {
             </div>
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-[1.75rem] border border-border bg-card shadow-card">
+          <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-[1.55rem] border border-border bg-card shadow-card">
               <div className="flex items-center justify-between border-b border-border px-5 py-4">
                 <div>
-                  <h2 className="text-lg font-semibold">Attention Notes</h2>
+                  <h2 className="text-lg font-semibold">Operator notes</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Signals that explain why operators should move into `Work`, `Changes`, or `Runs`.
+                    Signals that explain why operators should move into `Work`,
+                    `Changes`, or `Runs`.
                   </p>
                 </div>
               </div>
               <div className="grid gap-3 p-5">
-                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
-                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Review pressure</div>
-                  <div className="mt-2 text-sm text-foreground">
+                <div className="rounded-[1.05rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                    Review pressure
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-foreground">
                     {reviewReady > 0
                       ? `${reviewReady} items are already in review and ${data.protocol.readyToCloseCount} are close to merge or close handoff.`
                       : "No heavy review pressure right now."}
                   </div>
                 </div>
-                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
-                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Human attention</div>
-                  <div className="mt-2 text-sm text-foreground">
+                <div className="rounded-[1.05rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                    Human attention
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-foreground">
                     {humanDecisionCount > 0
                       ? `${humanDecisionCount} items are waiting on explicit board or operator decisions.`
                       : "No explicit board decisions are waiting right now."}
                   </div>
                 </div>
-                <div className="rounded-[1.2rem] border border-border bg-background/74 px-4 py-4">
-                  <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Stale work</div>
-                  <div className="mt-2 text-sm text-foreground">
+                <div className="rounded-[1.05rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                    Stale work
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-foreground">
                     {data.protocol.staleQueueCount > 0
                       ? `${data.protocol.staleQueueCount} issues are staying in flow too long and need a fresh owner or recovery step.`
                       : "No stale flow signal is currently elevated."}
@@ -395,12 +470,17 @@ export function DashboardOptimized() {
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold tracking-tight">Recent Activity</h2>
-                <Link to={appRoutes.runs} className="text-sm font-medium text-primary hover:underline">
+                <h2 className="text-xl font-semibold tracking-tight">
+                  Recent activity
+                </h2>
+                <Link
+                  to={appRoutes.runs}
+                  className="text-sm font-medium text-primary hover:underline"
+                >
                   View all
                 </Link>
               </div>
-              <div className="overflow-hidden rounded-[1.75rem] border border-border divide-y divide-border bg-card">
+              <div className="overflow-hidden divide-y divide-border rounded-[1.55rem] border border-border bg-card">
                 {recentActivity.length === 0 ? (
                   <EmptyState
                     icon={MessageSquareMore}

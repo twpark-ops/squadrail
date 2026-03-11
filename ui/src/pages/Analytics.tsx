@@ -1,128 +1,164 @@
-import { useQuery } from '@tanstack/react-query';
-import { BarChart3, TrendingUp, Clock, CheckCircle2, XCircle } from 'lucide-react';
-import { PageTransition } from '@/components/PageTransition';
-import { AnimatedCard } from '@/components/AnimatedCard';
-import { useCompany } from '@/context/CompanyContext';
-import { useBreadcrumbs } from '@/context/BreadcrumbContext';
-import { cn } from '@/lib/utils';
+import { useEffect, useMemo } from "react";
 
-/**
- * Protocol Analytics Page
- *
- * Visualize protocol performance:
- * - Message volume over time
- * - Review cycle times
- * - Agent productivity metrics
- * - Success/failure rates
- */
+import { useQuery } from "@tanstack/react-query";
+import { Activity, BarChart3, CheckCircle2, Clock3, XCircle } from "lucide-react";
+
+import { approvalsApi } from "../api/approvals";
+import { agentsApi } from "../api/agents";
+import { heartbeatsApi } from "../api/heartbeats";
+import { issuesApi } from "../api/issues";
+import { EmptyState } from "../components/EmptyState";
+import { HeroSection } from "../components/HeroSection";
+import { PageSkeleton } from "../components/PageSkeleton";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
+import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useCompany } from "../context/CompanyContext";
+import { queryKeys } from "../lib/queryKeys";
+
+const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
+
 export function Analytics() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
 
-  setBreadcrumbs([
-    { label: 'Analytics' },
-  ]);
+  useEffect(() => {
+    setBreadcrumbs([{ label: "Analytics" }]);
+  }, [setBreadcrumbs]);
 
-  const metrics = [
-    {
-      icon: BarChart3,
-      label: 'Messages Last 7 Days',
-      value: '1,247',
-      trend: '+12%',
-      trendUp: true,
-    },
-    {
-      icon: Clock,
-      label: 'Avg Review Cycle Time',
-      value: '2.4h',
-      trend: '-8%',
-      trendUp: true,
-    },
-    {
-      icon: CheckCircle2,
-      label: 'Success Rate',
-      value: '94.2%',
-      trend: '+2.1%',
-      trendUp: true,
-    },
-    {
-      icon: XCircle,
-      label: 'Violations This Week',
-      value: '23',
-      trend: '+5',
-      trendUp: false,
-    },
+  const { data: issues, isLoading: issuesLoading } = useQuery({
+    queryKey: queryKeys.issues.list(selectedCompanyId!),
+    queryFn: () => issuesApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  const { data: approvals, isLoading: approvalsLoading } = useQuery({
+    queryKey: queryKeys.approvals.list(selectedCompanyId!),
+    queryFn: () => approvalsApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  const { data: runs, isLoading: runsLoading } = useQuery({
+    queryKey: queryKeys.heartbeats(selectedCompanyId!),
+    queryFn: () => heartbeatsApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  const { data: agents, isLoading: agentsLoading } = useQuery({
+    queryKey: queryKeys.agents.list(selectedCompanyId!),
+    queryFn: () => agentsApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  const isLoading = issuesLoading || approvalsLoading || runsLoading || agentsLoading;
+
+  const inProgressIssues = useMemo(
+    () => (issues ?? []).filter((issue) => issue.status === "in_progress").length,
+    [issues],
+  );
+  const actionableApprovals = useMemo(
+    () => (approvals ?? []).filter((approval) => approval.status === "pending" || approval.status === "revision_requested").length,
+    [approvals],
+  );
+  const failedRuns = useMemo(
+    () => (runs ?? []).filter((run) => FAILED_RUN_STATUSES.has(run.status)).length,
+    [runs],
+  );
+  const activeAgents = useMemo(
+    () => (agents ?? []).filter((agent) => agent.status === "active" || agent.status === "running" || agent.status === "idle").length,
+    [agents],
+  );
+
+  const measurableSections = [
+    "issue flow and active implementation volume",
+    "approval queue pressure",
+    "run failure and heartbeat health",
+    "active lane coverage by agent status",
+  ];
+  const parkedSections = [
+    "longitudinal review cycle timing",
+    "historical message volume charts",
+    "true productivity scoring",
+    "company-level analytics that need new backend aggregates",
   ];
 
+  if (!selectedCompanyId) {
+    return <EmptyState icon={BarChart3} message="Select a company to view analytics." />;
+  }
+
+  if (isLoading) {
+    return <PageSkeleton variant="list" />;
+  }
+
   return (
-    <PageTransition>
-      <div className="space-y-8">
-        {/* Hero */}
-        <section className="space-y-4">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight">Protocol Analytics</h1>
-            <p className="text-lg text-muted-foreground mt-2">
-              Performance metrics and insights
-            </p>
-          </div>
-        </section>
+    <div className="space-y-8">
+      <HeroSection
+        title="Analytics"
+        subtitle="This page now focuses on what the current control plane can honestly measure today, without inventing charts that depend on missing backend aggregates."
+        eyebrow="Measured Now"
+      />
 
-        {/* Metrics Grid */}
-        <section>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            {metrics.map((metric, i) => (
-              <AnimatedCard key={metric.label} delay={0.1 * i}>
-                <div className="p-6 border rounded-xl shadow-card hover:shadow-card-hover">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <metric.icon className="h-5 w-5 text-primary" />
-                    </div>
-                    <span
-                      className={cn(
-                        'text-sm font-medium',
-                        metric.trendUp ? 'text-green-600' : 'text-red-600'
-                      )}
-                    >
-                      {metric.trend}
-                    </span>
-                  </div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                    {metric.label}
-                  </h3>
-                  <p className="text-4xl font-bold">{metric.value}</p>
-                </div>
-              </AnimatedCard>
-            ))}
-          </div>
-        </section>
-
-        {/* Charts Placeholder */}
-        <section className="space-y-4">
-          <h2 className="text-2xl font-semibold">Message Volume</h2>
-          <AnimatedCard delay={0.2}>
-            <div className="p-12 border rounded-xl bg-muted/20 text-center">
-              <BarChart3 className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Charts Coming Soon</h3>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Interactive charts showing message volume, cycle times, and agent productivity will be available soon.
-              </p>
-            </div>
-          </AnimatedCard>
-        </section>
-
-        <section className="space-y-4">
-          <h2 className="text-2xl font-semibold">Agent Productivity</h2>
-          <AnimatedCard delay={0.3}>
-            <div className="p-12 border rounded-xl bg-muted/20 text-center">
-              <TrendingUp className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Agent Insights Coming Soon</h3>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Per-agent metrics, task completion rates, and efficiency scores will be added in the next release.
-              </p>
-            </div>
-          </AnimatedCard>
-        </section>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Activity}
+          label="In progress issues"
+          value={inProgressIssues}
+          detail="Active delivery work currently moving through implementation."
+          tone="accent"
+        />
+        <SupportMetricCard
+          icon={Clock3}
+          label="Actionable approvals"
+          value={actionableApprovals}
+          detail="Pending or revision-requested decisions still waiting on the board."
+          tone={actionableApprovals > 0 ? "warning" : "default"}
+        />
+        <SupportMetricCard
+          icon={XCircle}
+          label="Failed runs"
+          value={failedRuns}
+          detail="Heartbeat or execution runs that ended in failure or timeout."
+          tone={failedRuns > 0 ? "warning" : "default"}
+        />
+        <SupportMetricCard
+          icon={CheckCircle2}
+          label="Active agents"
+          value={activeAgents}
+          detail="Agents currently able to carry ongoing delivery or review work."
+        />
       </div>
-    </PageTransition>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <SupportPanel
+          title="Available now"
+          description="These slices are already derivable from the current UI APIs, so this page can surface them without backend contract changes."
+          contentClassName="space-y-3"
+        >
+          {measurableSections.map((item) => (
+            <div
+              key={item}
+              className="rounded-[1.2rem] border border-border/80 bg-background/70 px-4 py-4 text-sm leading-6 text-foreground"
+            >
+              {item}
+            </div>
+          ))}
+        </SupportPanel>
+
+        <SupportPanel
+          title="Still parked"
+          description="These analytics remain intentionally out of scope for the UI-only pass because they need richer history or new aggregate endpoints."
+          contentClassName="space-y-3"
+        >
+          {parkedSections.map((item) => (
+            <div
+              key={item}
+              className="rounded-[1.2rem] border border-dashed border-border/80 bg-background/60 px-4 py-4 text-sm leading-6 text-muted-foreground"
+            >
+              {item}
+            </div>
+          ))}
+        </SupportPanel>
+      </div>
+    </div>
   );
 }

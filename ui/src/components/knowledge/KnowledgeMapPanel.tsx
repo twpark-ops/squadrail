@@ -26,21 +26,30 @@ export function KnowledgeMapPanel({
   onSelectProject,
   onSelectDocument,
 }: KnowledgeMapPanelProps) {
-  const visibleProjects = (selectedProjectId
-    ? coverage.filter((item) => item.projectId === selectedProjectId)
-    : coverage.slice(0, 4)
+  const visibleProjects = (
+    selectedProjectId
+      ? coverage.filter((item) => item.projectId === selectedProjectId)
+      : coverage.slice(0, 4)
   ).slice(0, 4);
   const visibleDocuments = documents.slice(0, 6);
-  const sourceTypes = Array.from(new Set(visibleDocuments.map((doc) => doc.sourceType))).slice(0, 4);
+  const sourceTypes = Array.from(
+    new Set(visibleDocuments.map((doc) => doc.sourceType))
+  ).slice(0, 4);
 
   return (
-    <section className="rounded-[1.7rem] border border-border bg-card px-5 py-5 shadow-card">
+    <section className="self-start rounded-[1.35rem] border border-border bg-card px-4 py-4 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Graph-read v1</div>
-          <h2 className="mt-2 text-2xl font-semibold text-foreground">Knowledge Map</h2>
+          <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+            Graph-read v1
+          </div>
+          <h2 className="mt-2 text-xl font-semibold text-foreground">
+            Knowledge Map
+          </h2>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            A lightweight map of projects, source clusters, and the most visible documents. This is the exploration surface available without a new graph endpoint.
+            A lightweight map of projects, source clusters, and the most visible
+            documents. This is the exploration surface available without a new
+            graph endpoint.
           </p>
         </div>
         <button
@@ -50,22 +59,22 @@ export function KnowledgeMapPanel({
             "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
             selectedProjectId === null
               ? "border-primary/16 bg-primary/8 text-primary"
-              : "border-border bg-background text-muted-foreground hover:border-primary/18 hover:bg-accent hover:text-foreground",
+              : "border-border bg-background text-muted-foreground hover:border-primary/18 hover:bg-accent hover:text-foreground"
           )}
         >
           All projects
         </button>
       </div>
 
-      <div className="relative mt-6 overflow-hidden rounded-[1.45rem] border border-border bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--primary)_8%,var(--card)),transparent_36%),linear-gradient(180deg,color-mix(in_oklab,var(--background)_92%,var(--card)),color-mix(in_oklab,var(--accent)_18%,var(--card)))] p-5 dark:bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--primary)_12%,transparent),transparent_36%),linear-gradient(180deg,color-mix(in_oklab,var(--background)_94%,var(--card)),color-mix(in_oklab,var(--card)_88%,var(--accent)))]">
-        <div className="grid gap-6 lg:grid-cols-[0.9fr_0.7fr_1.1fr]">
+      <div className="relative mt-5 overflow-hidden rounded-[1.15rem] border border-border bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--primary)_8%,var(--card)),transparent_36%),linear-gradient(180deg,color-mix(in_oklab,var(--background)_92%,var(--card)),color-mix(in_oklab,var(--accent)_18%,var(--card)))] p-4 dark:bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--primary)_12%,transparent),transparent_36%),linear-gradient(180deg,color-mix(in_oklab,var(--background)_94%,var(--card)),color-mix(in_oklab,var(--card)_88%,var(--accent)))]">
+        <div className="grid gap-5 lg:grid-cols-[0.9fr_0.7fr_1.1fr]">
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <FolderTree className="h-4 w-4 text-primary" />
               Projects
             </div>
             {visibleProjects.length === 0 ? (
-              <div className="rounded-[1rem] border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
+              <div className="rounded-[0.95rem] border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
                 No project coverage yet.
               </div>
             ) : (
@@ -75,13 +84,15 @@ export function KnowledgeMapPanel({
                   type="button"
                   onClick={() => onSelectProject(project.projectId)}
                   className={cn(
-                    "relative w-full rounded-[1rem] border px-4 py-4 text-left transition-colors after:absolute after:right-[-18px] after:top-1/2 after:h-px after:w-4 after:-translate-y-1/2 after:bg-border",
+                    "relative w-full rounded-[0.95rem] border px-4 py-3.5 text-left transition-colors after:absolute after:right-[-18px] after:top-1/2 after:h-px after:w-4 after:-translate-y-1/2 after:bg-border",
                     selectedProjectId === project.projectId
                       ? "border-primary/16 bg-primary/8"
-                      : "border-border bg-card hover:border-primary/18 hover:bg-accent/24",
+                      : "border-border bg-card hover:border-primary/18 hover:bg-accent/24"
                   )}
                 >
-                  <div className="text-sm font-semibold text-foreground">{project.projectName}</div>
+                  <div className="text-sm font-semibold text-foreground">
+                    {project.projectName}
+                  </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {project.documentCount} docs · {project.chunkCount} chunks
                   </div>
@@ -96,18 +107,24 @@ export function KnowledgeMapPanel({
               Source clusters
             </div>
             {sourceTypes.length === 0 ? (
-              <div className="rounded-[1rem] border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
+              <div className="rounded-[0.95rem] border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
                 No source clusters yet.
               </div>
             ) : (
               sourceTypes.map((type) => (
                 <div
                   key={type}
-                  className="relative rounded-[1rem] border border-border bg-card px-4 py-4 after:absolute after:left-[-18px] after:top-1/2 after:h-px after:w-4 after:-translate-y-1/2 after:bg-border before:absolute before:right-[-18px] before:top-1/2 before:h-px before:w-4 before:-translate-y-1/2 before:bg-border"
+                  className="relative rounded-[0.95rem] border border-border bg-card px-4 py-3.5 after:absolute after:left-[-18px] after:top-1/2 after:h-px after:w-4 after:-translate-y-1/2 after:bg-border before:absolute before:right-[-18px] before:top-1/2 before:h-px before:w-4 before:-translate-y-1/2 before:bg-border"
                 >
-                  <div className="text-sm font-semibold text-foreground">{type}</div>
+                  <div className="text-sm font-semibold text-foreground">
+                    {type}
+                  </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {visibleDocuments.filter((doc) => doc.sourceType === type).length} visible documents
+                    {
+                      visibleDocuments.filter((doc) => doc.sourceType === type)
+                        .length
+                    }{" "}
+                    visible documents
                   </div>
                 </div>
               ))
@@ -120,7 +137,7 @@ export function KnowledgeMapPanel({
               Visible documents
             </div>
             {visibleDocuments.length === 0 ? (
-              <div className="rounded-[1rem] border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
+              <div className="rounded-[0.95rem] border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
                 No visible documents in this slice yet.
               </div>
             ) : (
@@ -129,10 +146,10 @@ export function KnowledgeMapPanel({
                   key={doc.id}
                   type="button"
                   onClick={() => onSelectDocument(doc)}
-                  className="relative w-full rounded-[1rem] border border-border bg-card px-4 py-4 text-left transition-colors before:absolute before:left-[-18px] before:top-1/2 before:h-px before:w-4 before:-translate-y-1/2 before:bg-border hover:border-primary/18 hover:bg-accent/24"
+                  className="relative w-full rounded-[0.95rem] border border-border bg-card px-4 py-3.5 text-left transition-colors before:absolute before:left-[-18px] before:top-1/2 before:h-px before:w-4 before:-translate-y-1/2 before:bg-border hover:border-primary/18 hover:bg-accent/24"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="rounded-[0.9rem] border border-border bg-background p-2">
+                    <div className="rounded-[0.8rem] border border-border bg-background p-2">
                       {doc.sourceType === "code" ? (
                         <FileCode2 className="h-4 w-4 text-primary" />
                       ) : (

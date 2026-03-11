@@ -151,6 +151,26 @@ curl -sSf -X PATCH "${BASE_URL}/api/companies/${COMPANY_ID}/setup-progress" \
   -H "Content-Type: application/json" \
   -d "{\"selectedEngine\":\"${SMOKE_ENGINE}\",\"selectedWorkspaceId\":\"${SMOKE_WORKSPACE_ID}\",\"metadata\":{\"knowledgeSeeded\":true,\"firstIssueReady\":true,\"smokeReady\":true}}" >/dev/null
 
+SECOND_COMPANY_RESPONSE="$(curl -sSf -X POST "${BASE_URL}/api/companies" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Atlas Test Org","description":"Secondary company for company-rail persistence validation","budgetMonthlyCents":25000}')"
+
+SECOND_COMPANY_ID="$(printf '%s' "$SECOND_COMPANY_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const x=JSON.parse(s);process.stdout.write(x.id);});')"
+
+curl -sSf -X POST "${BASE_URL}/api/companies/${SECOND_COMPANY_ID}/role-packs/seed-defaults" \
+  -H "Content-Type: application/json" \
+  -d "{\"presetKey\":\"${SMOKE_PRESET_KEY}\"}" >/dev/null
+
+SECOND_PROJECT_RESPONSE="$(curl -sSf -X POST "${BASE_URL}/api/companies/${SECOND_COMPANY_ID}/projects" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Atlas Workspace\",\"description\":\"Secondary workspace for company rail reorder validation\",\"status\":\"in_progress\",\"workspace\":{\"name\":\"Atlas Workspace\",\"cwd\":\"${REPO_ROOT}\",\"isPrimary\":true}}")"
+
+SECOND_WORKSPACE_ID="$(printf '%s' "$SECOND_PROJECT_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const x=JSON.parse(s);const workspaces=Array.isArray(x.workspaces)?x.workspaces:[];const primary=workspaces.find((entry)=>entry.isPrimary) || workspaces[0];if(!primary?.id){process.exit(1);}process.stdout.write(primary.id);});')"
+
+curl -sSf -X PATCH "${BASE_URL}/api/companies/${SECOND_COMPANY_ID}/setup-progress" \
+  -H "Content-Type: application/json" \
+  -d "{\"selectedEngine\":\"${SMOKE_ENGINE}\",\"selectedWorkspaceId\":\"${SECOND_WORKSPACE_ID}\",\"metadata\":{\"knowledgeSeeded\":true,\"firstIssueReady\":true,\"smokeReady\":true}}" >/dev/null
+
 ENGINEER_RESPONSE="$(curl -sSf -X POST "${BASE_URL}/api/companies/${COMPANY_ID}/agents" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Smoke Engineer\",\"role\":\"engineer\",\"adapterType\":\"${SMOKE_ENGINE}\",\"adapterConfig\":{},\"runtimeConfig\":{},\"budgetMonthlyCents\":0}")"
@@ -200,9 +220,10 @@ grep -q "GET /issues/${ISSUE_IDENTIFIER}/runs 200" "$SERVER_LOG"
 echo "==> verifying overview page"
 OVERVIEW_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$OVERVIEW_URL")"
 printf '%s' "$OVERVIEW_DOM" >"$OVERVIEW_DOM_PATH"
-grep -q "System Status" "$OVERVIEW_DOM_PATH"
-grep -q "Live Agents" "$OVERVIEW_DOM_PATH"
-grep -q "Protocol Queues" "$OVERVIEW_DOM_PATH"
+grep -q "Execution queue" "$OVERVIEW_DOM_PATH"
+grep -q "Review backlog" "$OVERVIEW_DOM_PATH"
+grep -q "Live operations" "$OVERVIEW_DOM_PATH"
+grep -q "Protocol queues" "$OVERVIEW_DOM_PATH"
 grep -q "Smoke protocol issue" "$OVERVIEW_DOM_PATH"
 
 echo "==> verifying changes page"

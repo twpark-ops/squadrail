@@ -14,9 +14,12 @@ import { queryKeys } from "../lib/queryKeys";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { EmptyState } from "../components/EmptyState";
+import { HeroSection } from "../components/HeroSection";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { StatusBadge } from "../components/StatusBadge";
+import { SupportMetricCard } from "../components/SupportMetricCard";
+import { SupportPanel } from "../components/SupportPanel";
 import { timeAgo } from "../lib/timeAgo";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -497,83 +500,124 @@ export function Inbox() {
   const showSeparatorBefore = (key: SectionKey) => visibleSections.indexOf(key) > 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <Tabs value={tab} onValueChange={(value) => navigate(`/inbox/${value === "all" ? "all" : "new"}`)}>
-          <PageTabBar
-            items={[
-              {
-                value: "new",
-                label: (
-                  <>
-                    New
-                    {newItemCount > 0 && (
-                      <span className="ml-1.5 rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-500">
-                        {newItemCount}
-                      </span>
-                    )}
-                  </>
-                ),
-              },
-              { value: "all", label: "All" },
-            ]}
-          />
-        </Tabs>
+    <div className="space-y-8">
+      <HeroSection
+        title="Inbox"
+        subtitle="Keep the default read focused on what needs action now: approvals, failures, stale work, join requests, and work explicitly assigned to you."
+        eyebrow="Triage Surface"
+      />
 
-        {tab === "all" && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={allCategoryFilter}
-              onValueChange={(value) => setAllCategoryFilter(value as InboxCategoryFilter)}
-            >
-              <SelectTrigger className="h-8 w-[170px] text-xs">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="everything">All categories</SelectItem>
-                <SelectItem value="assigned_to_me">Assigned to me</SelectItem>
-                <SelectItem value="join_requests">Join requests</SelectItem>
-                <SelectItem value="approvals">Approvals</SelectItem>
-                <SelectItem value="failed_runs">Failed runs</SelectItem>
-                <SelectItem value="alerts">Alerts</SelectItem>
-                <SelectItem value="stale_work">Stale work</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {showApprovalsCategory && (
-              <Select
-                value={allApprovalFilter}
-                onValueChange={(value) => setAllApprovalFilter(value as InboxApprovalFilter)}
-              >
-                <SelectTrigger className="h-8 w-[170px] text-xs">
-                  <SelectValue placeholder="Approval status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All approval statuses</SelectItem>
-                  <SelectItem value="actionable">Needs action</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-        )}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={InboxIcon}
+          label="New items"
+          value={newItemCount}
+          detail="The current number of triage items visible in the actionable inbox."
+          tone={newItemCount > 0 ? "accent" : "default"}
+        />
+        <SupportMetricCard
+          icon={UserCheck}
+          label="Assigned to me"
+          value={assignedToMeIssues.length}
+          detail="Open work directly assigned to your operator account."
+        />
+        <SupportMetricCard
+          icon={AlertTriangle}
+          label="Failed runs"
+          value={failedRuns.length}
+          detail="Latest runtime failures that still need operator attention."
+          tone={failedRuns.length > 0 ? "warning" : "default"}
+        />
+        <SupportMetricCard
+          icon={Clock}
+          label="Actionable approvals"
+          value={actionableApprovals.length}
+          detail="Approval items that still require a board decision or revision loop."
+        />
       </div>
 
-      {approvalsError && <p className="text-sm text-destructive">{approvalsError.message}</p>}
-      {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+      <SupportPanel
+        title="Inbox queue"
+        description="Use the new view as the action-first triage strip. Switch to all only when you need broader inbox history and category filters."
+        action={
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <Tabs value={tab} onValueChange={(value) => navigate(`/inbox/${value === "all" ? "all" : "new"}`)}>
+              <PageTabBar
+                items={[
+                  {
+                    value: "new",
+                    label: (
+                      <>
+                        New
+                        {newItemCount > 0 && (
+                          <span className="ml-1.5 rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-500">
+                            {newItemCount}
+                          </span>
+                        )}
+                      </>
+                    ),
+                  },
+                  { value: "all", label: "All" },
+                ]}
+              />
+            </Tabs>
 
-      {!allLoaded && visibleSections.length === 0 && (
-        <PageSkeleton variant="inbox" />
-      )}
+            {tab === "all" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={allCategoryFilter}
+                  onValueChange={(value) => setAllCategoryFilter(value as InboxCategoryFilter)}
+                >
+                  <SelectTrigger className="h-9 w-[170px] rounded-full text-xs">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="everything">All categories</SelectItem>
+                    <SelectItem value="assigned_to_me">Assigned to me</SelectItem>
+                    <SelectItem value="join_requests">Join requests</SelectItem>
+                    <SelectItem value="approvals">Approvals</SelectItem>
+                    <SelectItem value="failed_runs">Failed runs</SelectItem>
+                    <SelectItem value="alerts">Alerts</SelectItem>
+                    <SelectItem value="stale_work">Stale work</SelectItem>
+                  </SelectContent>
+                </Select>
 
-      {allLoaded && visibleSections.length === 0 && (
-        <EmptyState
-          icon={InboxIcon}
-          message={tab === "new" ? "You're all caught up!" : "No inbox items match these filters."}
-        />
-      )}
+                {showApprovalsCategory && (
+                  <Select
+                    value={allApprovalFilter}
+                    onValueChange={(value) => setAllApprovalFilter(value as InboxApprovalFilter)}
+                  >
+                    <SelectTrigger className="h-9 w-[170px] rounded-full text-xs">
+                      <SelectValue placeholder="Approval status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All approval statuses</SelectItem>
+                      <SelectItem value="actionable">Needs action</SelectItem>
+                      <SelectItem value="resolved">Resolved</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+          </div>
+        }
+        contentClassName="space-y-5"
+      >
+        {approvalsError && <p className="text-sm text-destructive">{approvalsError.message}</p>}
+        {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
-      {showAssignedSection && (
+        {!allLoaded && visibleSections.length === 0 && (
+          <PageSkeleton variant="inbox" />
+        )}
+
+        {allLoaded && visibleSections.length === 0 && (
+          <EmptyState
+            icon={InboxIcon}
+            message={tab === "new" ? "You're all caught up!" : "No inbox items match these filters."}
+          />
+        )}
+
+        {showAssignedSection && (
         <>
           {showSeparatorBefore("assigned_to_me") && <Separator />}
           <div>
@@ -602,9 +646,9 @@ export function Inbox() {
             </div>
           </div>
         </>
-      )}
+        )}
 
-      {showApprovalsSection && (
+        {showApprovalsSection && (
         <>
           {showSeparatorBefore("approvals") && <Separator />}
           <div>
@@ -630,9 +674,9 @@ export function Inbox() {
             </div>
           </div>
         </>
-      )}
+        )}
 
-      {showJoinRequestsSection && (
+        {showJoinRequestsSection && (
         <>
           {showSeparatorBefore("join_requests") && <Separator />}
           <div>
@@ -684,9 +728,9 @@ export function Inbox() {
             </div>
           </div>
         </>
-      )}
+        )}
 
-      {showFailedRunsSection && (
+        {showFailedRunsSection && (
         <>
           {showSeparatorBefore("failed_runs") && <Separator />}
           <div>
@@ -705,9 +749,9 @@ export function Inbox() {
             </div>
           </div>
         </>
-      )}
+        )}
 
-      {showAlertsSection && (
+        {showAlertsSection && (
         <>
           {showSeparatorBefore("alerts") && <Separator />}
           <div>
@@ -743,9 +787,9 @@ export function Inbox() {
             </div>
           </div>
         </>
-      )}
+        )}
 
-      {showStaleSection && (
+        {showStaleSection && (
         <>
           {showSeparatorBefore("stale_work") && <Separator />}
           <div>
@@ -785,7 +829,8 @@ export function Inbox() {
             </div>
           </div>
         </>
-      )}
+        )}
+      </SupportPanel>
     </div>
   );
 }
