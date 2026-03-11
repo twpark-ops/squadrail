@@ -1,5 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -26,6 +28,17 @@ async function closeTestServer(server: http.Server): Promise<void> {
       else resolve();
     });
   });
+}
+
+async function createGitRepo(): Promise<string> {
+  const repoDir = await mkdtemp(path.join(os.tmpdir(), "squadrail-protocol-helper-"));
+  execFileSync("git", ["init"], { cwd: repoDir, encoding: "utf8" });
+  execFileSync("git", ["config", "user.name", "Squadrail Test"], { cwd: repoDir, encoding: "utf8" });
+  execFileSync("git", ["config", "user.email", "test@squadrail.local"], { cwd: repoDir, encoding: "utf8" });
+  await writeFile(path.join(repoDir, "README.md"), "# helper repo\n", "utf8");
+  execFileSync("git", ["add", "README.md"], { cwd: repoDir, encoding: "utf8" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: repoDir, encoding: "utf8" });
+  return repoDir;
 }
 
 describe("squadrail protocol helper CLI", () => {
@@ -340,7 +353,7 @@ describe("squadrail protocol helper CLI", () => {
       expect(requests).toHaveLength(1);
       const payload = requests[0]?.body as Record<string, unknown>;
       expect(payload.summary).toBe("Start review for Verify build-info service version resolution");
-      expect(payload.workflowStateAfter).toBe("under_review");
+      expect(payload.workflowStateAfter).toBe("under_qa_review");
       expect(payload.payload).toMatchObject({
         reviewCycle: 1,
         reviewFocus: [
@@ -637,6 +650,132 @@ describe("squadrail protocol helper CLI", () => {
         approvalMode: "agent_review",
         approvalSummary: "Legacy alias should be normalized.",
       });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("only auto-attaches git artifacts on submit-for-review", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "implementing", currentReviewCycle: 1 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "engineer", title: "Engineer" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    const repoDir = await createGitRepo();
+
+    try {
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "start-implementation",
+          "--issue",
+          "issue-123",
+          "--summary",
+          "Start implementation",
+        ],
+        {
+          cwd: repoDir,
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "submit-for-review",
+          "--issue",
+          "issue-123",
+          "--reviewer-id",
+          "reviewer-123",
+          "--summary",
+          "Submit for review",
+          "--implementation-summary",
+          "Implementation summary",
+          "--evidence",
+          "Evidence A||Evidence B",
+          "--diff-summary",
+          "Updated the focused files",
+          "--changed-files",
+          "README.md",
+          "--test-results",
+          "pnpm test",
+          "--review-checklist",
+          "Checklist A||Checklist B",
+          "--residual-risks",
+          "Risk A",
+        ],
+        {
+          cwd: repoDir,
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(requests).toHaveLength(2);
+      expect(requests[0]?.messageType).toBe("START_IMPLEMENTATION");
+      expect(requests[0]?.artifacts).toEqual([]);
+
+      expect(requests[1]?.messageType).toBe("SUBMIT_FOR_REVIEW");
+      expect(requests[1]?.artifacts).toEqual([
+        expect.objectContaining({
+          kind: "commit",
+          metadata: expect.objectContaining({
+            changedFiles: ["README.md"],
+            captureConfidence: "local_git_helper",
+          }),
+        }),
+      ]);
     } finally {
       await closeTestServer(server);
     }

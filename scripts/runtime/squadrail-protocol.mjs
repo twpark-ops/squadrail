@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
+
 const API_URL = process.env.SQUADRAIL_API_URL;
 const API_KEY = process.env.SQUADRAIL_API_KEY;
 const AGENT_ID = process.env.SQUADRAIL_AGENT_ID;
@@ -9,6 +11,57 @@ const DEFAULT_ISSUE_ID = process.env.SQUADRAIL_TASK_ID ?? null;
 const REQUEST_TIMEOUT_MS = Number(process.env.SQUADRAIL_PROTOCOL_TIMEOUT_MS ?? 180_000);
 const DEFAULT_DISPATCH_MODE = process.env.SQUADRAIL_PROTOCOL_DISPATCH_MODE ?? "async";
 let cachedSelfAgent = null;
+
+function runGit(args) {
+  return execFileSync("git", args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function tryInferSubmitForReviewArtifacts(changedFiles) {
+  try {
+    const insideWorkTree = runGit(["rev-parse", "--is-inside-work-tree"]);
+    if (insideWorkTree !== "true") return [];
+
+    const headSha = runGit(["rev-parse", "HEAD"]);
+    const statusOutput = runGit(["status", "--porcelain"]);
+    if (!statusOutput) {
+      return [{
+        kind: "commit",
+        uri: `commit://${headSha}`,
+        label: `Commit ${headSha.slice(0, 12)}`,
+        metadata: {
+          commitSha: headSha,
+          changedFiles,
+          captureConfidence: "local_git_helper",
+        },
+      }];
+    }
+
+    const statusEntries = statusOutput
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter(Boolean);
+    const inferredChangedFiles = statusEntries
+      .map((line) => line.slice(3).trim())
+      .filter(Boolean);
+    return [{
+      kind: "diff",
+      uri: `run://${RUN_ID ?? "manual"}/workspace-diff`,
+      label: `Workspace diff (${inferredChangedFiles.length || changedFiles.length} file(s))`,
+      metadata: {
+        headSha,
+        changedFiles: inferredChangedFiles.length > 0 ? inferredChangedFiles : changedFiles,
+        statusEntries,
+        captureConfidence: "local_git_helper",
+      },
+    }];
+  } catch {
+    return [];
+  }
+}
 
 const COMMAND_HELP = {
   general:
@@ -871,7 +924,7 @@ async function submitForReviewCommand(options) {
       reviewChecklist,
       residualRisks,
     },
-    artifacts: [],
+    artifacts: tryInferSubmitForReviewArtifacts(changedFiles),
   };
 
   await postProtocolMessage(issueId, body);
