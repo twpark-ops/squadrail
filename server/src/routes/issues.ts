@@ -600,6 +600,15 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const qaAgent = input.body.qaAgentId
       ? await assertInternalWorkItemQa(input.rootIssue.companyId, input.body.qaAgentId)
       : null;
+    const scopedProject =
+      input.body.projectId
+        ? await projectsSvc.getById(input.body.projectId)
+        : input.rootIssue.projectId
+          ? await projectsSvc.getById(input.rootIssue.projectId)
+          : null;
+    if (scopedProject && scopedProject.companyId !== input.rootIssue.companyId) {
+      throw unprocessable("Selected project must belong to the same company");
+    }
 
     const watchLeadRequested = input.body.watchLead !== false;
     const resolvedLeadAgentId =
@@ -617,6 +626,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const workItem = await svc.createInternalWorkItem({
       parentIssueId: input.rootIssue.id,
       companyId: input.rootIssue.companyId,
+      projectId: input.body.projectId ?? null,
       title: input.body.title,
       description: input.body.description ?? null,
       kind: input.body.kind,
@@ -646,6 +656,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         parentIssueId: input.rootIssue.id,
         internalWorkItem: true,
         kind: input.body.kind,
+        projectId: workItem.projectId ?? input.body.projectId ?? input.rootIssue.projectId ?? null,
       },
     });
 
@@ -1842,48 +1853,51 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }) ?? rootIssue;
     scheduleIssueMemoryIngest(rootIssue.id, "update");
 
-    const reassignMessage: CreateIssueProtocolMessage = {
-      messageType: "REASSIGN_TASK",
-      sender,
-      recipients: [
-        {
-          recipientType: "agent",
-          recipientId: techLead.id,
-          role: "tech_lead",
+    let reassignDispatch: Awaited<ReturnType<typeof appendProtocolMessageAndDispatch>> | null = null;
+    if (!req.body.coordinationOnly) {
+      const reassignMessage: CreateIssueProtocolMessage = {
+        messageType: "REASSIGN_TASK",
+        sender,
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: techLead.id,
+            role: "tech_lead",
+          },
+          {
+            recipientType: "agent",
+            recipientId: reviewer.id,
+            role: "reviewer",
+          },
+          ...(qaAgent
+            ? [{
+                recipientType: "agent" as const,
+                recipientId: qaAgent.id,
+                role: "qa" as const,
+              }]
+            : []),
+        ],
+        workflowStateBefore: rootProtocolState.workflowState as CreateIssueProtocolMessage["workflowStateBefore"],
+        workflowStateAfter: "assigned",
+        summary: `Route ${updatedRoot.identifier ?? updatedRoot.title} into ${techLead.name}'s TL lane`,
+        requiresAck: false,
+        payload: {
+          reason: req.body.reason,
+          newAssigneeAgentId: techLead.id,
+          newReviewerAgentId: reviewer.id,
+          newQaAgentId: qaAgent?.id ?? null,
+          carryForwardBriefVersion: req.body.carryForwardBriefVersion ?? null,
         },
-        {
-          recipientType: "agent",
-          recipientId: reviewer.id,
-          role: "reviewer",
-        },
-        ...(qaAgent
-          ? [{
-              recipientType: "agent" as const,
-              recipientId: qaAgent.id,
-              role: "qa" as const,
-            }]
-          : []),
-      ],
-      workflowStateBefore: rootProtocolState.workflowState as CreateIssueProtocolMessage["workflowStateBefore"],
-      workflowStateAfter: "assigned",
-      summary: `Route ${updatedRoot.identifier ?? updatedRoot.title} into ${techLead.name}'s TL lane`,
-      requiresAck: false,
-      payload: {
-        reason: req.body.reason,
-        newAssigneeAgentId: techLead.id,
-        newReviewerAgentId: reviewer.id,
-        newQaAgentId: qaAgent?.id ?? null,
-        carryForwardBriefVersion: req.body.carryForwardBriefVersion ?? null,
-      },
-      artifacts: [],
-    };
+        artifacts: [],
+      };
 
-    const reassignDispatch = await appendProtocolMessageAndDispatch({
-      issue: updatedRoot,
-      message: reassignMessage,
-      actor,
-      asyncDispatch: true,
-    });
+      reassignDispatch = await appendProtocolMessageAndDispatch({
+        issue: updatedRoot,
+        message: reassignMessage,
+        actor,
+        asyncDispatch: true,
+      });
+    }
 
     const projectedWorkItems = [];
     for (const workItem of req.body.workItems) {
@@ -1915,19 +1929,21 @@ export function issueRoutes(db: Db, storage: StorageService) {
         techLeadAgentId: techLead.id,
         reviewerAgentId: reviewer.id,
         qaAgentId: qaAgent?.id ?? null,
+        coordinationOnly: req.body.coordinationOnly ?? false,
         projectedWorkItemCount: projectedWorkItems.length,
       },
     });
 
     res.status(201).json({
       issue: updatedRoot,
-      protocol: reassignDispatch.result,
-      warnings: reassignDispatch.warnings,
+      protocol: reassignDispatch?.result ?? null,
+      warnings: reassignDispatch?.warnings ?? [],
       projectedWorkItems,
       intakeProjection: {
         techLeadAgentId: techLead.id,
         reviewerAgentId: reviewer.id,
         qaAgentId: qaAgent?.id ?? null,
+        coordinationOnly: req.body.coordinationOnly ?? false,
       },
     });
   });

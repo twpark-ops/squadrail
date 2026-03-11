@@ -187,6 +187,18 @@ async function setAgentPaused(agentId, paused) {
 function collectScenarioParticipantIds(scenarios) {
   const ids = new Set();
   for (const scenario of scenarios) {
+    if (scenario.mode === "coordinated") {
+      ids.add(scenario.coordinator.pm.id);
+      ids.add(scenario.coordinator.techLead.id);
+      ids.add(scenario.coordinator.reviewer.id);
+      if (scenario.coordinator.qa?.id) ids.add(scenario.coordinator.qa.id);
+      for (const child of scenario.children ?? []) {
+        ids.add(child.assignee.id);
+        ids.add(child.reviewer.id);
+        if (child.workItem?.qaAgentId) ids.add(child.workItem.qaAgentId);
+      }
+      continue;
+    }
     ids.add(scenario.assignee.id);
     ids.add(scenario.reviewer.id);
     for (const recipient of scenario.additionalRecipients ?? []) {
@@ -692,6 +704,219 @@ function buildScenarioDefinitions(context) {
         mergeStatus: "pending_external_merge",
       },
     },
+    {
+      key: "multi-project-coordinated-delivery",
+      mode: "coordinated",
+      project: null,
+      coordinator: {
+        pm: agent("swiftsight-pm"),
+        techLead: agent("swiftsight-cloud-tl"),
+        reviewer: agent("swiftsight-qa-lead"),
+        qa: null,
+      },
+      rootIssue: {
+        title: "Org E2E: coordinate multi-project export delivery across agent, cloud, and swiftcl",
+        request: [
+          "상위 요구: export 전달 경로를 정리하면서 agent, cloud, swiftcl 세 프로젝트가 동시에 움직이는 coordinated delivery를 만들어라.",
+          "PM은 요구를 구조화하고, coordinating TL은 하위 project work item을 병렬로 fan-out 해야 한다.",
+          "각 child work item은 자기 project workspace에서 독립적으로 구현/리뷰/QA를 거쳐야 한다.",
+          "검증 목표:",
+          "- swiftsight-agent: SafeJoin nested path regression stays fixed",
+          "- swiftsight-cloud: observability build metadata version wiring stays fixed",
+          "- swiftcl: CatalogPath loading stays fixed",
+          "최종 기대:",
+          "- root issue 아래 project별 hidden child work item 3개 이상 생성",
+          "- 서로 다른 project engineer lane이 실제로 동시에 움직임",
+          "- 각 child가 독립 reviewer/QA gate를 거쳐 done이 됨",
+        ].join("\n"),
+        projectId: null,
+        priority: "high",
+        requiredKnowledgeTags: ["coordination", "cross-project", "delivery"],
+      },
+      projection: {
+        reason: "PM structured the cross-project export request into project-specific delivery slices with one coordinating TL.",
+        root: {
+          structuredTitle: "Coordinated export delivery across agent, cloud, and swiftcl",
+          projectId: null,
+          priority: "high",
+          executionSummary: "Coordinate project-specific child delivery slices for agent path safety, cloud build metadata wiring, and swiftcl CatalogPath loading.",
+          acceptanceCriteria: [
+            "Each child slice is owned by the correct project lane",
+            "At least two project lanes execute in parallel",
+            "Each child records review and QA evidence before closure",
+          ],
+          definitionOfDone: [
+            "All projected child work items are done",
+            "Parallel engineer execution is observed across distinct projects",
+            "Root coordination issue can be archived after child verification",
+          ],
+          risks: [
+            "Cross-project coordination can stall if one child lane never starts",
+            "Shared organizational memory may over-prioritize stale issue snapshots",
+          ],
+          openQuestions: [
+            "Root close is still a coordination/archive action, not a code-review close",
+          ],
+        },
+      },
+      children: [
+        {
+          key: "coord-swiftsight-agent-safejoin",
+          project: project("swiftsight-agent"),
+          repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-agent`,
+          workItem: {
+            title: "Child delivery: preserve nested SafeJoin segments",
+            description: [
+              "Project slice: swiftsight-agent",
+              "Fix the SafeJoin nested-path regression in internal/storage/path.go with focused tests in internal/storage/path_test.go.",
+              "Run only: `go test ./internal/storage -count=1`",
+              ...buildEngineerHelperLines([
+                `- submit review to \`${agent("swiftsight-agent-tl").urlKey}\` and keep QA Engineer \`${agent("swiftsight-qa-engineer").urlKey}\` in the QA gate`,
+              ]),
+            ].join("\n"),
+            kind: "implementation",
+            projectId: project("swiftsight-agent").id,
+            priority: "high",
+            assigneeAgentId: agent("swiftsight-agent-codex-engineer").id,
+            reviewerAgentId: agent("swiftsight-agent-tl").id,
+            qaAgentId: agent("swiftsight-qa-engineer").id,
+            goal: "Keep nested relative segments intact while preserving traversal protection.",
+            acceptanceCriteria: [
+              "Nested safe segments stay nested",
+              "Parent traversal still fails",
+              "Focused storage package test passes",
+            ],
+            definitionOfDone: [
+              "go test ./internal/storage -count=1 passes",
+              "Reviewer and QA both approve the child slice",
+            ],
+            watchLead: false,
+          },
+          assignee: agent("swiftsight-agent-codex-engineer"),
+          assigneeRole: "engineer",
+          reviewer: agent("swiftsight-agent-tl"),
+          reviewerRole: "reviewer",
+          closeAction: {
+            senderId: agent("swiftsight-agent-tl").id,
+            senderRole: "tech_lead",
+            summary: "Close coordinated SafeJoin child after TL review and QA approval",
+            closureSummary: "SafeJoin nested segment preservation is fixed in the coordinated delivery batch.",
+            verificationSummary: "Focused storage package tests, TL review, and QA approval were recorded.",
+            rollbackPlan: "Revert the SafeJoin child patch if nested-path handling regresses.",
+            finalArtifacts: [
+              "diff artifact attached",
+              "test_run artifact attached",
+              "approval recorded in protocol",
+            ],
+            remainingRisks: ["Merge remains external to this E2E harness."],
+            mergeStatus: "pending_external_merge",
+          },
+        },
+        {
+          key: "coord-swiftsight-cloud-build-info",
+          project: project("swiftsight-cloud"),
+          repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-cloud`,
+          workItem: {
+            title: "Child delivery: derive service.version from build metadata",
+            description: [
+              "Project slice: swiftsight-cloud",
+              "Fix the observability build-info wiring in internal/observability/tracing.go and internal/observability/tracing_test.go.",
+              "Run only: `go test ./internal/observability -count=1`",
+              ...buildEngineerHelperLines([
+                `- submit review to \`${agent("swiftsight-cloud-tl").urlKey}\` and keep QA Lead \`${agent("swiftsight-qa-lead").urlKey}\` in the QA gate`,
+              ]),
+            ].join("\n"),
+            kind: "implementation",
+            projectId: project("swiftsight-cloud").id,
+            priority: "high",
+            assigneeAgentId: agent("swiftsight-cloud-claude-engineer").id,
+            reviewerAgentId: agent("swiftsight-cloud-tl").id,
+            qaAgentId: agent("swiftsight-qa-lead").id,
+            goal: "Resolve service.version from build metadata with deterministic fallback.",
+            acceptanceCriteria: [
+              "createResource no longer hard-codes 1.0.0",
+              "Focused observability test passes",
+            ],
+            definitionOfDone: [
+              "go test ./internal/observability -count=1 passes",
+              "Reviewer and QA both approve the child slice",
+            ],
+            watchLead: false,
+          },
+          assignee: agent("swiftsight-cloud-claude-engineer"),
+          assigneeRole: "engineer",
+          reviewer: agent("swiftsight-cloud-tl"),
+          reviewerRole: "reviewer",
+          closeAction: {
+            senderId: agent("swiftsight-cloud-tl").id,
+            senderRole: "tech_lead",
+            summary: "Close coordinated build-info child after TL review and QA approval",
+            closureSummary: "Build metadata wiring now sets service.version with deterministic fallback in the coordinated batch.",
+            verificationSummary: "Focused observability tests, TL review, and QA approval were recorded.",
+            rollbackPlan: "Revert the tracing build-info patch if version wiring regresses.",
+            finalArtifacts: [
+              "diff artifact attached",
+              "test_run artifact attached",
+              "approval recorded in protocol",
+            ],
+            remainingRisks: ["Merge remains external to this E2E harness."],
+            mergeStatus: "pending_external_merge",
+          },
+        },
+        {
+          key: "coord-swiftcl-catalog-path",
+          project: project("swiftcl"),
+          repoRoot: `${SWIFTSIGHT_ROOT}/swiftcl`,
+          workItem: {
+            title: "Child delivery: honor Config.CatalogPath during bootstrap",
+            description: [
+              "Project slice: swiftcl",
+              "Fix CatalogPath loading in pkg/swiftcl and focused regression tests under pkg/swiftcl.",
+              "Run only: `go test ./pkg/swiftcl -count=1`",
+              ...buildEngineerHelperLines([
+                `- submit review to \`${agent("swiftcl-tl").urlKey}\` and keep QA Lead \`${agent("swiftsight-qa-lead").urlKey}\` in the QA gate`,
+              ]),
+            ].join("\n"),
+            kind: "implementation",
+            projectId: project("swiftcl").id,
+            priority: "high",
+            assigneeAgentId: agent("swiftcl-codex-engineer").id,
+            reviewerAgentId: agent("swiftcl-tl").id,
+            qaAgentId: agent("swiftsight-qa-lead").id,
+            goal: "Honor Config.CatalogPath while preserving invalid-path and empty-path behavior.",
+            acceptanceCriteria: [
+              "CatalogPath is honored",
+              "Invalid-path and empty-path behavior remain correct",
+              "Focused swiftcl package test passes",
+            ],
+            definitionOfDone: [
+              "go test ./pkg/swiftcl -count=1 passes",
+              "Reviewer and QA both approve the child slice",
+            ],
+            watchLead: false,
+          },
+          assignee: agent("swiftcl-codex-engineer"),
+          assigneeRole: "engineer",
+          reviewer: agent("swiftcl-tl"),
+          reviewerRole: "reviewer",
+          closeAction: {
+            senderId: agent("swiftcl-tl").id,
+            senderRole: "tech_lead",
+            summary: "Close coordinated CatalogPath child after TL review and QA approval",
+            closureSummary: "CatalogPath bootstrap loading now works and is verified in the coordinated batch.",
+            verificationSummary: "Focused swiftcl tests, TL review, and QA approval were recorded.",
+            rollbackPlan: "Revert the CatalogPath child patch if bootstrap behavior regresses.",
+            finalArtifacts: [
+              "diff artifact attached",
+              "test_run artifact attached",
+              "approval recorded in protocol",
+            ],
+            remainingRisks: ["Merge remains external to this E2E harness."],
+            mergeStatus: "pending_external_merge",
+          },
+        },
+      ],
+    },
   ];
 }
 
@@ -704,6 +929,48 @@ async function createIssue(companyId, scenario, labelIds) {
       description: scenario.issue.description,
       priority: "high",
       labelIds,
+    },
+  });
+}
+
+async function patchIssue(issueId, body) {
+  return api(`/api/issues/${issueId}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+async function createPmIntakeIssue(companyId, scenario, labelIds) {
+  const created = await api(`/api/companies/${companyId}/intake/issues`, {
+    method: "POST",
+    body: {
+      title: scenario.rootIssue.title,
+      request: scenario.rootIssue.request,
+      projectId: scenario.rootIssue.projectId ?? null,
+      priority: scenario.rootIssue.priority ?? "high",
+      pmAgentId: scenario.coordinator.pm.id,
+      reviewerAgentId: scenario.coordinator.reviewer.id,
+      requiredKnowledgeTags: scenario.rootIssue.requiredKnowledgeTags ?? [],
+    },
+  });
+  const issue = created.issue ?? created;
+  if ((labelIds?.length ?? 0) > 0) {
+    await patchIssue(issue.id, { labelIds });
+  }
+  return issue;
+}
+
+async function projectPmIntakeIssue(issueId, scenario) {
+  return api(`/api/issues/${issueId}/intake/projection`, {
+    method: "POST",
+    body: {
+      reason: scenario.projection.reason,
+      techLeadAgentId: scenario.coordinator.techLead.id,
+      reviewerAgentId: scenario.coordinator.reviewer.id,
+      qaAgentId: scenario.coordinator.qa?.id ?? null,
+      coordinationOnly: scenario.mode === "coordinated",
+      root: scenario.projection.root,
+      workItems: scenario.children.map((child) => child.workItem),
     },
   });
 }
@@ -1017,21 +1284,63 @@ async function assertScenarioSuccess(scenario, snapshot, baselineStatus) {
   };
 }
 
-async function runScenario(companyId, scenario) {
-  section(`Scenario: ${scenario.key}`);
-  note(`project=${scenario.project.name}`);
-  note(`assignee=${scenario.assignee.urlKey} (${scenario.assignee.adapterType})`);
-  note(`reviewer=${scenario.reviewer.urlKey} (${scenario.reviewer.adapterType})`);
+function extractImplementationWindow(messages) {
+  const started = latestMessage(messages, "START_IMPLEMENTATION");
+  if (!started?.createdAt) return null;
+  const finished =
+    latestMessage(messages, "SUBMIT_FOR_REVIEW")
+    ?? latestMessage(messages, "CLOSE_TASK")
+    ?? latestMessage(messages, "REQUEST_CHANGES")
+    ?? latestMessage(messages, "APPROVE_IMPLEMENTATION");
+  return {
+    startedAt: started.createdAt,
+    finishedAt: finished?.createdAt ?? started.createdAt,
+  };
+}
 
-  const baselineStatus = await gitStatus(scenario.repoRoot);
-  note(`base git status lines=${baselineStatus ? baselineStatus.split("\n").length : 0}`);
+function summarizeParallelism(results) {
+  const intervals = results
+    .map((result) => {
+      const window = result.implementationWindow;
+      if (!window) return null;
+      return {
+        project: result.project,
+        startedAt: Date.parse(window.startedAt),
+        finishedAt: Date.parse(window.finishedAt),
+      };
+    })
+    .filter((value) => value && Number.isFinite(value.startedAt) && Number.isFinite(value.finishedAt));
 
-  const issue = await createIssue(companyId, scenario, scenario.labelIds ?? []);
-  note(`created issue ${issue.identifier} (${issue.id})`);
+  const events = [];
+  for (const interval of intervals) {
+    events.push({ at: interval.startedAt, type: "start", project: interval.project });
+    events.push({ at: interval.finishedAt, type: "end", project: interval.project });
+  }
+  events.sort((a, b) => (a.at - b.at) || (a.type === "end" ? -1 : 1));
 
-  await assignIssue(issue.id, scenario);
-  note(`assigned issue ${issue.identifier}`);
+  const active = new Map();
+  let maxParallelRuns = 0;
+  let maxDistinctProjects = 0;
 
+  for (const event of events) {
+    if (event.type === "start") {
+      active.set(`${event.project}:${event.at}:${active.size}`, event.project);
+    } else {
+      const activeEntry = [...active.entries()].find(([, project]) => project === event.project);
+      if (activeEntry) active.delete(activeEntry[0]);
+    }
+    maxParallelRuns = Math.max(maxParallelRuns, active.size);
+    maxDistinctProjects = Math.max(maxDistinctProjects, new Set(active.values()).size);
+  }
+
+  return {
+    childCount: results.length,
+    maxParallelRuns,
+    maxDistinctProjects,
+  };
+}
+
+async function executeScenarioIssue(issue, scenario, baselineStatus) {
   let snapshot;
   try {
     snapshot = await waitForCompletion(issue.id, scenario);
@@ -1066,7 +1375,7 @@ async function runScenario(companyId, scenario) {
     issueId: issue.id,
     identifier: issue.identifier,
     scenario: scenario.key,
-    project: scenario.project.name,
+    project: scenario.project?.name ?? null,
     assignee: scenario.assignee.urlKey,
     reviewer: scenario.reviewer.urlKey,
     trail: verified.trail,
@@ -1075,7 +1384,107 @@ async function runScenario(companyId, scenario) {
     briefCount: verified.briefCount,
     reviewCycles: verified.reviewCycles,
     checkpoints: verified.checkpoints,
+    implementationWindow: extractImplementationWindow(snapshot.messages),
   };
+}
+
+async function runCoordinatedScenario(companyId, scenario) {
+  section(`Scenario: ${scenario.key}`);
+  note("mode=coordinated");
+  note(`pm=${scenario.coordinator.pm.urlKey}`);
+  note(`coordinationTl=${scenario.coordinator.techLead.urlKey}`);
+  note(`qa=${scenario.coordinator.qa?.urlKey ?? "none"}`);
+
+  const baselineStatuses = new Map();
+  for (const child of scenario.children) {
+    baselineStatuses.set(child.key, await gitStatus(child.repoRoot));
+  }
+
+  const rootIssue = await createPmIntakeIssue(companyId, scenario, scenario.labelIds ?? []);
+  note(`created intake root ${rootIssue.identifier} (${rootIssue.id})`);
+
+  let projection = null;
+  try {
+    projection = await projectPmIntakeIssue(rootIssue.id, scenario);
+    note(`projected root ${rootIssue.identifier} into ${projection.projectedWorkItems.length} child work items`);
+
+    assert.equal(
+      projection.projectedWorkItems.length,
+      scenario.children.length,
+      `${scenario.key} projected child count mismatch`,
+    );
+
+    await cancelIssue(
+      rootIssue.id,
+      "Projection completed; archive the coordinating root so only child project lanes continue executing during burn-in.",
+      "Archive coordinating root after child fan-out",
+    );
+    if (HIDE_COMPLETED_ISSUES) {
+      await hideIssue(rootIssue.id);
+      note(`hid coordinated root ${rootIssue.identifier} after projection`);
+    }
+
+    const childRuns = await Promise.all(
+      scenario.children.map((child, index) =>
+        executeScenarioIssue(projection.projectedWorkItems[index], child, baselineStatuses.get(child.key) ?? ""),
+      ),
+    );
+
+    const parallelism = summarizeParallelism(childRuns);
+    assert(
+      parallelism.maxDistinctProjects >= 2,
+      `${scenario.key} did not fan out across at least two project lanes`,
+    );
+
+    return {
+      issueId: rootIssue.id,
+      identifier: rootIssue.identifier,
+      scenario: scenario.key,
+      project: null,
+      assignee: scenario.coordinator.pm.urlKey,
+      reviewer: scenario.coordinator.reviewer.urlKey,
+      trail: "coordinated-child-fanout",
+      isolatedCwd: null,
+      closePayload: null,
+      briefCount: childRuns.reduce((sum, child) => sum + child.briefCount, 0),
+      reviewCycles: childRuns.reduce((sum, child) => sum + child.reviewCycles, 0),
+      checkpoints: [],
+      coordinatedChildren: childRuns,
+      parallelism,
+    };
+  } catch (error) {
+    if (projection?.projectedWorkItems) {
+      for (const issue of projection.projectedWorkItems) {
+        try {
+          await cancelIssue(issue.id, `Coordinated scenario ${scenario.key} failed and archived child issue.`);
+        } catch {}
+      }
+    }
+    try {
+      await cancelIssue(rootIssue.id, `Coordinated scenario ${scenario.key} failed and archived root issue.`);
+    } catch {}
+    throw error;
+  }
+}
+
+async function runScenario(companyId, scenario) {
+  if (scenario.mode === "coordinated") {
+    return runCoordinatedScenario(companyId, scenario);
+  }
+  section(`Scenario: ${scenario.key}`);
+  note(`project=${scenario.project.name}`);
+  note(`assignee=${scenario.assignee.urlKey} (${scenario.assignee.adapterType})`);
+  note(`reviewer=${scenario.reviewer.urlKey} (${scenario.reviewer.adapterType})`);
+
+  const baselineStatus = await gitStatus(scenario.repoRoot);
+  note(`base git status lines=${baselineStatus ? baselineStatus.split("\n").length : 0}`);
+
+  const issue = await createIssue(companyId, scenario, scenario.labelIds ?? []);
+  note(`created issue ${issue.identifier} (${issue.id})`);
+
+  await assignIssue(issue.id, scenario);
+  note(`assigned issue ${issue.identifier}`);
+  return executeScenarioIssue(issue, scenario, baselineStatus);
 }
 
 async function main() {

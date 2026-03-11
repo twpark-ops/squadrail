@@ -65,6 +65,12 @@
 - 일반 구현 이슈 1~2개
 - cross-project / QA-heavy 이슈 1개
 
+선행 구현:
+
+- root coordinating issue 아래 child work item이 각기 다른 `projectId`를 가질 수 있어야 한다.
+- 현재 커널은 hidden child work item을 만들 수 있지만, project별 fan-out override가 없으면 진짜 멀티프로젝트 burn-in이 아니다.
+- 따라서 burn-in 2단계의 첫 슬라이스는 `cross-project child work item support`다.
+
 관찰 항목:
 
 - reassignment
@@ -77,6 +83,7 @@
 완료 기준:
 
 - 여러 이슈가 동시에 돌아도 stuck run과 queue pollution 없이 완주 가능하다.
+- 멀티프로젝트 coordinating scenario에서 최소 2개 이상의 distinct project lane이 실제 child work item으로 병렬 fan-out된다.
 - 상세 실행계획은 [18-agent-real-org-burn-in-plan.md](/home/taewoong/company-project/squadall/docs/18-agent-real-org-burn-in-plan.md) 기준으로 관리한다.
 
 ### 3. Blocked Timeout + Legacy Semantics Cleanup
@@ -155,8 +162,9 @@
 이번 배치에서 바로 할 일:
 
 1. replay gate normalization 완료
-2. 18-agent burn-in 계획 고정
-3. blocked / legacy cleanup 설계 시작
+2. cross-project child work item support 구현
+3. 18-agent burn-in 계획 고정 및 multi-project coordinated scenario 실구현
+4. blocked / legacy cleanup 설계 시작
 
 이번 배치에서 아직 하지 않을 일:
 
