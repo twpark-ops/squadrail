@@ -86,6 +86,160 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function normalizeOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function buildKnowledgeDocumentVersionValues(input: {
+  companyId: string;
+  documentId: string;
+  projectId?: string | null;
+  path?: string | null;
+  repoRef?: string | null;
+  branchName?: string | null;
+  defaultBranchName?: string | null;
+  commitSha?: string | null;
+  parentCommitSha?: string | null;
+  isHead?: boolean;
+  isDefaultBranch?: boolean;
+  capturedAt?: string | Date | null;
+  metadata?: Record<string, unknown>;
+  now?: Date;
+}) {
+  const branchName = normalizeOptionalString(input.branchName);
+  const commitSha = normalizeOptionalString(input.commitSha);
+  if (!branchName && !commitSha) return null;
+
+  const capturedAt = input.capturedAt
+    ? (input.capturedAt instanceof Date ? input.capturedAt : new Date(input.capturedAt))
+    : (input.now ?? new Date());
+
+  return {
+    companyId: input.companyId,
+    documentId: input.documentId,
+    projectId: input.projectId ?? null,
+    path: input.path ?? null,
+    repoRef: input.repoRef ?? null,
+    branchName,
+    defaultBranchName: normalizeOptionalString(input.defaultBranchName),
+    commitSha,
+    parentCommitSha: normalizeOptionalString(input.parentCommitSha),
+    isHead: input.isHead ?? true,
+    isDefaultBranch: input.isDefaultBranch === true,
+    capturedAt,
+    metadata: input.metadata ?? {},
+    updatedAt: input.now ?? new Date(),
+  } satisfies typeof knowledgeDocumentVersions.$inferInsert;
+}
+
+export function buildTaskBriefValues(input: {
+  companyId: string;
+  issueId: string;
+  briefScope: string;
+  briefVersion: number;
+  generatedFromMessageSeq: number;
+  workflowState: string;
+  contentMarkdown: string;
+  contentJson?: Record<string, unknown>;
+  retrievalRunId?: string | null;
+}) {
+  return {
+    companyId: input.companyId,
+    issueId: input.issueId,
+    briefScope: input.briefScope,
+    briefVersion: input.briefVersion,
+    generatedFromMessageSeq: input.generatedFromMessageSeq,
+    workflowState: input.workflowState,
+    contentMarkdown: input.contentMarkdown,
+    contentJson: input.contentJson ?? {},
+    retrievalRunId: input.retrievalRunId ?? null,
+  } satisfies typeof issueTaskBriefs.$inferInsert;
+}
+
+export function buildRetrievalPolicyValues(input: {
+  companyId: string;
+  role: string;
+  eventType: string;
+  workflowState: string;
+  topKDense?: number;
+  topKSparse?: number;
+  rerankK?: number;
+  finalK?: number;
+  allowedSourceTypes: string[];
+  allowedAuthorityLevels: string[];
+  metadata?: Record<string, unknown>;
+}) {
+  return {
+    companyId: input.companyId,
+    role: input.role,
+    eventType: input.eventType,
+    workflowState: input.workflowState,
+    topKDense: input.topKDense ?? 20,
+    topKSparse: input.topKSparse ?? 20,
+    rerankK: input.rerankK ?? 20,
+    finalK: input.finalK ?? 8,
+    allowedSourceTypes: input.allowedSourceTypes,
+    allowedAuthorityLevels: input.allowedAuthorityLevels,
+    metadata: input.metadata ?? {},
+  } satisfies typeof retrievalPolicies.$inferInsert;
+}
+
+export function buildRetrievalPolicyUpdateSet(
+  values: ReturnType<typeof buildRetrievalPolicyValues>,
+  updatedAt: Date = new Date(),
+) {
+  return {
+    topKDense: values.topKDense,
+    topKSparse: values.topKSparse,
+    rerankK: values.rerankK,
+    finalK: values.finalK,
+    allowedSourceTypes: values.allowedSourceTypes,
+    allowedAuthorityLevels: values.allowedAuthorityLevels,
+    metadata: values.metadata,
+    updatedAt,
+  };
+}
+
+export function buildRetrievalRunValues(input: {
+  companyId: string;
+  actorType: string;
+  actorId: string;
+  actorRole: string;
+  eventType: string;
+  workflowState: string;
+  queryText: string;
+  queryDebug?: Record<string, unknown>;
+  issueId?: string | null;
+  triggeringMessageId?: string | null;
+  policyId?: string | null;
+  finalBriefId?: string | null;
+}) {
+  return {
+    companyId: input.companyId,
+    issueId: input.issueId ?? null,
+    triggeringMessageId: input.triggeringMessageId ?? null,
+    actorType: input.actorType,
+    actorId: input.actorId,
+    actorRole: input.actorRole,
+    eventType: input.eventType,
+    workflowState: input.workflowState,
+    policyId: input.policyId ?? null,
+    queryText: input.queryText,
+    queryDebug: input.queryDebug ?? {},
+    finalBriefId: input.finalBriefId ?? null,
+  } satisfies typeof retrievalRuns.$inferInsert;
+}
+
+export function mergeRetrievalRunDebugPatch(
+  existing: Record<string, unknown> | null | undefined,
+  patch: Record<string, unknown>,
+) {
+  return {
+    ...(existing ?? {}),
+    ...patch,
+  };
+}
+
 type KnowledgeGraphProjectRow = {
   projectId: string;
   projectName: string;
@@ -310,7 +464,7 @@ export function buildKnowledgeQualityDailyTrend(input: {
   return Array.from(bucketMap.values());
 }
 
-function buildMinimalCodeGraphFromChunks(input: {
+export function buildMinimalCodeGraphFromChunks(input: {
   chunks: Array<{
     chunkIndex: number;
     symbolName?: string | null;
@@ -387,14 +541,6 @@ export function knowledgeService(db: Db) {
   }
 
   async function recordDocumentVersion(input: KnowledgeDocumentVersionInput) {
-    const branchName = typeof input.branchName === "string" && input.branchName.trim().length > 0
-      ? input.branchName.trim()
-      : null;
-    const commitSha = typeof input.commitSha === "string" && input.commitSha.trim().length > 0
-      ? input.commitSha.trim()
-      : null;
-    if (!branchName && !commitSha) return null;
-
     const document = await db
       .select({
         id: knowledgeDocuments.id,
@@ -408,17 +554,24 @@ export function knowledgeService(db: Db) {
       .then((rows) => rows[0] ?? null);
     if (!document) return null;
 
-    const projectId = input.projectId ?? document.projectId ?? null;
-    const pathValue = input.path ?? document.path ?? null;
-    const repoRef = input.repoRef ?? document.repoRef ?? null;
-    const defaultBranchName = typeof input.defaultBranchName === "string" && input.defaultBranchName.trim().length > 0
-      ? input.defaultBranchName.trim()
-      : null;
-    const capturedAt = input.capturedAt
-      ? (input.capturedAt instanceof Date ? input.capturedAt : new Date(input.capturedAt))
-      : new Date();
+    const values = buildKnowledgeDocumentVersionValues({
+      companyId: input.companyId,
+      documentId: input.documentId,
+      projectId: input.projectId ?? document.projectId ?? null,
+      path: input.path ?? document.path ?? null,
+      repoRef: input.repoRef ?? document.repoRef ?? null,
+      branchName: input.branchName,
+      defaultBranchName: input.defaultBranchName,
+      commitSha: input.commitSha,
+      parentCommitSha: input.parentCommitSha,
+      isHead: input.isHead,
+      isDefaultBranch: input.isDefaultBranch,
+      capturedAt: input.capturedAt,
+      metadata: input.metadata,
+    });
+    if (!values) return null;
 
-    if (branchName && pathValue) {
+    if (values.branchName && values.path) {
       await db
         .update(knowledgeDocumentVersions)
         .set({
@@ -428,9 +581,9 @@ export function knowledgeService(db: Db) {
         .where(
           and(
             eq(knowledgeDocumentVersions.companyId, input.companyId),
-            eqNullable(knowledgeDocumentVersions.projectId, projectId),
-            eqNullable(knowledgeDocumentVersions.path, pathValue),
-            eqNullable(knowledgeDocumentVersions.branchName, branchName),
+            eqNullable(knowledgeDocumentVersions.projectId, values.projectId),
+            eqNullable(knowledgeDocumentVersions.path, values.path),
+            eqNullable(knowledgeDocumentVersions.branchName, values.branchName),
             ne(knowledgeDocumentVersions.documentId, input.documentId),
           ),
         );
@@ -443,30 +596,11 @@ export function knowledgeService(db: Db) {
         and(
           eq(knowledgeDocumentVersions.companyId, input.companyId),
           eq(knowledgeDocumentVersions.documentId, input.documentId),
-          eqNullable(knowledgeDocumentVersions.branchName, branchName),
-          eqNullable(knowledgeDocumentVersions.commitSha, commitSha),
+          eqNullable(knowledgeDocumentVersions.branchName, values.branchName),
+          eqNullable(knowledgeDocumentVersions.commitSha, values.commitSha),
         ),
       )
       .then((rows) => rows[0] ?? null);
-
-    const values = {
-      companyId: input.companyId,
-      documentId: input.documentId,
-      projectId,
-      path: pathValue,
-      repoRef,
-      branchName,
-      defaultBranchName,
-      commitSha,
-      parentCommitSha: typeof input.parentCommitSha === "string" && input.parentCommitSha.trim().length > 0
-        ? input.parentCommitSha.trim()
-        : null,
-      isHead: input.isHead ?? true,
-      isDefaultBranch: input.isDefaultBranch === true,
-      capturedAt,
-      metadata: input.metadata ?? {},
-      updatedAt: new Date(),
-    };
 
     if (!existing) {
       const [created] = await db
@@ -1679,19 +1813,10 @@ export function knowledgeService(db: Db) {
       contentJson?: Record<string, unknown>;
       retrievalRunId?: string | null;
     }) => {
+      const values = buildTaskBriefValues(input);
       const [created] = await db
         .insert(issueTaskBriefs)
-        .values({
-          companyId: input.companyId,
-          issueId: input.issueId,
-          briefScope: input.briefScope,
-          briefVersion: input.briefVersion,
-          generatedFromMessageSeq: input.generatedFromMessageSeq,
-          workflowState: input.workflowState,
-          contentMarkdown: input.contentMarkdown,
-          contentJson: input.contentJson ?? {},
-          retrievalRunId: input.retrievalRunId ?? null,
-        })
+        .values(values)
         .returning();
       return created;
     },
@@ -1733,21 +1858,10 @@ export function knowledgeService(db: Db) {
       allowedAuthorityLevels: string[];
       metadata?: Record<string, unknown>;
     }) => {
+      const values = buildRetrievalPolicyValues(input);
       const [created] = await db
         .insert(retrievalPolicies)
-        .values({
-          companyId: input.companyId,
-          role: input.role,
-          eventType: input.eventType,
-          workflowState: input.workflowState,
-          topKDense: input.topKDense ?? 20,
-          topKSparse: input.topKSparse ?? 20,
-          rerankK: input.rerankK ?? 20,
-          finalK: input.finalK ?? 8,
-          allowedSourceTypes: input.allowedSourceTypes,
-          allowedAuthorityLevels: input.allowedAuthorityLevels,
-          metadata: input.metadata ?? {},
-        })
+        .values(values)
         .onConflictDoUpdate({
           target: [
             retrievalPolicies.companyId,
@@ -1755,16 +1869,7 @@ export function knowledgeService(db: Db) {
             retrievalPolicies.eventType,
             retrievalPolicies.workflowState,
           ],
-          set: {
-            topKDense: input.topKDense ?? 20,
-            topKSparse: input.topKSparse ?? 20,
-            rerankK: input.rerankK ?? 20,
-            finalK: input.finalK ?? 8,
-            allowedSourceTypes: input.allowedSourceTypes,
-            allowedAuthorityLevels: input.allowedAuthorityLevels,
-            metadata: input.metadata ?? {},
-            updatedAt: new Date(),
-          },
+          set: buildRetrievalPolicyUpdateSet(values),
         })
         .returning();
       return created;
@@ -1828,22 +1933,10 @@ export function knowledgeService(db: Db) {
       policyId?: string | null;
       finalBriefId?: string | null;
     }) => {
+      const values = buildRetrievalRunValues(input);
       const [created] = await db
         .insert(retrievalRuns)
-        .values({
-          companyId: input.companyId,
-          issueId: input.issueId ?? null,
-          triggeringMessageId: input.triggeringMessageId ?? null,
-          actorType: input.actorType,
-          actorId: input.actorId,
-          actorRole: input.actorRole,
-          eventType: input.eventType,
-          workflowState: input.workflowState,
-          policyId: input.policyId ?? null,
-          queryText: input.queryText,
-          queryDebug: input.queryDebug ?? {},
-          finalBriefId: input.finalBriefId ?? null,
-        })
+        .values(values)
         .returning();
       return created;
     },
@@ -1868,10 +1961,7 @@ export function knowledgeService(db: Db) {
       const [updated] = await db
         .update(retrievalRuns)
         .set({
-          queryDebug: {
-            ...(existing.queryDebug ?? {}),
-            ...patch,
-          },
+          queryDebug: mergeRetrievalRunDebugPatch(existing.queryDebug, patch),
         })
         .where(eq(retrievalRuns.id, retrievalRunId))
         .returning();

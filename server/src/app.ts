@@ -12,6 +12,7 @@ import { actorMiddleware } from "./middleware/auth.js";
 import { boardMutationGuard } from "./middleware/board-mutation-guard.js";
 import { privateHostnameGuard, resolvePrivateHostnameAllowSet } from "./middleware/private-hostname-guard.js";
 import { rlsRequestContextMiddleware } from "./middleware/rls.js";
+import { securityHeaders } from "./middleware/security-headers.js";
 import { healthRoutes } from "./routes/health.js";
 import { companyRoutes } from "./routes/companies.js";
 import { agentRoutes } from "./routes/agents.js";
@@ -51,6 +52,7 @@ export async function createApp(
 ) {
   const app = express();
 
+  app.use(securityHeaders({ uiMode: opts.uiMode }));
   app.use(express.json());
   app.use(httpLogger);
   const privateHostnameGateEnabled =

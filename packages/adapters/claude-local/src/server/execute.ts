@@ -212,8 +212,12 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
     env.SQUADRAIL_API_KEY = authToken;
   }
 
-  const runtimeEnv = await withProtocolTransportGuards(
-    ensurePathInEnv({ ...process.env, ...env }),
+  const runtimeEnv = Object.fromEntries(
+    Object.entries(
+      await withProtocolTransportGuards(
+        ensurePathInEnv({ ...process.env, ...env }),
+      ),
+    ).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
   await ensureCommandResolvable(command, cwd, runtimeEnv);
 
@@ -231,7 +235,7 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
     workspaceId,
     workspaceRepoUrl,
     workspaceRepoRef,
-    env,
+    env: runtimeEnv,
     timeoutSec,
     graceSec,
     extraArgs,
