@@ -26,6 +26,7 @@
 > - `13-L. runtime coverage/decomposition batch 5` 진행 중
 > - `13-M. runtime/protocol coverage uplift batch 6` 진행 중
 > - `13-N. recovery/template/role integrity hardening` 완료
+> - `13-O. runtime/protocol coverage uplift batch 7` 완료
 > 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`이다.
 
 ## 목적
@@ -238,6 +239,18 @@
     - `pnpm --filter @squadrail/server test`
   - 최신 server tests: `105 files / 723 tests` 통과
   - coverage baseline은 직전 측정치 `46.75%`
+- `2026-03-13 runtime/protocol coverage uplift` 7차 완료
+  - `issue-protocol-state-policy.test.ts`에 `mapProtocolStateToIssueStatus`, `applyProjectedIssueStatus`, `renderMirrorComment`, `resolveExpectedWorkflowStateAfter` coverage를 추가했다.
+  - `issue-retrieval.test.ts`에 cached embedding / retrieval hit serialization / cache payload / provenance / revision signature helper coverage를 추가했다.
+  - `knowledge-service-operations.test.ts`에 `getDocumentById`, `listDocuments`, `getRetrievalPolicy`, `listRetrievalPolicies`, `getRetrievalRunById` direct read path를 추가했다.
+  - `heartbeat-service-flow.test.ts`에 `invoke` wrapper와 `cancelActiveForAgent` direct service branch를 추가했다.
+  - 검증:
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issue-protocol-state-policy.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/knowledge-service-operations.test.ts src/__tests__/issue-retrieval.test.ts`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `47.70%`, branches `62.88%`, functions `71.31%`
+  - 최신 server tests: `105 files / 736 tests` 통과
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -251,7 +264,8 @@
 
 1. remaining global coverage uplift toward `60%` across large runtime/operator services
 2. `issue-protocol.ts / heartbeat.ts / knowledge.ts / issue-retrieval.ts` direct test와 tail branch coverage 확대
-3. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface) 중 ROI 높은 표면만 선택 보강
+3. immediate next는 `issue-protocol appendMessage`, `heartbeat reap/watchdog`, `knowledge listRecentRetrievalRuns`, `issue-retrieval service-body cache/revision path`다
+4. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface) 중 ROI 높은 표면만 선택 보강
 
 한 줄 요약:
 
@@ -269,16 +283,16 @@
 
 #### Slice F1. Runtime / Protocol Bottleneck Coverage
 
-1. `issue-protocol.ts` direct service test를 늘려 `listMessages`, `createViolation`, close/review gate edge를 더 메운다
-2. `heartbeat.ts`는 `tickTimers`, `reap`, `reset`, `cancel`, `promote` service path를 더 직접 고정한다
-3. `knowledge.ts`는 retrieval policy/run/debug/cache/report 계열 service path를 더 늘린다
-4. `issue-retrieval.ts`는 finalization/orchestration helper coverage를 우선 늘린다
+1. `issue-protocol.ts`는 `appendMessage`의 validation / evidence gate / review-cycle branch를 direct service 단위로 더 메운다
+2. `heartbeat.ts`는 `reapOrphanedRuns`, watchdog tail, cancel lifecycle service path를 더 직접 고정한다
+3. `knowledge.ts`는 `listRecentRetrievalRuns`, retrieval feedback aggregation, task brief read path를 더 늘린다
+4. `issue-retrieval.ts`는 service-body cache/revision/provenance path를 helper보다 한 단계 안쪽까지 끌어올린다
 
 #### Slice F2. Low-Coverage Shell ROI Pass
 
 1. `access.ts`, `projects.ts`, `secrets.ts` route shell 1차는 완료했다
 2. 다음은 `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface 중 ROI 높은 표면만 추가한다
-3. 전역 coverage를 `46%+`에서 더 끌어올리는 데 가장 효율적인 표면만 고른다
+3. 전역 coverage를 `47%+`에서 더 끌어올리는 데 가장 효율적인 표면만 고른다
 
 우선 테스트 파일:
 

@@ -99,6 +99,10 @@ One-line startup rule:
   - workflow template update는 `default-*` reserved prefix와 duplicate ID를 shared validator + service layer 양쪽에서 차단한다.
   - custom role creation은 transaction으로 감싸 partial set/revision/file row가 남지 않게 했다.
   - Company Settings custom role success는 `setupProgress` / `doctor` query까지 invalidate해서 stale operator shell을 줄였다.
+- `13-O. runtime/protocol coverage uplift batch 7`: 완료
+  - `issue-protocol-state-policy.test.ts`에 state projection, mirror comment, review/approval transition helper coverage를 추가했다.
+  - `issue-retrieval.test.ts`에 cache serialization/provenance/revision-signature helper coverage를 추가했다.
+  - `knowledge-service-operations.test.ts`에 document/policy/retrieval-run read path를 추가했고, `heartbeat-service-flow.test.ts`에 `invoke` / `cancelActiveForAgent` direct service branch를 보강했다.
 
 ## Current Product State
 
@@ -119,22 +123,20 @@ One-line startup rule:
 - `recovery reopen consistency / workflow template invariants / custom role transactionality / Company Settings invalidate` 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm --filter @squadrail/shared typecheck`
   - `pnpm --filter @squadrail/server typecheck`
-  - `pnpm --filter @squadrail/ui typecheck`
   - `pnpm --filter @squadrail/server build`
-  - `pnpm --filter @squadrail/ui build`
-  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issues-routes.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/workflow-templates.test.ts src/__tests__/role-pack-service.test.ts src/__tests__/companies-routes.test.ts`
-  - `pnpm --filter @squadrail/server test`
-  - `105 files / 723 tests` 통과
-  - coverage baseline은 직전 측정치 `46.75%`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issue-protocol-state-policy.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/knowledge-service-operations.test.ts src/__tests__/issue-retrieval.test.ts`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - `105 files / 736 tests` 통과
+  - server coverage `47.70%`
 - 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`
 
 ## Next Priorities
 
 1. remaining global coverage uplift toward `60%` across large runtime/operator services
 2. `issue-protocol.ts / heartbeat.ts / knowledge.ts / issue-retrieval.ts` direct test와 tail branch coverage 확대
-3. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface) 중 ROI 높은 표면만 선택 보강
+3. immediate next slice는 `issue-protocol appendMessage`, `heartbeat cancel/reap tail`, `knowledge listRecentRetrievalRuns`, `issue-retrieval service-body cache/revision path`다
+4. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface) 중 ROI 높은 표면만 선택 보강
 
 Interpretation:
 
@@ -147,12 +149,12 @@ Start with `issue-protocol / heartbeat / knowledge / issue-retrieval coverage up
 
 Suggested slice:
 
-1. `issue-protocol.ts` direct service test를 더 늘리고, heavy path는 `appendMessage` 전체보다 `listMessages/createViolation/close gate edge`부터 메우기
-2. `heartbeat.ts`는 `tickTimers/reap/reset/cancel/promote` service path를 계속 direct test로 늘리기
-3. `knowledge.ts`는 retrieval policy/run/debug/cache/report 계열 service path를 더 직접 고정하기
-4. `issue-retrieval.ts`는 finalization/orchestration helper coverage를 계속 올리기
-5. shell 쪽은 `access/projects/secrets` 1차 이후 `board-claim.ts`와 `dashboard/companies` service surface 위주로 좁혀서 메우기
-6. 마지막에 `pnpm -r typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
+1. `issue-protocol.ts`는 `appendMessage`의 message validation / evidence gate / review-cycle branch를 direct service 단위로 더 메우기
+2. `heartbeat.ts`는 `cancelActiveForAgent` 이후 `reapOrphanedRuns`와 watchdog tail을 계속 direct test로 늘리기
+3. `knowledge.ts`는 `listRecentRetrievalRuns`, `listTaskBriefs`, retrieval feedback aggregation read path를 우선 메우기
+4. `issue-retrieval.ts`는 service-body cache/revision/provenance path를 helper보다 한 단계 안쪽까지 끌어올리기
+5. shell 쪽은 `board-claim.ts`와 `dashboard/companies` service surface 위주로 좁혀서 메우기
+6. 마지막에 `pnpm --filter @squadrail/server typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
 
 ## Important Files
 
