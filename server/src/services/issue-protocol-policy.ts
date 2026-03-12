@@ -200,6 +200,11 @@ export function evaluateProtocolEvidenceRequirement(input: {
   message: CreateIssueProtocolMessage;
   latestReviewArtifacts?: ProtocolArtifactLike[];
   latestReviewPayload?: ReviewSubmissionPayloadLike;
+  mergeGateStatus?: {
+    mergeReady: boolean;
+    blockingReasons: string[];
+  } | null;
+  enforceMergeGate?: boolean;
 }): ProtocolPolicyViolationResult | null {
   const { message, latestReviewArtifacts = [], latestReviewPayload = null } = input;
 
@@ -287,6 +292,17 @@ export function evaluateProtocolEvidenceRequirement(input: {
       return {
         violationCode: "close_without_verification",
         message: "Close task requires repo evidence, approval, and corroborated verification artifacts when merge status is merged",
+      };
+    }
+    if (
+      input.enforceMergeGate === true
+      && message.payload.mergeStatus === "merged"
+      && input.mergeGateStatus
+      && input.mergeGateStatus.mergeReady === false
+    ) {
+      return {
+        violationCode: "close_without_verification",
+        message: `Close task requires passing synced CI gate before merged handoff (${input.mergeGateStatus.blockingReasons.join(" ")})`,
       };
     }
     return null;

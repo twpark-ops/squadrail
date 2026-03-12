@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { issues, type Db } from "@squadrail/db";
+import { issueProtocolState, issues, type Db } from "@squadrail/db";
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
 import { canDispatchProtocolToAdapter } from "../adapters/index.js";
 import { logActivity } from "./activity-log.js";
@@ -15,6 +15,12 @@ import {
   reviewerWatchReason,
   type InternalWorkItemSupervisorContext,
 } from "./internal-work-item-supervision.js";
+import {
+  buildIssueDependencyBlockingSummary,
+  hasBlockingIssueDependencies,
+  readIssueDependencyGraphMetadata,
+  resolveIssueDependencyGraphMetadata,
+} from "./issue-dependency-graph.js";
 
 type ProtocolWakeSource = "assignment" | "automation";
 type ProtocolDispatchKind = "wakeup" | "notify_only" | "skip_sender" | "skip_unsupported_adapter";
@@ -185,6 +191,15 @@ function protocolExecutionReason(messageType: string) {
 function protocolExecutionSource(messageType: string): ProtocolWakeSource {
   if (messageType === "ASSIGN_TASK" || messageType === "REASSIGN_TASK") return "assignment";
   return "automation";
+}
+
+function dependencyBlockedPhase(targetWorkflowState: string | null | undefined) {
+  if (targetWorkflowState === "under_review" || targetWorkflowState === "under_qa_review") {
+    return "review" as const;
+  }
+  if (targetWorkflowState === "planning") return "planning" as const;
+  if (targetWorkflowState === "assigned") return "assignment" as const;
+  return "implementing" as const;
 }
 
 function shouldWakeRecipientForMessage(messageType: string, recipientRole: string) {
@@ -510,6 +525,90 @@ export function issueProtocolExecutionService(db: Db) {
         recipientHints: input.recipientHints,
         issueContext,
       });
+      const currentState = await db
+        .select({
+          workflowState: issueProtocolState.workflowState,
+          metadata: issueProtocolState.metadata,
+        })
+        .from(issueProtocolState)
+        .where(and(eq(issueProtocolState.issueId, input.issueId), eq(issueProtocolState.companyId, input.companyId)))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+
+      const storedDependencyGraph = readIssueDependencyGraphMetadata(currentState?.metadata ?? null);
+      const dependencyGraph =
+        await resolveIssueDependencyGraphMetadata(db, {
+          companyId: input.companyId,
+          issueId: input.issueId,
+          payload: input.message.payload,
+          existingMetadata: currentState?.metadata ?? {},
+        })
+        ?? storedDependencyGraph;
+      const executionWakeups = plan.filter(
+        (item) => item.kind === "wakeup" && item.recipientType === "agent",
+      );
+
+      if (executionWakeups.length > 0 && hasBlockingIssueDependencies(dependencyGraph)) {
+        const now = new Date();
+        const blockingSummary = buildIssueDependencyBlockingSummary(dependencyGraph);
+        const nextMetadata = {
+          ...(currentState?.metadata ?? {}),
+          dependencyGraph,
+          dependencyBlock: {
+            blockedAt: now.toISOString(),
+            blockedByMessageType: input.message.messageType,
+            blockedByProtocolMessageId: input.protocolMessageId,
+            pendingWorkflowState: currentState?.workflowState ?? input.message.workflowStateAfter,
+            summary: blockingSummary,
+          },
+        };
+
+        await db.transaction(async (tx) => {
+          await tx
+            .update(issueProtocolState)
+            .set({
+              workflowState: "blocked",
+              coarseIssueStatus: "blocked",
+              lastTransitionAt: now,
+              blockedPhase: dependencyBlockedPhase(currentState?.workflowState ?? input.message.workflowStateAfter),
+              blockedCode: "dependency_wait",
+              blockedByMessageId: input.protocolMessageId,
+              metadata: nextMetadata,
+            })
+            .where(eq(issueProtocolState.issueId, input.issueId));
+
+          await tx
+            .update(issues)
+            .set({
+              status: "blocked",
+              updatedAt: now,
+            })
+            .where(and(eq(issues.id, input.issueId), eq(issues.companyId, input.companyId)));
+        });
+
+        await logActivity(db, {
+          companyId: input.companyId,
+          actorType: input.actor.actorType,
+          actorId: input.actor.actorId,
+          agentId: input.actor.agentId,
+          runId: input.actor.runId,
+          action: "issue.protocol_dispatch.blocked_by_dependency",
+          entityType: "issue",
+          entityId: input.issueId,
+          details: {
+            protocolMessageId: input.protocolMessageId,
+            protocolMessageType: input.message.messageType,
+            blockingIssueIds: dependencyGraph?.blockingIssueIds ?? [],
+            blockingSummary,
+          },
+        });
+
+        return {
+          queued: 0,
+          notifyOnly: plan.filter((item) => item.kind === "notify_only").length,
+          skipped: plan.filter((item) => item.kind === "skip_sender").length + executionWakeups.length,
+        };
+      }
 
       const primaryWakeRecipient = plan.find(
         (item) => item.kind === "wakeup" && item.recipientType === "agent",

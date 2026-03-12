@@ -79,6 +79,8 @@ export const queryKeys = {
   dashboard: (companyId: string) => ["dashboard", companyId] as const,
   dashboardProtocolQueue: (companyId: string, limit?: number) =>
     ["dashboard", companyId, "protocol-queue", limit ?? 20] as const,
+  dashboardTeamSupervision: (companyId: string, limit?: number) =>
+    ["dashboard", companyId, "team-supervision", limit ?? 20] as const,
   dashboardRecoveryQueue: (companyId: string, limit?: number) =>
     ["dashboard", companyId, "recovery-queue", limit ?? 20] as const,
   sidebarBadges: (companyId: string) => ["sidebar-badges", companyId] as const,

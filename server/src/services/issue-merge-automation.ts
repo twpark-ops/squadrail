@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { syncMergePrBridge } from "./merge-pr-bridge.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -20,6 +21,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function slug(value: string) {
@@ -207,7 +212,8 @@ export type MergeAutomationActionInput = {
     | "export_pr_bundle"
     | "merge_local"
     | "cherry_pick_local"
-    | "push_branch";
+    | "push_branch"
+    | "sync_pr_bridge";
   plan: MergeAutomationPlan;
   candidate: MergeAutomationCandidateLike;
   targetBaseBranch?: string | null;
@@ -232,6 +238,9 @@ export type MergeAutomationActionResult = {
   automationWorktreePath?: string | null;
   mergeCommitSha?: string | null;
   cherryPickedCommitShas?: string[];
+  externalProvider?: "github" | "gitlab" | null;
+  externalNumber?: number | null;
+  externalUrl?: string | null;
   automationMetadataPatch?: Record<string, unknown>;
 };
 
@@ -490,6 +499,58 @@ function buildPrBundleMarkdown(input: {
   ].join("\n");
 }
 
+function resolveBranchForAutomation(input: {
+  plan: MergeAutomationPlan;
+  branchName?: string | null;
+  integrationBranchName?: string | null;
+}) {
+  return readString(input.integrationBranchName)
+    ?? readString(input.branchName)
+    ?? readString(asRecord(input.plan.automationMetadata).lastPushedBranch)
+    ?? readString(asRecord(input.plan.automationMetadata).lastPreparedBranch)
+    ?? input.plan.sourceBranch;
+}
+
+function resolveHeadShaForBranch(input: {
+  plan: MergeAutomationPlan;
+  branchName: string;
+}) {
+  const metadata = asRecord(input.plan.automationMetadata);
+  const lastPreparedBranch = readString(metadata.lastPreparedBranch);
+  const lastPreparedHeadSha = readString(metadata.lastPreparedHeadSha);
+  if (lastPreparedBranch && input.branchName === lastPreparedBranch && lastPreparedHeadSha) {
+    return lastPreparedHeadSha;
+  }
+  if (input.branchName === input.plan.sourceBranch) {
+    return input.plan.sourceHeadSha;
+  }
+  return lastPreparedHeadSha ?? input.plan.sourceHeadSha;
+}
+
+async function pushRequestedBranch(input: {
+  plan: MergeAutomationPlan;
+  requestedBranch: string;
+  remoteName?: string | null;
+}) {
+  if (input.requestedBranch === input.plan.sourceBranch && input.plan.sourceHasLocalChanges) {
+    throw new Error("Cannot push the source branch while the source workspace still has local changes");
+  }
+
+  const pushCwd = input.requestedBranch === input.plan.sourceBranch
+    ? input.plan.sourceWorkspacePath
+    : input.plan.baseWorkspacePath;
+  if (!pushCwd) {
+    throw new Error("No workspace is available to push the requested branch");
+  }
+
+  const resolvedRemoteName = input.remoteName ?? input.plan.remoteName ?? "origin";
+  await runGit(["push", resolvedRemoteName, input.requestedBranch], pushCwd);
+  return {
+    remoteName: resolvedRemoteName,
+    pushCwd,
+  };
+}
+
 export async function runMergeAutomationAction(input: MergeAutomationActionInput): Promise<MergeAutomationActionResult> {
   const plan = input.plan;
   if (input.actionType === "prepare_merge") {
@@ -503,12 +564,10 @@ export async function runMergeAutomationAction(input: MergeAutomationActionInput
         lastPlanChecks: plan.checks,
         lastPreparedBranch: plan.integrationBranchName,
         lastPreparedWorktreePath: plan.automationWorktreePath,
+        lastPlanRemoteName: plan.remoteName,
+        lastPlanRemoteUrl: plan.remoteUrl,
       },
     };
-  }
-
-  if (!plan.canAutomate || !plan.baseWorkspacePath || !plan.sourceWorkspacePath || !plan.sourceBranch || !plan.targetStartRef) {
-    throw new Error(`Merge automation preflight failed: ${plan.warnings.join(" | ") || "unknown reason"}`);
   }
 
   const issueKey = slug(plan.identifier ?? plan.issueId).slice(0, 72);
@@ -519,6 +578,85 @@ export async function runMergeAutomationAction(input: MergeAutomationActionInput
     projectId: plan.projectId,
   });
   await ensureDir(exportRoot);
+
+  if (input.actionType === "sync_pr_bridge") {
+    if (!plan.remoteUrl) {
+      throw new Error("PR bridge requires a configured git remote on the base workspace");
+    }
+    const branchName = resolveBranchForAutomation({
+      plan,
+      branchName: input.branchName,
+      integrationBranchName: input.integrationBranchName,
+    });
+    if (!branchName) {
+      throw new Error("PR bridge requires a source or prepared branch");
+    }
+
+    let pushedBranch: string | null = null;
+    let pushedRemoteName: string | null = null;
+    if (input.pushAfterAction === true) {
+      const pushResult = await pushRequestedBranch({
+        plan,
+        requestedBranch: branchName,
+        remoteName: input.remoteName,
+      });
+      pushedBranch = branchName;
+      pushedRemoteName = pushResult.remoteName;
+    }
+
+    const markdown = buildPrBundleMarkdown({
+      issue: {
+        id: plan.issueId,
+        identifier: plan.identifier,
+        title: plan.title,
+        projectId: plan.projectId,
+      },
+      candidate: input.candidate,
+      plan,
+      branchName,
+    });
+    const existingBridge = asRecord(asRecord(plan.automationMetadata).prBridge);
+    const prBridge = await syncMergePrBridge({
+      remoteUrl: plan.remoteUrl,
+      baseBranch: input.targetBaseBranch ?? plan.targetBaseBranch ?? "main",
+      headBranch: branchName,
+      headSha: resolveHeadShaForBranch({ plan, branchName }),
+      title: `${plan.identifier ?? plan.issueId}: ${plan.title}`,
+      body: markdown,
+      existing: {
+        number: readNumber(existingBridge.number),
+        externalId: readString(existingBridge.externalId),
+      },
+    });
+
+    return {
+      actionType: input.actionType,
+      ok: true,
+      plan,
+      targetBranch: branchName,
+      remoteName: pushedRemoteName ?? input.remoteName ?? plan.remoteName,
+      remoteUrl: plan.remoteUrl,
+      pushed: input.pushAfterAction === true,
+      pushedBranch,
+      externalProvider: prBridge.provider,
+      externalNumber: prBridge.number,
+      externalUrl: prBridge.url,
+      automationMetadataPatch: {
+        lastAutomationAction: "sync_pr_bridge",
+        lastAutomationAt: new Date().toISOString(),
+        lastPushRemote: pushedRemoteName ?? undefined,
+        lastPushedBranch: pushedBranch ?? undefined,
+        prBridge: {
+          ...prBridge,
+          lastSyncedAt: prBridge.lastSyncedAt?.toISOString() ?? new Date().toISOString(),
+        },
+      },
+    };
+  }
+
+  if (!plan.canAutomate || !plan.baseWorkspacePath || !plan.sourceWorkspacePath || !plan.sourceBranch || !plan.targetStartRef) {
+    throw new Error(`Merge automation preflight failed: ${plan.warnings.join(" | ") || "unknown reason"}`);
+  }
 
   if (input.actionType === "export_patch") {
     const patchPath = path.join(exportRoot, `${issueKey}.patch`);
@@ -534,6 +672,7 @@ export async function runMergeAutomationAction(input: MergeAutomationActionInput
         lastPatchPath: patchPath,
         lastPreparedBranch: plan.integrationBranchName,
         lastPreparedWorktreePath: plan.automationWorktreePath,
+        lastPlanRemoteUrl: plan.remoteUrl,
         lastAutomationAt: new Date().toISOString(),
       },
     };
@@ -586,6 +725,7 @@ export async function runMergeAutomationAction(input: MergeAutomationActionInput
         lastAutomationAction: "export_pr_bundle",
         lastPrBundlePath: bundlePath,
         lastPrPayloadPath: payloadPath,
+        lastPlanRemoteUrl: plan.remoteUrl,
         lastAutomationAt: new Date().toISOString(),
       },
     };
@@ -669,42 +809,39 @@ export async function runMergeAutomationAction(input: MergeAutomationActionInput
         lastAutomationAt: new Date().toISOString(),
         lastPushRemote: input.pushAfterAction ? plan.remoteName : null,
         lastPushedBranch: input.pushAfterAction ? branchName : null,
+        lastPlanRemoteUrl: plan.remoteUrl,
       },
     };
   }
 
-  const requestedBranch = readString(input.branchName)
-    ?? readString(asRecord(plan.automationMetadata).lastPreparedBranch)
-    ?? plan.sourceBranch;
+  const requestedBranch = resolveBranchForAutomation({
+    plan,
+    branchName: input.branchName,
+    integrationBranchName: input.integrationBranchName,
+  });
   if (!requestedBranch) {
     throw new Error("No branch is available to push");
   }
 
-  if (requestedBranch === plan.sourceBranch && plan.sourceHasLocalChanges) {
-    throw new Error("Cannot push the source branch while the source workspace still has local changes");
-  }
-
-  const pushCwd = requestedBranch === plan.sourceBranch
-    ? plan.sourceWorkspacePath
-    : plan.baseWorkspacePath;
-  if (!pushCwd) {
-    throw new Error("No workspace is available to push the requested branch");
-  }
-
-  await runGit(["push", input.remoteName ?? plan.remoteName ?? "origin", requestedBranch], pushCwd);
+  const pushResult = await pushRequestedBranch({
+    plan,
+    requestedBranch,
+    remoteName: input.remoteName,
+  });
   return {
     actionType: input.actionType,
     ok: true,
     plan,
     targetBranch: requestedBranch,
-    remoteName: input.remoteName ?? plan.remoteName,
+    remoteName: pushResult.remoteName,
     remoteUrl: plan.remoteUrl,
     pushed: true,
     pushedBranch: requestedBranch,
     automationMetadataPatch: {
       lastAutomationAction: "push_branch",
-      lastPushRemote: input.remoteName ?? plan.remoteName,
+      lastPushRemote: pushResult.remoteName,
       lastPushedBranch: requestedBranch,
+      lastPlanRemoteUrl: plan.remoteUrl,
       lastAutomationAt: new Date().toISOString(),
     },
   };

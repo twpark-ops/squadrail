@@ -8,6 +8,7 @@ import {
   buildMergeAutomationPlan,
   runMergeAutomationAction,
 } from "../services/issue-merge-automation.js";
+import { setMergePrBridgeClientForTests } from "../services/merge-pr-bridge.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -63,6 +64,7 @@ async function branchExists(cwd: string, ref: string) {
 const cleanupPaths: string[] = [];
 
 afterEach(async () => {
+  setMergePrBridgeClientForTests(null);
   while (cleanupPaths.length > 0) {
     const target = cleanupPaths.pop();
     if (!target) continue;
@@ -270,5 +272,116 @@ describe("issue merge automation", () => {
 
     expect(pushResult.pushed).toBe(true);
     expect(await branchExists(fixture.baseDir, `refs/remotes/origin/${mergeResult.targetBranch}`)).toBe(true);
+  });
+
+  it("creates or syncs a provider-backed draft PR bridge", async () => {
+    const fixture = await createRepoFixture();
+    cleanupPaths.push(fixture.root);
+
+    setMergePrBridgeClientForTests({
+      sync: async (input) => ({
+        provider: "github",
+        repoOwner: "acme",
+        repoName: "swiftsight",
+        repoUrl: "https://github.com/acme/swiftsight",
+        remoteUrl: input.remoteUrl,
+        number: 42,
+        externalId: "4200",
+        url: "https://github.com/acme/swiftsight/pull/42",
+        title: input.title,
+        state: "draft",
+        mergeability: "blocked",
+        headBranch: input.headBranch,
+        baseBranch: input.baseBranch,
+        headSha: input.headSha,
+        reviewDecision: null,
+        commentCount: 3,
+        reviewCommentCount: 1,
+        lastSyncedAt: new Date("2026-03-12T03:00:00.000Z"),
+        checks: [
+          {
+            name: "pr-verify",
+            status: "pending",
+            conclusion: null,
+            summary: "Queued",
+            detailsUrl: "https://github.com/acme/swiftsight/actions/runs/1",
+            required: true,
+          },
+        ],
+        checkSummary: {
+          total: 1,
+          passing: 0,
+          failing: 0,
+          pending: 1,
+          requiredTotal: 1,
+          requiredPassing: 0,
+          requiredFailing: 0,
+          requiredPending: 1,
+        },
+      }),
+    });
+
+    const candidate = {
+      issueId: "issue-4",
+      identifier: "CLO-4",
+      state: "pending" as const,
+      sourceBranch: "squadrail/clo-merge",
+      headSha: fixture.headSha,
+      workspacePath: fixture.sourceDir,
+      targetBaseBranch: "main",
+      closeSummary: "Ready for review",
+      verificationSummary: "Tests passed",
+      approvalSummary: "Approved",
+      remainingRisks: [],
+      automationMetadata: {
+        lastPreparedBranch: "squadrail/merge/clo-4",
+        lastPreparedHeadSha: fixture.headSha,
+      },
+      closeMessageId: "close-1",
+    };
+
+    const plan = await buildMergeAutomationPlan({
+      issue: {
+        id: "issue-4",
+        identifier: "CLO-4",
+        title: "Draft PR bridge",
+        projectId: "project-1",
+      },
+      project: {
+        id: "project-1",
+        name: "Example",
+        primaryWorkspace: {
+          id: "workspace-1",
+          name: "Base",
+          cwd: fixture.baseDir,
+          repoRef: "main",
+        },
+      },
+      candidate,
+      integrationBranchName: "squadrail/merge/clo-4",
+    });
+
+    const result = await runMergeAutomationAction({
+      actionType: "sync_pr_bridge",
+      plan,
+      candidate,
+      branchName: "squadrail/merge/clo-4",
+      integrationBranchName: "squadrail/merge/clo-4",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.externalProvider).toBe("github");
+    expect(result.externalNumber).toBe(42);
+    expect(result.externalUrl).toBe("https://github.com/acme/swiftsight/pull/42");
+    expect(result.automationMetadataPatch).toEqual(
+      expect.objectContaining({
+        lastAutomationAction: "sync_pr_bridge",
+        prBridge: expect.objectContaining({
+          provider: "github",
+          number: 42,
+          headBranch: "squadrail/merge/clo-4",
+        }),
+      }),
+    );
   });
 });

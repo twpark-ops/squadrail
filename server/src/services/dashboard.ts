@@ -8,12 +8,14 @@ import {
   costEvents,
   heartbeatRunEvents,
   heartbeatRuns,
+  issueLabels,
   issueProtocolMessages,
   issueProtocolState,
   issueProtocolViolations,
   issueReviewCycles,
   issueTaskBriefs,
   issues,
+  labels,
   projects,
   retrievalRuns,
 } from "@squadrail/db";
@@ -123,6 +125,111 @@ export interface DashboardRecoveryCase {
   summary: string;
   nextAction: string;
   createdAt: Date;
+}
+
+export interface DashboardTeamSupervisionItem {
+  rootIssueId: string;
+  rootIdentifier: string | null;
+  rootTitle: string;
+  rootProjectId: string | null;
+  rootProjectName: string | null;
+  workItemIssueId: string;
+  workItemIdentifier: string | null;
+  workItemTitle: string;
+  kind: "plan" | "implementation" | "review" | "qa" | null;
+  priority: string;
+  issueStatus: string;
+  workflowState: string | null;
+  blockedCode: string | null;
+  watchReviewer: boolean;
+  watchLead: boolean;
+  lastTransitionAt: Date | null;
+  updatedAt: Date;
+  summaryKind: "blocked" | "review" | "active" | "queued";
+  summaryText: string;
+  assignee: DashboardActorSnapshot | null;
+  reviewer: DashboardActorSnapshot | null;
+  techLead: DashboardActorSnapshot | null;
+}
+
+function deriveTeamWorkItemKind(labelNames: string[]) {
+  if (labelNames.includes("work:plan")) return "plan" as const;
+  if (labelNames.includes("work:implementation")) return "implementation" as const;
+  if (labelNames.includes("work:review")) return "review" as const;
+  if (labelNames.includes("work:qa")) return "qa" as const;
+  return null;
+}
+
+function teamSupervisionSummaryKind(input: {
+  issueStatus: string;
+  workflowState: string | null;
+}) {
+  if (input.issueStatus === "blocked" || input.workflowState === "blocked") {
+    return "blocked" as const;
+  }
+  if (
+    input.workflowState === "submitted_for_review"
+    || input.workflowState === "under_review"
+    || input.workflowState === "qa_pending"
+    || input.workflowState === "under_qa_review"
+    || input.workflowState === "changes_requested"
+    || input.issueStatus === "in_review"
+  ) {
+    return "review" as const;
+  }
+  if (
+    input.issueStatus === "todo"
+    || input.issueStatus === "in_progress"
+    || input.workflowState === "assigned"
+    || input.workflowState === "accepted"
+    || input.workflowState === "planning"
+    || input.workflowState === "implementing"
+  ) {
+    return "active" as const;
+  }
+  return "queued" as const;
+}
+
+function buildTeamSupervisionSummaryText(input: {
+  summaryKind: "blocked" | "review" | "active" | "queued";
+  blockedCode: string | null;
+  latestMessageSummary: string | null;
+}) {
+  if (input.summaryKind === "blocked") {
+    if (input.blockedCode === "dependency_wait") {
+      return "Waiting for dependency issues to land before execution can resume.";
+    }
+    if (input.latestMessageSummary) return compactText(input.latestMessageSummary);
+    return input.blockedCode ? `Blocked: ${input.blockedCode.replace(/_/g, " ")}` : "Blocked and waiting for supervisor action.";
+  }
+  if (input.latestMessageSummary) return compactText(input.latestMessageSummary);
+  switch (input.summaryKind) {
+    case "review":
+      return "Waiting on reviewer, QA, or supervisor handoff.";
+    case "active":
+      return "Active work item under team supervision.";
+    default:
+      return "Queued internal work item ready for assignment or kickoff.";
+  }
+}
+
+export function buildTeamSupervisionSummary(input: {
+  items: DashboardTeamSupervisionItem[];
+}) {
+  return input.items.reduce(
+    (summary, item) => {
+      summary.total += 1;
+      summary[item.summaryKind] += 1;
+      return summary;
+    },
+    {
+      total: 0,
+      blocked: 0,
+      review: 0,
+      active: 0,
+      queued: 0,
+    },
+  );
 }
 
 function recoveryRecipients(input: {
@@ -930,6 +1037,200 @@ export function dashboardService(db: Db) {
           items,
           limit,
         }),
+      };
+    },
+
+    teamSupervision: async (input: {
+      companyId: string;
+      limit?: number;
+    }) => {
+      await ensureCompany(input.companyId);
+      const limit = input.limit ?? 20;
+
+      const rows = await db
+        .select({
+          issueId: issues.id,
+          parentId: issues.parentId,
+          identifier: issues.identifier,
+          title: issues.title,
+          priority: issues.priority,
+          status: issues.status,
+          assigneeAgentId: issues.assigneeAgentId,
+          updatedAt: issues.updatedAt,
+          workflowState: issueProtocolState.workflowState,
+          reviewerAgentId: issueProtocolState.reviewerAgentId,
+          techLeadAgentId: issueProtocolState.techLeadAgentId,
+          blockedCode: issueProtocolState.blockedCode,
+          lastTransitionAt: issueProtocolState.lastTransitionAt,
+          lastProtocolMessageId: issueProtocolState.lastProtocolMessageId,
+        })
+        .from(issues)
+        .leftJoin(issueProtocolState, eq(issueProtocolState.issueId, issues.id))
+        .where(
+          and(
+            eq(issues.companyId, input.companyId),
+            inArray(issues.status, ["backlog", "todo", "in_progress", "in_review", "blocked"]),
+            sql`${issues.hiddenAt} is not null`,
+          ),
+        )
+        .orderBy(desc(issueProtocolState.lastTransitionAt), desc(issues.updatedAt));
+
+      if (rows.length === 0) {
+        return {
+          companyId: input.companyId,
+          generatedAt: new Date().toISOString(),
+          summary: buildTeamSupervisionSummary({ items: [] }),
+          items: [] as DashboardTeamSupervisionItem[],
+        };
+      }
+
+      const workItemIds = rows.map((row) => row.issueId);
+      const parentIds = Array.from(new Set(
+        rows.map((row) => row.parentId).filter((value): value is string => typeof value === "string"),
+      ));
+      const agentIds = Array.from(new Set(
+        rows.flatMap((row) => [row.assigneeAgentId, row.reviewerAgentId, row.techLeadAgentId])
+          .filter((value): value is string => typeof value === "string"),
+      ));
+      const messageIds = Array.from(new Set(
+        rows.map((row) => row.lastProtocolMessageId).filter((value): value is string => typeof value === "string"),
+      ));
+
+      const [rootRows, labelRows, agentRows, messageRows] = await Promise.all([
+        parentIds.length === 0
+          ? Promise.resolve([])
+          : db
+            .select({
+              id: issues.id,
+              identifier: issues.identifier,
+              title: issues.title,
+              projectId: issues.projectId,
+              projectName: projects.name,
+            })
+            .from(issues)
+            .leftJoin(projects, eq(issues.projectId, projects.id))
+            .where(inArray(issues.id, parentIds)),
+        db
+          .select({
+            issueId: issueLabels.issueId,
+            name: labels.name,
+          })
+          .from(issueLabels)
+          .innerJoin(labels, eq(issueLabels.labelId, labels.id))
+          .where(inArray(issueLabels.issueId, workItemIds)),
+        agentIds.length === 0
+          ? Promise.resolve([])
+          : db
+            .select()
+            .from(agents)
+            .where(inArray(agents.id, agentIds)),
+        messageIds.length === 0
+          ? Promise.resolve([])
+          : db
+            .select({
+              id: issueProtocolMessages.id,
+              summary: issueProtocolMessages.summary,
+            })
+            .from(issueProtocolMessages)
+            .where(inArray(issueProtocolMessages.id, messageIds)),
+      ]);
+
+      const rootMap = new Map(rootRows.map((row) => [row.id, row]));
+      const agentMap = new Map(agentRows.map((agent) => [agent.id, agent]));
+      const messageMap = new Map(messageRows.map((message) => [message.id, message]));
+      const labelMap = new Map<string, string[]>();
+
+      for (const row of labelRows) {
+        const existing = labelMap.get(row.issueId);
+        if (existing) existing.push(row.name);
+        else labelMap.set(row.issueId, [row.name]);
+      }
+
+      const items = rows
+        .flatMap((row) => {
+          if (!row.parentId) return [];
+          const root = rootMap.get(row.parentId);
+          if (!root) return [];
+          const labelNames = labelMap.get(row.issueId) ?? [];
+          const summaryKind = teamSupervisionSummaryKind({
+            issueStatus: row.status,
+            workflowState: row.workflowState ?? null,
+          });
+          const latestMessageSummary =
+            row.lastProtocolMessageId ? (messageMap.get(row.lastProtocolMessageId)?.summary ?? null) : null;
+          const assignee = row.assigneeAgentId ? agentMap.get(row.assigneeAgentId) ?? null : null;
+          const reviewer = row.reviewerAgentId ? agentMap.get(row.reviewerAgentId) ?? null : null;
+          const techLead = row.techLeadAgentId ? agentMap.get(row.techLeadAgentId) ?? null : null;
+
+          return [{
+            rootIssueId: root.id,
+            rootIdentifier: root.identifier ?? null,
+            rootTitle: root.title,
+            rootProjectId: root.projectId ?? null,
+            rootProjectName: root.projectName ?? null,
+            workItemIssueId: row.issueId,
+            workItemIdentifier: row.identifier ?? null,
+            workItemTitle: row.title,
+            kind: deriveTeamWorkItemKind(labelNames),
+            priority: row.priority,
+            issueStatus: row.status,
+            workflowState: row.workflowState ?? null,
+            blockedCode: row.blockedCode ?? null,
+            watchReviewer: labelNames.includes("watch:reviewer"),
+            watchLead: labelNames.includes("watch:lead"),
+            lastTransitionAt: row.lastTransitionAt ?? null,
+            updatedAt: row.updatedAt,
+            summaryKind,
+            summaryText: buildTeamSupervisionSummaryText({
+              summaryKind,
+              blockedCode: row.blockedCode ?? null,
+              latestMessageSummary,
+            }),
+            assignee: assignee
+              ? {
+                  id: assignee.id,
+                  name: assignee.name,
+                  title: assignee.title ?? null,
+                  role: assignee.role,
+                  status: assignee.status,
+                }
+              : null,
+            reviewer: reviewer
+              ? {
+                  id: reviewer.id,
+                  name: reviewer.name,
+                  title: reviewer.title ?? null,
+                  role: reviewer.role,
+                  status: reviewer.status,
+                }
+              : null,
+            techLead: techLead
+              ? {
+                  id: techLead.id,
+                  name: techLead.name,
+                  title: techLead.title ?? null,
+                  role: techLead.role,
+                  status: techLead.status,
+                }
+              : null,
+          } satisfies DashboardTeamSupervisionItem];
+        })
+        .sort((left, right) => {
+          const rank = { blocked: 0, review: 1, active: 2, queued: 3 } as const;
+          if (rank[left.summaryKind] !== rank[right.summaryKind]) {
+            return rank[left.summaryKind] - rank[right.summaryKind];
+          }
+          const leftTime = left.lastTransitionAt?.getTime() ?? left.updatedAt.getTime();
+          const rightTime = right.lastTransitionAt?.getTime() ?? right.updatedAt.getTime();
+          return rightTime - leftTime;
+        })
+        .slice(0, limit);
+
+      return {
+        companyId: input.companyId,
+        generatedAt: new Date().toISOString(),
+        summary: buildTeamSupervisionSummary({ items }),
+        items,
       };
     },
 

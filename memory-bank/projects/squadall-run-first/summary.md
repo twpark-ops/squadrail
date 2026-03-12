@@ -2,6 +2,54 @@
 
 작성일: 2026-03-12
 
+## 2026-03-12 P1 운영 레이어 업데이트
+
+- `4. Team supervision layer`: **완료**
+  - company dashboard에 `team-supervision` feed/read model을 추가했다.
+  - hidden child issue / internal work item / reviewer watch / lead supervision 신호를 Inbox와 Issue Detail에서 바로 볼 수 있게 올렸다.
+  - internal work item 생성과 supervision-aware invalidation/UI까지 연결했다.
+- `5. Human -> PM intake productization`: **완료**
+  - New Issue Dialog에 `Human intake` 진입 모드를 추가했다.
+  - PM 라우팅, reviewer 지정, intake root 생성, intake root -> delivery projection dialog를 제품 메인 흐름으로 연결했다.
+  - Issue Detail에서 intake root를 실제 delivery root/child work item으로 투영하는 operator surface를 추가했다.
+- `6. issue dependency graph + blocked dispatch enforcement`: **완료**
+  - protocol `dependsOn` reference를 issue id / identifier 기준 dependency graph metadata로 정규화했다.
+  - dispatch 시 unresolved / open dependency가 남아 있으면 workflow를 `blocked`로 유지하고 wakeup을 차단한다.
+  - blocked reason과 dependency snapshot이 protocol metadata / issue workflow surface에 함께 남는다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/ui build`
+  - `pnpm --filter @squadrail/server test`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - focused vitest `33 tests` 통과
+  - 최신 server coverage: statements/lines `37.27%`, branches `64.55%`, functions `61.17%`
+
+## 2026-03-12 P0 안정화 업데이트
+
+- `1. 통합 경계 안정화`: **P0 1차 완료**
+  - protocol -> merge candidate -> review desk -> merged close 경계에 실제 회귀 테스트를 추가했다.
+  - `merge-candidate` / `change-surface` / `issue-protocol-policy` / `issue-protocol` 경계가 typed surface와 gate로 묶였다.
+  - 다만 이 항목은 성격상 계속되는 품질 트랙이라, product-wide 통합 hardening 전체가 영원히 끝났다는 뜻은 아니다.
+- `2. 사람 최종 리뷰 유지 PR bridge`: **완료**
+  - GitHub/GitLab remote 판별
+  - draft PR/MR 생성 또는 상태 동기화 (`sync_pr_bridge`)
+  - PR URL / mergeability / review decision / check status를 change surface와 review desk에 노출
+  - auto-merge는 넣지 않았고 human final review는 그대로 유지했다.
+- `3. CI status gate`: **완료**
+  - synced PR이 존재하는 경우에만 required check / mergeability / requested changes를 gate로 강제한다.
+  - `mark_merged`와 `mergeStatus=merged` close 경로가 blocked reason과 함께 차단된다.
+  - 로컬/offline merge flow는 깨지지 않게, PR bridge가 없는 경로에는 강제하지 않는다.
+
+## 이전 실행 맥락
+
+- P0 `1, 2, 3`은 이번 라운드에서 닫혔다.
+- P1 `4, 5, 6`도 이번 라운드에서 닫혔다.
+- 따라서 다음 순차 작업은 `7. priority preemption`부터 시작하면 된다.
+- 단, `1. 통합 경계 안정화`는 broad quality track이라 후속 기능 작업 때마다 계속 병행된다.
+
 ## 현재 기준
 
 - 방향은 `AI software company / autonomous org`로 일관된다.
@@ -11,16 +59,13 @@
 
 ## 현재 우선순위
 
-1. Replay E2E gate normalization
-2. 18-agent real-org burn-in
-3. blocked timeout + legacy semantics cleanup
-4. retrieval god-file refactor
-5. rerank provider abstraction
-6. execution lane classifier
-7. fast lane optimization
-8. deeper multi-hop
-9. ranking/cache/trend consolidation
-10. cross-issue memory reuse
+1. priority preemption
+2. per-agent performance scorecard
+3. merge conflict assist
+4. execution-failure learning
+5. external operating alerts
+6. goal progress / sprint / capacity
+7. auto revert / custom role / templates / cost prediction
 
 ## 중요한 판단
 
@@ -190,8 +235,10 @@
 
 ## 현재 남은 우선순위
 
-1. rerank provider abstraction 2차
-2. execution lane / fast lane 실운영 계측
+1. priority preemption
+2. per-agent performance scorecard
+3. merge conflict assist
+4. execution-failure learning
 
 상세 실행 문서:
 
@@ -199,11 +246,10 @@
 
 ## 다음 세션 핸드오프
 
-- 다음 확인 순서는 `docs/backend-post-phase-plan.md` -> `docs/run-first-burn-in-priority-plan.md` -> `memory-bank/projects/squadall-run-first/summary.md`다.
-- 다음 시작 작업은 바로 `rerank provider abstraction` 2차다.
-- 세부 슬라이스와 후속 우선순위 설명은 `docs/backend-next-priority-detailed-plan.md`에 풀어 적어뒀다.
+- 다음 확인 순서는 `docs/next-session-handoff.md` -> `memory-bank/projects/squadall-run-first/summary.md`다.
+- 다음 시작 작업은 `priority preemption`이다.
+- 그 다음은 `per-agent performance scorecard`, 이후 `merge conflict assist` 순서다.
 - 기본 검증 순서는 `pnpm -r typecheck` -> `pnpm test:run` -> `pnpm build`다.
-- rerank/provider 쪽만 수정할 때는 먼저 `pnpm vitest run server/src/__tests__/knowledge-reranking.test.ts`를 좁게 돌린다.
-- protocol helper나 burn-in harness를 건드릴 때는 `pnpm vitest run server/src/__tests__/protocol-helper-cli.test.ts`와 `node --check scripts/e2e/cloud-swiftsight-real-org.mjs`를 같이 확인한다.
+- merge/review/protocol 경계를 건드릴 때는 먼저 `pnpm --filter @squadrail/server test`를 기준 검증으로 삼는다.
 - 건드리지 말아야 할 경로는 `memory-bank/README.md`와 `memory-bank/projects/squadall-ui-only-followup/`다.
 - 제품 방향은 계속 `standardized software delivery org kernel`이며, `peer mode`는 후순위다.

@@ -4,8 +4,10 @@ import {
   buildDashboardKnowledgeSummary,
   buildExecutionReliabilitySummary,
   buildProtocolDashboardBuckets,
+  buildTeamSupervisionSummary,
   isProtocolDashboardStale,
   type DashboardProtocolQueueItem,
+  type DashboardTeamSupervisionItem,
 } from "../services/dashboard.js";
 
 function queueItem(overrides: Partial<DashboardProtocolQueueItem>): DashboardProtocolQueueItem {
@@ -32,6 +34,36 @@ function queueItem(overrides: Partial<DashboardProtocolQueueItem>): DashboardPro
     latestMessage: overrides.latestMessage ?? null,
     openReviewCycle: overrides.openReviewCycle ?? null,
     latestBriefs: overrides.latestBriefs ?? {},
+  };
+}
+
+function teamSupervisionItem(
+  overrides: Partial<DashboardTeamSupervisionItem>,
+): DashboardTeamSupervisionItem {
+  return {
+    rootIssueId: overrides.rootIssueId ?? "root-1",
+    rootIdentifier: overrides.rootIdentifier ?? "CLO-1",
+    rootTitle: overrides.rootTitle ?? "Root issue",
+    rootProjectId: overrides.rootProjectId ?? null,
+    rootProjectName: overrides.rootProjectName ?? null,
+    workItemIssueId: overrides.workItemIssueId ?? crypto.randomUUID(),
+    workItemIdentifier: overrides.workItemIdentifier ?? null,
+    workItemTitle: overrides.workItemTitle ?? "Internal work item",
+    kind: overrides.kind ?? "implementation",
+    priority: overrides.priority ?? "medium",
+    issueStatus: overrides.issueStatus ?? "todo",
+    workflowState: overrides.workflowState ?? "assigned",
+    blockedCode: overrides.blockedCode ?? null,
+    watchReviewer: overrides.watchReviewer ?? true,
+    watchLead: overrides.watchLead ?? true,
+    lastTransitionAt:
+      overrides.lastTransitionAt ?? new Date("2026-03-12T00:00:00.000Z"),
+    updatedAt: overrides.updatedAt ?? new Date("2026-03-12T00:00:00.000Z"),
+    summaryKind: overrides.summaryKind ?? "active",
+    summaryText: overrides.summaryText ?? "Internal work item under supervision.",
+    assignee: overrides.assignee ?? null,
+    reviewer: overrides.reviewer ?? null,
+    techLead: overrides.techLead ?? null,
   };
 }
 
@@ -174,6 +206,25 @@ describe("dashboard helpers", () => {
       totalLinks: 72,
       activeProjects: 3,
       lowConfidenceRuns7d: 5,
+    });
+  });
+
+  it("builds team supervision summary buckets", () => {
+    expect(
+      buildTeamSupervisionSummary({
+        items: [
+          teamSupervisionItem({ summaryKind: "blocked" }),
+          teamSupervisionItem({ summaryKind: "review" }),
+          teamSupervisionItem({ summaryKind: "active" }),
+          teamSupervisionItem({ summaryKind: "queued" }),
+        ],
+      }),
+    ).toEqual({
+      total: 4,
+      blocked: 1,
+      review: 1,
+      active: 1,
+      queued: 1,
     });
   });
 });

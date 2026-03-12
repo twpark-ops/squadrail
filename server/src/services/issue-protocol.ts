@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import {
   issueComments,
+  issueMergeCandidates,
   issueProtocolArtifacts,
   issueProtocolMessages,
   issueProtocolRecipients,
@@ -24,9 +25,15 @@ import type {
 import { conflict, notFound, unprocessable } from "../errors.js";
 import { evaluateProtocolEvidenceRequirement } from "./issue-protocol-policy.js";
 import {
+  buildMergeCandidateGateStatus,
+  buildMergeCandidatePrBridge,
+  mergeCandidateRequiresGateEnforcement,
+} from "./merge-candidate-gates.js";
+import {
   sealProtocolMessageIntegrity,
   verifyProtocolMessageIntegrity,
 } from "../protocol-integrity.js";
+import { resolveIssueDependencyGraphMetadata } from "./issue-dependency-graph.js";
 
 const MESSAGE_RULES: Record<
   IssueProtocolMessageType,
@@ -548,7 +555,22 @@ export function issueProtocolService(db: Db) {
       return;
     }
 
-    const violation = evaluateProtocolEvidenceRequirement({ message });
+    const mergeCandidateRecord = message.messageType === "CLOSE_TASK"
+      ? await tx
+        .select()
+        .from(issueMergeCandidates)
+        .where(eq(issueMergeCandidates.issueId, issueId))
+        .then((rows: Array<{ automationMetadata?: Record<string, unknown> | null }>) => rows[0] ?? null)
+      : null;
+    const prBridge = buildMergeCandidatePrBridge({
+      automationMetadata: mergeCandidateRecord?.automationMetadata ?? null,
+    });
+    const gateStatus = buildMergeCandidateGateStatus({ prBridge });
+    const violation = evaluateProtocolEvidenceRequirement({
+      message,
+      mergeGateStatus: gateStatus,
+      enforceMergeGate: mergeCandidateRequiresGateEnforcement({ prBridge, gateStatus }),
+    });
     if (!violation) return;
 
     if (violation.violationCode === "close_without_verification") {
@@ -843,6 +865,22 @@ export function issueProtocolService(db: Db) {
           fallbackTechLeadAgentId,
         });
 
+        const dependencyGraph = await resolveIssueDependencyGraphMetadata(tx, {
+          companyId: issue.companyId,
+          issueId: issue.id,
+          payload: currentPayload,
+          existingMetadata: currentState?.metadata ?? {},
+        });
+        const previousMetadata = currentState?.metadata ?? {};
+        const { dependencyBlock: _previousDependencyBlock, ...metadataWithoutDependencyBlock } = previousMetadata;
+        const nextMetadata =
+          dependencyGraph
+            ? {
+                ...metadataWithoutDependencyBlock,
+                dependencyGraph,
+              }
+            : metadataWithoutDependencyBlock;
+
         const nextStateValues: typeof issueProtocolState.$inferInsert = {
           issueId: issue.id,
           companyId: issue.companyId,
@@ -871,7 +909,7 @@ export function issueProtocolService(db: Db) {
               : null,
           blockedCode: workflowState === "blocked" ? String(currentPayload.blockerCode ?? "") : null,
           blockedByMessageId: workflowState === "blocked" ? sealedMessage.id : null,
-          metadata: currentState?.metadata ?? {},
+          metadata: nextMetadata,
         };
 
         if (currentState) {

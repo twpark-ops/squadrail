@@ -1,4 +1,7 @@
 import type {
+  CreateInternalWorkItem,
+  CreatePmIntakeIssue,
+  CreatePmIntakeProjection,
   Approval,
   CreateIssueProtocolMessage,
   Issue,
@@ -29,7 +32,8 @@ export type MergeCandidateAutomationInput = {
     | "export_pr_bundle"
     | "merge_local"
     | "cherry_pick_local"
-    | "push_branch";
+    | "push_branch"
+    | "sync_pr_bridge";
   targetBaseBranch?: string | null;
   integrationBranchName?: string | null;
   remoteName?: string | null;
@@ -80,11 +84,42 @@ export type MergeAutomationActionResult = {
   automationWorktreePath?: string | null;
   mergeCommitSha?: string | null;
   cherryPickedCommitShas?: string[];
+  externalProvider?: "github" | "gitlab" | null;
+  externalNumber?: number | null;
+  externalUrl?: string | null;
 };
 
 export type MergeCandidateAutomationResponse = {
   result: MergeAutomationActionResult;
   mergeCandidate: IssueMergeCandidate | null;
+};
+
+export type CreatePmIntakeIssueResponse = {
+  issue: Issue;
+  protocol: unknown;
+  warnings: string[];
+  intake: {
+    pmAgentId: string;
+    reviewerAgentId: string;
+  };
+};
+
+export type CreatePmIntakeProjectionResponse = {
+  issue: Issue;
+  protocol: unknown;
+  warnings: string[];
+  projectedWorkItems: Issue[];
+  intakeProjection: {
+    techLeadAgentId: string;
+    reviewerAgentId: string;
+    qaAgentId: string | null;
+  };
+};
+
+export type CreateInternalWorkItemResponse = {
+  issue: Issue;
+  protocol: unknown;
+  warnings: string[];
 };
 
 export const issuesApi = {
@@ -151,6 +186,12 @@ export const issuesApi = {
     api.post<MergeCandidateAutomationResponse>(`/issues/${id}/merge-candidate/automation`, data),
   create: (companyId: string, data: Record<string, unknown>) =>
     api.post<Issue>(`/companies/${companyId}/issues`, data),
+  createPmIntakeIssue: (companyId: string, data: CreatePmIntakeIssue) =>
+    api.post<CreatePmIntakeIssueResponse>(`/companies/${companyId}/intake/issues`, data),
+  createPmIntakeProjection: (issueId: string, data: CreatePmIntakeProjection) =>
+    api.post<CreatePmIntakeProjectionResponse>(`/issues/${issueId}/intake/projection`, data),
+  createInternalWorkItem: (issueId: string, data: CreateInternalWorkItem) =>
+    api.post<CreateInternalWorkItemResponse>(`/issues/${issueId}/internal-work-items`, data),
   update: (id: string, data: Record<string, unknown>) => api.patch<Issue>(`/issues/${id}`, data),
   remove: (id: string) => api.delete<Issue>(`/issues/${id}`),
   checkout: (id: string, agentId: string) =>

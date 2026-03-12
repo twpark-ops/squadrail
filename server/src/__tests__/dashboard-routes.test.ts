@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockSummary,
   mockProtocolQueue,
+  mockTeamSupervision,
   mockRecoveryQueue,
   mockApplyRecoveryAction,
 } = vi.hoisted(() => ({
   mockSummary: vi.fn(),
   mockProtocolQueue: vi.fn(),
+  mockTeamSupervision: vi.fn(),
   mockRecoveryQueue: vi.fn(),
   mockApplyRecoveryAction: vi.fn(),
 }));
@@ -16,6 +18,7 @@ vi.mock("../services/dashboard.js", () => ({
   dashboardService: () => ({
     summary: mockSummary,
     protocolQueue: mockProtocolQueue,
+    teamSupervision: mockTeamSupervision,
     recoveryQueue: mockRecoveryQueue,
     applyRecoveryAction: mockApplyRecoveryAction,
   }),
@@ -205,6 +208,40 @@ describe("dashboard routes", () => {
     expect(mockRecoveryQueue).toHaveBeenCalledWith({
       companyId: "company-1",
       limit: 12,
+    });
+  });
+
+  it("returns team supervision feed data", async () => {
+    mockTeamSupervision.mockResolvedValue({
+      companyId: "company-1",
+      generatedAt: new Date("2026-03-12T00:00:00.000Z").toISOString(),
+      summary: {
+        total: 2,
+        blocked: 1,
+        review: 1,
+        active: 0,
+        queued: 0,
+      },
+      items: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/dashboard/team-supervision",
+      method: "get",
+      params: { companyId: "company-1" },
+      query: { limit: "15" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockTeamSupervision).toHaveBeenCalledWith({
+      companyId: "company-1",
+      limit: 15,
+    });
+    expect(response.body).toMatchObject({
+      summary: {
+        total: 2,
+        blocked: 1,
+      },
     });
   });
 

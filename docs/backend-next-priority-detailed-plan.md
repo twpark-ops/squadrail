@@ -4,15 +4,39 @@
 기준 커밋: `163a444` `feat(retrieval): consolidate cache provenance trends`
 작성자: Taewoong Park <park.taewoong@airsmed.com>
 
+> 업데이트 2026-03-12:
+> 이 문서는 원래 retrieval follow-up 중심 계획이었지만, 현재 즉시 시작 기준은 아래 상태가 우선이다.
+> 완료된 항목:
+> - `1. 통합 경계 안정화` P0 1차 완료
+> - `2. 사람 최종 리뷰 유지 PR bridge` 완료
+> - `3. CI status gate` 완료
+> - `4. Team supervision layer` 완료
+> - `5. Human -> PM intake productization` 완료
+> - `6. issue dependency graph + blocked dispatch enforcement` 완료
+> 현재 다음 순차 작업은 `7. priority preemption`이고, 그 다음은 `8. per-agent performance scorecard`, `9. merge conflict assist` 순서다.
+
 ## 목적
 
-`ranking/cache/trend consolidation` 1차 이후 남은 백엔드 후속 작업을 다음 세 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다.
+현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다.
 
 현재 제품 방향은 계속 `standardized software delivery org kernel`이다.
-즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, retrieval 재사용성과 운영 계측을 제품 수준으로 닫는 것이 우선이다.
+즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
 
 ## 상태 업데이트
 
+- `2026-03-12 P1 batch` 완료
+  - company-wide `team-supervision` dashboard feed / Inbox / Issue Detail operator surface 추가
+  - `Human intake` entry와 intake root -> delivery projection dialog를 제품 메인 UI에 연결
+  - protocol `dependsOn` graph metadata 정규화와 blocked dispatch enforcement 추가
+  - 검증:
+    - `pnpm --filter @squadrail/shared typecheck`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/ui typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/ui build`
+    - `pnpm --filter @squadrail/server test`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `37.27%`, branches `64.55%`, functions `61.17%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -24,12 +48,73 @@
 
 ## 현재 남은 우선순위
 
-1. `rerank provider abstraction` 2차
-2. `execution lane / fast lane` 실운영 계측
+1. `priority preemption`
+2. `per-agent performance scorecard`
+3. `merge conflict assist`
+4. `execution-failure learning`
 
 한 줄 요약:
 
-- 다음 구현은 `provider chain / fallback / rerank debug surface를 운영 가능한 수준으로 닫는 것`이다.
+- 다음 구현은 `priority-aware dispatch / agent-level operating visibility / human-reviewed merge assist를 운영 가능한 수준으로 닫는 것`이다.
+
+## Immediate Next: Priority Preemption
+
+### 목표
+
+- `critical` / `high` urgency issue가 이미 queued인 `medium` / `low` work보다 먼저 dispatch되게 만든다.
+- 단순 정렬이 아니라, 실제 heartbeat wakeup / run assignment / retry queue에서 선점이 일어나게 한다.
+- starvation을 만들지 않고 preemption trace를 남긴다.
+
+### 구현 슬라이스
+
+#### Slice 7-A. Priority Class Model
+
+1. 현재 issue priority / urgency / workflow status가 heartbeat에서 어떤 입력으로 읽히는지 정리한다.
+2. dispatch용 `priorityClass`를 `critical / high / normal / low`처럼 coarse bucket으로 정규화한다.
+3. retry / resume / wakeup queue와 공통 비교 함수 하나를 만든다.
+
+#### Slice 7-B. Dispatch Rule
+
+1. pending wakeup selection에서 higher class가 lower class를 앞지르도록 정렬 규칙을 추가한다.
+2. active slot이 꽉 찬 lane에서는 lower class queued work를 먼저 재정렬하고, 이미 running인 work는 강제 중단하지 않는다.
+3. blocked dependency / requested review / QA gate보다 priority가 우선하지 않도록 guard를 둔다.
+
+#### Slice 7-C. Trace Surface
+
+1. protocol metadata / audit log / dashboard summary에 preemption reason을 남긴다.
+2. operator가 "왜 이 일이 먼저 나갔는지"를 확인할 수 있게 queue snapshot 또는 recent event를 만든다.
+3. starvation guard hit도 같이 노출한다.
+
+#### Slice 7-D. Tests
+
+1. `critical` work가 queued `medium` work보다 먼저 dispatch되는지
+2. blocked dependency가 있는 `critical` work는 unblock 전까지 선점하지 않는지
+3. running work를 강제 중단하지 않고 next dispatch부터만 선점하는지
+4. same-priority round-robin 또는 age bias가 살아 있어 starvation이 줄어드는지
+
+우선 테스트 파일:
+
+- `server/src/__tests__/issue-protocol-execution.test.ts`
+- `server/src/__tests__/heartbeat-service-flow.test.ts`
+- 필요 시 `server/src/__tests__/dashboard.test.ts`
+
+### 우선 구현 파일
+
+- `server/src/services/heartbeat.ts`
+- `server/src/services/issue-protocol-execution.ts`
+- `server/src/services/dashboard.ts`
+
+### 완료 기준
+
+1. high-priority queued work가 lower-priority queued work보다 먼저 dispatch된다.
+2. dependency/review/QA gate가 있는 issue는 priority만으로 bypass되지 않는다.
+3. operator surface에서 preemption reason을 읽을 수 있다.
+4. `pnpm -r typecheck`, `pnpm test:run`, `pnpm build`가 모두 통과한다.
+
+## Archive Note
+
+- 아래 본문은 이전 retrieval/rerank follow-up 계획을 보존한 archive다.
+- historical context는 유지하되, immediate next-start 기준은 위 `priority preemption` 섹션을 따른다.
 
 ## Completed: Cross-Issue Memory Reuse
 
@@ -38,7 +123,7 @@
 - reusable prior issue artifact taxonomy를 `decision / fix / review / close` 계열로 retrieval scoring에 연결했다.
 - follow-up/related issue identifier 추출과 `knowledge_chunk_links` backlink를 합성해 reuse seed를 주입했다.
 - brief quality / knowledge quality summary에 `reuseRunCount`, `reuseHitRate`, `reuseIssueCount`, `reuseDecisionHitCount`, `reuseCloseHitCount` 등 trace를 추가했다.
-- 이 항목은 현재 완료된 worklog로 남기고, 다음 세션 시작점은 `rerank provider abstraction` 2차로 이동한다.
+- 이 항목은 현재 완료된 archival worklog로 유지한다. immediate next-start 기준은 위 `priority preemption` 섹션을 따른다.
 
 ### 목표
 

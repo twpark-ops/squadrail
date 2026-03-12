@@ -2,87 +2,94 @@
 
 ## Start Here
 
-Open this file first, then read these in order:
+Open this file first, then read:
 
 1. [next-session-handoff.md](/home/taewoong/company-project/squadall/docs/next-session-handoff.md)
-2. [backend-post-phase-plan.md](/home/taewoong/company-project/squadall/docs/backend-post-phase-plan.md)
-3. [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)
-4. [summary.md](/home/taewoong/company-project/squadall/memory-bank/projects/squadall-run-first/summary.md)
+2. [summary.md](/home/taewoong/company-project/squadall/memory-bank/projects/squadall-run-first/summary.md)
+3. [backend-next-priority-detailed-plan.md](/home/taewoong/company-project/squadall/docs/backend-next-priority-detailed-plan.md)
 
 One-line startup rule:
 
-- open this handoff first, then start immediately with `rerank provider abstraction` phase 2
+- open this handoff first, then start immediately with `priority preemption`
 
-Current HEAD:
+## Current Status
 
-- `163a444` `feat(retrieval): consolidate cache provenance trends`
-- working tree includes uncommitted `cross-issue memory reuse` + E2E harness/protocol fixes validated in burn-in
+- `1. 통합 경계 안정화`: P0 1차 완료
+  - protocol -> merge candidate -> review desk -> merged close 경계 테스트/타입/정책 정리 완료
+- `2. 사람 최종 리뷰 유지 PR bridge`: 완료
+  - GitHub/GitLab remote 판별
+  - draft PR/MR 생성 또는 상태 동기화
+  - PR URL / mergeability / review decision / check status surface 추가
+- `3. CI status gate`: 완료
+  - synced PR이 있는 경우 `mark_merged`와 `mergeStatus=merged` close를 check/mergeability blocker로 차단
+  - PR bridge 없는 local/offline flow는 계속 허용
+- `4. Team supervision layer`: 완료
+  - company dashboard `team-supervision` feed, Inbox section, Issue Detail operator surface 연결 완료
+- `5. Human -> PM intake productization`: 완료
+  - New Issue Dialog `Human intake` 진입점과 intake root -> delivery projection UI 연결 완료
+- `6. issue dependency graph + blocked dispatch enforcement`: 완료
+  - `dependsOn` graph metadata 정규화와 dependency-blocked dispatch gate 완료
 
 ## Current Product State
 
-- `root CLO 1개 -> hidden child work item fan-out -> multi-project parallel execution -> reviewer -> QA -> done` 검증 완료
+- `root 1개 -> hidden child work item fan-out -> multi-project parallel execution -> reviewer -> QA -> done` 검증 완료
 - `Human -> PM intake`, `PM projection`, `QA separate gate`, `organizational memory ingest` 완료
 - `cross-issue memory reuse` 완료
-- `fast / normal / deep` execution lane classifier 완료
-- `issue routes split` 1차 완료
-- `issue-retrieval` helper extraction 1차 완료
-- `knowledge-setup` read-model cache 1차 완료
-- `PR verify / release workflow` 추가 완료
-- `18-agent real-org burn-in batch1` 완료
-  - `CLO-204`~`CLO-207`: `done`
-  - coordinated root `CLO-208`: child fan-out 후 의도대로 `cancelled`
-  - child `CLO-209`~`CLO-211`: reviewer/QA 포함 `done`
+- `PR bridge + CI gate` 완료
+- `team supervision feed + internal work item operator flow` 완료
+- `dependency-blocked dispatch enforcement` 완료
+- `18-agent real-org burn-in` 완료
+- 최신 검증:
+  - `pnpm --filter @squadrail/server test` `592 tests` 통과
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
+  - server coverage `37.27%`
+- 현재 다음 순차 작업은 `7. priority preemption`
 
-## Next Backend Priorities
+## Next Priorities
 
-Order:
-
-1. `rerank provider abstraction` phase 2
-2. `execution lane / fast lane` operational instrumentation
+1. `priority preemption`
+2. `per-agent performance scorecard`
+3. `merge conflict assist`
+4. `execution-failure learning`
+5. `external operating alerts`
 
 Interpretation:
 
-- next focus is not new protocol/kernel work
-- next focus is retrieval/ops quality stabilization after org-memory reuse completion
+- next focus is operator-facing coordination layer and dispatch quality
+- rerank/provider work는 지금 immediate next가 아니다
 
 ## Recommended First Task Next Session
 
-`cross-issue memory reuse`와 `18-agent burn-in`은 완료됐다.
-
-Start with `rerank provider abstraction` phase 2.
+Start with `priority preemption`.
 
 Suggested slice:
 
-1. ordered provider chain config 해석 추가
-2. timeout / 429 / 5xx / malformed response failure taxonomy 정리
-3. `rerankProviderAttempted`, `rerankProviderUsed`, `rerankFallbackReason` surface 추가
-4. fallback tests 추가
-5. update memory-bank summary
+1. heartbeat queue / wakeup candidate에 priority class 모델 정리
+2. critical / hotfix issue가 queued medium work보다 먼저 선점되도록 dispatch rule 추가
+3. preemption trace를 dashboard / protocol metadata / audit 로그에 노출
+4. starvation guard와 regression tests 추가
+5. memory-bank summary 업데이트
 
 ## Important Files
 
-Rerank / retrieval:
+Team supervision / intake:
 
-- [config.ts](/home/taewoong/company-project/squadall/server/src/services/knowledge-rerank/config.ts)
-- [providers.ts](/home/taewoong/company-project/squadall/server/src/services/knowledge-rerank/providers.ts)
-- [knowledge-reranking.ts](/home/taewoong/company-project/squadall/server/src/services/knowledge-reranking.ts)
-- [issue-retrieval.ts](/home/taewoong/company-project/squadall/server/src/services/issue-retrieval.ts)
-- [knowledge.ts](/home/taewoong/company-project/squadall/server/src/services/knowledge.ts)
-- [knowledge-reranking.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/knowledge-reranking.test.ts)
+- [phase1-team-supervisor-mvp.md](/home/taewoong/company-project/squadall/docs/phase1-team-supervisor-mvp.md)
+- [agent-team-mode-plan.md](/home/taewoong/company-project/squadall/docs/agent-team-mode-plan.md)
+- [p0b-human-pm-intake-layer.md](/home/taewoong/company-project/squadall/docs/p0b-human-pm-intake-layer.md)
+- [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
+- [internal-work-item-supervision.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/internal-work-item-supervision.test.ts)
+
+Next dispatch / scheduling:
+
+- [heartbeat.ts](/home/taewoong/company-project/squadall/server/src/services/heartbeat.ts)
+- [issue-protocol-execution.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol-execution.ts)
+- [dashboard.ts](/home/taewoong/company-project/squadall/server/src/services/dashboard.ts)
 
 Planning / memory:
 
-- [backend-post-phase-plan.md](/home/taewoong/company-project/squadall/docs/backend-post-phase-plan.md)
-- [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)
 - [summary.md](/home/taewoong/company-project/squadall/memory-bank/projects/squadall-run-first/summary.md)
 - [backend-next-priority-detailed-plan.md](/home/taewoong/company-project/squadall/docs/backend-next-priority-detailed-plan.md)
-
-## Do Not Touch
-
-These are unrelated local changes:
-
-- [README.md](/home/taewoong/company-project/squadall/memory-bank/README.md)
-- [squadall-ui-only-followup](/home/taewoong/company-project/squadall/memory-bank/projects/squadall-ui-only-followup/)
 
 ## Validation Commands
 
@@ -94,26 +101,11 @@ pnpm test:run
 pnpm build
 ```
 
-For targeted rerank work:
+For priority / dispatch work:
 
 ```bash
-pnpm vitest run server/src/__tests__/knowledge-reranking.test.ts
+pnpm vitest run server/src/__tests__/issue-protocol-execution.test.ts server/src/__tests__/dashboard.test.ts
 ```
-
-If protocol helper or burn-in harness changes again:
-
-```bash
-pnpm vitest run server/src/__tests__/protocol-helper-cli.test.ts
-node --check scripts/e2e/cloud-swiftsight-real-org.mjs
-SQUADRAIL_BASE_URL=http://127.0.0.1:3144 pnpm e2e:cloud-swiftsight-burn-in
-```
-
-Suggested order for rerank-only edits:
-
-1. run the focused rerank Vitest command first
-2. then run `pnpm -r typecheck`
-3. then run `pnpm test:run`
-4. then run `pnpm build`
 
 ## Product Direction Reminder
 

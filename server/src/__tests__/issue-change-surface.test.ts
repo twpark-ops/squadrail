@@ -241,4 +241,75 @@ describe("issue change surface", () => {
     expect(surface.mergeCandidate?.approvalSummary).toBe("Approved first branch");
     expect(surface.branchName).toBe("squadrail/first");
   });
+
+  it("derives PR bridge and CI gate state from persisted automation metadata", () => {
+    const surface = buildIssueChangeSurface({
+      issue: {
+        id: "issue-9",
+        identifier: "CLO-9",
+        title: "PR bridge candidate",
+        status: "done",
+      },
+      messages: [],
+      mergeCandidateRecord: {
+        state: "pending",
+        closeMessageId: "close-9",
+        sourceBranch: "squadrail/clo-9",
+        workspacePath: "/tmp/worktree-9",
+        headSha: "abc999",
+        diffStat: "2 files changed",
+        targetBaseBranch: "main",
+        mergeCommitSha: null,
+        automationMetadata: {
+          prBridge: {
+            provider: "github",
+            repoOwner: "acme",
+            repoName: "swiftsight",
+            remoteUrl: "https://github.com/acme/swiftsight.git",
+            repoUrl: "https://github.com/acme/swiftsight",
+            number: 91,
+            externalId: "991",
+            url: "https://github.com/acme/swiftsight/pull/91",
+            title: "CLO-9: PR bridge candidate",
+            state: "draft",
+            mergeability: "blocked",
+            headBranch: "squadrail/clo-9",
+            baseBranch: "main",
+            headSha: "abc999",
+            reviewDecision: null,
+            commentCount: 2,
+            reviewCommentCount: 1,
+            lastSyncedAt: "2026-03-12T03:00:00.000Z",
+            checks: [
+              {
+                name: "pr-verify",
+                status: "pending",
+                conclusion: null,
+                summary: "Queued",
+                required: true,
+                detailsUrl: "https://github.com/acme/swiftsight/actions/runs/1",
+              },
+            ],
+          },
+        },
+        operatorNote: null,
+        resolvedAt: null,
+      },
+    });
+
+    expect(surface.mergeCandidate?.prBridge).toEqual(
+      expect.objectContaining({
+        provider: "github",
+        number: 91,
+        state: "draft",
+      }),
+    );
+    expect(surface.mergeCandidate?.gateStatus).toEqual(
+      expect.objectContaining({
+        mergeReady: false,
+        requiredChecksConfigured: true,
+      }),
+    );
+    expect(surface.mergeCandidate?.gateStatus?.blockingReasons).toContain("Required checks still pending (1).");
+  });
 });

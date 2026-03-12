@@ -1,4 +1,8 @@
 import type { IssueChangeSurface } from "@squadrail/shared";
+import {
+  buildMergeCandidateGateStatus,
+  buildMergeCandidatePrBridge,
+} from "./merge-candidate-gates.js";
 
 type IssueLike = {
   id: string;
@@ -253,6 +257,9 @@ export function buildIssueChangeSurface(input: {
     const normalizedState = recordState === "merged" || recordState === "rejected" || recordState === "pending"
       ? recordState
       : "pending";
+    const automationMetadata = input.mergeCandidateRecord?.automationMetadata ?? null;
+    const prBridge = buildMergeCandidatePrBridge({ automationMetadata });
+    const gateStatus = buildMergeCandidateGateStatus({ prBridge });
     mergeCandidate = {
       issueId: input.issue.id,
       identifier: input.issue.identifier,
@@ -269,12 +276,14 @@ export function buildIssueChangeSurface(input: {
       rollbackPlan: readString(closePayload.rollbackPlan),
       approvalSummary: readString(approvalPayload.approvalSummary),
       remainingRisks: readStringArray(closePayload.remainingRisks),
-      automationMetadata: input.mergeCandidateRecord?.automationMetadata ?? null,
+      automationMetadata,
       operatorNote: input.mergeCandidateRecord?.operatorNote ?? null,
       resolvedAt: input.mergeCandidateRecord?.resolvedAt
         ? normalizeDate(input.mergeCandidateRecord.resolvedAt)
         : null,
       closeMessageId: input.mergeCandidateRecord?.closeMessageId ?? mergeCandidateClose?.id ?? null,
+      prBridge,
+      gateStatus,
     };
   }
 

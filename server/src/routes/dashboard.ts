@@ -54,6 +54,23 @@ export function dashboardRoutes(db: Db) {
     res.json(recovery);
   });
 
+  router.get("/companies/:companyId/dashboard/team-supervision", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+
+    const parsed = protocolQueueQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    const feed = await svc.teamSupervision({
+      companyId,
+      limit: parsed.data.limit,
+    });
+    res.json(feed);
+  });
+
   router.post("/companies/:companyId/dashboard/recovery-queue/actions", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
