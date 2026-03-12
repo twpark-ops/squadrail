@@ -238,8 +238,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     env.SQUADRAIL_API_KEY = authToken;
   }
   const billingType = resolveCodexBillingType(env);
-  const runtimeEnv = await withProtocolTransportGuards(
-    ensurePathInEnv({ ...process.env, ...env }),
+  const runtimeEnv = Object.fromEntries(
+    Object.entries(
+      await withProtocolTransportGuards(
+        ensurePathInEnv({ ...process.env, ...env }),
+      ),
+    ).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
   await ensureCommandResolvable(command, cwd, runtimeEnv);
 
@@ -340,7 +344,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           if (idx === args.length - 1 && value !== "-") return `<prompt ${prompt.length} chars>`;
           return value;
         }),
-        env: redactEnvForLogs(env),
+        env: redactEnvForLogs(runtimeEnv),
         prompt,
         context,
       });
@@ -348,7 +352,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
     const proc = await runChildProcess(runId, command, args, {
       cwd,
-      env,
+      env: runtimeEnv,
       stdin: prompt,
       timeoutSec,
       graceSec,

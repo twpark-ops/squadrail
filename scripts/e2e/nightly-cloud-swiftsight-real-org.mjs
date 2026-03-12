@@ -4,11 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-const REPO_ROOT = "/home/taewoong/company-project/squadall";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const BASE_URL = process.env.SQUADRAIL_BASE_URL ?? "http://127.0.0.1:3101";
 const REPORT_ROOT = process.env.SQUADRAIL_NIGHTLY_REPORT_DIR
   ?? path.join(os.homedir(), ".squadrail", "reports", "nightly", "cloud-swiftsight-real-org");

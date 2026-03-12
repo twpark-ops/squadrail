@@ -11,6 +11,8 @@ import {
   attachResolvedWorkspaceContextToRunContext,
   buildTaskSessionUpsertSet,
   insertOrRefetchSingleton,
+  mergeRunResultJson,
+  resolveNextSessionState,
   shouldResetTaskSessionForWake,
 } from "../services/heartbeat.ts";
 
@@ -323,6 +325,136 @@ describe("heartbeat singleton helpers", () => {
       lastRunId: "run-1",
       lastError: "none",
       updatedAt,
+    });
+  });
+});
+
+describe("resolveNextSessionState", () => {
+  const codec = {
+    deserialize(raw: unknown) {
+      return raw && typeof raw === "object" ? raw as Record<string, unknown> : null;
+    },
+    serialize(params: Record<string, unknown> | null) {
+      return params;
+    },
+    getDisplayId(params: Record<string, unknown> | null) {
+      return typeof params?.displayId === "string"
+        ? params.displayId
+        : typeof params?.sessionId === "string"
+          ? params.sessionId
+          : null;
+    },
+  };
+
+  it("clears persisted session state when the adapter requests it", () => {
+    expect(
+      resolveNextSessionState({
+        codec,
+        adapterResult: {
+          exitCode: 0,
+          clearSession: true,
+        },
+        previousParams: {
+          sessionId: "session-prev",
+        },
+        previousDisplayId: "session-prev",
+        previousLegacySessionId: "session-prev",
+      }),
+    ).toEqual({
+      params: null,
+      displayId: null,
+      legacySessionId: null,
+    });
+  });
+
+  it("keeps prior session state when the adapter returns no explicit session update", () => {
+    expect(
+      resolveNextSessionState({
+        codec,
+        adapterResult: {
+          exitCode: 0,
+        },
+        previousParams: {
+          sessionId: "session-prev",
+          displayId: "display-prev",
+        },
+        previousDisplayId: "display-prev",
+        previousLegacySessionId: "session-prev",
+      }),
+    ).toEqual({
+      params: {
+        sessionId: "session-prev",
+        displayId: "display-prev",
+      },
+      displayId: "display-prev",
+      legacySessionId: "session-prev",
+    });
+  });
+
+  it("builds next state from explicit adapter session params and display ids", () => {
+    expect(
+      resolveNextSessionState({
+        codec,
+        adapterResult: {
+          exitCode: 0,
+          sessionParams: {
+            sessionId: "session-next",
+            displayId: "display-next",
+            cwd: "/tmp/project",
+          },
+          sessionDisplayId: "display-override",
+        },
+        previousParams: null,
+        previousDisplayId: null,
+        previousLegacySessionId: null,
+      }),
+    ).toEqual({
+      params: {
+        sessionId: "session-next",
+        displayId: "display-next",
+        cwd: "/tmp/project",
+      },
+      displayId: "display-override",
+      legacySessionId: "session-next",
+    });
+  });
+});
+
+describe("mergeRunResultJson", () => {
+  it("returns prior payload when additions are empty", () => {
+    expect(
+      mergeRunResultJson(
+        {
+          verificationSignals: ["git_diff"],
+        },
+        {},
+      ),
+    ).toEqual({
+      verificationSignals: ["git_diff"],
+    });
+  });
+
+  it("merges additive runtime metadata into the result payload", () => {
+    expect(
+      mergeRunResultJson(
+        {
+          protocolProgress: {
+            satisfied: true,
+          },
+        },
+        {
+          workspaceGitSnapshot: {
+            branchName: "main",
+          },
+        },
+      ),
+    ).toEqual({
+      protocolProgress: {
+        satisfied: true,
+      },
+      workspaceGitSnapshot: {
+        branchName: "main",
+      },
     });
   });
 });

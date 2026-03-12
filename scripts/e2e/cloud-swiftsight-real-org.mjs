@@ -2,6 +2,9 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   buildE2eLabelSpecs,
@@ -26,9 +29,11 @@ const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
 const PRE_CLEANUP_ENABLED = process.env.SWIFTSIGHT_E2E_PRE_CLEANUP !== "0";
 const HIDE_COMPLETED_ISSUES = process.env.SWIFTSIGHT_E2E_HIDE_COMPLETED !== "0";
 const E2E_ACTOR_ID = process.env.SWIFTSIGHT_E2E_ACTOR_ID ?? "cloud-swiftsight-e2e-board";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-const SWIFTSIGHT_ROOT = "/home/taewoong/workspace/cloud-swiftsight";
-const PROTOCOL_HELPER_PATH = "/home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs";
+const SWIFTSIGHT_ROOT = process.env.SWIFTSIGHT_WORKSPACE_ROOT ?? path.join(os.homedir(), "workspace", "cloud-swiftsight");
+const PROTOCOL_HELPER_PATH = process.env.SQUADRAIL_PROTOCOL_HELPER_PATH
+  ?? path.join(REPO_ROOT, "scripts", "runtime", "squadrail-protocol.mjs");
 const DEFAULT_ORG_LOOP_SCENARIO_KEYS = [
   "swiftsight-agent-tl-qa-loop",
   "swiftsight-cloud-pm-qa-lead-loop",

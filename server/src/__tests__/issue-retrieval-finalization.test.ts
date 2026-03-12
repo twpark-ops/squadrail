@@ -1,0 +1,436 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildCombinedGraphMetrics,
+  buildRecipientBriefEvidenceSummary,
+  buildRecipientRetrievalHint,
+  buildTaskBriefContentJson,
+  buildRetrievalRunCompletionActivityDetails,
+  buildRetrievalRunCompletionEvents,
+  buildRetrievalRunDebugPatch,
+} from "../services/issue-retrieval.js";
+
+function makeHit(overrides: Record<string, unknown> = {}) {
+  return {
+    chunkId: "chunk-1",
+    documentId: "doc-1",
+    sourceType: "code",
+    authorityLevel: "canonical",
+    documentIssueId: "issue-related-1",
+    documentProjectId: "project-1",
+    path: "src/retry.ts",
+    title: "retry.ts",
+    headingPath: null,
+    symbolName: "retryWorker",
+    textContent: "retry worker handles backoff",
+    documentMetadata: {
+      artifactKind: "decision",
+    },
+    chunkMetadata: {},
+    denseScore: 0.82,
+    sparseScore: 0.31,
+    rerankScore: 1.15,
+    fusedScore: 2.1,
+    updatedAt: new Date("2026-03-12T00:00:00Z"),
+    graphMetadata: {
+      entityTypes: ["path", "symbol"],
+      entityIds: ["src/retry.ts", "retryWorker"],
+      seedReasons: ["protocol_related_issue"],
+      graphScore: 1.4,
+      edgeTypes: ["calls"],
+      hopDepth: 2,
+    },
+    temporalMetadata: {
+      branchName: "main",
+      defaultBranchName: "main",
+      commitSha: "abc123",
+      matchType: "same_branch_head",
+      score: 0.8,
+      stale: false,
+    },
+    personalizationMetadata: {
+      totalBoost: 0.4,
+      sourceTypeBoost: 0.1,
+      pathBoost: 0.2,
+      symbolBoost: 0.1,
+      scopes: ["project"],
+      matchedSourceType: "code",
+      matchedPath: "src/retry.ts",
+      matchedSymbol: "retryWorker",
+    },
+    ...overrides,
+  };
+}
+
+function makeQuality() {
+  return {
+    confidenceLevel: "high" as const,
+    evidenceCount: 2,
+    denseEnabled: true,
+    denseHitCount: 2,
+    sparseHitCount: 1,
+    pathHitCount: 1,
+    symbolHitCount: 1,
+    graphSeedCount: 3,
+    graphHitCount: 1,
+    graphEntityTypes: ["path", "symbol"],
+    symbolGraphSeedCount: 1,
+    symbolGraphHitCount: 1,
+    edgeTraversalCount: 4,
+    edgeTypeCounts: { calls: 1 },
+    graphMaxDepth: 2,
+    graphHopDepthCounts: { "1": 1, "2": 1 },
+    multiHopGraphHitCount: 1,
+    temporalContextAvailable: true,
+    temporalHitCount: 1,
+    branchAlignedTopHitCount: 1,
+    staleVersionPenaltyCount: 0,
+    exactCommitMatchCount: 0,
+    personalizationApplied: true,
+    personalizedHitCount: 1,
+    averagePersonalizationBoost: 0.4,
+    organizationalMemoryHitCount: 0,
+    codeHitCount: 1,
+    reviewHitCount: 0,
+    requestedRelatedIssueCount: 2,
+    reuseHitCount: 1,
+    reusedIssueCount: 1,
+    reusedIssueIds: ["issue-related-1"],
+    reusedIssueIdentifiers: ["SW-101"],
+    reuseArtifactKinds: ["decision"],
+    reuseDecisionHitCount: 1,
+    reuseFixHitCount: 0,
+    reuseReviewHitCount: 0,
+    reuseCloseHitCount: 0,
+    sourceDiversity: 1,
+    candidateCacheHit: true,
+    finalCacheHit: false,
+    candidateCacheReason: "hit",
+    finalCacheReason: "miss_cold",
+    candidateCacheProvenance: "exact_key",
+    finalCacheProvenance: null,
+    exactPathSatisfied: true,
+    degradedReasons: [],
+  };
+}
+
+describe("issue retrieval finalization builders", () => {
+  it("caps evidence summaries and builds recipient hints", () => {
+    const hits = [
+      makeHit(),
+      makeHit({
+        chunkId: "chunk-2",
+        path: "src/retry_test.ts",
+        title: "retry_test.ts",
+        symbolName: "retryWorkerTest",
+        fusedScore: 1.6,
+      }),
+    ];
+
+    expect(buildRecipientBriefEvidenceSummary({ hits, maxEvidenceItems: 1 })).toEqual([
+      {
+        rank: 1,
+        sourceType: "code",
+        authorityLevel: "canonical",
+        path: "src/retry.ts",
+        title: "retry.ts",
+        symbolName: "retryWorker",
+        fusedScore: 2.1,
+      },
+    ]);
+
+    expect(
+      buildRecipientRetrievalHint({
+        recipientId: "agent-1",
+        recipientRole: "engineer",
+        executionLane: "fast",
+        retrievalRunId: "retrieval-1",
+        briefId: "brief-1",
+        briefScope: "engineer",
+        briefContentMarkdown: "# brief",
+        hits,
+        maxEvidenceItems: 1,
+      }),
+    ).toMatchObject({
+      recipientId: "agent-1",
+      recipientRole: "engineer",
+      executionLane: "fast",
+      retrievalRunId: "retrieval-1",
+      briefId: "brief-1",
+      briefScope: "engineer",
+      briefContentMarkdown: "# brief",
+      briefEvidenceSummary: [
+        {
+          rank: 1,
+          path: "src/retry.ts",
+        },
+      ],
+    });
+  });
+
+  it("builds task brief JSON with ranked hit summaries", () => {
+    const quality = makeQuality();
+    const hits = [
+      makeHit(),
+      makeHit({
+        chunkId: "chunk-2",
+        documentId: "doc-2",
+        path: "src/retry_test.ts",
+        title: "retry_test.ts",
+        sourceType: "test_report",
+        authorityLevel: "working",
+        fusedScore: 1.5,
+      }),
+    ];
+
+    expect(
+      buildTaskBriefContentJson({
+        eventType: "on_review",
+        triggeringMessageId: "message-1",
+        executionLane: "thorough",
+        queryText: "review retry worker evidence",
+        dynamicSignals: {
+          exactPaths: ["src/retry.ts"],
+          symbolHints: ["retryWorker"],
+        },
+        quality,
+        hits,
+      }),
+    ).toMatchObject({
+      eventType: "on_review",
+      triggeringMessageId: "message-1",
+      executionLane: "thorough",
+      queryText: "review retry worker evidence",
+      dynamicSignals: {
+        exactPaths: ["src/retry.ts"],
+        symbolHints: ["retryWorker"],
+      },
+      quality,
+      hits: [
+        {
+          rank: 1,
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          path: "src/retry.ts",
+          graphMetadata: {
+            entityTypes: ["path", "symbol"],
+          },
+        },
+        {
+          rank: 2,
+          chunkId: "chunk-2",
+          documentId: "doc-2",
+          sourceType: "test_report",
+          authorityLevel: "working",
+          path: "src/retry_test.ts",
+          graphMetadata: {
+            entityTypes: ["path", "symbol"],
+          },
+        },
+      ],
+    });
+  });
+
+  it("builds retrieval debug patches with reuse, graph, cache, and personalization metadata", () => {
+    const quality = makeQuality();
+    const hit = makeHit();
+
+    const patch = buildRetrievalRunDebugPatch({
+      quality,
+      finalHits: [hit],
+      relatedIssueIds: ["issue-related-1", "issue-related-2"],
+      relatedIssueIdentifiers: ["SW-101", "SW-102"],
+      reuseSummary: {
+        requestedRelatedIssueCount: 2,
+        reuseHitCount: 1,
+        reusedIssueCount: 1,
+        reusedIssueIds: ["issue-related-1"],
+        reusedIssueIdentifiers: ["SW-101"],
+        reuseArtifactKinds: ["decision"],
+        reuseDecisionHitCount: 1,
+        reuseFixHitCount: 0,
+        reuseReviewHitCount: 0,
+        reuseCloseHitCount: 0,
+      },
+      graphSeeds: [{ entityType: "path" }, { entityType: "symbol" }],
+      symbolGraphSeeds: [{ entityType: "symbol" }],
+      briefGraphHits: [hit],
+      symbolGraphHitCount: 1,
+      edgeTraversalCount: 4,
+      edgeTypeCounts: { calls: 1 },
+      graphMaxDepth: 2,
+      graphHopDepthCounts: { "1": 1, "2": 1 },
+      multiHopGraphHitCount: 1,
+      temporalContext: {
+        branchName: "main",
+      },
+      queryEmbeddingCacheHit: true,
+      candidateCacheHit: true,
+      finalCacheHit: false,
+      revisionSignature: "rev-1",
+      candidateCacheInspection: {
+        state: "hit",
+        reason: "hit",
+        provenance: "exact_key",
+        matchedRevision: "rev-1",
+        latestKnownRevision: "rev-1",
+        lastEntryUpdatedAt: "2026-03-12T00:00:00.000Z",
+        cacheKeyFingerprint: "cache-a",
+        requestedCacheKeyFingerprint: "cache-a",
+        matchedCacheKeyFingerprint: "cache-a",
+      },
+      finalCacheInspection: {
+        state: "miss",
+        reason: "miss_cold",
+        provenance: null,
+        matchedRevision: null,
+        latestKnownRevision: "rev-1",
+        lastEntryUpdatedAt: null,
+        cacheKeyFingerprint: "cache-b",
+        requestedCacheKeyFingerprint: "cache-b",
+        matchedCacheKeyFingerprint: null,
+      },
+      exactPathSatisfied: true,
+      personalizationProfile: {
+        applied: true,
+        scopes: ["project"],
+        feedbackCount: 3,
+        positiveFeedbackCount: 2,
+        negativeFeedbackCount: 1,
+        sourceTypeBoosts: { code: 0.1 },
+        pathBoosts: { "src/retry.ts": 0.2 },
+        symbolBoosts: { retryWorker: 0.1 },
+      },
+    });
+
+    expect(patch).toMatchObject({
+      quality,
+      topHitProjectId: "project-1",
+      topHitPath: "src/retry.ts",
+      topHitSourceType: "code",
+      topHitArtifactKind: "decision",
+      relatedIssueIds: ["issue-related-1", "issue-related-2"],
+      relatedIssueIdentifiers: ["SW-101", "SW-102"],
+      reusedIssueIds: ["issue-related-1"],
+      reuseDecisionHitCount: 1,
+      graphSeedCount: 3,
+      graphSeedTypes: ["path", "symbol", "symbol_graph"],
+      graphHitCount: 1,
+      symbolGraphHitCount: 1,
+      graphMaxDepth: 2,
+      multiHopGraphHitCount: 1,
+      exactPathSatisfied: true,
+      cache: {
+        embeddingHit: true,
+        candidateHit: true,
+        finalHit: false,
+        revisionSignature: "rev-1",
+        candidateState: "hit",
+        finalState: "miss",
+      },
+      personalization: {
+        applied: true,
+        feedbackCount: 3,
+        sourceTypeKeyCount: 1,
+        pathKeyCount: 1,
+        symbolKeyCount: 1,
+        personalizedHitCount: 1,
+        averagePersonalizationBoost: 0.4,
+      },
+    });
+  });
+
+  it("builds activity details and paired completion events", () => {
+    const quality = makeQuality();
+
+    expect(
+      buildRetrievalRunCompletionActivityDetails({
+        retrievalRunId: "retrieval-1",
+        triggeringMessageId: "message-1",
+        recipientRole: "reviewer",
+        recipientId: "agent-2",
+        hitCount: 2,
+        briefQuality: quality,
+        briefId: "brief-1",
+        briefScope: "reviewer",
+      }),
+    ).toEqual({
+      retrievalRunId: "retrieval-1",
+      triggeringMessageId: "message-1",
+      recipientRole: "reviewer",
+      recipientId: "agent-2",
+      hitCount: 2,
+      briefQuality: "high",
+      briefDenseEnabled: true,
+      briefId: "brief-1",
+      briefScope: "reviewer",
+    });
+
+    expect(
+      buildRetrievalRunCompletionEvents({
+        companyId: "company-1",
+        issueId: "issue-1",
+        retrievalRunId: "retrieval-1",
+        recipientRole: "reviewer",
+        recipientId: "agent-2",
+        hitCount: 2,
+        briefQuality: quality,
+        briefId: "brief-1",
+        briefScope: "reviewer",
+        briefVersion: 4,
+      }),
+    ).toEqual([
+      {
+        companyId: "company-1",
+        type: "retrieval.run.completed",
+        payload: {
+          issueId: "issue-1",
+          retrievalRunId: "retrieval-1",
+          recipientRole: "reviewer",
+          recipientId: "agent-2",
+          hitCount: 2,
+          briefQuality: "high",
+          briefDenseEnabled: true,
+        },
+      },
+      {
+        companyId: "company-1",
+        type: "issue.brief.updated",
+        payload: {
+          issueId: "issue-1",
+          briefId: "brief-1",
+          briefScope: "reviewer",
+          briefVersion: 4,
+          retrievalRunId: "retrieval-1",
+        },
+      },
+    ]);
+  });
+
+  it("combines chunk and symbol graph metrics without dropping overlapping hop counts", () => {
+    expect(
+      buildCombinedGraphMetrics(
+        {
+          hits: [],
+          edgeTraversalCount: 2,
+          graphMaxDepth: 2,
+          graphHopDepthCounts: { "1": 2, "2": 1 },
+          graphEntityTypeCounts: {},
+        },
+        {
+          hits: [],
+          edgeTraversalCount: 3,
+          edgeTypeCounts: { calls: 2 },
+          graphMaxDepth: 4,
+          graphHopDepthCounts: { "2": 3, "3": 1 },
+        },
+      ),
+    ).toEqual({
+      combinedGraphHopDepthCounts: {
+        "1": 2,
+        "2": 4,
+        "3": 1,
+      },
+      combinedGraphMaxDepth: 4,
+    });
+  });
+});

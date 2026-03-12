@@ -2,16 +2,20 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DEFAULT_ROOT = "/home/taewoong/workspace/cloud-swiftsight";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const DEFAULT_ROOT = path.join(os.homedir(), "workspace", "cloud-swiftsight");
 const DEFAULT_OUT = path.resolve(process.cwd(), "tmp/swiftsight-org-bundle");
 const MANIFEST_NAME = "squadrail.manifest.json";
 const COMPANY_COLOR = "#2563eb";
 const DEFAULT_ROLE_PACK_PRESET = "example_large_org_v1";
 const DEFAULT_CLAUDE_TIMEOUT_SEC = 900;
 const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
-const PROTOCOL_HELPER_PATH = "/home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs";
+const PROTOCOL_HELPER_PATH = process.env.SQUADRAIL_PROTOCOL_HELPER_PATH
+  ?? path.join(REPO_ROOT, "scripts", "runtime", "squadrail-protocol.mjs");
 
 const PROJECT_CATALOG = [
   {

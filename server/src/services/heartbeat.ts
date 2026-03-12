@@ -70,7 +70,7 @@ function appendExcerpt(prev: string, chunk: string) {
   return appendWithCap(prev, chunk, MAX_EXCERPT_BYTES);
 }
 
-function mergeRunResultJson(
+export function mergeRunResultJson(
   base: Record<string, unknown> | null | undefined,
   additions: Record<string, unknown> | null,
 ) {
@@ -249,7 +249,7 @@ export function shouldResetTaskSessionForWake(
   return wakeSource === "on_demand" && wakeTriggerDetail === "manual";
 }
 
-function describeSessionResetReason(
+export function describeSessionResetReason(
   contextSnapshot: Record<string, unknown> | null | undefined,
 ) {
   const wakeReason = readNonEmptyString(contextSnapshot?.wakeReason);
@@ -293,7 +293,7 @@ function deriveCommentId(
   );
 }
 
-function enrichWakeContextSnapshot(input: {
+export function enrichWakeContextSnapshot(input: {
   contextSnapshot: Record<string, unknown>;
   reason: string | null;
   source: WakeupOptions["source"];
@@ -340,7 +340,7 @@ function enrichWakeContextSnapshot(input: {
   };
 }
 
-function mergeCoalescedContextSnapshot(
+export function mergeCoalescedContextSnapshot(
   existingRaw: unknown,
   incoming: Record<string, unknown>,
 ) {
@@ -368,12 +368,116 @@ export function shouldQueueFollowupIssueExecution(input: {
   return asBoolean(input.contextSnapshot.forceFollowupRun, false);
 }
 
-function runTaskKey(run: typeof heartbeatRuns.$inferSelect) {
-  return deriveTaskKey(run.contextSnapshot as Record<string, unknown> | null, null);
+export function shouldBypassIssueExecutionLock(input: {
+  reason: string | null;
+  contextSnapshot: Record<string, unknown>;
+}) {
+  return (
+    input.reason === "issue_comment_mentioned"
+    || readNonEmptyString(input.contextSnapshot.wakeReason) === "issue_comment_mentioned"
+  );
 }
 
 function isSameTaskScope(left: string | null, right: string | null) {
   return (left ?? null) === (right ?? null);
+}
+
+export function selectWakeupCoalescedRun(input: {
+  activeRuns: Array<{
+    id: string;
+    status: string;
+    contextSnapshot: unknown;
+  }>;
+  taskKey: string | null;
+  wakeCommentId: string | null;
+}) {
+  const sameScopeQueuedRun = input.activeRuns.find(
+    (candidate) => candidate.status === "queued" && isSameTaskScope(
+      deriveTaskKey(candidate.contextSnapshot as Record<string, unknown> | null, null),
+      input.taskKey,
+    ),
+  );
+  const sameScopeRunningRun = input.activeRuns.find(
+    (candidate) => candidate.status === "running" && isSameTaskScope(
+      deriveTaskKey(candidate.contextSnapshot as Record<string, unknown> | null, null),
+      input.taskKey,
+    ),
+  );
+  const shouldQueueFollowupForCommentWake =
+    Boolean(input.wakeCommentId) && Boolean(sameScopeRunningRun) && !sameScopeQueuedRun;
+
+  return {
+    sameScopeQueuedRun: sameScopeQueuedRun ?? null,
+    sameScopeRunningRun: sameScopeRunningRun ?? null,
+    shouldQueueFollowupForCommentWake,
+    coalescedTargetRun:
+      sameScopeQueuedRun ?? (shouldQueueFollowupForCommentWake ? null : sameScopeRunningRun ?? null),
+  };
+}
+
+export function buildDeferredIssueWakePayload(input: {
+  payload: Record<string, unknown> | null;
+  issueId: string;
+  contextSnapshot: Record<string, unknown>;
+}) {
+  return {
+    ...(input.payload ?? {}),
+    issueId: input.issueId,
+    [DEFERRED_WAKE_CONTEXT_KEY]: input.contextSnapshot,
+  };
+}
+
+export function buildWakeupRequestValues(input: {
+  companyId: string;
+  agentId: string;
+  source: NonNullable<WakeupOptions["source"]>;
+  triggerDetail: WakeupOptions["triggerDetail"] | null;
+  reason: string | null;
+  payload: Record<string, unknown> | null;
+  status: string;
+  requestedByActorType?: WakeupOptions["requestedByActorType"] | null;
+  requestedByActorId?: string | null;
+  idempotencyKey?: string | null;
+  runId?: string | null;
+  finishedAt?: Date | null;
+  coalescedCount?: number | null;
+}) {
+  return {
+    companyId: input.companyId,
+    agentId: input.agentId,
+    source: input.source,
+    triggerDetail: input.triggerDetail,
+    reason: input.reason,
+    payload: input.payload,
+    status: input.status,
+    requestedByActorType: input.requestedByActorType ?? null,
+    requestedByActorId: input.requestedByActorId ?? null,
+    idempotencyKey: input.idempotencyKey ?? null,
+    runId: input.runId ?? null,
+    finishedAt: input.finishedAt ?? null,
+    coalescedCount: input.coalescedCount ?? undefined,
+  };
+}
+
+export function buildHeartbeatRunQueuedEvent(input: {
+  companyId: string;
+  runId: string;
+  agentId: string;
+  invocationSource: string | null;
+  triggerDetail: string | null;
+  wakeupRequestId: string | null;
+}) {
+  return {
+    companyId: input.companyId,
+    type: "heartbeat.run.queued" as const,
+    payload: {
+      runId: input.runId,
+      agentId: input.agentId,
+      invocationSource: input.invocationSource,
+      triggerDetail: input.triggerDetail,
+      wakeupRequestId: input.wakeupRequestId,
+    },
+  };
 }
 
 function truncateDisplayId(value: string | null | undefined, max = 128) {
@@ -528,9 +632,11 @@ export function decideDispatchWatchdogAction(input: {
   checkpointPhase?: string | null;
   dispatchAttempts: number;
   hasRunningProcess: boolean;
+  slotBlocked?: boolean;
 }) {
   if (input.hasRunningProcess) return "noop" as const;
   if (input.runStatus === "queued") {
+    if (input.slotBlocked) return "hold" as const;
     if (
       input.leaseStatus
       && input.leaseStatus !== "queued"
@@ -538,7 +644,11 @@ export function decideDispatchWatchdogAction(input: {
     ) {
       return "noop" as const;
     }
-    if (input.checkpointPhase !== "queue.created" && input.checkpointPhase !== "dispatch.redispatch") {
+    if (
+      input.checkpointPhase !== "queue.created"
+      && input.checkpointPhase !== "dispatch.redispatch"
+      && input.checkpointPhase !== "dispatch.waiting_for_slot"
+    ) {
       return "noop" as const;
     }
     if (input.dispatchAttempts >= RUN_DISPATCH_RETRY_LIMIT) return "fail" as const;
@@ -594,7 +704,7 @@ function normalizeSessionParams(params: Record<string, unknown> | null | undefin
   return Object.keys(params).length > 0 ? params : null;
 }
 
-function resolveNextSessionState(input: {
+export function resolveNextSessionState(input: {
   codec: AdapterSessionCodec;
   adapterResult: AdapterExecutionResult;
   previousParams: Record<string, unknown> | null;
@@ -1054,16 +1164,52 @@ export function heartbeatService(db: Db) {
     const checkpoint = parseObject(lease?.checkpointJson);
     const checkpointPhase = readNonEmptyString(checkpoint.phase);
     const dispatchAttempts = dispatchWatchdogAttempts.get(runId) ?? 0;
+    const agent = run.status === "queued" ? await getAgent(run.agentId) : null;
+    const runningCount = run.status === "queued" ? await countRunningRunsForAgent(run.agentId) : 0;
+    const maxConcurrentRuns = agent ? parseHeartbeatPolicy(agent).maxConcurrentRuns : 1;
     const action = decideDispatchWatchdogAction({
       runStatus: run.status,
       leaseStatus: lease?.status ?? null,
       checkpointPhase,
       dispatchAttempts,
       hasRunningProcess: runningProcesses.has(runId),
+      slotBlocked: run.status === "queued" && runningCount >= maxConcurrentRuns,
     });
 
     if (action === "noop") {
       clearDispatchWatchdog(runId);
+      return;
+    }
+
+    if (action === "hold") {
+      const heartbeatAt = new Date();
+      const message = "dispatch watchdog is keeping the run queued until an agent slot opens";
+      await upsertRunLease({
+        run,
+        status: "queued",
+        checkpointJson: {
+          phase: "dispatch.waiting_for_slot",
+          message,
+          runningCount,
+          maxConcurrentRuns,
+          previousPhase: checkpointPhase,
+        },
+        heartbeatAt,
+      });
+      if (checkpointPhase !== "dispatch.waiting_for_slot") {
+        await appendRunEvent(run, await nextRunEventSeq(run.id), {
+          eventType: "dispatch.watchdog",
+          stream: "system",
+          level: "info",
+          message,
+          payload: {
+            runningCount,
+            maxConcurrentRuns,
+            previousPhase: checkpointPhase,
+          },
+        });
+      }
+      scheduleDispatchWatchdog(run.id);
       return;
     }
 
@@ -2500,17 +2646,14 @@ export function heartbeatService(db: Db) {
 
     if (!promotedRun) return;
 
-    publishLiveEvent({
+    publishLiveEvent(buildHeartbeatRunQueuedEvent({
       companyId: promotedRun.companyId,
-      type: "heartbeat.run.queued",
-      payload: {
-        runId: promotedRun.id,
-        agentId: promotedRun.agentId,
-        invocationSource: promotedRun.invocationSource,
-        triggerDetail: promotedRun.triggerDetail,
-        wakeupRequestId: promotedRun.wakeupRequestId,
-      },
-    });
+      runId: promotedRun.id,
+      agentId: promotedRun.agentId,
+      invocationSource: promotedRun.invocationSource,
+      triggerDetail: promotedRun.triggerDetail,
+      wakeupRequestId: promotedRun.wakeupRequestId,
+    }));
 
       dispatchAgentQueueStart(promotedRun.agentId);
   }
@@ -2548,7 +2691,7 @@ export function heartbeatService(db: Db) {
 
     const policy = parseHeartbeatPolicy(agent);
     const writeSkippedRequest = async (reason: string) => {
-      await db.insert(agentWakeupRequests).values({
+      await db.insert(agentWakeupRequests).values(buildWakeupRequestValues({
         companyId: agent.companyId,
         agentId,
         source,
@@ -2556,11 +2699,11 @@ export function heartbeatService(db: Db) {
         reason,
         payload,
         status: "skipped",
-        requestedByActorType: opts.requestedByActorType ?? null,
-        requestedByActorId: opts.requestedByActorId ?? null,
-        idempotencyKey: opts.idempotencyKey ?? null,
+        requestedByActorType: opts.requestedByActorType,
+        requestedByActorId: opts.requestedByActorId,
+        idempotencyKey: opts.idempotencyKey,
         finishedAt: new Date(),
-      });
+      }));
     };
 
     if (source === "timer" && !policy.enabled) {
@@ -2572,9 +2715,10 @@ export function heartbeatService(db: Db) {
       return null;
     }
 
-    const bypassIssueExecutionLock =
-      reason === "issue_comment_mentioned" ||
-      readNonEmptyString(enrichedContextSnapshot.wakeReason) === "issue_comment_mentioned";
+    const bypassIssueExecutionLock = shouldBypassIssueExecutionLock({
+      reason,
+      contextSnapshot: enrichedContextSnapshot,
+    });
 
     if (issueId && !bypassIssueExecutionLock) {
       const agentNameKey = normalizeAgentNameKey(agent.name);
@@ -2597,7 +2741,7 @@ export function heartbeatService(db: Db) {
           .then((rows) => rows[0] ?? null);
 
         if (!issue) {
-          await tx.insert(agentWakeupRequests).values({
+          await tx.insert(agentWakeupRequests).values(buildWakeupRequestValues({
             companyId: agent.companyId,
             agentId,
             source,
@@ -2605,11 +2749,11 @@ export function heartbeatService(db: Db) {
             reason: "issue_execution_issue_not_found",
             payload,
             status: "skipped",
-            requestedByActorType: opts.requestedByActorType ?? null,
-            requestedByActorId: opts.requestedByActorId ?? null,
-            idempotencyKey: opts.idempotencyKey ?? null,
+            requestedByActorType: opts.requestedByActorType,
+            requestedByActorId: opts.requestedByActorId,
+            idempotencyKey: opts.idempotencyKey,
             finishedAt: new Date(),
-          });
+          }));
           return { kind: "skipped" as const };
         }
 
@@ -2707,7 +2851,7 @@ export function heartbeatService(db: Db) {
               .returning()
               .then((rows) => rows[0] ?? activeExecutionRun);
 
-            await tx.insert(agentWakeupRequests).values({
+            await tx.insert(agentWakeupRequests).values(buildWakeupRequestValues({
               companyId: agent.companyId,
               agentId,
               source,
@@ -2716,21 +2860,21 @@ export function heartbeatService(db: Db) {
               payload,
               status: "coalesced",
               coalescedCount: 1,
-              requestedByActorType: opts.requestedByActorType ?? null,
-              requestedByActorId: opts.requestedByActorId ?? null,
-              idempotencyKey: opts.idempotencyKey ?? null,
+              requestedByActorType: opts.requestedByActorType,
+              requestedByActorId: opts.requestedByActorId,
+              idempotencyKey: opts.idempotencyKey,
               runId: mergedRun.id,
               finishedAt: new Date(),
-            });
+            }));
 
             return { kind: "coalesced" as const, run: mergedRun };
           }
 
-          const deferredPayload = {
-            ...(payload ?? {}),
+          const deferredPayload = buildDeferredIssueWakePayload({
+            payload,
             issueId,
-            [DEFERRED_WAKE_CONTEXT_KEY]: enrichedContextSnapshot,
-          };
+            contextSnapshot: enrichedContextSnapshot,
+          });
 
           const existingDeferred = await tx
             .select()
@@ -2775,7 +2919,7 @@ export function heartbeatService(db: Db) {
             return { kind: "deferred" as const };
           }
 
-          await tx.insert(agentWakeupRequests).values({
+          await tx.insert(agentWakeupRequests).values(buildWakeupRequestValues({
             companyId: agent.companyId,
             agentId,
             source,
@@ -2783,17 +2927,17 @@ export function heartbeatService(db: Db) {
             reason: "issue_execution_deferred",
             payload: deferredPayload,
             status: "deferred_issue_execution",
-            requestedByActorType: opts.requestedByActorType ?? null,
-            requestedByActorId: opts.requestedByActorId ?? null,
-            idempotencyKey: opts.idempotencyKey ?? null,
-          });
+            requestedByActorType: opts.requestedByActorType,
+            requestedByActorId: opts.requestedByActorId,
+            idempotencyKey: opts.idempotencyKey,
+          }));
 
           return { kind: "deferred" as const };
         }
 
         const wakeupRequest = await tx
           .insert(agentWakeupRequests)
-          .values({
+          .values(buildWakeupRequestValues({
             companyId: agent.companyId,
             agentId,
             source,
@@ -2801,10 +2945,10 @@ export function heartbeatService(db: Db) {
             reason,
             payload,
             status: "queued",
-            requestedByActorType: opts.requestedByActorType ?? null,
-            requestedByActorId: opts.requestedByActorId ?? null,
-            idempotencyKey: opts.idempotencyKey ?? null,
-          })
+            requestedByActorType: opts.requestedByActorType,
+            requestedByActorId: opts.requestedByActorId,
+            idempotencyKey: opts.idempotencyKey,
+          }))
           .returning()
           .then((rows) => rows[0]);
 
@@ -2859,17 +3003,14 @@ export function heartbeatService(db: Db) {
         heartbeatAt: queuedAt,
       });
       scheduleDispatchWatchdog(newRun.id);
-      publishLiveEvent({
+      publishLiveEvent(buildHeartbeatRunQueuedEvent({
         companyId: newRun.companyId,
-        type: "heartbeat.run.queued",
-        payload: {
-          runId: newRun.id,
-          agentId: newRun.agentId,
-          invocationSource: newRun.invocationSource,
-          triggerDetail: newRun.triggerDetail,
-          wakeupRequestId: newRun.wakeupRequestId,
-        },
-      });
+        runId: newRun.id,
+        agentId: newRun.agentId,
+        invocationSource: newRun.invocationSource,
+        triggerDetail: newRun.triggerDetail,
+        wakeupRequestId: newRun.wakeupRequestId,
+      }));
 
       dispatchAgentQueueStart(agent.id);
       return newRun;
@@ -2881,18 +3022,11 @@ export function heartbeatService(db: Db) {
       .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, ["queued", "running"])))
       .orderBy(desc(heartbeatRuns.createdAt));
 
-    const sameScopeQueuedRun = activeRuns.find(
-      (candidate) => candidate.status === "queued" && isSameTaskScope(runTaskKey(candidate), taskKey),
-    );
-    const sameScopeRunningRun = activeRuns.find(
-      (candidate) => candidate.status === "running" && isSameTaskScope(runTaskKey(candidate), taskKey),
-    );
-    const shouldQueueFollowupForCommentWake =
-      Boolean(wakeCommentId) && Boolean(sameScopeRunningRun) && !sameScopeQueuedRun;
-
-    const coalescedTargetRun =
-      sameScopeQueuedRun ??
-      (shouldQueueFollowupForCommentWake ? null : sameScopeRunningRun ?? null);
+    const { coalescedTargetRun } = selectWakeupCoalescedRun({
+      activeRuns,
+      taskKey,
+      wakeCommentId,
+    });
 
     if (coalescedTargetRun) {
       const mergedContextSnapshot = mergeCoalescedContextSnapshot(
@@ -2909,7 +3043,7 @@ export function heartbeatService(db: Db) {
         .returning()
         .then((rows) => rows[0] ?? coalescedTargetRun);
 
-      await db.insert(agentWakeupRequests).values({
+      await db.insert(agentWakeupRequests).values(buildWakeupRequestValues({
         companyId: agent.companyId,
         agentId,
         source,
@@ -2918,18 +3052,18 @@ export function heartbeatService(db: Db) {
         payload,
         status: "coalesced",
         coalescedCount: 1,
-        requestedByActorType: opts.requestedByActorType ?? null,
-        requestedByActorId: opts.requestedByActorId ?? null,
-        idempotencyKey: opts.idempotencyKey ?? null,
+        requestedByActorType: opts.requestedByActorType,
+        requestedByActorId: opts.requestedByActorId,
+        idempotencyKey: opts.idempotencyKey,
         runId: mergedRun.id,
         finishedAt: new Date(),
-      });
+      }));
       return mergedRun;
     }
 
     const wakeupRequest = await db
       .insert(agentWakeupRequests)
-      .values({
+      .values(buildWakeupRequestValues({
         companyId: agent.companyId,
         agentId,
         source,
@@ -2937,10 +3071,10 @@ export function heartbeatService(db: Db) {
         reason,
         payload,
         status: "queued",
-        requestedByActorType: opts.requestedByActorType ?? null,
-        requestedByActorId: opts.requestedByActorId ?? null,
-        idempotencyKey: opts.idempotencyKey ?? null,
-      })
+        requestedByActorType: opts.requestedByActorType,
+        requestedByActorId: opts.requestedByActorId,
+        idempotencyKey: opts.idempotencyKey,
+      }))
       .returning()
       .then((rows) => rows[0]);
 
@@ -2969,17 +3103,14 @@ export function heartbeatService(db: Db) {
       })
       .where(eq(agentWakeupRequests.id, wakeupRequest.id));
 
-    publishLiveEvent({
+    publishLiveEvent(buildHeartbeatRunQueuedEvent({
       companyId: newRun.companyId,
-      type: "heartbeat.run.queued",
-      payload: {
-        runId: newRun.id,
-        agentId: newRun.agentId,
-        invocationSource: newRun.invocationSource,
-        triggerDetail: newRun.triggerDetail,
-        wakeupRequestId: newRun.wakeupRequestId,
-      },
-    });
+      runId: newRun.id,
+      agentId: newRun.agentId,
+      invocationSource: newRun.invocationSource,
+      triggerDetail: newRun.triggerDetail,
+      wakeupRequestId: newRun.wakeupRequestId,
+    }));
 
     const queuedAt = new Date();
     await upsertRunLease({

@@ -192,10 +192,18 @@ describe("createApp", () => {
       deploymentExposure: "private",
     }));
 
-    const response = await request(app).get("/api/health").set("x-test-actor", "board");
+    const response = await request(app)
+      .get("/api/health")
+      .set("x-test-actor", "board")
+      .set("x-forwarded-proto", "https");
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ status: "ok" });
+    expect(response.headers["x-frame-options"]).toBe("DENY");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["referrer-policy"]).toBe("no-referrer");
+    expect(response.headers["strict-transport-security"]).toBe("max-age=31536000; includeSubDomains");
+    expect(response.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
     expect(mockResolvePrivateHostnameAllowSet).toHaveBeenCalledWith({
       allowedHostnames: ["app.internal"],
       bindHost: "0.0.0.0",

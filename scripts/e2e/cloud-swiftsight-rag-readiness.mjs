@@ -2,6 +2,8 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   collectNonReadyProjectIds,
@@ -14,7 +16,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-const REPO_ROOT = "/home/taewoong/company-project/squadall";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const BASE_URL = process.env.SQUADRAIL_BASE_URL ?? "http://127.0.0.1:3101";
 const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
 const ORG_SYNC_TIMEOUT_MS = Number(process.env.SWIFTSIGHT_RAG_ORG_SYNC_TIMEOUT_MS ?? 5 * 60 * 1000);

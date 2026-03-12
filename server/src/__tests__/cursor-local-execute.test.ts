@@ -105,6 +105,7 @@ describe("cursor execute", () => {
           "SQUADRAIL_API_KEY",
           "SQUADRAIL_API_URL",
           "SQUADRAIL_COMPANY_ID",
+          "SQUADRAIL_PROTOCOL_HELPER_PATH",
           "SQUADRAIL_RUN_ID",
         ]),
       );

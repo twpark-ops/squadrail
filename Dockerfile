@@ -31,25 +31,35 @@ RUN test -f server/dist/index.js || (echo "ERROR: server build output missing" &
 FROM base AS production
 WORKDIR /app
 COPY --from=build /app /app
-RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest
+RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest \
+  && groupadd --system squadrail \
+  && useradd --system --gid squadrail --home-dir /squadrail --create-home squadrail \
+  && install -d -o squadrail -g squadrail \
+    /squadrail \
+    /squadrail/.cache \
+    /squadrail/.state \
+    /squadrail/.npm \
+    /squadrail/tmp \
+    /squadrail/runtime
 
 ENV NODE_ENV=production \
   HOME=/squadrail \
   HOST=0.0.0.0 \
   PORT=3100 \
   SERVE_UI=true \
+  XDG_CACHE_HOME=/squadrail/.cache \
+  XDG_STATE_HOME=/squadrail/.state \
+  NPM_CONFIG_CACHE=/squadrail/.npm \
+  TMPDIR=/squadrail/tmp \
   SQUADRAIL_HOME=/squadrail \
-  SQUADRAIL_HOME=/squadrail \
-  SQUADRAIL_INSTANCE_ID=default \
+  SQUADRAIL_RUNTIME_DIR=/squadrail/runtime \
   SQUADRAIL_INSTANCE_ID=default \
   SQUADRAIL_CONFIG=/squadrail/instances/default/config.json \
-  SQUADRAIL_CONFIG=/squadrail/instances/default/config.json \
   SQUADRAIL_DEPLOYMENT_MODE=authenticated \
-  SQUADRAIL_DEPLOYMENT_MODE=authenticated \
-  SQUADRAIL_DEPLOYMENT_EXPOSURE=private \
   SQUADRAIL_DEPLOYMENT_EXPOSURE=private
 
 VOLUME ["/squadrail"]
 EXPOSE 3100
+USER squadrail:squadrail
 
 CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
