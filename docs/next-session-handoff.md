@@ -94,6 +94,11 @@ One-line startup rule:
   - `projects-routes.test.ts`, `secrets-routes.test.ts`, `access-admin-routes.test.ts`를 추가해 low-coverage route shell 1차를 닫았다.
   - `issue-protocol-service.test.ts`, `heartbeat-service-flow.test.ts`, `knowledge-service-operations.test.ts`, `issue-retrieval-finalization.test.ts`에 direct service/finalization branch를 추가했다.
   - `access.ts`, `projects.ts`, `secrets.ts` route coverage를 끌어올리고, `knowledge.ts`, `heartbeat.ts`, `issue-protocol.ts`, `issue-retrieval.ts` bottleneck을 추가로 눌렀다.
+- `13-N. recovery/template/role integrity hardening`: 완료
+  - `merge recovery reopen`이 issue row만 `todo`로 되돌리던 경로에서 벗어나, `issue-protocol` terminal state를 `assigned`로 복구하고 assignee wakeup까지 같이 타도록 정리했다.
+  - workflow template update는 `default-*` reserved prefix와 duplicate ID를 shared validator + service layer 양쪽에서 차단한다.
+  - custom role creation은 transaction으로 감싸 partial set/revision/file row가 남지 않게 했다.
+  - Company Settings custom role success는 `setupProgress` / `doctor` query까지 invalidate해서 stale operator shell을 줄였다.
 
 ## Current Product State
 
@@ -111,13 +116,18 @@ One-line startup rule:
 - `workflow templates` 완료
 - `auto revert assist` 완료
 - `custom role creation` 완료
+- `recovery reopen consistency / workflow template invariants / custom role transactionality / Company Settings invalidate` 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm -r typecheck`
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
   - `pnpm --filter @squadrail/server build`
-  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - `105 files / 717 tests` 통과
-  - server coverage `46.75%`
+  - `pnpm --filter @squadrail/ui build`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issues-routes.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/workflow-templates.test.ts src/__tests__/role-pack-service.test.ts src/__tests__/companies-routes.test.ts`
+  - `pnpm --filter @squadrail/server test`
+  - `105 files / 723 tests` 통과
+  - coverage baseline은 직전 측정치 `46.75%`
 - 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`
 
 ## Next Priorities
@@ -159,6 +169,9 @@ Recently completed operator / recovery surfaces:
 - [ProtocolActionConsole.tsx](/home/taewoong/company-project/squadall/ui/src/components/ProtocolActionConsole.tsx)
 - [ChangeReviewDesk.tsx](/home/taewoong/company-project/squadall/ui/src/components/ChangeReviewDesk.tsx)
 - [merge-routes.ts](/home/taewoong/company-project/squadall/server/src/routes/issues/merge-routes.ts)
+- [issue-protocol.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol.ts)
+- [workflow-templates.ts](/home/taewoong/company-project/squadall/server/src/services/workflow-templates.ts)
+- [role-packs.ts](/home/taewoong/company-project/squadall/server/src/services/role-packs.ts)
 - [issue-merge-automation.ts](/home/taewoong/company-project/squadall/server/src/services/issue-merge-automation.ts)
 - [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
 

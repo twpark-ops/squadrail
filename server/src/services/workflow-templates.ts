@@ -6,6 +6,7 @@ import type {
   WorkflowTemplate,
   WorkflowTemplatesView,
 } from "@squadrail/shared";
+import { unprocessable } from "../errors.js";
 import { setupProgressService } from "./setup-progress.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -170,6 +171,22 @@ function serializeCompanyTemplate(template: WorkflowTemplate) {
   };
 }
 
+function assertWorkflowTemplateInvariants(templates: UpdateWorkflowTemplates["templates"]) {
+  const seen = new Map<string, number>();
+
+  templates.forEach((template, index) => {
+    const normalizedId = template.id.trim().toLowerCase();
+    if (normalizedId.startsWith("default-")) {
+      throw unprocessable("Company workflow template IDs cannot use the reserved default-* prefix");
+    }
+    const existingIndex = seen.get(normalizedId);
+    if (existingIndex !== undefined) {
+      throw unprocessable(`Workflow template IDs must be unique (duplicate indexes ${existingIndex} and ${index})`);
+    }
+    seen.set(normalizedId, index);
+  });
+}
+
 export function workflowTemplateService(db: Db) {
   const setup = setupProgressService(db);
 
@@ -204,6 +221,7 @@ export function workflowTemplateService(db: Db) {
   }
 
   async function updateConfig(companyId: string, input: UpdateWorkflowTemplates): Promise<WorkflowTemplatesView> {
+    assertWorkflowTemplateInvariants(input.templates);
     await setup.update(companyId, {
       metadata: {
         workflowTemplates: input.templates.map((entry) =>

@@ -100,6 +100,13 @@ interface IssueRouteProtocolService {
   listMessages(issueId: string): Promise<unknown[]>;
   listReviewCycles(issueId: string): Promise<unknown[]>;
   listViolations(input: { issueId: string; status: string | null }): Promise<unknown[]>;
+  reopenForRecovery(issueId: string): Promise<{
+    issue: IssueRouteIssueRecord;
+    state: Record<string, unknown> | null;
+    reopenedFromWorkflowState: string | null;
+    nextWorkflowState: string | null;
+    wakeAssigneeAgentId: string | null;
+  }>;
 }
 
 interface IssueRouteKnowledgeService {
@@ -210,6 +217,21 @@ export interface IssueRouteContext {
       companyId?: string | null;
       projectId?: string | null;
     }): Promise<IssueChangeSurface>;
+    queueIssueWakeup(
+      issue: { id: string; companyId: string },
+      agentId: string,
+      wakeup: {
+        source?: "timer" | "assignment" | "on_demand" | "automation";
+        triggerDetail?: "manual" | "ping" | "callback" | "system";
+        reason?: string | null;
+        payload?: Record<string, unknown> | null;
+        idempotencyKey?: string | null;
+        requestedByActorType?: "user" | "agent" | "system";
+        requestedByActorId?: string | null;
+        contextSnapshot?: Record<string, unknown>;
+      },
+      failureMessage: string,
+    ): Promise<unknown>;
     runSingleFileUpload(req: Request, res: Response): Promise<void>;
     assertCanManageIssueApprovalLinks(req: Request, res: Response, companyId: string): Promise<boolean>;
     assertCanAssignTasks(req: Request, companyId: string): Promise<void>;

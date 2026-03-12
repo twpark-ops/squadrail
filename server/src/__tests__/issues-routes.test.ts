@@ -34,6 +34,7 @@ const {
   mockProtocolListMessages,
   mockProtocolAppendMessage,
   mockProtocolCreateViolation,
+  mockProtocolReopenForRecovery,
   mockProtocolDispatchMessage,
   mockIssueRetrievalHandleProtocolMessage,
   mockOrgMemoryBackfillCompany,
@@ -87,6 +88,7 @@ const {
   mockProtocolListMessages: vi.fn(),
   mockProtocolAppendMessage: vi.fn(),
   mockProtocolCreateViolation: vi.fn(),
+  mockProtocolReopenForRecovery: vi.fn(),
   mockProtocolDispatchMessage: vi.fn(),
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
   mockOrgMemoryBackfillCompany: vi.fn(),
@@ -177,6 +179,7 @@ vi.mock("../services/index.js", () => ({
     listReviewCycles: vi.fn(),
     appendMessage: mockProtocolAppendMessage,
     createViolation: mockProtocolCreateViolation,
+    reopenForRecovery: mockProtocolReopenForRecovery,
   }),
   issueMergeCandidateService: () => ({
     getByIssueId: mockMergeCandidateGetByIssueId,
@@ -409,6 +412,23 @@ describe("issue routes wakeup handling", () => {
       message: { id: "protocol-message-1", seq: 1 },
       state: {},
     });
+    mockProtocolReopenForRecovery.mockImplementation(async (issueId: string) => ({
+      issue: {
+        id: issueId,
+        companyId: "company-1",
+        identifier: "CLO-DEFAULT",
+        title: "Default issue",
+        status: "todo",
+        projectId: "project-1",
+        priority: "medium",
+      },
+      state: {
+        workflowState: "assigned",
+      },
+      reopenedFromWorkflowState: "done",
+      nextWorkflowState: "assigned",
+      wakeAssigneeAgentId: null,
+    }));
     mockProjectGetById.mockResolvedValue({
       id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
       companyId: "company-1",
@@ -3112,6 +3132,24 @@ describe("issue routes wakeup handling", () => {
       operatorNote: "Operator requested rollback review",
       resolvedAt: null,
     });
+    mockProtocolReopenForRecovery.mockResolvedValue({
+      issue: {
+        id: "11111111-1111-4111-8111-111111111111",
+        companyId: "company-1",
+        identifier: "CLO-242",
+        title: "Merged issue",
+        status: "todo",
+        projectId: "project-1",
+        priority: "high",
+        assigneeAgentId: "agent-1",
+      },
+      state: {
+        workflowState: "assigned",
+      },
+      reopenedFromWorkflowState: "done",
+      nextWorkflowState: "assigned",
+      wakeAssigneeAgentId: "agent-1",
+    });
     mockIssueUpdate.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
       companyId: "company-1",
@@ -3139,7 +3177,8 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(mockIssueUpdate).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", { status: "todo" });
+    expect(mockProtocolReopenForRecovery).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111");
+    expect(mockIssueUpdate).not.toHaveBeenCalled();
     expect(mockIssueAddComment).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
       expect.stringContaining("## Recovery Context"),
@@ -3155,6 +3194,23 @@ describe("issue routes wakeup handling", () => {
           lastActionType: "reopen_with_rollback_context",
           lastActionSummary: "Reopened issue with rollback context",
           lastCommentId: "comment-rollback-1",
+        }),
+      }),
+    );
+    expect(mockHeartbeatWakeup).toHaveBeenCalledWith(
+      "agent-1",
+      expect.objectContaining({
+        reason: "issue_reopened_via_revert_assist",
+        payload: expect.objectContaining({
+          issueId: "11111111-1111-4111-8111-111111111111",
+          commentId: "comment-rollback-1",
+          reopenedFromWorkflowState: "done",
+          mutation: "merge_recovery",
+        }),
+        contextSnapshot: expect.objectContaining({
+          source: "issue.revert_assist.reopen",
+          wakeReason: "issue_reopened_via_revert_assist",
+          reopenedFromWorkflowState: "done",
         }),
       }),
     );

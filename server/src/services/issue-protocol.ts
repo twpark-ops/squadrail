@@ -157,6 +157,15 @@ function applyProjectedIssueStatus(status: IssueStatus): Partial<typeof issues.$
   return patch;
 }
 
+function buildRecoveryReopenIssuePatch(status: IssueStatus): Partial<typeof issues.$inferInsert> {
+  return {
+    ...applyProjectedIssueStatus(status),
+    completedAt: null,
+    cancelledAt: null,
+    checkoutRunId: null,
+  };
+}
+
 function renderMirrorComment(input: CreateIssueProtocolMessage) {
   const recipients = input.recipients.map((recipient) => `${recipient.role}:${recipient.recipientId}`).join(", ");
   const payload = JSON.stringify(input.payload, null, 2);
@@ -988,6 +997,92 @@ export function issueProtocolService(db: Db) {
         })
         .returning();
       return created;
+    },
+
+    reopenForRecovery: async (issueId: string) => {
+      const issue = await db
+        .select()
+        .from(issues)
+        .where(eq(issues.id, issueId))
+        .then((rows) => rows[0] ?? null);
+
+      if (!issue) throw notFound("Issue not found");
+
+      return db.transaction(async (tx) => {
+        const currentState = await tx
+          .select()
+          .from(issueProtocolState)
+          .where(eq(issueProtocolState.issueId, issueId))
+          .for("update")
+          .then((rows: Array<typeof issueProtocolState.$inferSelect>) => rows[0] ?? null);
+
+        if (!currentState) {
+          const [reopenedIssue] = await tx
+            .update(issues)
+            .set(buildRecoveryReopenIssuePatch("todo"))
+            .where(eq(issues.id, issueId))
+            .returning();
+
+          return {
+            issue: reopenedIssue ?? issue,
+            state: null,
+            reopenedFromWorkflowState: null,
+            nextWorkflowState: null,
+            wakeAssigneeAgentId: reopenedIssue?.assigneeAgentId ?? issue.assigneeAgentId ?? null,
+          };
+        }
+
+        if (currentState.workflowState !== "done" && currentState.workflowState !== "cancelled") {
+          throw conflict("Issue protocol is not in a terminal state");
+        }
+
+        const nextWorkflowState: IssueProtocolWorkflowState = "assigned";
+        const coarseIssueStatus = mapProtocolStateToIssueStatus(nextWorkflowState);
+        const nextMetadata = {
+          ...(currentState.metadata ?? {}),
+          recoveryReopen: {
+            lastReopenedAt: new Date().toISOString(),
+            reopenedFromWorkflowState: currentState.workflowState,
+          },
+        } satisfies Record<string, unknown>;
+
+        const [updatedState] = await tx
+          .update(issueProtocolState)
+          .set({
+            workflowState: nextWorkflowState,
+            coarseIssueStatus,
+            lastTransitionAt: new Date(),
+            blockedPhase: null,
+            blockedCode: null,
+            blockedByMessageId: null,
+            metadata: nextMetadata,
+          })
+          .where(eq(issueProtocolState.issueId, issueId))
+          .returning();
+
+        const [reopenedIssue] = await tx
+          .update(issues)
+          .set({
+            ...buildRecoveryReopenIssuePatch(coarseIssueStatus),
+            assigneeAgentId: currentState.primaryEngineerAgentId ?? currentState.techLeadAgentId ?? issue.assigneeAgentId,
+            assigneeUserId: null,
+          })
+          .where(eq(issues.id, issueId))
+          .returning();
+
+        return {
+          issue: reopenedIssue ?? issue,
+          state: updatedState ?? currentState,
+          reopenedFromWorkflowState: currentState.workflowState,
+          nextWorkflowState,
+          wakeAssigneeAgentId:
+            reopenedIssue?.assigneeAgentId
+            ?? currentState.primaryEngineerAgentId
+            ?? currentState.techLeadAgentId
+            ?? issue.assigneeAgentId
+            ?? null,
+        };
+      });
     },
   };
 }

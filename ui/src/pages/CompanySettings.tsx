@@ -532,6 +532,8 @@ export function CompanySettings() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.companies.rolePackRevisions(selectedCompanyId!, rolePack.id),
       });
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.setupProgress(selectedCompanyId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.doctor(selectedCompanyId!) });
       setSelectedRolePackId(rolePack.id);
       setSelectedRolePackFile("ROLE.md");
       setCustomRoleName("");

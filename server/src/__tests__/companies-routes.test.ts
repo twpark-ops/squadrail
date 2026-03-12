@@ -214,7 +214,7 @@ async function invokeRoute(input: {
     return state;
   } catch (error: any) {
     return {
-      statusCode: error?.status ?? 500,
+      statusCode: error?.name === "ZodError" ? 400 : (error?.status ?? 500),
       body: {
         error: error?.message ?? "Unhandled error",
       },
@@ -404,6 +404,37 @@ describe("company routes", () => {
         },
       }),
     );
+  });
+
+  it("rejects workflow template updates with duplicate IDs before hitting the service", async () => {
+    const response = await invokeRoute({
+      path: "/:companyId/workflow-templates",
+      method: "patch",
+      params: { companyId: "company-1" },
+      body: {
+        templates: [
+          {
+            id: "company-shared-template",
+            actionType: "ASSIGN_TASK",
+            label: "Assignment",
+            description: null,
+            summary: null,
+            fields: {},
+          },
+          {
+            id: "company-shared-template",
+            actionType: "CLOSE_TASK",
+            label: "Close",
+            description: null,
+            summary: null,
+            fields: {},
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockWorkflowTemplatesUpdateConfig).not.toHaveBeenCalled();
   });
 
   it("returns operating alert settings for the requested company", async () => {
