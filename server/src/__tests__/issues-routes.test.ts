@@ -2144,6 +2144,93 @@ describe("issue routes wakeup handling", () => {
     expect(mockProtocolAppendMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("normalizes related issue aliases before validating and dispatching protocol messages", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-202",
+      title: "Protocol issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "rev-1",
+      companyId: "company-1",
+      role: "reviewer",
+      title: "Reviewer",
+      permissions: {},
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("rev-1"),
+      body: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "Reuse the prior retry fixes",
+        payload: {
+          reviewSummary: "Reuse the prior retry fixes",
+          changeRequests: [
+            {
+              title: "Preserve bounded retry logic",
+              reason: "Recent retry regressions match earlier closure findings",
+              affectedFiles: ["server/src/jobs/retry_worker.ts"],
+            },
+          ],
+          severity: "high",
+          mustFixBeforeApprove: true,
+          requiredEvidence: ["pnpm vitest retry-worker"],
+          relatedIssueIdentifiers: ["CLO-101", "CLO-102"],
+          linkedIssueIds: [
+            "22222222-2222-4222-8222-222222222222",
+            "33333333-3333-4333-8333-333333333333",
+          ],
+          relatedIssueIds: [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+          ],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+
+    const appendInput = mockProtocolAppendMessage.mock.calls[0]?.[0];
+    expect(appendInput?.message.payload).toEqual(expect.objectContaining({
+      relatedIssueIds: [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+        "33333333-3333-4333-8333-333333333333",
+      ],
+      relatedIssueIdentifiers: ["CLO-101", "CLO-102"],
+    }));
+    expect(appendInput?.message.payload).not.toHaveProperty("linkedIssueIds");
+
+    const retrievalInput = mockIssueRetrievalHandleProtocolMessage.mock.calls[0]?.[0];
+    expect(retrievalInput?.message.payload).toEqual(expect.objectContaining({
+      relatedIssueIds: [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+        "33333333-3333-4333-8333-333333333333",
+      ],
+      relatedIssueIdentifiers: ["CLO-101", "CLO-102"],
+    }));
+    expect(retrievalInput?.message.payload).not.toHaveProperty("linkedIssueIds");
+  });
+
   it("skips retrieval brief generation for ACK_ASSIGNMENT while still dispatching", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",

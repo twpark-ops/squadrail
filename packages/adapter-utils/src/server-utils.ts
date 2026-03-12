@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveProtocolRunRequirement, type ProtocolRunRequirement } from "@squadrail/shared";
 
 export interface RunProcessResult {
@@ -29,15 +30,98 @@ export const runningProcesses = new Map<string, RunningProcess>();
 export const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 export const MAX_EXCERPT_BYTES = 32 * 1024;
 const SENSITIVE_ENV_KEY = /(key|token|secret|password|passwd|authorization|cookie)/i;
-const SQUADRAIL_PROTOCOL_HELPER_PATH = "/home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs";
+export const SQUADRAIL_PROTOCOL_HELPER_ENV_VAR = "SQUADRAIL_PROTOCOL_HELPER_PATH";
+const PROTOCOL_HELPER_RELATIVE_PATH = path.join("scripts", "runtime", "squadrail-protocol.mjs");
+const CURRENT_MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 let protocolTransportGuardDirPromise: Promise<string> | null = null;
+let protocolHelperPathPromise: Promise<string> | null = null;
 
-function buildPythonProtocolGuardScript() {
+function collectParentDirectories(start: string) {
+  const results: string[] = [];
+  let current = path.resolve(start);
+  while (!results.includes(current)) {
+    results.push(current);
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return results;
+}
+
+function escapeForDoubleQuotedBash(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, "\\$")
+    .replace(/`/g, "\\`");
+}
+
+function getProtocolHelperVarRef() {
+  return `$${SQUADRAIL_PROTOCOL_HELPER_ENV_VAR}`;
+}
+
+function buildProtocolHelperPathCandidates() {
+  const searchRoots = [process.cwd(), CURRENT_MODULE_DIR];
+  const candidates: string[] = [];
+  for (const root of searchRoots) {
+    for (const directory of collectParentDirectories(root)) {
+      candidates.push(path.join(directory, PROTOCOL_HELPER_RELATIVE_PATH));
+    }
+  }
+  return Array.from(new Set(candidates));
+}
+
+async function assertReadableFile(filePath: string, errorPrefix: string) {
+  try {
+    await fs.access(filePath, fsConstants.R_OK);
+    return filePath;
+  } catch {
+    throw new Error(`${errorPrefix}: "${filePath}"`);
+  }
+}
+
+export async function resolveProtocolHelperPath(explicitPath?: string | null): Promise<string> {
+  const trimmedExplicit = typeof explicitPath === "string" ? explicitPath.trim() : "";
+  if (trimmedExplicit.length > 0) {
+    const resolvedExplicit = path.isAbsolute(trimmedExplicit)
+      ? trimmedExplicit
+      : path.resolve(process.cwd(), trimmedExplicit);
+    return assertReadableFile(
+      resolvedExplicit,
+      "Configured protocol helper path is not readable",
+    );
+  }
+
+  if (!protocolHelperPathPromise) {
+    protocolHelperPathPromise = (async () => {
+      const candidates = buildProtocolHelperPathCandidates();
+      for (const candidate of candidates) {
+        try {
+          await fs.access(candidate, fsConstants.R_OK);
+          return candidate;
+        } catch {
+          // continue scanning
+        }
+      }
+      throw new Error(
+        `Could not resolve protocol helper path. Expected ${PROTOCOL_HELPER_RELATIVE_PATH} relative to the repo or set ${SQUADRAIL_PROTOCOL_HELPER_ENV_VAR}.`,
+      );
+    })();
+  }
+
+  return protocolHelperPathPromise;
+}
+
+export function formatProtocolHelperCommand(command: string) {
+  return `node "${getProtocolHelperVarRef()}" ${command} --issue "$SQUADRAIL_TASK_ID" ...`;
+}
+
+function buildPythonProtocolGuardScript(defaultHelperPath: string) {
   return `#!/usr/bin/env bash
 set -euo pipefail
 
 REAL_PYTHON="/usr/bin/python3"
-HELPER_PATH="\${SQUADRAIL_PROTOCOL_HELPER_PATH:-${SQUADRAIL_PROTOCOL_HELPER_PATH}}"
+HELPER_PATH="\${${SQUADRAIL_PROTOCOL_HELPER_ENV_VAR}:-${escapeForDoubleQuotedBash(defaultHelperPath)}}"
 BLOCK_MESSAGE="[squadrail] Direct protocol HTTP via python is blocked. Use: node \${HELPER_PATH} <command> --issue \\"$SQUADRAIL_TASK_ID\\" ..."
 
 block_if_protocol_script() {
@@ -65,12 +149,12 @@ exec "$REAL_PYTHON" "$@"
 `;
 }
 
-function buildHttpProtocolGuardScript(realBinary: string, toolName: string) {
+function buildHttpProtocolGuardScript(realBinary: string, toolName: string, defaultHelperPath: string) {
   return `#!/usr/bin/env bash
 set -euo pipefail
 
 REAL_BINARY="${realBinary}"
-HELPER_PATH="\${SQUADRAIL_PROTOCOL_HELPER_PATH:-${SQUADRAIL_PROTOCOL_HELPER_PATH}}"
+HELPER_PATH="\${${SQUADRAIL_PROTOCOL_HELPER_ENV_VAR}:-${escapeForDoubleQuotedBash(defaultHelperPath)}}"
 BLOCK_MESSAGE="[squadrail] Direct protocol HTTP via ${toolName} is blocked. Use: node \${HELPER_PATH} <command> --issue \\"$SQUADRAIL_TASK_ID\\" ..."
 
 if printf '%s' "$*" | grep -Eq '/protocol/messages'; then
@@ -86,11 +170,18 @@ async function ensureProtocolTransportGuardDir() {
   if (!protocolTransportGuardDirPromise) {
     protocolTransportGuardDirPromise = (async () => {
       const guardDir = path.join(os.tmpdir(), "squadrail-protocol-guard-bin");
+      const helperPath = await resolveProtocolHelperPath(
+        process.env[SQUADRAIL_PROTOCOL_HELPER_ENV_VAR] ?? null,
+      );
       await fs.mkdir(guardDir, { recursive: true });
       await Promise.all([
-        fs.writeFile(path.join(guardDir, "python"), buildPythonProtocolGuardScript(), { mode: 0o755 }),
-        fs.writeFile(path.join(guardDir, "python3"), buildPythonProtocolGuardScript(), { mode: 0o755 }),
-        fs.writeFile(path.join(guardDir, "curl"), buildHttpProtocolGuardScript("/usr/bin/curl", "curl"), { mode: 0o755 }),
+        fs.writeFile(path.join(guardDir, "python"), buildPythonProtocolGuardScript(helperPath), { mode: 0o755 }),
+        fs.writeFile(path.join(guardDir, "python3"), buildPythonProtocolGuardScript(helperPath), { mode: 0o755 }),
+        fs.writeFile(
+          path.join(guardDir, "curl"),
+          buildHttpProtocolGuardScript("/usr/bin/curl", "curl", helperPath),
+          { mode: 0o755 },
+        ),
       ]);
       return guardDir;
     })();
@@ -101,13 +192,14 @@ async function ensureProtocolTransportGuardDir() {
 export async function withProtocolTransportGuards(
   env: NodeJS.ProcessEnv,
 ): Promise<NodeJS.ProcessEnv> {
+  const helperPath = await resolveProtocolHelperPath(env[SQUADRAIL_PROTOCOL_HELPER_ENV_VAR] ?? null);
   const guardDir = await ensureProtocolTransportGuardDir();
   const currentPath = env.PATH ?? process.env.PATH ?? "";
   const pathEntries = currentPath.split(":").filter(Boolean);
   if (pathEntries[0] !== guardDir) {
     env.PATH = [guardDir, ...pathEntries].join(":");
   }
-  env.SQUADRAIL_PROTOCOL_HELPER_PATH = SQUADRAIL_PROTOCOL_HELPER_PATH;
+  env[SQUADRAIL_PROTOCOL_HELPER_ENV_VAR] = helperPath;
   return env;
 }
 
@@ -209,7 +301,7 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-function buildProtocolHelperSnippet(messageType: string) {
+export function buildProtocolHelperSnippet(messageType: string) {
   const commandByMessageType: Record<string, string> = {
     REASSIGN_TASK: "reassign-task",
     ACK_ASSIGNMENT: "ack-assignment",
@@ -225,7 +317,7 @@ function buildProtocolHelperSnippet(messageType: string) {
   };
   const command = commandByMessageType[messageType];
   if (!command) return null;
-  return `node ${SQUADRAIL_PROTOCOL_HELPER_PATH} ${command} --issue "$SQUADRAIL_TASK_ID" ...`;
+  return formatProtocolHelperCommand(command);
 }
 
 function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
@@ -585,7 +677,7 @@ export function renderSquadrailRuntimeNote(input: {
       `- Before ending this run, you must persist at least one of: ${requiredMessageTypes}.`,
       "- Plain analysis text is not sufficient, and repo inspection does not count as protocol progress.",
       "- If this run ends without the required protocol message, Squadrail will mark the run failed.",
-      `- Use the local helper for protocol transitions: \`node ${SQUADRAIL_PROTOCOL_HELPER_PATH} <command> --issue "$SQUADRAIL_TASK_ID" ...\`.`,
+      `- Use the local helper for protocol transitions: \`${formatProtocolHelperCommand("<command>")}\`.`,
       "- Do not handcraft Python/curl/urllib/fetch POSTs for protocol messages in this run.",
       "- Any ad-hoc POST to `/protocol/messages` counts as a workflow failure when the helper supports that transition.",
       "- If the helper fails or times out for a supported protocol action, report the blocker and stop instead of retrying with ad-hoc HTTP.",
@@ -716,7 +808,7 @@ export function renderSquadrailRuntimeNote(input: {
     lines.push("Mandatory protocol gate:");
     lines.push(...requiredActionLines);
     lines.push("");
-    lines.push(`Use \`node ${SQUADRAIL_PROTOCOL_HELPER_PATH} <command> ...\` for protocol transport.`);
+    lines.push(`Use \`${formatProtocolHelperCommand("<command>")}\` for protocol transport.`);
     lines.push("Use the exact helper command forms below; substitute values only and do not handcraft ad-hoc HTTP.");
     for (const example of protocolExamples) {
       const helperSnippet = buildProtocolHelperSnippet(asString(example.body.messageType, ""));

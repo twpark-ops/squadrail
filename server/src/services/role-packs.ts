@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import { rolePackFiles, rolePackRevisions, rolePackSets } from "@squadrail/db";
+import { formatProtocolHelperCommand } from "@squadrail/adapter-utils/server-utils";
 import type {
   CreateRolePackDraft,
   RolePackFile,
@@ -700,7 +701,7 @@ function buildSimulationRuntimePrompt(input: {
     input.scenario.reviewFindings.length > 0
       ? `Review findings:\n${input.scenario.reviewFindings.map((item) => `- ${item}`).join("\n")}`
       : null,
-    "Protocol transport rule: use the local helper `node /home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs <command> ...` for every protocol transition.",
+    `Protocol transport rule: use the local helper \`${formatProtocolHelperCommand("<command>")}\` for every protocol transition.`,
     "Do not handcraft Python/curl/urllib/fetch POST requests to `/protocol/messages` when the helper command exists.",
     "Any ad-hoc POST to `/protocol/messages` counts as a workflow failure for this run.",
     "If the helper fails or times out for a supported protocol transition, report the blocker instead of retrying with ad-hoc HTTP.",

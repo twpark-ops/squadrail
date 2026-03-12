@@ -65,6 +65,11 @@ export const issueProtocolArtifactSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 }).strict();
 
+const issueProtocolRelatedIssueRefShape = {
+  relatedIssueIds: z.array(uuidSchema).optional(),
+  relatedIssueIdentifiers: nonEmptyStringArraySchema.optional(),
+} satisfies Record<string, z.ZodTypeAny>;
+
 export const issueProtocolAssignTaskPayloadSchema = z.object({
   goal: z.string().min(1),
   acceptanceCriteria: stringArraySchema.min(1),
@@ -74,8 +79,8 @@ export const issueProtocolAssignTaskPayloadSchema = z.object({
   reviewerAgentId: uuidSchema,
   qaAgentId: optionalUuidSchema,
   deadlineAt: z.string().datetime().nullable().optional(),
-  relatedIssueIds: z.array(uuidSchema).optional(),
   requiredKnowledgeTags: stringArraySchema.optional(),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolAckAssignmentPayloadSchema = z.object({
@@ -104,6 +109,7 @@ export const issueProtocolProposePlanPayloadSchema = z.object({
   steps: z.array(issueProtocolPlanStepSchema).min(1),
   risks: stringArraySchema,
   needsApproval: z.boolean().optional().default(false),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolStartImplementationPayloadSchema = z.object({
@@ -118,6 +124,7 @@ export const issueProtocolProgressPayloadSchema = z.object({
   risks: stringArraySchema,
   changedFiles: stringArraySchema.optional(),
   testSummary: z.string().nullable().optional(),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolEscalateBlockerPayloadSchema = z.object({
@@ -125,6 +132,7 @@ export const issueProtocolEscalateBlockerPayloadSchema = z.object({
   blockingReason: z.string().min(1),
   requestedAction: z.string().min(1),
   requestedFrom: z.enum(ISSUE_PROTOCOL_REQUEST_TARGET_ROLES).optional(),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolSubmitForReviewPayloadSchema = z.object({
@@ -135,6 +143,7 @@ export const issueProtocolSubmitForReviewPayloadSchema = z.object({
   testResults: nonEmptyStringArraySchema.min(1),
   residualRisks: nonEmptyStringArraySchema.min(1),
   diffSummary: z.string().trim().min(1),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolStartReviewPayloadSchema = z.object({
@@ -156,6 +165,7 @@ export const issueProtocolRequestChangesPayloadSchema = z.object({
   severity: z.enum(ISSUE_PROTOCOL_REVIEW_SEVERITIES),
   mustFixBeforeApprove: z.boolean(),
   requiredEvidence: nonEmptyStringArraySchema.min(1),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolAckChangeRequestPayloadSchema = z.object({
@@ -178,6 +188,7 @@ export const issueProtocolApproveImplementationPayloadSchema = z.object({
   verifiedEvidence: nonEmptyStringArraySchema.min(1),
   residualRisks: nonEmptyStringArraySchema.min(1),
   followUpActions: nonEmptyStringArraySchema.optional(),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolCloseTaskPayloadSchema = z.object({
@@ -190,6 +201,7 @@ export const issueProtocolCloseTaskPayloadSchema = z.object({
   mergeStatus: z.enum(ISSUE_PROTOCOL_MERGE_STATUSES),
   followUpIssueIds: z.array(uuidSchema).optional(),
   remainingRisks: nonEmptyStringArraySchema.optional(),
+  ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
 export const issueProtocolReassignTaskPayloadSchema = z.object({

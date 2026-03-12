@@ -226,7 +226,8 @@ describe("codex execute", () => {
       expect(capture.prompt).toContain("REQUIRED WORKFLOW GATE: this wake expects assignment acceptance or escalation.");
       expect(capture.prompt).toContain("The first protocol action before repository work must be one of: ACK_ASSIGNMENT, ASK_CLARIFICATION, ESCALATE_BLOCKER.");
       expect(capture.prompt).toContain("If this run ends without the required protocol message, Squadrail will mark the run failed.");
-      expect(capture.prompt).toContain("scripts/runtime/squadrail-protocol.mjs");
+      expect(capture.prompt).toContain('node "$SQUADRAIL_PROTOCOL_HELPER_PATH" <command> --issue "$SQUADRAIL_TASK_ID" ...');
+      expect(capture.prompt).not.toContain("/home/taewoong/company-project/squadall/scripts/runtime/squadrail-protocol.mjs");
       expect(capture.prompt).toContain("Do not handcraft Python/curl/urllib/fetch POSTs for protocol messages in this run.");
       expect(capture.prompt).toContain("Any ad-hoc POST to `/protocol/messages` counts as a workflow failure when the helper supports that transition.");
       expect(capture.prompt).toContain("Do not start file reads, design notes, or implementation planning before the first protocol action is sent.");

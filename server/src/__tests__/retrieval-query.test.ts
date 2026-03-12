@@ -149,7 +149,7 @@ describe("retrieval query helpers", () => {
     expect(signals.projectAffinityNames).toEqual(["runtime-core"]);
   });
 
-  it("carries related issue aliases into dynamic signals", () => {
+  it("carries canonical related issue fields into dynamic signals", () => {
     const message = buildMessage({
       messageType: "CLOSE_TASK",
       sender: {
@@ -178,10 +178,6 @@ describe("retrieval query helpers", () => {
         followUpIssueIds: ["issue-c", "issue-d"],
         remainingRisks: [],
         relatedIssueIds: ["issue-a", "issue-b"],
-        linkedIssueIds: ["issue-b", "issue-e"],
-      } as CreateIssueProtocolMessage["payload"] & {
-        relatedIssueIds: string[];
-        linkedIssueIds: string[];
       },
       artifacts: [],
     });
@@ -198,6 +194,6 @@ describe("retrieval query helpers", () => {
       eventType: deriveRetrievalEventType("CLOSE_TASK") ?? "on_close",
     });
 
-    expect(signals.relatedIssueIds).toEqual(["issue-a", "issue-b", "issue-e", "issue-c", "issue-d"]);
+    expect(signals.relatedIssueIds).toEqual(["issue-a", "issue-b", "issue-c", "issue-d"]);
   });
 });

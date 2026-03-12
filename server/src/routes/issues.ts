@@ -812,29 +812,45 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
   }
 
+  function normalizeProtocolStringArrayAlias(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    const results = value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return Array.from(new Set(results));
+  }
+
   function normalizeProtocolRequestBodyAliases(body: unknown) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return body;
     }
 
     const message = body as Record<string, unknown>;
-    if (message.messageType !== "APPROVE_IMPLEMENTATION") {
-      return body;
-    }
-
     const payload = message.payload;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       return body;
     }
 
+    const payloadRecord = payload as Record<string, unknown>;
+    const linkedIssueIds = normalizeProtocolStringArrayAlias(payloadRecord.linkedIssueIds);
+    const relatedIssueIds = normalizeProtocolStringArrayAlias(payloadRecord.relatedIssueIds);
+    const normalizedPayload: Record<string, unknown> = {
+      ...payloadRecord,
+    };
+
+    if (linkedIssueIds.length > 0 || Array.isArray(payloadRecord.linkedIssueIds)) {
+      normalizedPayload.relatedIssueIds = Array.from(new Set([...relatedIssueIds, ...linkedIssueIds]));
+      delete normalizedPayload.linkedIssueIds;
+    }
+
+    if (message.messageType === "APPROVE_IMPLEMENTATION") {
+      normalizedPayload.approvalMode = normalizeProtocolApprovalModeAlias(payloadRecord.approvalMode);
+    }
+
     return {
       ...message,
-      payload: {
-        ...(payload as Record<string, unknown>),
-        approvalMode: normalizeProtocolApprovalModeAlias(
-          (payload as Record<string, unknown>).approvalMode,
-        ),
-      },
+      payload: normalizedPayload,
     };
   }
 

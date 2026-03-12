@@ -2510,19 +2510,7 @@ export function issueRetrievalService(db: Db) {
         return backlinkedRelatedIssueIdsPromise;
       };
 
-      const recipientHints: RecipientRetrievalHint[] = [];
-      const retrievalRuns: Array<{ retrievalRunId: string; briefId: string; recipientRole: string; recipientId: string }> = [];
-
-      console.log("[RETRIEVAL] Processing recipients:", {
-        count: uniqueRecipients.length,
-        roles: uniqueRecipients.map(r => r.role),
-      });
-
-      for (const recipient of uniqueRecipients) {
-        console.log("[RETRIEVAL] Processing recipient:", {
-          role: recipient.role,
-          recipientId: recipient.recipientId,
-        });
+      const prepareRecipientRetrievalContext = async (recipient: (typeof uniqueRecipients)[number]) => {
         const policy =
           await knowledge.getRetrievalPolicy({
             companyId: input.companyId,
@@ -2645,6 +2633,30 @@ export function issueRetrievalService(db: Db) {
           (issueId) => relatedIssueIdentifierMap[issueId] ?? issueId,
         );
 
+        return {
+          policy,
+          rerankConfig,
+          personalizationProfile,
+          queryText,
+          baselineSignals,
+          executionLane,
+          lanePolicy,
+          laneRerankConfig,
+          temporalContext,
+          primaryKnowledgeRevision,
+          revisionSignature,
+          personalizationFingerprint,
+          dynamicSignals,
+          relatedIssueIds,
+          relatedIssueIdentifierMap,
+          relatedIssueIdentifiers,
+        };
+      };
+      type PreparedRecipientRetrievalContext = Awaited<ReturnType<typeof prepareRecipientRetrievalContext>>;
+
+      const resolveRecipientQueryEmbedding = async (
+        context: Pick<PreparedRecipientRetrievalContext, "queryText">,
+      ) => {
         let queryEmbedding: number[] | null = null;
         let queryEmbeddingDebug: Record<string, unknown> = {
           denseEnabled: false,
@@ -2656,7 +2668,7 @@ export function issueRetrievalService(db: Db) {
             const embeddingFingerprint = embeddings.fingerprint();
             const cacheKey = embeddingFingerprint
               ? buildQueryEmbeddingCacheKey({
-                queryText,
+                queryText: context.queryText,
                 embeddingFingerprint,
               })
               : null;
@@ -2684,7 +2696,7 @@ export function issueRetrievalService(db: Db) {
                 embeddingCacheKey: cacheKey,
               };
             } else {
-              const embeddingResult = await embeddings.generateEmbeddings([queryText]);
+              const embeddingResult = await embeddings.generateEmbeddings([context.queryText]);
               queryEmbedding = embeddingResult.embeddings[0] ?? null;
               queryEmbeddingDebug = {
                 denseEnabled: Boolean(queryEmbedding),
@@ -2715,14 +2727,12 @@ export function issueRetrievalService(db: Db) {
               }
             }
           } else {
-            // CRITICAL: Embedding provider not configured
             console.error(
               "[RETRIEVAL] Embedding provider not available. Dense search disabled. " +
               "Set OPENAI_API_KEY or SQUADRAIL_KNOWLEDGE_OPENAI_API_KEY environment variable."
             );
           }
         } catch (err) {
-          // CRITICAL: Embedding generation failed
           console.error(
             "[RETRIEVAL] Embedding generation failed:",
             err instanceof Error ? err.message : String(err)
@@ -2732,6 +2742,689 @@ export function issueRetrievalService(db: Db) {
             embeddingError: err instanceof Error ? err.message : String(err),
           };
         }
+
+        return {
+          queryEmbedding,
+          queryEmbeddingDebug,
+        };
+      };
+
+      const resolveRecipientCandidateStage = async (
+        recipient: (typeof uniqueRecipients)[number],
+        context: PreparedRecipientRetrievalContext,
+        queryEmbedding: number[] | null,
+      ) => {
+        const cachePolicyConfig = {
+          ...context.laneRerankConfig,
+          denseEnabled: Boolean(queryEmbedding),
+        };
+        const candidateCacheIdentity = buildRetrievalCacheIdentity({
+          stage: "candidate_hits",
+          queryText: context.queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          executionLane: context.executionLane,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          baselineSignals: context.baselineSignals,
+          temporalContext: context.temporalContext,
+          allowedSourceTypes: context.policy.allowedSourceTypes,
+          allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+          rerankConfig: cachePolicyConfig,
+          revisionSignature: context.revisionSignature,
+          personalizationFingerprint: context.personalizationFingerprint,
+        });
+        const finalCacheIdentity = buildRetrievalCacheIdentity({
+          stage: "final_hits",
+          queryText: context.queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          executionLane: context.executionLane,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          baselineSignals: context.baselineSignals,
+          temporalContext: context.temporalContext,
+          allowedSourceTypes: context.policy.allowedSourceTypes,
+          allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+          rerankConfig: cachePolicyConfig,
+          revisionSignature: context.revisionSignature,
+          personalizationFingerprint: context.personalizationFingerprint,
+        });
+        const candidateCacheKey = buildRetrievalStageCacheKey({
+          stage: "candidate_hits",
+          queryText: context.queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          executionLane: context.executionLane,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          allowedSourceTypes: context.policy.allowedSourceTypes,
+          allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+          rerankConfig: cachePolicyConfig,
+          dynamicSignals: context.dynamicSignals,
+          temporalContext: context.temporalContext,
+          revisionSignature: context.revisionSignature,
+          personalizationFingerprint: context.personalizationFingerprint,
+        });
+        const finalCacheKey = buildRetrievalStageCacheKey({
+          stage: "final_hits",
+          queryText: context.queryText,
+          companyId: input.companyId,
+          issueProjectId: input.issue.projectId,
+          executionLane: context.executionLane,
+          role: recipient.role,
+          eventType,
+          workflowState: input.message.workflowStateAfter,
+          allowedSourceTypes: context.policy.allowedSourceTypes,
+          allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+          rerankConfig: cachePolicyConfig,
+          dynamicSignals: context.dynamicSignals,
+          temporalContext: context.temporalContext,
+          revisionSignature: context.revisionSignature,
+          personalizationFingerprint: context.personalizationFingerprint,
+        });
+
+        const exactCandidateCacheEntry = await knowledge.getRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "candidate_hits",
+          cacheKey: candidateCacheKey,
+          knowledgeRevision: context.primaryKnowledgeRevision,
+        });
+        const candidateCacheEntry = exactCandidateCacheEntry ?? await knowledge.getCompatibleRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "candidate_hits",
+          knowledgeRevision: context.primaryKnowledgeRevision,
+          allowFeedbackDrift: true,
+          identity: candidateCacheIdentity,
+        });
+        const candidateCacheInspection = candidateCacheEntry
+          ? (() => {
+            const entry = candidateCacheEntry!;
+            const entryValue = asRecord(entry.valueJson);
+            const entryMetadata = asRecord(entryValue?.metadata);
+            const matchedIdentity = readRetrievalCacheIdentityView(
+              entryMetadata?.cacheIdentity,
+            );
+            return buildRetrievalCacheInspectionResult({
+              state: "hit",
+              cacheKey: candidateCacheKey,
+              requestedCacheKey: candidateCacheKey,
+              matchedCacheKey: entry.cacheKey,
+              provenance: resolveRetrievalCacheHitProvenance({
+                requestedCacheKey: candidateCacheKey,
+                matchedCacheKey: entry.cacheKey,
+                requestedFeedbackFingerprint: candidateCacheIdentity.feedbackFingerprint,
+                matchedFeedbackFingerprint: matchedIdentity.feedbackFingerprint,
+              }),
+              matchedRevision: entry.knowledgeRevision,
+              latestKnownRevision: entry.knowledgeRevision,
+              lastEntryUpdatedAt: entry.updatedAt,
+            });
+          })()
+          : buildRetrievalCacheInspectionResult({
+            cacheKey: candidateCacheKey,
+            requestedCacheKey: candidateCacheKey,
+            matchedCacheKey: null,
+            ...(await knowledge.inspectRetrievalCacheEntryState({
+              companyId: input.companyId,
+              projectId: input.issue.projectId,
+              stage: "candidate_hits",
+              cacheKey: candidateCacheKey,
+              knowledgeRevision: context.primaryKnowledgeRevision,
+              identity: candidateCacheIdentity,
+            })),
+          });
+        const cachedCandidatePayload = readRetrievalCachePayload(candidateCacheEntry?.valueJson);
+
+        const exactFinalCacheEntry = await knowledge.getRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "final_hits",
+          cacheKey: finalCacheKey,
+          knowledgeRevision: context.primaryKnowledgeRevision,
+        });
+        const finalCacheEntry = exactFinalCacheEntry ?? await knowledge.getCompatibleRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "final_hits",
+          knowledgeRevision: context.primaryKnowledgeRevision,
+          allowFeedbackDrift: true,
+          identity: finalCacheIdentity,
+        });
+        const finalCacheInspection = finalCacheEntry
+          ? (() => {
+            const entry = finalCacheEntry!;
+            const entryValue = asRecord(entry.valueJson);
+            const entryMetadata = asRecord(entryValue?.metadata);
+            const matchedIdentity = readRetrievalCacheIdentityView(
+              entryMetadata?.cacheIdentity,
+            );
+            return buildRetrievalCacheInspectionResult({
+              state: "hit",
+              cacheKey: finalCacheKey,
+              requestedCacheKey: finalCacheKey,
+              matchedCacheKey: entry.cacheKey,
+              provenance: resolveRetrievalCacheHitProvenance({
+                requestedCacheKey: finalCacheKey,
+                matchedCacheKey: entry.cacheKey,
+                requestedFeedbackFingerprint: finalCacheIdentity.feedbackFingerprint,
+                matchedFeedbackFingerprint: matchedIdentity.feedbackFingerprint,
+              }),
+              matchedRevision: entry.knowledgeRevision,
+              latestKnownRevision: entry.knowledgeRevision,
+              lastEntryUpdatedAt: entry.updatedAt,
+            });
+          })()
+          : buildRetrievalCacheInspectionResult({
+            cacheKey: finalCacheKey,
+            requestedCacheKey: finalCacheKey,
+            matchedCacheKey: null,
+            ...(await knowledge.inspectRetrievalCacheEntryState({
+              companyId: input.companyId,
+              projectId: input.issue.projectId,
+              stage: "final_hits",
+              cacheKey: finalCacheKey,
+              knowledgeRevision: context.primaryKnowledgeRevision,
+              identity: finalCacheIdentity,
+            })),
+          });
+        const cachedFinalPayload = readRetrievalCachePayload(finalCacheEntry?.valueJson);
+
+        let sparseHits: RetrievalCandidate[] = [];
+        let pathHits: RetrievalCandidate[] = [];
+        let symbolHits: RetrievalCandidate[] = [];
+        let denseHits: RetrievalCandidate[] = [];
+        let sparseHitCount = 0;
+        let pathHitCount = 0;
+        let symbolHitCount = 0;
+        let denseHitCount = 0;
+        let hits: RetrievalHitView[] = [];
+        let candidateCacheHit = false;
+
+        if (cachedCandidatePayload) {
+          candidateCacheHit = true;
+          hits = cachedCandidatePayload.hits;
+          sparseHitCount = Number(cachedCandidatePayload.metadata.sparseHitCount ?? 0);
+          pathHitCount = Number(cachedCandidatePayload.metadata.pathHitCount ?? 0);
+          symbolHitCount = Number(cachedCandidatePayload.metadata.symbolHitCount ?? 0);
+          denseHitCount = Number(cachedCandidatePayload.metadata.denseHitCount ?? 0);
+        } else {
+          [sparseHits, pathHits, symbolHits, denseHits] = await Promise.all([
+            querySparseKnowledge({
+              companyId: input.companyId,
+              issueId: input.issueId,
+              projectId: input.issue.projectId,
+              projectAffinityIds: context.dynamicSignals.projectAffinityIds,
+              queryText: context.queryText,
+              allowedSourceTypes: context.policy.allowedSourceTypes,
+              allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+              limit: context.lanePolicy.topKSparse,
+            }),
+            queryPathKnowledge({
+              companyId: input.companyId,
+              exactPaths: context.dynamicSignals.exactPaths,
+              allowedSourceTypes: context.policy.allowedSourceTypes,
+              allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+              limit: Math.min(context.lanePolicy.rerankK, Math.max(context.dynamicSignals.exactPaths.length * 2, 6)),
+            }),
+            querySymbolKnowledge({
+              companyId: input.companyId,
+              symbolHints: context.dynamicSignals.symbolHints,
+              allowedSourceTypes: context.policy.allowedSourceTypes,
+              allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+              limit: Math.min(context.lanePolicy.rerankK, Math.max(context.dynamicSignals.symbolHints.length, 6)),
+            }),
+            queryEmbedding
+              ? queryDenseKnowledge({
+                companyId: input.companyId,
+                issueId: input.issueId,
+                projectId: input.issue.projectId,
+                projectAffinityIds: context.dynamicSignals.projectAffinityIds,
+                queryEmbedding,
+                allowedSourceTypes: context.policy.allowedSourceTypes,
+                allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
+                limit: context.lanePolicy.topKDense,
+              })
+              : Promise.resolve([]),
+          ]);
+
+          sparseHitCount = sparseHits.length;
+          pathHitCount = pathHits.length;
+          symbolHitCount = symbolHits.length;
+          denseHitCount = denseHits.length;
+          console.log("[RETRIEVAL] Sparse hits:", sparseHitCount);
+          console.log("[RETRIEVAL] Path hits:", pathHitCount);
+          console.log("[RETRIEVAL] Symbol hits:", symbolHitCount);
+          console.log("[RETRIEVAL] Dense hits:", denseHitCount);
+
+          hits = fuseRetrievalCandidates({
+            sparseHits: [...sparseHits, ...pathHits, ...symbolHits],
+            denseHits,
+            issueId: input.issueId,
+            projectId: input.issue.projectId,
+            projectAffinityIds: context.dynamicSignals.projectAffinityIds,
+            relatedIssueIds: context.relatedIssueIds,
+            finalK: Math.max(context.lanePolicy.rerankK, context.lanePolicy.finalK),
+          });
+          await knowledge.upsertRetrievalCacheEntry({
+            companyId: input.companyId,
+            projectId: input.issue.projectId,
+            stage: "candidate_hits",
+            cacheKey: candidateCacheKey,
+            knowledgeRevision: context.primaryKnowledgeRevision,
+            ttlSeconds: CANDIDATE_HIT_CACHE_TTL_SECONDS,
+            valueJson: serializeRetrievalCachePayload({
+              hits,
+              quality: null,
+              metadata: {
+                sparseHitCount,
+                pathHitCount,
+                symbolHitCount,
+                denseHitCount,
+                cacheIdentity: candidateCacheIdentity,
+              },
+            }),
+          });
+        }
+
+        return {
+          candidateCacheHit,
+          candidateCacheInspection,
+          cachedFinalPayload,
+          cachePolicyConfig,
+          denseHitCount,
+          denseHits,
+          finalCacheIdentity,
+          finalCacheInspection,
+          finalCacheKey,
+          hits,
+          pathHitCount,
+          pathHits,
+          sparseHitCount,
+          sparseHits,
+          symbolHitCount,
+          symbolHits,
+          denseEnabled: Boolean(queryEmbedding),
+        };
+      };
+      type ResolvedRecipientCandidateStage = Awaited<ReturnType<typeof resolveRecipientCandidateStage>>;
+
+      const buildCombinedGraphMetrics = (
+        chunkGraphResult: ChunkGraphExpansionResult,
+        symbolGraphResult: {
+          hits: RetrievalHitView[];
+          edgeTraversalCount: number;
+          edgeTypeCounts: Record<string, number>;
+          graphMaxDepth: number;
+          graphHopDepthCounts: Record<string, number>;
+        },
+      ) => ({
+        combinedGraphHopDepthCounts: {
+          ...chunkGraphResult.graphHopDepthCounts,
+          ...Object.fromEntries(
+            Object.entries(symbolGraphResult.graphHopDepthCounts).map(([key, value]) => [
+              key,
+              (chunkGraphResult.graphHopDepthCounts[key] ?? 0) + value,
+            ]),
+          ),
+        },
+        combinedGraphMaxDepth: Math.max(chunkGraphResult.graphMaxDepth, symbolGraphResult.graphMaxDepth),
+      });
+
+      const resolveRecipientFinalStage = async (input2: {
+        recipient: (typeof uniqueRecipients)[number];
+        context: PreparedRecipientRetrievalContext;
+        stage: ResolvedRecipientCandidateStage;
+        queryEmbedding: number[] | null;
+      }) => {
+        let finalHits: RetrievalHitView[] = [];
+        let briefQuality: BriefQualitySummary | null = null;
+        let reuseSummary: RetrievalReuseSummary | null = null;
+        let graphSeeds: RetrievalGraphSeed[] = [];
+        let chunkGraphResult: ChunkGraphExpansionResult = {
+          hits: [],
+          edgeTraversalCount: 0,
+          graphMaxDepth: 0,
+          graphHopDepthCounts: {},
+          graphEntityTypeCounts: {},
+        };
+        let symbolGraphSeeds: RetrievalSymbolGraphSeed[] = [];
+        let symbolGraphResult = {
+          hits: [] as RetrievalHitView[],
+          edgeTraversalCount: 0,
+          edgeTypeCounts: {} as Record<string, number>,
+          graphMaxDepth: 0,
+          graphHopDepthCounts: {} as Record<string, number>,
+        };
+        const finalCacheHit = Boolean(input2.stage.cachedFinalPayload);
+
+        if (input2.stage.cachedFinalPayload) {
+          finalHits = input2.stage.cachedFinalPayload.hits;
+          briefQuality = readCachedBriefQualitySummary(input2.stage.cachedFinalPayload.quality);
+          return {
+            finalHits,
+            briefQuality,
+            reuseSummary,
+            graphSeeds,
+            chunkGraphResult,
+            symbolGraphSeeds,
+            symbolGraphResult,
+            finalCacheHit,
+          };
+        }
+
+        const linkMap = await listRetrievalLinks(input2.stage.hits.map((hit) => hit.chunkId));
+        const initialDocumentVersionMap = await listDocumentVersionsForRetrieval({
+          db,
+          companyId: input.companyId,
+          documentIds: uniqueNonEmpty(input2.stage.hits.map((hit) => hit.documentId)),
+        });
+        const initialRerankedHits = rerankRetrievalHits({
+          hits: input2.stage.hits,
+          signals: input2.context.dynamicSignals,
+          issueId: input.issueId,
+          projectId: input.issue.projectId,
+          projectAffinityIds: input2.context.dynamicSignals.projectAffinityIds,
+          linkMap,
+          temporalContext: input2.context.temporalContext,
+          documentVersionMap: initialDocumentVersionMap,
+          finalK: input2.context.lanePolicy.finalK,
+          rerankConfig: input2.context.laneRerankConfig,
+          personalizationProfile: input2.context.personalizationProfile,
+        });
+        graphSeeds = buildGraphExpansionSeeds({
+          hits: initialRerankedHits,
+          linkMap,
+          signals: input2.context.dynamicSignals,
+        });
+        const chunkGraphLimit = Math.min(
+          Math.max(input2.context.lanePolicy.finalK * 3, graphSeeds.length * 3, 12),
+          30,
+        );
+        chunkGraphResult = await queryGraphExpansionKnowledge({
+          companyId: input.companyId,
+          issueId: input.issueId,
+          projectId: input.issue.projectId,
+          projectAffinityIds: input2.context.dynamicSignals.projectAffinityIds,
+          relatedIssueIds: input2.context.relatedIssueIds,
+          seeds: graphSeeds,
+          allowedSourceTypes: input2.context.policy.allowedSourceTypes,
+          allowedAuthorityLevels: input2.context.policy.allowedAuthorityLevels,
+          excludeChunkIds: input2.stage.hits.map((hit) => hit.chunkId),
+          limit: chunkGraphLimit,
+          maxHops: input2.context.lanePolicy.chunkGraphMaxHops,
+        });
+        const graphLinkMap = chunkGraphResult.hits.length > 0
+          ? await listRetrievalLinks(chunkGraphResult.hits.map((hit) => hit.chunkId))
+          : new Map<string, RetrievalLinkView[]>();
+        const combinedLinkMap = new Map(linkMap);
+        for (const [chunkId, links] of graphLinkMap.entries()) {
+          combinedLinkMap.set(chunkId, links);
+        }
+        const graphExpandedCandidates = chunkGraphResult.hits.length > 0
+          ? mergeGraphExpandedHits({
+            baseHits: input2.stage.hits,
+            graphHits: chunkGraphResult.hits,
+            finalK: Math.max(input2.context.lanePolicy.rerankK, input2.context.lanePolicy.finalK) + chunkGraphResult.hits.length,
+          })
+          : input2.stage.hits;
+        const rerankedHits = chunkGraphResult.hits.length > 0
+          ? rerankRetrievalHits({
+            hits: graphExpandedCandidates,
+            signals: input2.context.dynamicSignals,
+            issueId: input.issueId,
+            projectId: input.issue.projectId,
+            projectAffinityIds: input2.context.dynamicSignals.projectAffinityIds,
+            linkMap: combinedLinkMap,
+            temporalContext: input2.context.temporalContext,
+            documentVersionMap: await listDocumentVersionsForRetrieval({
+              db,
+              companyId: input.companyId,
+              documentIds: uniqueNonEmpty(graphExpandedCandidates.map((hit) => hit.documentId)),
+            }),
+            finalK: input2.context.lanePolicy.finalK,
+            rerankConfig: input2.context.laneRerankConfig,
+            personalizationProfile: input2.context.personalizationProfile,
+          })
+          : initialRerankedHits;
+        const chunkSymbolMap = await listChunkSymbols(rerankedHits.map((hit) => hit.chunkId));
+        symbolGraphSeeds = buildSymbolGraphExpansionSeeds({
+          hits: rerankedHits,
+          chunkSymbolMap,
+        });
+        const symbolGraphLimit = Math.min(
+          Math.max(input2.context.lanePolicy.finalK * 3, symbolGraphSeeds.length * 3, 12),
+          30,
+        );
+        symbolGraphResult = await querySymbolGraphExpansionKnowledge({
+          companyId: input.companyId,
+          symbolSeeds: symbolGraphSeeds,
+          excludeChunkIds: rerankedHits.map((hit) => hit.chunkId),
+          allowedSourceTypes: input2.context.policy.allowedSourceTypes,
+          allowedAuthorityLevels: input2.context.policy.allowedAuthorityLevels,
+          limit: symbolGraphLimit,
+        });
+        const symbolGraphLinkMap = symbolGraphResult.hits.length > 0
+          ? await listRetrievalLinks(symbolGraphResult.hits.map((hit) => hit.chunkId))
+          : new Map<string, RetrievalLinkView[]>();
+        const symbolCombinedLinkMap = new Map(combinedLinkMap);
+        for (const [chunkId, links] of symbolGraphLinkMap.entries()) {
+          symbolCombinedLinkMap.set(chunkId, links);
+        }
+        const mergedSymbolCandidates = mergeGraphExpandedHits({
+          baseHits: rerankedHits,
+          graphHits: symbolGraphResult.hits,
+          finalK: Math.max(input2.context.lanePolicy.rerankK, input2.context.lanePolicy.finalK) + symbolGraphResult.hits.length,
+        });
+        const symbolExpandedHits = symbolGraphResult.hits.length > 0
+          ? rerankRetrievalHits({
+            hits: mergedSymbolCandidates,
+            signals: input2.context.dynamicSignals,
+            issueId: input.issueId,
+            projectId: input.issue.projectId,
+            projectAffinityIds: input2.context.dynamicSignals.projectAffinityIds,
+            linkMap: symbolCombinedLinkMap,
+            temporalContext: input2.context.temporalContext,
+            documentVersionMap: await listDocumentVersionsForRetrieval({
+              db,
+              companyId: input.companyId,
+              documentIds: uniqueNonEmpty(mergedSymbolCandidates.map((hit) => hit.documentId)),
+            }),
+            finalK: input2.context.lanePolicy.finalK,
+            rerankConfig: input2.context.laneRerankConfig,
+            personalizationProfile: input2.context.personalizationProfile,
+          })
+          : rerankedHits;
+        finalHits = symbolExpandedHits;
+        if (
+          input2.context.laneRerankConfig.modelRerank.enabled
+          && modelReranker.isConfigured()
+          && symbolExpandedHits.length > 1
+        ) {
+          try {
+            const modelResult = await modelReranker.rerankCandidates({
+              queryText: input2.context.queryText,
+              recipientRole: input2.recipient.role,
+              workflowState: input.message.workflowStateAfter,
+              summary: input.message.summary,
+              candidates: symbolExpandedHits
+                .slice(0, input2.context.lanePolicy.modelRerankCandidateCount)
+                .map((hit) => ({
+                  chunkId: hit.chunkId,
+                  sourceType: hit.sourceType,
+                  authorityLevel: hit.authorityLevel,
+                  path: hit.path,
+                  symbolName: hit.symbolName,
+                  title: hit.title,
+                  excerpt: hit.textContent,
+                  fusedScore: hit.fusedScore,
+                })),
+            });
+            finalHits = applyModelRerankOrder({
+              hits: symbolExpandedHits,
+              rankedChunkIds: modelResult.rankedChunkIds,
+              finalK: input2.context.lanePolicy.finalK,
+              modelRerank: input2.context.laneRerankConfig.modelRerank,
+            });
+          } catch {
+            finalHits = symbolExpandedHits;
+          }
+        }
+        finalHits = applyGraphConnectivityGuard({
+          hits: applyOrganizationalBridgeGuard({
+            hits: applyEvidenceDiversityGuard({
+              hits: finalHits,
+              finalK: input2.context.lanePolicy.finalK,
+              signals: input2.context.dynamicSignals,
+            }),
+            finalK: input2.context.lanePolicy.finalK,
+            signals: input2.context.dynamicSignals,
+          }),
+          finalK: input2.context.lanePolicy.finalK,
+          signals: input2.context.dynamicSignals,
+        }).slice(0, input2.context.lanePolicy.finalK);
+        if (input2.stage.pathHits.length > 0) {
+          const exactPathFallbackHits = rerankRetrievalHits({
+            hits: input2.stage.pathHits.map((hit) => ({
+              ...hit,
+              fusedScore: hit.fusedScore ?? 0,
+            })),
+            signals: input2.context.dynamicSignals,
+            issueId: input.issueId,
+            projectId: input.issue.projectId,
+            projectAffinityIds: input2.context.dynamicSignals.projectAffinityIds,
+            linkMap: symbolCombinedLinkMap,
+            temporalContext: input2.context.temporalContext,
+            documentVersionMap: await listDocumentVersionsForRetrieval({
+              db,
+              companyId: input.companyId,
+              documentIds: uniqueNonEmpty(input2.stage.pathHits.map((hit) => hit.documentId)),
+            }),
+            finalK: Math.max(input2.context.lanePolicy.finalK, input2.stage.pathHits.length),
+            rerankConfig: input2.context.laneRerankConfig,
+            personalizationProfile: input2.context.personalizationProfile,
+          }).filter((hit) => isExecutableEvidenceSourceType(hit.sourceType));
+          finalHits = applyGraphConnectivityGuard({
+            hits: applyEvidenceDiversityGuard({
+              hits: appendUniqueRetrievalHits(finalHits, exactPathFallbackHits),
+              finalK: input2.context.lanePolicy.finalK,
+              signals: input2.context.dynamicSignals,
+            }),
+            finalK: input2.context.lanePolicy.finalK,
+            signals: input2.context.dynamicSignals,
+          }).slice(0, input2.context.lanePolicy.finalK);
+        }
+
+        reuseSummary = computeRetrievalReuseSummary({
+          relatedIssueIds: input2.context.relatedIssueIds,
+          relatedIssueIdentifierMap: input2.context.relatedIssueIdentifierMap,
+          finalHits,
+        });
+        const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
+        const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
+        const exactPathSatisfied = isExactPathSatisfied({
+          finalHits,
+          exactPaths: input2.context.dynamicSignals.exactPaths,
+        });
+        const combinedGraphMetrics = buildCombinedGraphMetrics(chunkGraphResult, symbolGraphResult);
+        briefQuality = summarizeBriefQuality({
+          finalHits,
+          queryEmbedding: input2.queryEmbedding,
+          sparseHitCount: input2.stage.sparseHitCount,
+          pathHitCount: input2.stage.pathHitCount,
+          symbolHitCount: input2.stage.symbolHitCount,
+          denseHitCount: input2.stage.denseHitCount,
+          graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
+          graphHitCount: graphHits.length,
+          graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+          symbolGraphSeedCount: symbolGraphSeeds.length,
+          symbolGraphHitCount: symbolGraphResult.hits.length,
+          edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
+          edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+          graphMaxDepth: combinedGraphMetrics.combinedGraphMaxDepth,
+          graphHopDepthCounts: combinedGraphMetrics.combinedGraphHopDepthCounts,
+          multiHopGraphHitCount,
+          temporalContext: input2.context.temporalContext,
+          crossProjectRequested: input2.context.dynamicSignals.projectAffinityIds.length > 1,
+          candidateCacheHit: input2.stage.candidateCacheHit,
+          finalCacheHit: false,
+          candidateCacheInspection: input2.stage.candidateCacheInspection,
+          finalCacheInspection: input2.stage.finalCacheInspection,
+          exactPathSatisfied,
+          relatedIssueIds: input2.context.relatedIssueIds,
+          relatedIssueIdentifierMap: input2.context.relatedIssueIdentifierMap,
+          reuseSummary,
+        });
+
+        await knowledge.upsertRetrievalCacheEntry({
+          companyId: input.companyId,
+          projectId: input.issue.projectId,
+          stage: "final_hits",
+          cacheKey: input2.stage.finalCacheKey,
+          knowledgeRevision: input2.context.primaryKnowledgeRevision,
+          ttlSeconds: FINAL_HIT_CACHE_TTL_SECONDS,
+          valueJson: serializeRetrievalCachePayload({
+            hits: finalHits,
+            quality: briefQuality as unknown as Record<string, unknown>,
+            metadata: {
+              graphSeedCount: graphSeeds.length,
+              symbolGraphSeedCount: symbolGraphSeeds.length,
+              cacheIdentity: input2.stage.finalCacheIdentity,
+            },
+          }),
+        });
+
+        return {
+          finalHits,
+          briefQuality,
+          reuseSummary,
+          graphSeeds,
+          chunkGraphResult,
+          symbolGraphSeeds,
+          symbolGraphResult,
+          finalCacheHit,
+        };
+      };
+
+      const recipientHints: RecipientRetrievalHint[] = [];
+      const retrievalRuns: Array<{ retrievalRunId: string; briefId: string; recipientRole: string; recipientId: string }> = [];
+
+      console.log("[RETRIEVAL] Processing recipients:", {
+        count: uniqueRecipients.length,
+        roles: uniqueRecipients.map(r => r.role),
+      });
+
+      for (const recipient of uniqueRecipients) {
+        console.log("[RETRIEVAL] Processing recipient:", {
+          role: recipient.role,
+          recipientId: recipient.recipientId,
+        });
+        const recipientContext = await prepareRecipientRetrievalContext(recipient);
+        const {
+          policy,
+          rerankConfig,
+          personalizationProfile,
+          queryText,
+          baselineSignals,
+          executionLane,
+          lanePolicy,
+          laneRerankConfig,
+          temporalContext,
+          primaryKnowledgeRevision,
+          revisionSignature,
+          dynamicSignals,
+          relatedIssueIds,
+          relatedIssueIdentifierMap,
+          relatedIssueIdentifiers,
+        } = recipientContext;
+        const { queryEmbedding, queryEmbeddingDebug } = await resolveRecipientQueryEmbedding({
+          queryText,
+        });
 
         const retrievalRun = await knowledge.createRetrievalRun({
           companyId: input.companyId,
@@ -2804,580 +3497,38 @@ export function issueRetrievalService(db: Db) {
             ...queryEmbeddingDebug,
           },
         });
-
-        const cachePolicyConfig = {
-          ...laneRerankConfig,
-          denseEnabled: Boolean(queryEmbedding),
-        };
-        const candidateCacheIdentity = buildRetrievalCacheIdentity({
-          stage: "candidate_hits",
-          queryText,
-          companyId: input.companyId,
-          issueProjectId: input.issue.projectId,
-          executionLane,
-          role: recipient.role,
-          eventType,
-          workflowState: input.message.workflowStateAfter,
-          baselineSignals,
-          temporalContext,
-          allowedSourceTypes: policy.allowedSourceTypes,
-          allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          rerankConfig: cachePolicyConfig,
-          revisionSignature,
-          personalizationFingerprint,
-        });
-        const finalCacheIdentity = buildRetrievalCacheIdentity({
-          stage: "final_hits",
-          queryText,
-          companyId: input.companyId,
-          issueProjectId: input.issue.projectId,
-          executionLane,
-          role: recipient.role,
-          eventType,
-          workflowState: input.message.workflowStateAfter,
-          baselineSignals,
-          temporalContext,
-          allowedSourceTypes: policy.allowedSourceTypes,
-          allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          rerankConfig: cachePolicyConfig,
-          revisionSignature,
-          personalizationFingerprint,
-        });
-        const candidateCacheKey = buildRetrievalStageCacheKey({
-          stage: "candidate_hits",
-          queryText,
-          companyId: input.companyId,
-          issueProjectId: input.issue.projectId,
-          executionLane,
-          role: recipient.role,
-          eventType,
-          workflowState: input.message.workflowStateAfter,
-          allowedSourceTypes: policy.allowedSourceTypes,
-          allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          rerankConfig: cachePolicyConfig,
-          dynamicSignals,
-          temporalContext,
-          revisionSignature,
-          personalizationFingerprint,
-        });
-        const finalCacheKey = buildRetrievalStageCacheKey({
-          stage: "final_hits",
-          queryText,
-          companyId: input.companyId,
-          issueProjectId: input.issue.projectId,
-          executionLane,
-          role: recipient.role,
-          eventType,
-          workflowState: input.message.workflowStateAfter,
-          allowedSourceTypes: policy.allowedSourceTypes,
-          allowedAuthorityLevels: policy.allowedAuthorityLevels,
-          rerankConfig: cachePolicyConfig,
-          dynamicSignals,
-          temporalContext,
-          revisionSignature,
-          personalizationFingerprint,
-        });
-
-        const exactCandidateCacheEntry = await knowledge.getRetrievalCacheEntry({
-          companyId: input.companyId,
-          projectId: input.issue.projectId,
-          stage: "candidate_hits",
-          cacheKey: candidateCacheKey,
-          knowledgeRevision: primaryKnowledgeRevision,
-        });
-        const candidateCacheEntry = exactCandidateCacheEntry ?? await knowledge.getCompatibleRetrievalCacheEntry({
-          companyId: input.companyId,
-          projectId: input.issue.projectId,
-          stage: "candidate_hits",
-          knowledgeRevision: primaryKnowledgeRevision,
-          allowFeedbackDrift: true,
-          identity: candidateCacheIdentity,
-        });
-        const candidateCacheInspection = candidateCacheEntry
-          ? (() => {
-            const entry = candidateCacheEntry!;
-            const entryValue = asRecord(entry.valueJson);
-            const entryMetadata = asRecord(entryValue?.metadata);
-            const matchedIdentity = readRetrievalCacheIdentityView(
-              entryMetadata?.cacheIdentity,
-            );
-            return buildRetrievalCacheInspectionResult({
-              state: "hit",
-              cacheKey: candidateCacheKey,
-              requestedCacheKey: candidateCacheKey,
-              matchedCacheKey: entry.cacheKey,
-              provenance: resolveRetrievalCacheHitProvenance({
-                requestedCacheKey: candidateCacheKey,
-                matchedCacheKey: entry.cacheKey,
-                requestedFeedbackFingerprint: candidateCacheIdentity.feedbackFingerprint,
-                matchedFeedbackFingerprint: matchedIdentity.feedbackFingerprint,
-              }),
-              matchedRevision: entry.knowledgeRevision,
-              latestKnownRevision: entry.knowledgeRevision,
-              lastEntryUpdatedAt: entry.updatedAt,
-            });
-          })()
-          : buildRetrievalCacheInspectionResult({
-            cacheKey: candidateCacheKey,
-            requestedCacheKey: candidateCacheKey,
-            matchedCacheKey: null,
-            ...(await knowledge.inspectRetrievalCacheEntryState({
-              companyId: input.companyId,
-              projectId: input.issue.projectId,
-              stage: "candidate_hits",
-              cacheKey: candidateCacheKey,
-              knowledgeRevision: primaryKnowledgeRevision,
-              identity: candidateCacheIdentity,
-            })),
-          });
-        const cachedCandidatePayload = readRetrievalCachePayload(candidateCacheEntry?.valueJson);
-
-        const exactFinalCacheEntry = await knowledge.getRetrievalCacheEntry({
-          companyId: input.companyId,
-          projectId: input.issue.projectId,
-          stage: "final_hits",
-          cacheKey: finalCacheKey,
-          knowledgeRevision: primaryKnowledgeRevision,
-        });
-        const finalCacheEntry = exactFinalCacheEntry ?? await knowledge.getCompatibleRetrievalCacheEntry({
-          companyId: input.companyId,
-          projectId: input.issue.projectId,
-          stage: "final_hits",
-          knowledgeRevision: primaryKnowledgeRevision,
-          allowFeedbackDrift: true,
-          identity: finalCacheIdentity,
-        });
-        const finalCacheInspection = finalCacheEntry
-          ? (() => {
-            const entry = finalCacheEntry!;
-            const entryValue = asRecord(entry.valueJson);
-            const entryMetadata = asRecord(entryValue?.metadata);
-            const matchedIdentity = readRetrievalCacheIdentityView(
-              entryMetadata?.cacheIdentity,
-            );
-            return buildRetrievalCacheInspectionResult({
-              state: "hit",
-              cacheKey: finalCacheKey,
-              requestedCacheKey: finalCacheKey,
-              matchedCacheKey: entry.cacheKey,
-              provenance: resolveRetrievalCacheHitProvenance({
-                requestedCacheKey: finalCacheKey,
-                matchedCacheKey: entry.cacheKey,
-                requestedFeedbackFingerprint: finalCacheIdentity.feedbackFingerprint,
-                matchedFeedbackFingerprint: matchedIdentity.feedbackFingerprint,
-              }),
-              matchedRevision: entry.knowledgeRevision,
-              latestKnownRevision: entry.knowledgeRevision,
-              lastEntryUpdatedAt: entry.updatedAt,
-            });
-          })()
-          : buildRetrievalCacheInspectionResult({
-            cacheKey: finalCacheKey,
-            requestedCacheKey: finalCacheKey,
-            matchedCacheKey: null,
-            ...(await knowledge.inspectRetrievalCacheEntryState({
-              companyId: input.companyId,
-              projectId: input.issue.projectId,
-              stage: "final_hits",
-              cacheKey: finalCacheKey,
-              knowledgeRevision: primaryKnowledgeRevision,
-              identity: finalCacheIdentity,
-            })),
-          });
-        const cachedFinalPayload = readRetrievalCachePayload(finalCacheEntry?.valueJson);
-
-        let sparseHits: RetrievalCandidate[] = [];
-        let pathHits: RetrievalCandidate[] = [];
-        let symbolHits: RetrievalCandidate[] = [];
-        let denseHits: RetrievalCandidate[] = [];
-        let sparseHitCount = 0;
-        let pathHitCount = 0;
-        let symbolHitCount = 0;
-        let denseHitCount = 0;
-        let hits: RetrievalHitView[] = [];
-        let candidateCacheHit = false;
-
-        if (cachedCandidatePayload) {
-          candidateCacheHit = true;
-          hits = cachedCandidatePayload.hits;
-          sparseHitCount = Number(cachedCandidatePayload.metadata.sparseHitCount ?? 0);
-          pathHitCount = Number(cachedCandidatePayload.metadata.pathHitCount ?? 0);
-          symbolHitCount = Number(cachedCandidatePayload.metadata.symbolHitCount ?? 0);
-          denseHitCount = Number(cachedCandidatePayload.metadata.denseHitCount ?? 0);
-        } else {
-          [sparseHits, pathHits, symbolHits, denseHits] = await Promise.all([
-            querySparseKnowledge({
-              companyId: input.companyId,
-              issueId: input.issueId,
-              projectId: input.issue.projectId,
-              projectAffinityIds: dynamicSignals.projectAffinityIds,
-              queryText,
-              allowedSourceTypes: policy.allowedSourceTypes,
-              allowedAuthorityLevels: policy.allowedAuthorityLevels,
-              limit: lanePolicy.topKSparse,
-            }),
-            queryPathKnowledge({
-              companyId: input.companyId,
-              exactPaths: dynamicSignals.exactPaths,
-              allowedSourceTypes: policy.allowedSourceTypes,
-              allowedAuthorityLevels: policy.allowedAuthorityLevels,
-              limit: Math.min(lanePolicy.rerankK, Math.max(dynamicSignals.exactPaths.length * 2, 6)),
-            }),
-            querySymbolKnowledge({
-              companyId: input.companyId,
-              symbolHints: dynamicSignals.symbolHints,
-              allowedSourceTypes: policy.allowedSourceTypes,
-              allowedAuthorityLevels: policy.allowedAuthorityLevels,
-              limit: Math.min(lanePolicy.rerankK, Math.max(dynamicSignals.symbolHints.length, 6)),
-            }),
-            queryEmbedding
-              ? queryDenseKnowledge({
-                companyId: input.companyId,
-                issueId: input.issueId,
-                projectId: input.issue.projectId,
-                projectAffinityIds: dynamicSignals.projectAffinityIds,
-                queryEmbedding,
-                allowedSourceTypes: policy.allowedSourceTypes,
-                allowedAuthorityLevels: policy.allowedAuthorityLevels,
-                limit: lanePolicy.topKDense,
-              })
-              : Promise.resolve([]),
-          ]);
-
-          sparseHitCount = sparseHits.length;
-          pathHitCount = pathHits.length;
-          symbolHitCount = symbolHits.length;
-          denseHitCount = denseHits.length;
-          console.log("[RETRIEVAL] Sparse hits:", sparseHitCount);
-          console.log("[RETRIEVAL] Path hits:", pathHitCount);
-          console.log("[RETRIEVAL] Symbol hits:", symbolHitCount);
-          console.log("[RETRIEVAL] Dense hits:", denseHitCount);
-
-          hits = fuseRetrievalCandidates({
-            sparseHits: [...sparseHits, ...pathHits, ...symbolHits],
-            denseHits,
-            issueId: input.issueId,
-            projectId: input.issue.projectId,
-            projectAffinityIds: dynamicSignals.projectAffinityIds,
-            relatedIssueIds,
-            finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK),
-          });
-          await knowledge.upsertRetrievalCacheEntry({
-            companyId: input.companyId,
-            projectId: input.issue.projectId,
-            stage: "candidate_hits",
-            cacheKey: candidateCacheKey,
-            knowledgeRevision: primaryKnowledgeRevision,
-            ttlSeconds: CANDIDATE_HIT_CACHE_TTL_SECONDS,
-            valueJson: serializeRetrievalCachePayload({
-              hits,
-              quality: null,
-              metadata: {
-                sparseHitCount,
-                pathHitCount,
-                symbolHitCount,
-                denseHitCount,
-                cacheIdentity: candidateCacheIdentity,
-              },
-            }),
-          });
-        }
+        const candidateStage = await resolveRecipientCandidateStage(
+          recipient,
+          recipientContext,
+          queryEmbedding,
+        );
+        const {
+          candidateCacheHit,
+          candidateCacheInspection,
+          denseHitCount,
+          finalCacheInspection,
+          hits,
+          pathHitCount,
+          sparseHitCount,
+          symbolHitCount,
+        } = candidateStage;
 
         console.log("[RETRIEVAL] Fused candidates:", hits.length);
-        let finalHits: RetrievalHitView[] = [];
-        let briefQuality: BriefQualitySummary | null = null;
-        let reuseSummary: RetrievalReuseSummary | null = null;
-        let graphSeeds: RetrievalGraphSeed[] = [];
-        let chunkGraphResult: ChunkGraphExpansionResult = {
-          hits: [],
-          edgeTraversalCount: 0,
-          graphMaxDepth: 0,
-          graphHopDepthCounts: {},
-          graphEntityTypeCounts: {},
-        };
-        let symbolGraphSeeds: RetrievalSymbolGraphSeed[] = [];
-        let symbolGraphResult = {
-          hits: [] as RetrievalHitView[],
-          edgeTraversalCount: 0,
-          edgeTypeCounts: {} as Record<string, number>,
-          graphMaxDepth: 0,
-          graphHopDepthCounts: {} as Record<string, number>,
-        };
-        const finalCacheHit = Boolean(cachedFinalPayload);
-
-        if (cachedFinalPayload) {
-          finalHits = cachedFinalPayload.hits;
-          briefQuality = readCachedBriefQualitySummary(cachedFinalPayload.quality);
-        } else {
-          const linkMap = await listRetrievalLinks(hits.map((hit) => hit.chunkId));
-          const initialDocumentVersionMap = await listDocumentVersionsForRetrieval({
-            db,
-            companyId: input.companyId,
-            documentIds: uniqueNonEmpty(hits.map((hit) => hit.documentId)),
-          });
-          const initialRerankedHits = rerankRetrievalHits({
-            hits,
-            signals: dynamicSignals,
-            issueId: input.issueId,
-            projectId: input.issue.projectId,
-            projectAffinityIds: dynamicSignals.projectAffinityIds,
-            linkMap,
-              temporalContext,
-              documentVersionMap: initialDocumentVersionMap,
-              finalK: lanePolicy.finalK,
-              rerankConfig: laneRerankConfig,
-              personalizationProfile,
-            });
-          graphSeeds = buildGraphExpansionSeeds({
-            hits: initialRerankedHits,
-            linkMap,
-            signals: dynamicSignals,
-          });
-          const chunkGraphLimit = Math.min(
-            Math.max(lanePolicy.finalK * 3, graphSeeds.length * 3, 12),
-            30,
-          );
-          chunkGraphResult = await queryGraphExpansionKnowledge({
-            companyId: input.companyId,
-            issueId: input.issueId,
-            projectId: input.issue.projectId,
-            projectAffinityIds: dynamicSignals.projectAffinityIds,
-            relatedIssueIds,
-            seeds: graphSeeds,
-            allowedSourceTypes: policy.allowedSourceTypes,
-            allowedAuthorityLevels: policy.allowedAuthorityLevels,
-            excludeChunkIds: hits.map((hit) => hit.chunkId),
-            limit: chunkGraphLimit,
-            maxHops: lanePolicy.chunkGraphMaxHops,
-          });
-          const graphLinkMap = chunkGraphResult.hits.length > 0
-            ? await listRetrievalLinks(chunkGraphResult.hits.map((hit) => hit.chunkId))
-            : new Map<string, RetrievalLinkView[]>();
-          const combinedLinkMap = new Map(linkMap);
-          for (const [chunkId, links] of graphLinkMap.entries()) {
-            combinedLinkMap.set(chunkId, links);
-          }
-          const graphExpandedCandidates = chunkGraphResult.hits.length > 0
-            ? mergeGraphExpandedHits({
-              baseHits: hits,
-              graphHits: chunkGraphResult.hits,
-              finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK) + chunkGraphResult.hits.length,
-            })
-            : hits;
-          const rerankedHits = chunkGraphResult.hits.length > 0
-            ? rerankRetrievalHits({
-              hits: graphExpandedCandidates,
-              signals: dynamicSignals,
-              issueId: input.issueId,
-              projectId: input.issue.projectId,
-              projectAffinityIds: dynamicSignals.projectAffinityIds,
-              linkMap: combinedLinkMap,
-              temporalContext,
-              documentVersionMap: await listDocumentVersionsForRetrieval({
-                db,
-                companyId: input.companyId,
-                documentIds: uniqueNonEmpty(graphExpandedCandidates.map((hit) => hit.documentId)),
-              }),
-              finalK: lanePolicy.finalK,
-              rerankConfig: laneRerankConfig,
-              personalizationProfile,
-            })
-            : initialRerankedHits;
-          const chunkSymbolMap = await listChunkSymbols(rerankedHits.map((hit) => hit.chunkId));
-          symbolGraphSeeds = buildSymbolGraphExpansionSeeds({
-            hits: rerankedHits,
-            chunkSymbolMap,
-          });
-          const symbolGraphLimit = Math.min(
-            Math.max(lanePolicy.finalK * 3, symbolGraphSeeds.length * 3, 12),
-            30,
-          );
-          symbolGraphResult = await querySymbolGraphExpansionKnowledge({
-            companyId: input.companyId,
-            symbolSeeds: symbolGraphSeeds,
-            excludeChunkIds: rerankedHits.map((hit) => hit.chunkId),
-            allowedSourceTypes: policy.allowedSourceTypes,
-            allowedAuthorityLevels: policy.allowedAuthorityLevels,
-            limit: symbolGraphLimit,
-          });
-          const symbolGraphLinkMap = symbolGraphResult.hits.length > 0
-            ? await listRetrievalLinks(symbolGraphResult.hits.map((hit) => hit.chunkId))
-            : new Map<string, RetrievalLinkView[]>();
-          const symbolCombinedLinkMap = new Map(combinedLinkMap);
-          for (const [chunkId, links] of symbolGraphLinkMap.entries()) {
-            symbolCombinedLinkMap.set(chunkId, links);
-          }
-          const symbolExpandedHits = symbolGraphResult.hits.length > 0
-            ? rerankRetrievalHits({
-                hits: mergeGraphExpandedHits({
-                  baseHits: rerankedHits,
-                  graphHits: symbolGraphResult.hits,
-                  finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK) + symbolGraphResult.hits.length,
-                }),
-              signals: dynamicSignals,
-              issueId: input.issueId,
-              projectId: input.issue.projectId,
-              projectAffinityIds: dynamicSignals.projectAffinityIds,
-              linkMap: symbolCombinedLinkMap,
-              temporalContext,
-              documentVersionMap: await listDocumentVersionsForRetrieval({
-                db,
-                companyId: input.companyId,
-                documentIds: uniqueNonEmpty(
-                  mergeGraphExpandedHits({
-                    baseHits: rerankedHits,
-                    graphHits: symbolGraphResult.hits,
-                    finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK) + symbolGraphResult.hits.length,
-                  }).map((hit) => hit.documentId),
-                ),
-              }),
-              finalK: lanePolicy.finalK,
-              rerankConfig: laneRerankConfig,
-              personalizationProfile,
-            })
-            : rerankedHits;
-          finalHits = symbolExpandedHits;
-          if (laneRerankConfig.modelRerank.enabled && modelReranker.isConfigured() && symbolExpandedHits.length > 1) {
-            try {
-              const modelResult = await modelReranker.rerankCandidates({
-                queryText,
-                recipientRole: recipient.role,
-                workflowState: input.message.workflowStateAfter,
-                summary: input.message.summary,
-                candidates: symbolExpandedHits.slice(0, lanePolicy.modelRerankCandidateCount).map((hit) => ({
-                  chunkId: hit.chunkId,
-                  sourceType: hit.sourceType,
-                  authorityLevel: hit.authorityLevel,
-                  path: hit.path,
-                  symbolName: hit.symbolName,
-                  title: hit.title,
-                  excerpt: hit.textContent,
-                  fusedScore: hit.fusedScore,
-                })),
-              });
-              finalHits = applyModelRerankOrder({
-                hits: symbolExpandedHits,
-                rankedChunkIds: modelResult.rankedChunkIds,
-                finalK: lanePolicy.finalK,
-                modelRerank: laneRerankConfig.modelRerank,
-              });
-            } catch {
-              finalHits = symbolExpandedHits;
-            }
-          } else {
-            finalHits = symbolExpandedHits;
-          }
-          finalHits = applyGraphConnectivityGuard({
-              hits: applyOrganizationalBridgeGuard({
-                hits: applyEvidenceDiversityGuard({
-                  hits: finalHits,
-                  finalK: lanePolicy.finalK,
-                  signals: dynamicSignals,
-                }),
-                finalK: lanePolicy.finalK,
-                signals: dynamicSignals,
-              }),
-              finalK: lanePolicy.finalK,
-              signals: dynamicSignals,
-            }).slice(0, lanePolicy.finalK);
-          if (pathHits.length > 0) {
-            const exactPathFallbackHits = rerankRetrievalHits({
-              hits: pathHits.map((hit) => ({
-                ...hit,
-                fusedScore: hit.fusedScore ?? 0,
-              })),
-              signals: dynamicSignals,
-              issueId: input.issueId,
-              projectId: input.issue.projectId,
-              projectAffinityIds: dynamicSignals.projectAffinityIds,
-              linkMap: symbolCombinedLinkMap,
-              temporalContext,
-              documentVersionMap: await listDocumentVersionsForRetrieval({
-                db,
-                companyId: input.companyId,
-                documentIds: uniqueNonEmpty(pathHits.map((hit) => hit.documentId)),
-              }),
-              finalK: Math.max(lanePolicy.finalK, pathHits.length),
-              rerankConfig: laneRerankConfig,
-              personalizationProfile,
-            }).filter((hit) => isExecutableEvidenceSourceType(hit.sourceType));
-            finalHits = applyGraphConnectivityGuard({
-              hits: applyEvidenceDiversityGuard({
-                hits: appendUniqueRetrievalHits(finalHits, exactPathFallbackHits),
-                finalK: lanePolicy.finalK,
-                signals: dynamicSignals,
-              }),
-              finalK: lanePolicy.finalK,
-              signals: dynamicSignals,
-            }).slice(0, lanePolicy.finalK);
-          }
-
-          reuseSummary = computeRetrievalReuseSummary({
-            relatedIssueIds,
-            relatedIssueIdentifierMap,
-            finalHits,
-          });
-          const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
-          const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
-          const exactPathSatisfied = isExactPathSatisfied({
-            finalHits,
-            exactPaths: dynamicSignals.exactPaths,
-          });
-          briefQuality = summarizeBriefQuality({
-            finalHits,
-            queryEmbedding,
-            sparseHitCount,
-            pathHitCount,
-            symbolHitCount,
-            denseHitCount,
-            graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
-            graphHitCount: graphHits.length,
-            graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
-            symbolGraphSeedCount: symbolGraphSeeds.length,
-            symbolGraphHitCount: symbolGraphResult.hits.length,
-            edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
-            edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
-            graphMaxDepth: Math.max(chunkGraphResult.graphMaxDepth, symbolGraphResult.graphMaxDepth),
-            graphHopDepthCounts: {
-              ...chunkGraphResult.graphHopDepthCounts,
-              ...Object.fromEntries(
-                Object.entries(symbolGraphResult.graphHopDepthCounts).map(([key, value]) => [
-                  key,
-                  (chunkGraphResult.graphHopDepthCounts[key] ?? 0) + value,
-                ]),
-              ),
-            },
-            multiHopGraphHitCount,
-            temporalContext,
-            crossProjectRequested: dynamicSignals.projectAffinityIds.length > 1,
-            candidateCacheHit,
-            finalCacheHit: false,
-            candidateCacheInspection,
-            finalCacheInspection,
-            exactPathSatisfied,
-            relatedIssueIds,
-            relatedIssueIdentifierMap,
-            reuseSummary,
-          });
-
-          await knowledge.upsertRetrievalCacheEntry({
-            companyId: input.companyId,
-            projectId: input.issue.projectId,
-            stage: "final_hits",
-            cacheKey: finalCacheKey,
-            knowledgeRevision: primaryKnowledgeRevision,
-            ttlSeconds: FINAL_HIT_CACHE_TTL_SECONDS,
-            valueJson: serializeRetrievalCachePayload({
-              hits: finalHits,
-              quality: briefQuality as unknown as Record<string, unknown>,
-              metadata: {
-                graphSeedCount: graphSeeds.length,
-                symbolGraphSeedCount: symbolGraphSeeds.length,
-                cacheIdentity: finalCacheIdentity,
-              },
-            }),
-          });
-        }
+        let {
+          finalHits,
+          briefQuality,
+          reuseSummary,
+          graphSeeds,
+          chunkGraphResult,
+          symbolGraphSeeds,
+          symbolGraphResult,
+          finalCacheHit,
+        } = await resolveRecipientFinalStage({
+          recipient,
+          context: recipientContext,
+          stage: candidateStage,
+          queryEmbedding,
+        });
 
         if (!reuseSummary) {
           reuseSummary = computeRetrievalReuseSummary({
