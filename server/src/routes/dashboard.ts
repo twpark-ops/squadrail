@@ -37,6 +37,23 @@ export function dashboardRoutes(db: Db) {
     res.json(queue);
   });
 
+  router.get("/companies/:companyId/dashboard/agent-performance", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+
+    const parsed = protocolQueueQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    const feed = await svc.agentPerformance({
+      companyId,
+      limit: parsed.data.limit,
+    });
+    res.json(feed);
+  });
+
   router.get("/companies/:companyId/dashboard/recovery-queue", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);

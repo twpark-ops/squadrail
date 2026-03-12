@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAgentPerformanceSummary,
   buildDashboardAttentionSummary,
   buildDashboardKnowledgeSummary,
   buildExecutionReliabilitySummary,
   buildProtocolDashboardBuckets,
   buildTeamSupervisionSummary,
   isProtocolDashboardStale,
+  type DashboardAgentPerformanceItem,
   type DashboardProtocolQueueItem,
   type DashboardTeamSupervisionItem,
 } from "../services/dashboard.js";
@@ -64,6 +66,38 @@ function teamSupervisionItem(
     assignee: overrides.assignee ?? null,
     reviewer: overrides.reviewer ?? null,
     techLead: overrides.techLead ?? null,
+  };
+}
+
+function agentPerformanceItem(
+  overrides: Partial<DashboardAgentPerformanceItem>,
+): DashboardAgentPerformanceItem {
+  return {
+    agentId: overrides.agentId ?? crypto.randomUUID(),
+    name: overrides.name ?? "Engineer One",
+    title: overrides.title ?? "Senior Engineer",
+    role: overrides.role ?? "engineer",
+    status: overrides.status ?? "active",
+    adapterType: overrides.adapterType ?? "codex_local",
+    lastHeartbeatAt:
+      overrides.lastHeartbeatAt ?? new Date("2026-03-12T00:00:00.000Z"),
+    openIssueCount: overrides.openIssueCount ?? 1,
+    completedIssueCount30d: overrides.completedIssueCount30d ?? 3,
+    reviewBounceCount30d: overrides.reviewBounceCount30d ?? 0,
+    qaBounceCount30d: overrides.qaBounceCount30d ?? 0,
+    runningCount: overrides.runningCount ?? 0,
+    queuedCount: overrides.queuedCount ?? 0,
+    totalRuns7d: overrides.totalRuns7d ?? 8,
+    successfulRuns7d: overrides.successfulRuns7d ?? 7,
+    failedRuns7d: overrides.failedRuns7d ?? 1,
+    timedOutRuns7d: overrides.timedOutRuns7d ?? 0,
+    cancelledRuns7d: overrides.cancelledRuns7d ?? 0,
+    successRate7d: overrides.successRate7d ?? 87.5,
+    averageRunDurationMs7d: overrides.averageRunDurationMs7d ?? 180000,
+    priorityPreemptions7d: overrides.priorityPreemptions7d ?? 0,
+    health: overrides.health ?? "warning",
+    summaryText:
+      overrides.summaryText ?? "Performance is acceptable but worth watching before assigning more queue depth.",
   };
 }
 
@@ -156,6 +190,7 @@ describe("dashboard helpers", () => {
         dispatchTimeoutsLast24h: 1,
         processLostLast24h: 0,
         workspaceBlockedLast24h: 2,
+        priorityPreemptionsLast24h: 4,
       }),
     ).toEqual({
       runningRuns: 2,
@@ -164,6 +199,7 @@ describe("dashboard helpers", () => {
       dispatchTimeoutsLast24h: 1,
       processLostLast24h: 0,
       workspaceBlockedLast24h: 2,
+      priorityPreemptionsLast24h: 4,
     });
   });
 
@@ -225,6 +261,24 @@ describe("dashboard helpers", () => {
       review: 1,
       active: 1,
       queued: 1,
+    });
+  });
+
+  it("builds agent performance summary buckets", () => {
+    expect(
+      buildAgentPerformanceSummary({
+        items: [
+          agentPerformanceItem({ health: "healthy", priorityPreemptions7d: 1 }),
+          agentPerformanceItem({ health: "warning", priorityPreemptions7d: 2 }),
+          agentPerformanceItem({ health: "risk", priorityPreemptions7d: 0 }),
+        ],
+      }),
+    ).toEqual({
+      totalAgents: 3,
+      healthyAgents: 1,
+      warningAgents: 1,
+      riskAgents: 1,
+      priorityPreemptions7d: 3,
     });
   });
 });

@@ -215,6 +215,13 @@ export interface IssueMergeCandidateGateStatus {
   blockingReasons: string[];
 }
 
+export interface IssueMergeCandidateConflictAssist {
+  status: "clean" | "warning" | "conflicting";
+  summary: string;
+  blockers: string[];
+  suggestedActions: string[];
+}
+
 export interface IssueMergeCandidate {
   issueId: string;
   identifier: string | null;
@@ -237,6 +244,7 @@ export interface IssueMergeCandidate {
   closeMessageId: string | null;
   prBridge: IssueMergeCandidatePrBridge | null;
   gateStatus: IssueMergeCandidateGateStatus | null;
+  conflictAssist: IssueMergeCandidateConflictAssist | null;
 }
 
 export interface IssueChangeSurface {

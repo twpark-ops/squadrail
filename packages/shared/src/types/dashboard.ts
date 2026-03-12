@@ -46,6 +46,7 @@ export interface DashboardSummary {
     dispatchTimeoutsLast24h: number;
     processLostLast24h: number;
     workspaceBlockedLast24h: number;
+    priorityPreemptionsLast24h: number;
   };
   attention: {
     urgentIssueCount: number;
@@ -174,6 +175,47 @@ export interface DashboardTeamSupervisionFeed {
   generatedAt: string;
   summary: DashboardTeamSupervisionSummary;
   items: DashboardTeamSupervisionItem[];
+}
+
+export interface DashboardAgentPerformanceSummary {
+  totalAgents: number;
+  healthyAgents: number;
+  warningAgents: number;
+  riskAgents: number;
+  priorityPreemptions7d: number;
+}
+
+export interface DashboardAgentPerformanceItem {
+  agentId: string;
+  name: string;
+  title: string | null;
+  role: string;
+  status: string;
+  adapterType: string;
+  lastHeartbeatAt: Date | null;
+  openIssueCount: number;
+  completedIssueCount30d: number;
+  reviewBounceCount30d: number;
+  qaBounceCount30d: number;
+  runningCount: number;
+  queuedCount: number;
+  totalRuns7d: number;
+  successfulRuns7d: number;
+  failedRuns7d: number;
+  timedOutRuns7d: number;
+  cancelledRuns7d: number;
+  successRate7d: number;
+  averageRunDurationMs7d: number | null;
+  priorityPreemptions7d: number;
+  health: "healthy" | "warning" | "risk";
+  summaryText: string;
+}
+
+export interface DashboardAgentPerformanceFeed {
+  companyId: string;
+  generatedAt: string;
+  summary: DashboardAgentPerformanceSummary;
+  items: DashboardAgentPerformanceItem[];
 }
 
 export interface DashboardRecoveryCase {

@@ -1,4 +1,5 @@
 import type {
+  DashboardAgentPerformanceFeed,
   DashboardProtocolQueue,
   DashboardRecoveryActionRequest,
   DashboardRecoveryActionResult,
@@ -12,6 +13,8 @@ export const dashboardApi = {
   summary: (companyId: string) => api.get<DashboardSummary>(`/companies/${companyId}/dashboard`),
   protocolQueue: (companyId: string, limit: number = 20) =>
     api.get<DashboardProtocolQueue>(`/companies/${companyId}/dashboard/protocol-queue?limit=${limit}`),
+  agentPerformance: (companyId: string, limit: number = 20) =>
+    api.get<DashboardAgentPerformanceFeed>(`/companies/${companyId}/dashboard/agent-performance?limit=${limit}`),
   teamSupervision: (companyId: string, limit: number = 20) =>
     api.get<DashboardTeamSupervisionFeed>(`/companies/${companyId}/dashboard/team-supervision?limit=${limit}`),
   recoveryQueue: (companyId: string, limit: number = 20) =>
