@@ -977,6 +977,13 @@ export function issueRoutes(db: Db, storage: StorageService) {
         workflowStateBefore: effectiveMessage.workflowStateBefore,
         workflowStateAfter: effectiveMessage.workflowStateAfter,
         summary: effectiveMessage.summary,
+        ...(typeof effectiveMessage.payload === "object" && effectiveMessage.payload
+          ? {
+              boardTemplateId: readString((effectiveMessage.payload as Record<string, unknown>).boardTemplateId),
+              boardTemplateLabel: readString((effectiveMessage.payload as Record<string, unknown>).boardTemplateLabel),
+              boardTemplateScope: readString((effectiveMessage.payload as Record<string, unknown>).boardTemplateScope),
+            }
+          : {}),
       },
     });
 

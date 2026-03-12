@@ -35,6 +35,9 @@ export type {
   IssueMergeCandidateGateStatus,
   IssueMergeCandidateConflictAssist,
   IssueMergeCandidateFailureAssist,
+  IssueMergeCandidateTemplateTrace,
+  IssueMergeCandidateRevertAssist,
+  IssueMergeCandidateRecoveryResult,
   IssueMergeCandidate,
   IssueChangeSurface,
 } from "./issue.js";
@@ -96,6 +99,7 @@ export type {
 export type { ActivityEvent } from "./activity.js";
 export type { SidebarBadges } from "./sidebar-badges.js";
 export type { SetupProgress, SetupProgressView, DoctorCheck, DoctorReport, DoctorWorkspaceTarget } from "./setup.js";
+export type { WorkflowTemplate, WorkflowTemplatesView } from "./workflow-template.js";
 export type {
   OrgSyncStatus,
   OrgSyncExpectedAgent,

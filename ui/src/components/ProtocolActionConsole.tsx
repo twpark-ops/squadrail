@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ISSUE_PRIORITIES,
   ISSUE_PROTOCOL_APPROVAL_MODES,
@@ -13,7 +14,10 @@ import {
   type IssueProtocolRecipient,
   type IssueProtocolState,
   type IssueProtocolWorkflowState,
+  type WorkflowTemplate,
 } from "@squadrail/shared";
+import { companiesApi } from "@/api/companies";
+import { queryKeys } from "@/lib/queryKeys";
 import { Button } from "@/components/ui/button";
 import { cn } from "../lib/utils";
 
@@ -30,6 +34,7 @@ type ExtraRecipientRole = "tech_lead" | "engineer" | "reviewer";
 type AssignmentRecipientRole = "tech_lead" | "engineer";
 
 interface ProtocolActionConsoleProps {
+  companyId: string | null;
   issueIdentifier: string;
   protocolState: IssueProtocolState | null;
   agents: Agent[];
@@ -74,6 +79,11 @@ function parseLineList(value: string) {
     .split(/\r?\n/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function renderTemplateText(value: string | null | undefined, issueIdentifier: string) {
+  if (!value) return "";
+  return value.replaceAll("{issueIdentifier}", issueIdentifier);
 }
 
 function parseChangeRequests(value: string) {
@@ -218,6 +228,7 @@ function buildCurrentParticipantRecipients(input: {
 }
 
 export function ProtocolActionConsole({
+  companyId,
   issueIdentifier,
   protocolState,
   agents,
@@ -271,12 +282,24 @@ export function ProtocolActionConsole({
   const [extraRecipients, setExtraRecipients] = useState<Array<{ recipientId: string; role: ExtraRecipientRole }>>([]);
   const [extraRecipientAgentId, setExtraRecipientAgentId] = useState("");
   const [extraRecipientRole, setExtraRecipientRole] = useState<ExtraRecipientRole>("engineer");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [lastAppliedTemplate, setLastAppliedTemplate] = useState<WorkflowTemplate | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: workflowTemplatesView } = useQuery({
+    queryKey: companyId ? queryKeys.companies.workflowTemplates(companyId) : ["companies", "__none__", "workflow-templates"],
+    queryFn: () => companiesApi.getWorkflowTemplates(companyId!),
+    enabled: Boolean(companyId),
+  });
 
   useEffect(() => {
     if (allowedActions.includes(selectedAction)) return;
     setSelectedAction(allowedActions[0] ?? "NOTE");
   }, [allowedActions, selectedAction]);
+
+  useEffect(() => {
+    setLastAppliedTemplate(null);
+  }, [selectedAction]);
 
   useEffect(() => {
     if (!protocolState?.primaryEngineerAgentId) return;
@@ -287,6 +310,23 @@ export function ProtocolActionConsole({
     if (!protocolState?.reviewerAgentId) return;
     setReviewerAgentId((current) => current || protocolState.reviewerAgentId || "");
   }, [protocolState?.reviewerAgentId]);
+
+  const availableTemplates = useMemo(
+    () => (workflowTemplatesView?.templates ?? []).filter((template) => template.actionType === selectedAction),
+    [selectedAction, workflowTemplatesView?.templates],
+  );
+
+  useEffect(() => {
+    if (availableTemplates.length === 0) {
+      setSelectedTemplateId("");
+      return;
+    }
+    setSelectedTemplateId((current) =>
+      current && availableTemplates.some((template) => template.id === current)
+        ? current
+        : availableTemplates[0]!.id,
+    );
+  }, [availableTemplates]);
 
   const activeAgents = useMemo(
     () => [...agents].filter((agent) => agent.status !== "terminated").sort((left, right) => left.name.localeCompare(right.name)),
@@ -396,7 +436,7 @@ export function ProtocolActionConsole({
     ]);
   }
 
-  function applyTemplate(action: HumanBoardAction) {
+  function applyFallbackTemplate(action: HumanBoardAction) {
     if (action === "ASSIGN_TASK") {
       setGoal(`Deliver ${issueIdentifier} with explicit scope, reviewer ownership, and rollout-safe evidence.`);
       setAcceptanceCriteria("Implementation scope is explicit\nEvidence is attached\nReviewer ownership is assigned");
@@ -439,6 +479,113 @@ export function ProtocolActionConsole({
     if (action === "NOTE") {
       setNoteBody(`Board context for ${issueIdentifier}: preserve the current workflow intent and keep the next handoff evidence-backed.`);
     }
+  }
+
+  function applyConfiguredTemplate(template: WorkflowTemplate) {
+    setSummary(renderTemplateText(template.summary, issueIdentifier));
+    const fields = template.fields ?? {};
+
+    if (template.actionType === "ASSIGN_TASK") {
+      setGoal(renderTemplateText(fields.goal, issueIdentifier));
+      setAcceptanceCriteria(renderTemplateText(fields.acceptanceCriteria, issueIdentifier));
+      setDefinitionOfDone(renderTemplateText(fields.definitionOfDone, issueIdentifier));
+      setRequiredKnowledgeTags(renderTemplateText(fields.requiredKnowledgeTags, issueIdentifier));
+      if (fields.priority && ISSUE_PRIORITIES.includes(fields.priority as (typeof ISSUE_PRIORITIES)[number])) {
+        setPriority(fields.priority as (typeof ISSUE_PRIORITIES)[number]);
+      }
+      if (fields.assignmentRecipientRole === "engineer" || fields.assignmentRecipientRole === "tech_lead") {
+        setAssignmentRecipientRole(fields.assignmentRecipientRole);
+      }
+    }
+    if (template.actionType === "REASSIGN_TASK") {
+      setReassignReason(renderTemplateText(fields.reason, issueIdentifier));
+      if (fields.assignmentRecipientRole === "engineer" || fields.assignmentRecipientRole === "tech_lead") {
+        setAssignmentRecipientRole(fields.assignmentRecipientRole);
+      }
+    }
+    if (template.actionType === "REQUEST_CHANGES") {
+      setReviewSummary(renderTemplateText(fields.reviewSummary, issueIdentifier));
+      setRequiredEvidence(renderTemplateText(fields.requiredEvidence, issueIdentifier));
+      setChangeRequestLines(renderTemplateText(fields.changeRequestLines, issueIdentifier));
+    }
+    if (template.actionType === "APPROVE_IMPLEMENTATION") {
+      setApprovalSummary(renderTemplateText(fields.approvalSummary, issueIdentifier));
+      setApprovalChecklist(renderTemplateText(fields.approvalChecklist, issueIdentifier));
+      setVerifiedEvidence(renderTemplateText(fields.verifiedEvidence, issueIdentifier));
+      setApprovalResidualRisks(renderTemplateText(fields.approvalResidualRisks, issueIdentifier));
+      setFollowUpActions(renderTemplateText(fields.followUpActions, issueIdentifier));
+      if (
+        fields.approvalMode
+        && ISSUE_PROTOCOL_APPROVAL_MODES.includes(fields.approvalMode as (typeof ISSUE_PROTOCOL_APPROVAL_MODES)[number])
+      ) {
+        setApprovalMode(fields.approvalMode as (typeof ISSUE_PROTOCOL_APPROVAL_MODES)[number]);
+      }
+    }
+    if (template.actionType === "CLOSE_TASK") {
+      setClosureSummary(renderTemplateText(fields.closureSummary, issueIdentifier));
+      setVerificationSummary(renderTemplateText(fields.verificationSummary, issueIdentifier));
+      setRollbackPlan(renderTemplateText(fields.rollbackPlan, issueIdentifier));
+      setFinalArtifacts(renderTemplateText(fields.finalArtifacts, issueIdentifier));
+      setRemainingRisks(renderTemplateText(fields.remainingRisks, issueIdentifier));
+      if (
+        fields.closeReason
+        && ISSUE_PROTOCOL_CLOSE_REASONS.includes(fields.closeReason as (typeof ISSUE_PROTOCOL_CLOSE_REASONS)[number])
+      ) {
+        setCloseReason(fields.closeReason as (typeof ISSUE_PROTOCOL_CLOSE_REASONS)[number]);
+      }
+      if (
+        fields.finalTestStatus
+        && ISSUE_PROTOCOL_FINAL_TEST_STATUSES.includes(fields.finalTestStatus as (typeof ISSUE_PROTOCOL_FINAL_TEST_STATUSES)[number])
+      ) {
+        setFinalTestStatus(fields.finalTestStatus as (typeof ISSUE_PROTOCOL_FINAL_TEST_STATUSES)[number]);
+      }
+      if (
+        fields.mergeStatus
+        && ISSUE_PROTOCOL_MERGE_STATUSES.includes(fields.mergeStatus as (typeof ISSUE_PROTOCOL_MERGE_STATUSES)[number])
+      ) {
+        setMergeStatus(fields.mergeStatus as (typeof ISSUE_PROTOCOL_MERGE_STATUSES)[number]);
+      }
+    }
+    if (template.actionType === "CANCEL_TASK") {
+      setCancelReason(renderTemplateText(fields.reason, issueIdentifier));
+      if (
+        fields.cancelType
+        && ISSUE_PROTOCOL_CANCEL_TYPES.includes(fields.cancelType as (typeof ISSUE_PROTOCOL_CANCEL_TYPES)[number])
+      ) {
+        setCancelType(fields.cancelType as (typeof ISSUE_PROTOCOL_CANCEL_TYPES)[number]);
+      }
+    }
+    if (template.actionType === "NOTE") {
+      setNoteBody(renderTemplateText(fields.body, issueIdentifier));
+      if (
+        fields.noteType
+        && ISSUE_PROTOCOL_NOTE_TYPES.includes(fields.noteType as (typeof ISSUE_PROTOCOL_NOTE_TYPES)[number])
+      ) {
+        setNoteType(fields.noteType as (typeof ISSUE_PROTOCOL_NOTE_TYPES)[number]);
+      }
+    }
+
+    setLastAppliedTemplate(template);
+  }
+
+  function applyTemplate(action: HumanBoardAction) {
+    const selectedTemplate = availableTemplates.find((template) => template.id === selectedTemplateId) ?? availableTemplates[0];
+    if (selectedTemplate) {
+      applyConfiguredTemplate(selectedTemplate);
+      return;
+    }
+    applyFallbackTemplate(action);
+    setLastAppliedTemplate(null);
+  }
+
+  function applyTemplateTrace<TPayload extends Record<string, unknown>>(payload: TPayload) {
+    if (!lastAppliedTemplate || lastAppliedTemplate.actionType !== selectedAction) return payload;
+    return {
+      ...payload,
+      boardTemplateId: lastAppliedTemplate.id,
+      boardTemplateLabel: lastAppliedTemplate.label,
+      boardTemplateScope: lastAppliedTemplate.scope,
+    };
   }
 
   function addExtraRecipient() {
@@ -496,7 +643,7 @@ export function ProtocolActionConsole({
           workflowStateAfter: nextState,
           summary: resolvedSummary,
           requiresAck: false,
-          payload: {
+          payload: applyTemplateTrace({
             goal: goal.trim(),
             acceptanceCriteria: parseLineList(acceptanceCriteria),
             definitionOfDone: parseLineList(definitionOfDone),
@@ -507,7 +654,7 @@ export function ProtocolActionConsole({
             ...(parseLineList(requiredKnowledgeTags).length > 0
               ? { requiredKnowledgeTags: parseLineList(requiredKnowledgeTags) }
               : {}),
-          },
+          }),
           artifacts,
         };
         break;
@@ -524,11 +671,11 @@ export function ProtocolActionConsole({
           workflowStateAfter: nextState,
           summary: resolvedSummary,
           requiresAck: false,
-          payload: {
+          payload: applyTemplateTrace({
             reason: reassignReason.trim(),
             newAssigneeAgentId: assigneeAgentId,
             ...(reviewerAgentId ? { newReviewerAgentId: reviewerAgentId } : {}),
-          },
+          }),
           artifacts,
         };
         break;
@@ -555,13 +702,13 @@ export function ProtocolActionConsole({
           workflowStateAfter: nextState,
           summary: resolvedSummary,
           requiresAck: false,
-          payload: {
+          payload: applyTemplateTrace({
             reviewSummary: reviewSummary.trim(),
             changeRequests: parsedChangeRequests,
             severity: "high",
             mustFixBeforeApprove: true,
             requiredEvidence: parseLineList(requiredEvidence),
-          },
+          }),
           artifacts,
         };
         break;
@@ -584,7 +731,7 @@ export function ProtocolActionConsole({
           workflowStateAfter: nextState,
           summary: resolvedSummary,
           requiresAck: false,
-          payload: {
+          payload: applyTemplateTrace({
             approvalSummary: approvalSummary.trim(),
             approvalMode,
             approvalChecklist: parseLineList(approvalChecklist),
@@ -593,7 +740,7 @@ export function ProtocolActionConsole({
             ...(parseLineList(followUpActions).length > 0
               ? { followUpActions: parseLineList(followUpActions) }
               : {}),
-          },
+          }),
           artifacts,
         };
         break;
@@ -634,7 +781,7 @@ export function ProtocolActionConsole({
           workflowStateAfter: nextState,
           summary: resolvedSummary,
           requiresAck: false,
-          payload: {
+          payload: applyTemplateTrace({
             closeReason,
             closureSummary: closureSummary.trim(),
             verificationSummary: verificationSummary.trim(),
@@ -648,7 +795,7 @@ export function ProtocolActionConsole({
             ...(parseLineList(remainingRisks).length > 0
               ? { remainingRisks: parseLineList(remainingRisks) }
               : {}),
-          },
+          }),
           artifacts,
         };
         break;
@@ -665,11 +812,11 @@ export function ProtocolActionConsole({
           workflowStateAfter: nextState,
           summary: resolvedSummary,
           requiresAck: false,
-          payload: {
+          payload: applyTemplateTrace({
             reason: cancelReason.trim(),
             cancelType,
             ...(replacementIssueId.trim() ? { replacementIssueId: replacementIssueId.trim() } : {}),
-          },
+          }),
           artifacts,
         };
         break;
@@ -686,10 +833,10 @@ export function ProtocolActionConsole({
           workflowStateAfter: nextState,
           summary: resolvedSummary,
           requiresAck: false,
-          payload: {
+          payload: applyTemplateTrace({
             noteType,
             body: noteBody.trim(),
-          },
+          }),
           artifacts,
         };
         break;
@@ -846,6 +993,27 @@ export function ProtocolActionConsole({
           Load template
         </button>
       </div>
+
+      {availableTemplates.length > 0 ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          <select
+            className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+            value={selectedTemplateId}
+            onChange={(event) => setSelectedTemplateId(event.target.value)}
+          >
+            {availableTemplates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.label} {template.scope === "company" ? "· Company" : "· Default"}
+              </option>
+            ))}
+          </select>
+          {lastAppliedTemplate ? (
+            <div className="rounded-full border border-border px-3 py-1 text-[11px] text-muted-foreground">
+              Applied {lastAppliedTemplate.label}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-3">
         <label className="block">

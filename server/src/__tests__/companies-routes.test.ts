@@ -5,6 +5,8 @@ const {
   mockCompanyCreate,
   mockSetupGetView,
   mockSetupUpdate,
+  mockWorkflowTemplatesGetView,
+  mockWorkflowTemplatesUpdateConfig,
   mockOperatingAlertsGetView,
   mockOperatingAlertsUpdateConfig,
   mockOperatingAlertsSendTest,
@@ -23,12 +25,15 @@ const {
   mockCreateDraftRevision,
   mockRestoreRolePackRevision,
   mockSimulateRolePack,
+  mockCreateCustomRolePack,
   mockLogActivity,
 } = vi.hoisted(() => ({
   mockEnsureMembership: vi.fn(),
   mockCompanyCreate: vi.fn(),
   mockSetupGetView: vi.fn(),
   mockSetupUpdate: vi.fn(),
+  mockWorkflowTemplatesGetView: vi.fn(),
+  mockWorkflowTemplatesUpdateConfig: vi.fn(),
   mockOperatingAlertsGetView: vi.fn(),
   mockOperatingAlertsUpdateConfig: vi.fn(),
   mockOperatingAlertsSendTest: vi.fn(),
@@ -47,6 +52,7 @@ const {
   mockCreateDraftRevision: vi.fn(),
   mockRestoreRolePackRevision: vi.fn(),
   mockSimulateRolePack: vi.fn(),
+  mockCreateCustomRolePack: vi.fn(),
   mockLogActivity: vi.fn(),
 }));
 
@@ -87,12 +93,17 @@ vi.mock("../services/index.js", () => ({
     updateConfig: mockOperatingAlertsUpdateConfig,
     sendTestAlert: mockOperatingAlertsSendTest,
   }),
+  workflowTemplateService: () => ({
+    getView: mockWorkflowTemplatesGetView,
+    updateConfig: mockWorkflowTemplatesUpdateConfig,
+  }),
   rolePackService: () => ({
     listPresets: mockListPresets,
     listRolePacks: mockListRolePacks,
     getRolePack: mockGetRolePack,
     listRevisions: mockListRolePackRevisions,
     seedDefaults: mockSeedDefaults,
+    createCustomRolePack: mockCreateCustomRolePack,
     createDraftRevision: mockCreateDraftRevision,
     restoreRevision: mockRestoreRolePackRevision,
     simulateRolePack: mockSimulateRolePack,
@@ -248,6 +259,125 @@ describe("company routes", () => {
       selectedEngine: "claude_local",
     });
     expect(mockSetupGetView).toHaveBeenCalledWith("company-1");
+  });
+
+  it("returns workflow templates for the requested company", async () => {
+    mockWorkflowTemplatesGetView.mockResolvedValue({
+      companyId: "company-1",
+      templates: [
+        {
+          id: "default-close-task",
+          actionType: "CLOSE_TASK",
+          label: "Default Close",
+          description: null,
+          summary: "Board closed {issueIdentifier}",
+          fields: {
+            closureSummary: "Close with rollback context",
+          },
+          scope: "default",
+        },
+      ],
+      companyTemplates: [],
+      updatedAt: new Date("2026-03-13T00:00:00.000Z"),
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/workflow-templates",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      companyId: "company-1",
+      templates: [
+        expect.objectContaining({
+          id: "default-close-task",
+          actionType: "CLOSE_TASK",
+        }),
+      ],
+    });
+    expect(mockWorkflowTemplatesGetView).toHaveBeenCalledWith("company-1");
+  });
+
+  it("updates workflow templates and records activity", async () => {
+    mockWorkflowTemplatesUpdateConfig.mockResolvedValue({
+      companyId: "company-1",
+      templates: [
+        {
+          id: "company-close-task",
+          actionType: "CLOSE_TASK",
+          label: "Release close",
+          description: "Human close template",
+          summary: "Board closed {issueIdentifier}",
+          fields: {
+            closureSummary: "Human-reviewed close",
+            rollbackPlan: "Reopen or revert if rollout regresses",
+          },
+          scope: "company",
+        },
+      ],
+      companyTemplates: [
+        {
+          id: "company-close-task",
+          actionType: "CLOSE_TASK",
+          label: "Release close",
+          description: "Human close template",
+          summary: "Board closed {issueIdentifier}",
+          fields: {
+            closureSummary: "Human-reviewed close",
+            rollbackPlan: "Reopen or revert if rollout regresses",
+          },
+          scope: "company",
+        },
+      ],
+      updatedAt: new Date("2026-03-13T00:00:00.000Z"),
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/workflow-templates",
+      method: "patch",
+      params: { companyId: "company-1" },
+      body: {
+        templates: [
+          {
+            id: "company-close-task",
+            actionType: "CLOSE_TASK",
+            label: "Release close",
+            description: "Human close template",
+            summary: "Board closed {issueIdentifier}",
+            fields: {
+              closureSummary: "Human-reviewed close",
+              rollbackPlan: "Reopen or revert if rollout regresses",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockWorkflowTemplatesUpdateConfig).toHaveBeenCalledWith("company-1", {
+      templates: [
+        {
+          id: "company-close-task",
+          actionType: "CLOSE_TASK",
+          label: "Release close",
+          description: "Human close template",
+          summary: "Board closed {issueIdentifier}",
+          fields: {
+            closureSummary: "Human-reviewed close",
+            rollbackPlan: "Reopen or revert if rollout regresses",
+          },
+        },
+      ],
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.workflow_templates.updated",
+        companyId: "company-1",
+      }),
+    );
   });
 
   it("returns operating alert settings for the requested company", async () => {
@@ -988,6 +1118,63 @@ describe("company routes", () => {
         rolePackPresetKey: "squadrail_default_v1",
       },
     });
+  });
+
+  it("creates a custom role pack and records activity", async () => {
+    mockCreateCustomRolePack.mockResolvedValue({
+      id: "role-pack-custom",
+      companyId: "company-1",
+      scopeType: "company",
+      scopeId: "custom:release-captain",
+      roleKey: "custom",
+      displayName: "Release Captain",
+      baseRoleKey: "tech_lead",
+      customRoleName: "Release Captain",
+      customRoleDescription: "Own release orchestration",
+      customRoleSlug: "release-captain",
+      status: "published",
+      metadata: {},
+      createdAt: new Date("2026-03-13T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-13T00:00:00.000Z"),
+      latestRevision: null,
+      latestFiles: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/role-packs/custom-roles",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        roleName: "Release Captain",
+        roleSlug: "release-captain",
+        baseRoleKey: "tech_lead",
+        description: "Own release orchestration",
+        publish: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockCreateCustomRolePack).toHaveBeenCalledWith({
+      companyId: "company-1",
+      actor: {
+        userId: "user-1",
+        agentId: null,
+      },
+      customRole: {
+        roleName: "Release Captain",
+        roleSlug: "release-captain",
+        baseRoleKey: "tech_lead",
+        description: "Own release orchestration",
+        publish: true,
+      },
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "role_pack.custom_role.created",
+        companyId: "company-1",
+      }),
+    );
   });
 
   it("initializes setup progress when creating a company", async () => {

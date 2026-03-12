@@ -50,9 +50,11 @@ export {
   computeRetrievalPersonalizationBoost,
 } from "./retrieval-personalization.js";
 export { setupProgressService, buildSetupProgressSteps, deriveSetupProgressState } from "./setup-progress.js";
+export { workflowTemplateService } from "./workflow-templates.js";
 export { rolePackService, buildDefaultRolePackFiles } from "./role-packs.js";
 export { doctorService } from "./doctor.js";
 export { logActivity, type LogActivityInput } from "./activity-log.js";
 export { operatingAlertService } from "./operating-alerts.js";
 export { publishLiveEvent, subscribeCompanyLiveEvents, registerLiveEventSink } from "./live-events.js";
+export { buildIssueRevertAssist, buildRevertAssistContextBody } from "./revert-assist.js";
 export { createStorageServiceFromConfig, getStorageService } from "../storage/index.js";

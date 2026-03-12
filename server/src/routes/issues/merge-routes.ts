@@ -1,7 +1,9 @@
 import { logger } from "../../middleware/logger.js";
 import { assertCompanyAccess, getActorInfo } from "../authz.js";
 import { logActivity } from "../../services/index.js";
+import { buildRevertAssistContextBody } from "../../services/revert-assist.js";
 import type { IssueRouteContext } from "./context.js";
+import { runMergeCandidateRecoverySchema } from "@squadrail/shared";
 
 export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
   const { router, db } = ctx;
@@ -253,6 +255,207 @@ export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
 
     const refreshed = await loadIssueChangeSurface(issue);
     res.json(refreshed.mergeCandidate);
+  });
+
+  router.post("/issues/:id/merge-candidate/recovery", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Only board users can run merge recovery actions" });
+      return;
+    }
+
+    const parsed = runMergeCandidateRecoverySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation error", details: parsed.error.issues });
+      return;
+    }
+
+    const surface = await loadIssueChangeSurface(issue);
+    const mergeCandidate = surface.mergeCandidate;
+    const revertAssist = mergeCandidate?.revertAssist ?? null;
+    if (!mergeCandidate || !revertAssist) {
+      res.status(409).json({ error: "Issue has no recovery-ready merge candidate" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const recoveryBody = parsed.data.body?.trim() || buildRevertAssistContextBody({
+      issueIdentifier: issue.identifier ?? null,
+      issueTitle: issue.title,
+      rollbackPlan: revertAssist.rollbackPlan,
+      mergeCommitSha: revertAssist.mergeCommitSha,
+      followUpIssueIds: revertAssist.followUpIssueIds,
+      operatorNote: mergeCandidate.operatorNote ?? null,
+    });
+
+    if (parsed.data.actionType === "create_revert_followup") {
+      if (!revertAssist.canCreateFollowUp) {
+        res.status(409).json({ error: "Revert follow-up is not available for this candidate" });
+        return;
+      }
+
+      const created = await svc.create(issue.companyId, {
+        projectId: issue.projectId ?? null,
+        parentId: null,
+        title:
+          parsed.data.title?.trim()
+          || revertAssist.suggestedTitle
+          || `Recovery follow-up for ${issue.identifier ?? issue.title}`,
+        description: recoveryBody,
+        status: "backlog",
+        priority: issue.priority === "critical" ? "critical" : "high",
+        assigneeAgentId: null,
+        assigneeUserId: null,
+        requestDepth: 0,
+      });
+
+      await mergeCandidatesSvc.patchAutomationMetadata(issue.id, {
+        revertAssist: {
+          lastActionType: "create_revert_followup",
+          lastActionAt: new Date().toISOString(),
+          lastActionSummary: `Created follow-up ${created.identifier ?? created.id}`,
+          lastCreatedIssueId: created.id,
+          lastCreatedIssueIdentifier: created.identifier ?? null,
+        },
+      });
+
+      await logActivity(db, {
+        companyId: created.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "issue.created",
+        entityType: "issue",
+        entityId: created.id,
+        details: {
+          title: created.title,
+          identifier: created.identifier,
+          sourceIssueId: issue.id,
+          sourceIssueIdentifier: issue.identifier,
+          source: "revert_assist",
+        },
+      });
+
+      await logActivity(db, {
+        companyId: issue.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "issue.revert_assist.followup_created",
+        entityType: "issue",
+        entityId: issue.id,
+        details: {
+          createdIssueId: created.id,
+          createdIssueIdentifier: created.identifier,
+        },
+      });
+
+      res.status(201).json({
+        actionType: "create_revert_followup",
+        sourceIssueId: issue.id,
+        createdIssueId: created.id,
+        createdIssueIdentifier: created.identifier ?? null,
+        reopened: false,
+        commentId: null,
+        summary: `Created recovery follow-up ${created.identifier ?? created.id}`,
+      });
+      return;
+    }
+
+    if (!revertAssist.canReopen) {
+      res.status(409).json({ error: "Issue cannot be reopened from the current state" });
+      return;
+    }
+
+    const reopenedIssue = await svc.update(issue.id, { status: "todo" });
+    if (!reopenedIssue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+
+    const comment = await svc.addComment(issue.id, recoveryBody, {
+      agentId: actor.agentId ?? undefined,
+      userId: actor.actorType === "user" ? actor.actorId : undefined,
+    });
+
+    await mergeCandidatesSvc.patchAutomationMetadata(issue.id, {
+      revertAssist: {
+        lastActionType: "reopen_with_rollback_context",
+        lastActionAt: new Date().toISOString(),
+        lastActionSummary: "Reopened issue with rollback context",
+        lastCommentId: comment.id,
+      },
+    });
+
+    await logActivity(db, {
+      companyId: reopenedIssue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.updated",
+      entityType: "issue",
+      entityId: reopenedIssue.id,
+      details: {
+        status: "todo",
+        reopened: true,
+        reopenedFrom: issue.status,
+        source: "revert_assist",
+        identifier: reopenedIssue.identifier,
+      },
+    });
+
+    await logActivity(db, {
+      companyId: reopenedIssue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.comment_added",
+      entityType: "issue",
+      entityId: reopenedIssue.id,
+      details: {
+        commentId: comment.id,
+        bodySnippet: comment.body.slice(0, 120),
+        identifier: reopenedIssue.identifier,
+        issueTitle: reopenedIssue.title,
+        reopened: true,
+        reopenedFrom: issue.status,
+        source: "revert_assist",
+      },
+    });
+
+    await logActivity(db, {
+      companyId: reopenedIssue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.revert_assist.reopened",
+      entityType: "issue",
+      entityId: reopenedIssue.id,
+      details: {
+        commentId: comment.id,
+      },
+    });
+
+    res.json({
+      actionType: "reopen_with_rollback_context",
+      sourceIssueId: issue.id,
+      createdIssueId: null,
+      createdIssueIdentifier: null,
+      reopened: true,
+      commentId: comment.id,
+      summary: "Reopened issue with rollback context",
+    });
   });
 
   router.post("/issues/:id/merge-candidate/automation", async (req, res) => {

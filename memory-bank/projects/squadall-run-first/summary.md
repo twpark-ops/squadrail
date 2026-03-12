@@ -2,6 +2,44 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 workflow/recovery/custom-role hardening 업데이트
+
+- `13-D workflow/recovery/custom-role hardening`: **완료**
+  - `workflow-templates.ts`, `revert-assist.ts`, `role-packs.ts` direct service test를 추가해 template clone/update/delete, revert recovery action, custom role identity/metadata normalization을 직접 고정했다.
+  - `issue-retrieval.ts`에서 recipient brief quality 계산을 exported helper로 분리하고 direct test를 추가했다.
+  - `role-packs.ts`는 custom role identity/metadata builder seam을 추출해 slug/status drift를 줄였다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/role-packs.test.ts src/__tests__/issue-retrieval-finalization.test.ts src/__tests__/workflow-templates.test.ts src/__tests__/revert-assist.test.ts`
+  - `pnpm --filter @squadrail/server test`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `38.20%`, branches `65.03%`, functions `62.04%`
+  - 최신 server tests: `95 files / 629 tests` 통과
+  - 다음 immediate next: `heartbeat / issue-retrieval / knowledge` coverage + decomposition 이후 `PR bridge / merge recovery / workflow template` 통합 시나리오 강화
+
+## 2026-03-13 workflow templates / revert assist / custom role creation 업데이트
+
+- `13-B workflow templates + auto revert assist`: **완료**
+  - company-scoped workflow templates를 `setupProgress.metadata.workflowTemplates`에 저장하고 Company Settings에서 편집할 수 있게 올렸다.
+  - Protocol Action Console이 company/default template set을 실제로 읽어 payload를 구성하고, protocol activity/change surface에 template trace를 남긴다.
+  - Change Review Desk와 merge recovery route에서 `create_revert_followup` / `reopen_with_rollback_context` action을 제공한다.
+- `13-C custom role creation`: **완료**
+  - Company Settings에서 base role 상속형 custom role pack을 생성하고 곧바로 Role Studio/Simulation으로 연결했다.
+  - custom role은 `roleKey=custom`, `scopeId=custom:<slug>` 구조로 저장된다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/ui build`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/companies-routes.test.ts src/__tests__/issue-change-surface.test.ts src/__tests__/issues-routes.test.ts src/__tests__/role-packs.test.ts`
+  - `pnpm --filter @squadrail/server test`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `38.03%`, branches `64.76%`, functions `61.86%`
+  - 최신 server tests: `95 files / 625 tests` 통과
+  - 이후 hardening batch에서 direct service test와 decomposition을 추가해 `38.20% / 629 tests`까지 갱신했다.
+
 ## 2026-03-13 운영 알림 / goal planning / cost forecast 업데이트
 
 - `11. external operating alerts`: **완료**

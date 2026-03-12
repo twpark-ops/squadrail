@@ -3,6 +3,7 @@ import {
   buildMergeCandidateGateStatus,
   buildMergeCandidatePrBridge,
 } from "./merge-candidate-gates.js";
+import { buildIssueRevertAssist } from "./revert-assist.js";
 
 type IssueLike = {
   id: string;
@@ -81,6 +82,19 @@ function readString(value: unknown) {
 function readStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function buildMergeCandidateTemplateTrace(payload: Record<string, unknown>) {
+  const id = readString(payload.boardTemplateId);
+  const label = readString(payload.boardTemplateLabel);
+  const scope = readString(payload.boardTemplateScope);
+  if (!id || !label) return null;
+  if (scope !== "default" && scope !== "company") return null;
+  return {
+    id,
+    label,
+    scope: scope as "default" | "company",
+  };
 }
 
 function buildMergeConflictAssist(input: {
@@ -360,6 +374,15 @@ export function buildIssueChangeSurface(input: {
     const failureAssist = buildMergeFailureAssist({
       failureLearningGate: input.failureLearningGate ?? null,
     });
+    const templateTrace = buildMergeCandidateTemplateTrace(closePayload);
+    const revertAssist = buildIssueRevertAssist({
+      issueIdentifier: input.issue.identifier,
+      issueTitle: input.issue.title,
+      issueStatus: input.issue.status,
+      mergeCommitSha: input.mergeCandidateRecord?.mergeCommitSha ?? null,
+      closePayload,
+      automationMetadata,
+    });
     mergeCandidate = {
       issueId: input.issue.id,
       identifier: input.issue.identifier,
@@ -386,6 +409,8 @@ export function buildIssueChangeSurface(input: {
       gateStatus,
       conflictAssist,
       failureAssist,
+      templateTrace,
+      revertAssist,
     };
   }
 

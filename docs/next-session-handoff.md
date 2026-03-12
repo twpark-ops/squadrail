@@ -10,7 +10,7 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `workflow templates + auto revert assist`
+- open this handoff first, then continue immediately with `heartbeat / issue-retrieval / knowledge coverage + decomposition`
 
 ## Current Status
 
@@ -46,6 +46,17 @@ One-line startup rule:
   - goal schema에 `progressPercent`, `targetDate`, `sprintName`, `capacityTargetPoints`, `capacityCommittedPoints`를 추가하고 Goal detail/properties에서 편집 가능하게 올렸다.
 - `13-A. cost prediction`: 완료
   - Costs surface에 month-end projected spend와 budget risk 상태를 추가했다.
+- `13-B. workflow templates + auto revert assist`: 완료
+  - Company Settings에서 company-scoped workflow templates를 저장/편집할 수 있게 올렸다.
+  - Protocol Action Console이 company/default template set을 읽어 board payload를 실제로 구성한다.
+  - Change Review Desk와 merge recovery route가 revert follow-up / reopen with rollback context를 제품 action으로 제공한다.
+- `13-C. custom role creation`: 완료
+  - Company Settings에서 base role을 상속한 custom role pack을 생성하고 바로 Role Studio로 편집할 수 있게 연결했다.
+  - custom role은 `roleKey=custom`, `scopeId=custom:<slug>`로 저장돼 다수 company-specific 역할을 지원한다.
+- `13-D. workflow/recovery/custom-role hardening`: 완료
+  - `workflow-templates.ts`, `revert-assist.ts`, `role-packs.ts` direct service 테스트를 추가해 operator surface의 edge case를 닫았다.
+  - `issue-retrieval.ts`에서 recipient brief quality 계산 seam을 exported helper로 분리하고 direct test로 고정했다.
+  - custom role identity/metadata normalization을 pure helper로 분리해 duplicate/slug/status 관련 drift를 줄였다.
 
 ## Current Product State
 
@@ -60,34 +71,42 @@ One-line startup rule:
 - `external operating alerts` 완료
 - `goal progress / sprint / capacity` 완료
 - `monthly cost prediction` 완료
+- `workflow templates` 완료
+- `auto revert assist` 완료
+- `custom role creation` 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm --filter @squadrail/server test` `614 tests` 통과
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/ui build`
+  - `pnpm --filter @squadrail/server test` `629 tests` 통과
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - server coverage `37.34%`
-- 현재 다음 순차 작업은 `workflow templates + auto revert assist`
+  - server coverage `38.20%`
+- 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge coverage + decomposition`
 
 ## Next Priorities
 
-1. `workflow templates`
-2. `auto revert assist`
-3. `custom role creation`
+1. `heartbeat / issue-retrieval / knowledge` coverage + decomposition
+2. PR bridge / merge recovery / workflow template integration scenario 강화
+3. global coverage uplift toward `60%` across runtime/operator services
 
 Interpretation:
 
-- next focus is operator action acceleration and safer post-merge recovery
-- rerank/provider work는 지금 immediate next가 아니다
+- next focus is reducing structural risk in the three largest runtime services while preserving the newly hardened operator surfaces
+- 새 기능 backlog보다 구조 분해와 runtime/service test 확대가 immediate next다
 
 ## Recommended First Task Next Session
 
-Start with `workflow templates + auto revert assist`.
+Start with `heartbeat / issue-retrieval / knowledge coverage + decomposition`.
 
 Suggested slice:
 
-1. Protocol Action Console의 hardcoded board templates를 company-configurable template set으로 올리기
-2. merge candidate / close snapshot 기준 `revert follow-up issue` 또는 `reopen with rollback plan` assist를 붙이기
-3. Change Review Desk와 issue activity에 template usage / revert assist trace를 남기기
-4. route/service/UI tests와 memory-bank summary 업데이트
+1. `heartbeat.ts` dispatch/session/follow-up 본체 service test를 직접 추가해 queued/preempted/retry 경계를 더 닫기
+2. `issue-retrieval.ts` finalization/persistence/live-event 블록을 추가 seam으로 분리하고 direct test를 붙이기
+3. `knowledge.ts` DB/service path 테스트를 확장해 route coverage에 가려진 본체 공백을 메우기
+4. `ProtocolActionConsole -> issues route -> change surface -> ChangeReviewDesk` 통합 시나리오를 한 번 더 강화해 새 operator surface 회귀를 고정하기
 
 ## Important Files
 
@@ -99,7 +118,7 @@ Team supervision / intake:
 - [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
 - [internal-work-item-supervision.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/internal-work-item-supervision.test.ts)
 
-Next operator / recovery surfaces:
+Recently completed operator / recovery surfaces:
 
 - [ProtocolActionConsole.tsx](/home/taewoong/company-project/squadall/ui/src/components/ProtocolActionConsole.tsx)
 - [ChangeReviewDesk.tsx](/home/taewoong/company-project/squadall/ui/src/components/ChangeReviewDesk.tsx)
@@ -122,10 +141,10 @@ pnpm test:run
 pnpm build
 ```
 
-For workflow-template / revert-assist work:
+For heartbeat / issue-retrieval / knowledge hardening:
 
 ```bash
-pnpm vitest run server/src/__tests__/issues-routes.test.ts server/src/__tests__/issue-change-surface.test.ts server/src/__tests__/issue-merge-automation.test.ts server/src/__tests__/companies-routes.test.ts
+pnpm vitest run server/src/__tests__/heartbeat-service-flow.test.ts server/src/__tests__/issue-retrieval-finalization.test.ts server/src/__tests__/knowledge-service-operations.test.ts server/src/__tests__/issues-routes.test.ts server/src/__tests__/issue-change-surface.test.ts
 ```
 
 ## Product Direction Reminder

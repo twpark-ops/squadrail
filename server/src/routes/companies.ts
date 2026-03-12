@@ -4,6 +4,7 @@ import {
   companyPortabilityExportSchema,
   companyPortabilityImportSchema,
   companyPortabilityPreviewSchema,
+  createCustomRolePackSchema,
   createRolePackDraftSchema,
   createKnowledgeSyncJobSchema,
   createCompanySchema,
@@ -13,6 +14,7 @@ import {
   listRolePacksQuerySchema,
   restoreRolePackRevisionSchema,
   seedDefaultRolePacksSchema,
+  updateWorkflowTemplatesSchema,
   updateOperatingAlertsConfigSchema,
   updateSetupProgressSchema,
   updateCompanySchema,
@@ -31,6 +33,7 @@ import {
   operatingAlertService,
   rolePackService,
   setupProgressService,
+  workflowTemplateService,
 } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
@@ -61,6 +64,7 @@ export function companyRoutes(
   const portability = companyPortabilityService(db);
   const access = accessService(db);
   const setup = setupProgressService(db);
+  const workflowTemplates = workflowTemplateService(db);
   const operatingAlerts = operatingAlertService(db);
   const rolePacks = rolePackService(db);
   const knowledgeSetup = knowledgeSetupService(db);
@@ -120,6 +124,36 @@ export function companyRoutes(
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const view = await operatingAlerts.getView(companyId);
+    res.json(view);
+  });
+
+  router.get("/:companyId/workflow-templates", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const view = await workflowTemplates.getView(companyId);
+    res.json(view);
+  });
+
+  router.patch("/:companyId/workflow-templates", validate(updateWorkflowTemplatesSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const view = await workflowTemplates.updateConfig(companyId, req.body);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.workflow_templates.updated",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        templateCount: view.companyTemplates.length,
+        actionTypes: Array.from(new Set(view.companyTemplates.map((template) => template.actionType))),
+      },
+    });
     res.json(view);
   });
 
@@ -408,6 +442,38 @@ export function companyRoutes(
         createdCount: result.created.length,
         existingCount: result.existing.length,
         force: req.body.force === true,
+      },
+    });
+    res.status(201).json(result);
+  });
+
+  router.post("/:companyId/role-packs/custom-roles", validate(createCustomRolePackSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await rolePacks.createCustomRolePack({
+      companyId,
+      actor: {
+        userId: req.actor.type === "board" ? req.actor.userId : null,
+        agentId: req.actor.type === "agent" ? req.actor.agentId : null,
+      },
+      customRole: req.body,
+    });
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "role_pack.custom_role.created",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        roleName: req.body.roleName,
+        roleSlug: req.body.roleSlug ?? null,
+        baseRoleKey: req.body.baseRoleKey,
+        publish: req.body.publish !== false,
       },
     });
     res.status(201).json(result);

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ISSUE_PROTOCOL_MESSAGE_TYPES,
   ISSUE_PROTOCOL_WORKFLOW_STATES,
+  ROLE_PACK_CUSTOM_BASE_ROLE_KEYS,
   ROLE_PACK_FILE_NAMES,
   ROLE_PACK_PRESET_KEYS,
   ROLE_PACK_REVISION_STATUSES,
@@ -26,6 +27,16 @@ export const createRolePackDraftSchema = z.object({
 }).strict();
 
 export type CreateRolePackDraft = z.infer<typeof createRolePackDraftSchema>;
+
+export const createCustomRolePackSchema = z.object({
+  roleName: z.string().trim().min(1).max(80),
+  roleSlug: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80).nullable().optional(),
+  baseRoleKey: z.enum(ROLE_PACK_CUSTOM_BASE_ROLE_KEYS),
+  description: z.string().trim().max(1_000).nullable().optional(),
+  publish: z.boolean().optional().default(true),
+}).strict();
+
+export type CreateCustomRolePack = z.infer<typeof createCustomRolePackSchema>;
 
 export const restoreRolePackRevisionSchema = z.object({
   message: z.string().trim().min(1).max(500),

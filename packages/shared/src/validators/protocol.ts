@@ -26,6 +26,7 @@ import {
   ISSUE_PROTOCOL_VIOLATION_SEVERITIES,
   ISSUE_PROTOCOL_VIOLATION_STATUSES,
   ISSUE_PROTOCOL_WORKFLOW_STATES,
+  WORKFLOW_TEMPLATE_SCOPES,
 } from "../constants.js";
 
 const uuidSchema = z.string().uuid();
@@ -70,6 +71,12 @@ const issueProtocolRelatedIssueRefShape = {
   relatedIssueIdentifiers: nonEmptyStringArraySchema.optional(),
 } satisfies Record<string, z.ZodTypeAny>;
 
+const issueProtocolBoardTemplateTraceShape = {
+  boardTemplateId: z.string().trim().min(1).max(120).optional(),
+  boardTemplateLabel: z.string().trim().min(1).max(200).optional(),
+  boardTemplateScope: z.enum(WORKFLOW_TEMPLATE_SCOPES).optional(),
+} satisfies Record<string, z.ZodTypeAny>;
+
 export const issueProtocolAssignTaskPayloadSchema = z.object({
   goal: z.string().min(1),
   acceptanceCriteria: stringArraySchema.min(1),
@@ -81,6 +88,7 @@ export const issueProtocolAssignTaskPayloadSchema = z.object({
   deadlineAt: z.string().datetime().nullable().optional(),
   requiredKnowledgeTags: stringArraySchema.optional(),
   ...issueProtocolRelatedIssueRefShape,
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolAckAssignmentPayloadSchema = z.object({
@@ -166,6 +174,7 @@ export const issueProtocolRequestChangesPayloadSchema = z.object({
   mustFixBeforeApprove: z.boolean(),
   requiredEvidence: nonEmptyStringArraySchema.min(1),
   ...issueProtocolRelatedIssueRefShape,
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolAckChangeRequestPayloadSchema = z.object({
@@ -189,6 +198,7 @@ export const issueProtocolApproveImplementationPayloadSchema = z.object({
   residualRisks: nonEmptyStringArraySchema.min(1),
   followUpActions: nonEmptyStringArraySchema.optional(),
   ...issueProtocolRelatedIssueRefShape,
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolCloseTaskPayloadSchema = z.object({
@@ -202,6 +212,7 @@ export const issueProtocolCloseTaskPayloadSchema = z.object({
   followUpIssueIds: z.array(uuidSchema).optional(),
   remainingRisks: nonEmptyStringArraySchema.optional(),
   ...issueProtocolRelatedIssueRefShape,
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolReassignTaskPayloadSchema = z.object({
@@ -214,17 +225,20 @@ export const issueProtocolReassignTaskPayloadSchema = z.object({
   definitionOfDone: nonEmptyStringArraySchema.optional(),
   implementationGuidance: z.string().trim().min(1).nullable().optional(),
   risks: nonEmptyStringArraySchema.optional(),
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolCancelTaskPayloadSchema = z.object({
   reason: z.string().min(1),
   cancelType: z.enum(ISSUE_PROTOCOL_CANCEL_TYPES),
   replacementIssueId: optionalUuidSchema,
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolNotePayloadSchema = z.object({
   noteType: z.enum(ISSUE_PROTOCOL_NOTE_TYPES),
   body: z.string().min(1),
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolSystemReminderPayloadSchema = z.object({

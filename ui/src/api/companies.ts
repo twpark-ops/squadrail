@@ -15,6 +15,7 @@ import type {
   OrgSyncRepairResult,
   OrgSyncView,
   RepairOrgSync,
+  CreateCustomRolePack,
   RolePackPresetDescriptor,
   RolePackRevisionWithFiles,
   RolePackSimulationRequest,
@@ -26,8 +27,10 @@ import type {
   SendOperatingAlertTestResult,
   SeedRolePackResult,
   SetupProgressView,
+  UpdateWorkflowTemplates,
   UpdateOperatingAlertsConfig,
   UpdateSetupProgress,
+  WorkflowTemplatesView,
 } from "@squadrail/shared";
 import { api } from "./client";
 
@@ -60,6 +63,10 @@ export const companiesApi = {
     api.get<SetupProgressView>(`/companies/${companyId}/setup-progress`),
   updateSetupProgress: (companyId: string, data: UpdateSetupProgress) =>
     api.patch<SetupProgressView>(`/companies/${companyId}/setup-progress`, data),
+  getWorkflowTemplates: (companyId: string) =>
+    api.get<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`),
+  updateWorkflowTemplates: (companyId: string, data: UpdateWorkflowTemplates) =>
+    api.patch<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`, data),
   getOperatingAlerts: (companyId: string) =>
     api.get<OperatingAlertsView>(`/companies/${companyId}/operating-alerts`),
   updateOperatingAlerts: (companyId: string, data: UpdateOperatingAlertsConfig) =>
@@ -118,6 +125,8 @@ export const companiesApi = {
     data: { force?: boolean; presetKey?: RolePackPresetKey } = {},
   ) =>
     api.post<SeedRolePackResult>(`/companies/${companyId}/role-packs/seed-defaults`, data),
+  createCustomRolePack: (companyId: string, data: CreateCustomRolePack) =>
+    api.post<RolePackWithLatestRevision>(`/companies/${companyId}/role-packs/custom-roles`, data),
   createRolePackRevision: (companyId: string, rolePackSetId: string, data: CreateRolePackDraft) =>
     api.post<RolePackWithLatestRevision>(`/companies/${companyId}/role-packs/${rolePackSetId}/revisions`, data),
   restoreRolePackRevision: (

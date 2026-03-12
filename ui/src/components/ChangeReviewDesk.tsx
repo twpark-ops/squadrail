@@ -20,6 +20,7 @@ import {
   issuesApi,
   type MergeAutomationActionResult,
   type MergeCandidateAutomationInput,
+  type MergeCandidateRecoveryInput,
   type MergeCandidateResolutionInput,
 } from "@/api/issues";
 import { queryKeys } from "@/lib/queryKeys";
@@ -140,6 +141,8 @@ export function ChangeReviewDesk({
   const [preparedBranchName, setPreparedBranchName] = useState("");
   const [remoteName, setRemoteName] = useState("");
   const [mergeCommitSha, setMergeCommitSha] = useState("");
+  const [recoveryTitle, setRecoveryTitle] = useState("");
+  const [recoveryBody, setRecoveryBody] = useState("");
   const [latestAutomationResult, setLatestAutomationResult] =
     useState<MergeAutomationActionResult | null>(null);
 
@@ -155,6 +158,8 @@ export function ChangeReviewDesk({
       readString(asRecord(surface?.mergeCandidate?.automationMetadata)?.lastPushRemote) ?? "origin"
     );
     setMergeCommitSha(surface?.mergeCandidate?.mergeCommitSha ?? "");
+    setRecoveryTitle(surface?.mergeCandidate?.revertAssist?.suggestedTitle ?? "");
+    setRecoveryBody("");
     setLatestAutomationResult(null);
   }, [surface, issueId]);
 
@@ -239,6 +244,29 @@ export function ChangeReviewDesk({
     },
   });
 
+  const recoveryMutation = useMutation({
+    mutationFn: (input: MergeCandidateRecoveryInput) =>
+      issuesApi.runMergeCandidateRecovery(issueId, input),
+    onSuccess: (result) => {
+      invalidate();
+      pushToast({
+        title:
+          result.actionType === "create_revert_followup"
+            ? "Recovery follow-up created"
+            : "Issue reopened with rollback context",
+        body: result.summary,
+        tone: "success",
+      });
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Recovery action failed",
+        body: error instanceof Error ? error.message : String(error),
+        tone: "error",
+      });
+    },
+  });
+
   if (!surface) {
     return (
       <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
@@ -258,8 +286,10 @@ export function ChangeReviewDesk({
   const gateStatus = mergeCandidate?.gateStatus ?? null;
   const conflictAssist = mergeCandidate?.conflictAssist ?? null;
   const failureAssist = mergeCandidate?.failureAssist ?? null;
+  const templateTrace = mergeCandidate?.templateTrace ?? null;
+  const revertAssist = mergeCandidate?.revertAssist ?? null;
   const mergeBlocked = Boolean(prBridge && gateStatus && gateStatus.mergeReady === false);
-  const busy = resolveMutation.isPending || automationMutation.isPending;
+  const busy = resolveMutation.isPending || automationMutation.isPending || recoveryMutation.isPending;
 
   return (
     <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
@@ -563,6 +593,73 @@ export function ChangeReviewDesk({
         </div>
       ) : null}
 
+      {revertAssist ? (
+        <div className="mt-4 rounded-[0.95rem] border border-emerald-500/20 bg-emerald-500/8 px-4 py-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+            <Rocket className="h-3.5 w-3.5" />
+            Revert assist
+          </div>
+          <div className="mt-3 text-sm text-emerald-50">{revertAssist.summary}</div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-emerald-100/90">
+            {revertAssist.mergeCommitSha ? (
+              <span className="rounded-full border border-emerald-300/30 px-2.5 py-1 font-mono">
+                {revertAssist.mergeCommitSha.slice(0, 12)}
+              </span>
+            ) : null}
+            {revertAssist.followUpIssueIds.length > 0 ? (
+              <span className="rounded-full border border-emerald-300/30 px-2.5 py-1">
+                {countLabel(revertAssist.followUpIssueIds.length, "follow-up")}
+              </span>
+            ) : null}
+            {revertAssist.lastActionAt ? (
+              <span className="rounded-full border border-emerald-300/30 px-2.5 py-1">
+                Last action {relativeTime(revertAssist.lastActionAt)}
+              </span>
+            ) : null}
+          </div>
+          {revertAssist.lastActionSummary ? (
+            <div className="mt-3 text-xs text-emerald-100/90">
+              {revertAssist.lastActionSummary}
+            </div>
+          ) : null}
+          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+            <Input
+              value={recoveryTitle}
+              onChange={(event) => setRecoveryTitle(event.target.value)}
+              placeholder={revertAssist.suggestedTitle ?? "Recovery follow-up title"}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => recoveryMutation.mutate({
+                actionType: "reopen_with_rollback_context",
+                body: recoveryBody.trim() || null,
+              })}
+              disabled={busy || !revertAssist.canReopen}
+            >
+              Reopen with rollback note
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => recoveryMutation.mutate({
+                actionType: "create_revert_followup",
+                title: recoveryTitle.trim() || revertAssist.suggestedTitle,
+                body: recoveryBody.trim() || null,
+              })}
+              disabled={busy || !revertAssist.canCreateFollowUp}
+            >
+              Create recovery follow-up
+            </Button>
+          </div>
+          <Textarea
+            className="mt-3 min-h-[112px]"
+            value={recoveryBody}
+            onChange={(event) => setRecoveryBody(event.target.value)}
+            placeholder="Optional operator note appended to the generated rollback context."
+          />
+        </div>
+      ) : null}
+
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="rounded-[1rem] border border-border bg-background/72 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -664,6 +761,19 @@ export function ChangeReviewDesk({
                 </div>
               </div>
             )}
+            {templateTrace ? (
+              <div className="rounded-[0.95rem] border border-border bg-card px-3 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Close template
+                </div>
+                <div className="mt-2 text-sm text-foreground">
+                  {templateTrace.label}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {titleCase(templateTrace.scope)} template · {templateTrace.id}
+                </div>
+              </div>
+            ) : null}
             <div className="rounded-[0.95rem] border border-border bg-card px-3 py-3">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 <TestTube2 className="h-3.5 w-3.5" />

@@ -212,6 +212,20 @@ export type OperatingAlertDestinationType = (typeof OPERATING_ALERT_DESTINATION_
 export const OPERATING_ALERT_DELIVERY_STATUSES = ["delivered", "failed"] as const;
 export type OperatingAlertDeliveryStatus = (typeof OPERATING_ALERT_DELIVERY_STATUSES)[number];
 
+export const WORKFLOW_TEMPLATE_ACTION_TYPES = [
+  "ASSIGN_TASK",
+  "REASSIGN_TASK",
+  "REQUEST_CHANGES",
+  "APPROVE_IMPLEMENTATION",
+  "CLOSE_TASK",
+  "CANCEL_TASK",
+  "NOTE",
+] as const;
+export type WorkflowTemplateActionType = (typeof WORKFLOW_TEMPLATE_ACTION_TYPES)[number];
+
+export const WORKFLOW_TEMPLATE_SCOPES = ["default", "company"] as const;
+export type WorkflowTemplateScope = (typeof WORKFLOW_TEMPLATE_SCOPES)[number];
+
 export const PRINCIPAL_TYPES = ["user", "agent"] as const;
 export type PrincipalType = (typeof PRINCIPAL_TYPES)[number];
 
@@ -539,8 +553,20 @@ export const ROLE_PACK_ROLE_KEYS = [
   "qa",
   "human_board",
   "pm",
+  "custom",
 ] as const;
 export type RolePackRoleKey = (typeof ROLE_PACK_ROLE_KEYS)[number];
+
+export const ROLE_PACK_CUSTOM_BASE_ROLE_KEYS = [
+  "cto",
+  "tech_lead",
+  "engineer",
+  "reviewer",
+  "qa",
+  "human_board",
+  "pm",
+] as const;
+export type RolePackCustomBaseRoleKey = (typeof ROLE_PACK_CUSTOM_BASE_ROLE_KEYS)[number];
 
 export const ROLE_PACK_PRESET_KEYS = [
   "squadrail_default_v1",

@@ -2828,6 +2828,190 @@ describe("issue routes wakeup handling", () => {
     expect(mockMergeCandidateUpsertDecision).not.toHaveBeenCalled();
   });
 
+  it("creates a revert follow-up from merge recovery assist", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-240",
+      title: "Merged issue",
+      status: "done",
+      projectId: "project-1",
+      priority: "high",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Merged externally",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the merge commit if rollout regresses",
+          followUpIssueIds: ["CLO-222"],
+        },
+        artifacts: [],
+      },
+    ]);
+    mockMergeCandidateGetByIssueId.mockResolvedValue({
+      state: "pending",
+      closeMessageId: "close-1",
+      sourceBranch: "squadrail/clo-240",
+      workspacePath: "/tmp/worktree",
+      headSha: "abc240",
+      diffStat: "1 file changed",
+      targetBaseBranch: "main",
+      mergeCommitSha: "fed240",
+      automationMetadata: {},
+      operatorNote: null,
+      resolvedAt: null,
+    });
+    mockIssueCreate.mockResolvedValue({
+      id: "followup-1",
+      companyId: "company-1",
+      identifier: "CLO-241",
+      title: "Recovery follow-up",
+      description: "Recovery plan",
+      status: "backlog",
+      priority: "high",
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/merge-candidate/recovery",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        actionType: "create_revert_followup",
+        title: "Recovery follow-up",
+        body: "Recovery plan",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockIssueCreate).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        projectId: "project-1",
+        title: "Recovery follow-up",
+        description: "Recovery plan",
+        status: "backlog",
+        priority: "high",
+      }),
+    );
+    expect(mockMergeCandidatePatchAutomationMetadata).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        revertAssist: expect.objectContaining({
+          lastActionType: "create_revert_followup",
+          lastCreatedIssueId: "followup-1",
+          lastCreatedIssueIdentifier: "CLO-241",
+        }),
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        actionType: "create_revert_followup",
+        createdIssueId: "followup-1",
+        createdIssueIdentifier: "CLO-241",
+        reopened: false,
+      }),
+    );
+  });
+
+  it("reopens an issue with rollback context from merge recovery assist", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-242",
+      title: "Merged issue",
+      status: "done",
+      projectId: "project-1",
+      priority: "high",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Merged externally",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the merge commit if rollout regresses",
+        },
+        artifacts: [],
+      },
+    ]);
+    mockMergeCandidateGetByIssueId.mockResolvedValue({
+      state: "pending",
+      closeMessageId: "close-1",
+      sourceBranch: "squadrail/clo-242",
+      workspacePath: "/tmp/worktree",
+      headSha: "abc242",
+      diffStat: "1 file changed",
+      targetBaseBranch: "main",
+      mergeCommitSha: "fed242",
+      automationMetadata: {},
+      operatorNote: "Operator requested rollback review",
+      resolvedAt: null,
+    });
+    mockIssueUpdate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-242",
+      title: "Merged issue",
+      status: "todo",
+      projectId: "project-1",
+    });
+    mockIssueAddComment.mockResolvedValue({
+      id: "comment-rollback-1",
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      body: "## Recovery Context",
+      createdAt: new Date("2026-03-13T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-13T00:00:00.000Z"),
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/merge-candidate/recovery",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        actionType: "reopen_with_rollback_context",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockIssueUpdate).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", { status: "todo" });
+    expect(mockIssueAddComment).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.stringContaining("## Recovery Context"),
+      {
+        agentId: undefined,
+        userId: "user-1",
+      },
+    );
+    expect(mockMergeCandidatePatchAutomationMetadata).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        revertAssist: expect.objectContaining({
+          lastActionType: "reopen_with_rollback_context",
+          lastActionSummary: "Reopened issue with rollback context",
+          lastCommentId: "comment-rollback-1",
+        }),
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        actionType: "reopen_with_rollback_context",
+        reopened: true,
+        commentId: "comment-rollback-1",
+      }),
+    );
+  });
+
   it("builds a merge automation plan for a pending candidate", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
@@ -3559,6 +3743,77 @@ describe("issue routes wakeup handling", () => {
         sourceBranch: "squadrail/clo-230",
         workspacePath: "/tmp/worktree",
         headSha: "abc123",
+      }),
+    );
+  });
+
+  it("records board workflow template trace in protocol activity logs", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-231",
+      title: "Template traced close",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+      status: "done",
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "lead-1",
+      companyId: "company-1",
+      role: "tech_lead",
+      title: "Cloud Tech Lead",
+      permissions: {},
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "close-template-1", seq: 8 },
+      state: { workflowState: "done" },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("lead-1"),
+      body: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "lead-1", role: "tech_lead" },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "Close with board template trace",
+        payload: {
+          closeReason: "completed",
+          finalTestStatus: "passed",
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for external merge",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the patch",
+          finalArtifacts: ["Diff prepared for external merge"],
+          boardTemplateId: "company-close-template",
+          boardTemplateLabel: "Release close",
+          boardTemplateScope: "company",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "issue.protocol_message.created",
+        details: expect.objectContaining({
+          boardTemplateId: "company-close-template",
+          boardTemplateLabel: "Release close",
+          boardTemplateScope: "company",
+        }),
       }),
     );
   });

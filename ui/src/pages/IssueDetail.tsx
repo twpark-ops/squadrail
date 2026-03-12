@@ -2317,6 +2317,7 @@ export function IssueDetail() {
             <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
               <div className="space-y-4">
                 <ProtocolActionConsole
+                  companyId={issue.companyId}
                   issueIdentifier={issue.identifier ?? issue.id.slice(0, 8)}
                   protocolState={protocolState ?? null}
                   agents={agents ?? []}

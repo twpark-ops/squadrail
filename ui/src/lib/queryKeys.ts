@@ -5,6 +5,7 @@ export const queryKeys = {
     detail: (id: string) => ["companies", id] as const,
     stats: ["companies", "stats"] as const,
     setupProgress: (id: string) => ["companies", id, "setup-progress"] as const,
+    workflowTemplates: (id: string) => ["companies", id, "workflow-templates"] as const,
     operatingAlerts: (id: string) => ["companies", id, "operating-alerts"] as const,
     orgSync: (id: string) => ["companies", id, "org-sync"] as const,
     knowledgeSetup: (id: string) => ["companies", id, "knowledge-setup"] as const,
