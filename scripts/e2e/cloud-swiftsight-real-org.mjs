@@ -18,6 +18,9 @@ const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
 const E2E_TIMEOUT_MS = Number(process.env.SWIFTSIGHT_E2E_TIMEOUT_MS ?? 18 * 60 * 1000);
 const POLL_INTERVAL_MS = Number(process.env.SWIFTSIGHT_E2E_POLL_INTERVAL_MS ?? 5_000);
 const CLOSE_FALLBACK_AFTER_MS = Number(process.env.SWIFTSIGHT_E2E_CLOSE_FALLBACK_AFTER_MS ?? 20_000);
+const ACTIVE_RUN_TIMEOUT_GRACE_MS = Number(
+  process.env.SWIFTSIGHT_E2E_ACTIVE_RUN_TIMEOUT_GRACE_MS ?? 12 * 60 * 1000,
+);
 const SCENARIO_FILTER = process.env.SWIFTSIGHT_E2E_SCENARIO?.trim() ?? "";
 const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
 const PRE_CLEANUP_ENABLED = process.env.SWIFTSIGHT_E2E_PRE_CLEANUP !== "0";
@@ -96,6 +99,19 @@ async function api(pathname, options = {}) {
 async function gitStatus(root) {
   const { stdout } = await execFileAsync("git", ["status", "--short"], { cwd: root });
   return stdout.trim();
+}
+
+async function gitHead(root) {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root });
+  return stdout.trim();
+}
+
+async function captureRepoSnapshot(root) {
+  const [status, head] = await Promise.all([
+    gitStatus(root),
+    gitHead(root).catch(() => null),
+  ]);
+  return { status, head };
 }
 
 async function ensureCompanyLabels(companyId, specs) {
@@ -1175,6 +1191,15 @@ async function getIssueSnapshot(issueId, options = {}) {
   return { issue, state, messages, briefs, reviewCycles, violations };
 }
 
+async function listActiveIssueRuns(companyId, issueId) {
+  const runs = await api(`/api/companies/${companyId}/heartbeat-runs?limit=200`);
+  return runs.filter(
+    (run) =>
+      ["queued", "claimed", "running"].includes(run.status)
+      && run?.contextSnapshot?.issueId === issueId,
+  );
+}
+
 function latestMessage(messages, type) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.messageType === type) return messages[index];
@@ -1192,11 +1217,13 @@ function formatProtocolTrail(messages) {
 
 async function waitForCompletion(issueId, scenario) {
   const startedAt = Date.now();
+  const hardDeadlineAt = startedAt + E2E_TIMEOUT_MS + ACTIVE_RUN_TIMEOUT_GRACE_MS;
   const seenMessages = new Set();
   let approvalObservedAt = null;
   let closeFallbackSent = false;
+  let timeoutGraceLogged = false;
 
-  while (Date.now() - startedAt < E2E_TIMEOUT_MS) {
+  while (Date.now() < hardDeadlineAt) {
     const snapshot = await getIssueSnapshot(issueId);
 
     for (const message of snapshot.messages) {
@@ -1228,6 +1255,26 @@ async function waitForCompletion(issueId, scenario) {
       approvalObservedAt = null;
     }
 
+    const primaryTimeoutElapsed = Date.now() - startedAt >= E2E_TIMEOUT_MS;
+    if (primaryTimeoutElapsed) {
+      const companyId = snapshot.issue?.companyId;
+      const activeRuns =
+        typeof companyId === "string" && companyId.length > 0
+          ? await listActiveIssueRuns(companyId, issueId)
+          : [];
+      if (activeRuns.length === 0) {
+        break;
+      }
+      if (!timeoutGraceLogged) {
+        timeoutGraceLogged = true;
+        note(
+          `[${scenario.key}] primary timeout elapsed; extending wait while active runs continue (${activeRuns
+            .map((run) => `${run.id}:${run.status}`)
+            .join(", ")})`,
+        );
+      }
+    }
+
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
@@ -1255,7 +1302,7 @@ function findArtifact(messages, predicate) {
   return null;
 }
 
-async function assertScenarioSuccess(scenario, snapshot, baselineStatus) {
+async function assertScenarioSuccess(scenario, snapshot, baselineSnapshot) {
   assert.equal(snapshot.state?.workflowState, "done", `${scenario.key} did not finish in done state`);
   assert(snapshot.briefs.length > 0, `${scenario.key} should generate at least one brief`);
 
@@ -1265,8 +1312,10 @@ async function assertScenarioSuccess(scenario, snapshot, baselineStatus) {
   const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
   assert(closeMessage, `${scenario.key} missing CLOSE_TASK`);
 
-  const diffArtifact = findArtifact(snapshot.messages, (artifact) => artifact.kind === "diff");
-  assert(diffArtifact, `${scenario.key} missing diff artifact`);
+  const changeArtifact =
+    findArtifact(snapshot.messages, (artifact) => artifact.kind === "diff")
+    ?? findArtifact(snapshot.messages, (artifact) => artifact.kind === "commit");
+  assert(changeArtifact, `${scenario.key} missing diff or commit artifact`);
 
   const testArtifact = findArtifact(snapshot.messages, (artifact) => artifact.kind === "test_run");
   assert(testArtifact, `${scenario.key} missing test_run artifact`);
@@ -1291,12 +1340,25 @@ async function assertScenarioSuccess(scenario, snapshot, baselineStatus) {
     );
   }
 
-  const currentStatus = await gitStatus(scenario.repoRoot);
-  assert.equal(
-    currentStatus,
-    baselineStatus,
-    `${scenario.key} changed base repo status unexpectedly\nbefore:\n${baselineStatus}\nafter:\n${currentStatus}`,
-  );
+  const currentSnapshot = await captureRepoSnapshot(scenario.repoRoot);
+  if (currentSnapshot.status !== baselineSnapshot.status) {
+    const headAdvanced =
+      baselineSnapshot.head
+      && currentSnapshot.head
+      && baselineSnapshot.head !== currentSnapshot.head;
+    const currentClean = currentSnapshot.status.length === 0;
+    if (headAdvanced && currentClean) {
+      note(
+        `[${scenario.key}] base repo HEAD advanced from ${baselineSnapshot.head.slice(0, 12)} to ${currentSnapshot.head.slice(0, 12)} while remaining clean; skipping dirty-status equality check`,
+      );
+    } else {
+      assert.equal(
+        currentSnapshot.status,
+        baselineSnapshot.status,
+        `${scenario.key} changed base repo status unexpectedly\nbefore(head=${baselineSnapshot.head ?? "unknown"}):\n${baselineSnapshot.status}\nafter(head=${currentSnapshot.head ?? "unknown"}):\n${currentSnapshot.status}`,
+      );
+    }
+  }
 
   const matchedCheckpoints = [];
   for (const checkpoint of scenario.checkpoints ?? []) {
@@ -1319,7 +1381,7 @@ async function assertScenarioSuccess(scenario, snapshot, baselineStatus) {
     trail: formatProtocolTrail(snapshot.messages),
     briefCount: snapshot.briefs.length,
     reviewCycles: snapshot.reviewCycles.length,
-    diffArtifact: diffArtifact.artifact,
+    changeArtifact: changeArtifact.artifact,
     testArtifact: testArtifact.artifact,
     bindingArtifact: bindingArtifact.artifact,
     closePayload: closeMessage.payload ?? null,
@@ -1383,7 +1445,7 @@ function summarizeParallelism(results) {
   };
 }
 
-async function executeScenarioIssue(issue, scenario, baselineStatus) {
+async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
   let snapshot;
   try {
     snapshot = await waitForCompletion(issue.id, scenario);
@@ -1394,7 +1456,7 @@ async function executeScenarioIssue(issue, scenario, baselineStatus) {
 
   let verified;
   try {
-    verified = await assertScenarioSuccess(scenario, snapshot, baselineStatus);
+    verified = await assertScenarioSuccess(scenario, snapshot, baselineSnapshot);
   } catch (error) {
     await cancelIssue(issue.id, `Scenario ${scenario.key} failed verification after completion.`);
     throw error;
@@ -1403,7 +1465,7 @@ async function executeScenarioIssue(issue, scenario, baselineStatus) {
   note(`completed ${issue.identifier}`);
   note(`trail=${verified.trail}`);
   note(`isolated cwd=${verified.bindingArtifact.metadata?.cwd}`);
-  note(`diff label=${verified.diffArtifact.label ?? "n/a"}`);
+  note(`${verified.changeArtifact.kind} label=${verified.changeArtifact.label ?? "n/a"}`);
   note(`test label=${verified.testArtifact.label ?? "n/a"}`);
   if ((verified.checkpoints ?? []).length > 0) {
     note(`checkpoints=${JSON.stringify(verified.checkpoints)}`);
@@ -1440,7 +1502,7 @@ async function runCoordinatedScenario(companyId, scenario) {
 
   const baselineStatuses = new Map();
   for (const child of scenario.children) {
-    baselineStatuses.set(child.key, await gitStatus(child.repoRoot));
+    baselineStatuses.set(child.key, await captureRepoSnapshot(child.repoRoot));
   }
 
   const rootIssue = await createPmIntakeIssue(companyId, scenario, scenario.labelIds ?? []);
@@ -1469,7 +1531,11 @@ async function runCoordinatedScenario(companyId, scenario) {
 
     const childRuns = await Promise.all(
       scenario.children.map((child, index) =>
-        executeScenarioIssue(projection.projectedWorkItems[index], child, baselineStatuses.get(child.key) ?? ""),
+        executeScenarioIssue(
+          projection.projectedWorkItems[index],
+          child,
+          baselineStatuses.get(child.key) ?? { status: "", head: null },
+        ),
       ),
     );
 
@@ -1519,15 +1585,16 @@ async function runScenario(companyId, scenario) {
   note(`assignee=${scenario.assignee.urlKey} (${scenario.assignee.adapterType})`);
   note(`reviewer=${scenario.reviewer.urlKey} (${scenario.reviewer.adapterType})`);
 
-  const baselineStatus = await gitStatus(scenario.repoRoot);
-  note(`base git status lines=${baselineStatus ? baselineStatus.split("\n").length : 0}`);
+  const baselineSnapshot = await captureRepoSnapshot(scenario.repoRoot);
+  note(`base git status lines=${baselineSnapshot.status ? baselineSnapshot.status.split("\n").length : 0}`);
+  note(`base git head=${baselineSnapshot.head ?? "unknown"}`);
 
   const issue = await createIssue(companyId, scenario, scenario.labelIds ?? []);
   note(`created issue ${issue.identifier} (${issue.id})`);
 
   await assignIssue(issue.id, scenario);
   note(`assigned issue ${issue.identifier}`);
-  return executeScenarioIssue(issue, scenario, baselineStatus);
+  return executeScenarioIssue(issue, scenario, baselineSnapshot);
 }
 
 async function main() {

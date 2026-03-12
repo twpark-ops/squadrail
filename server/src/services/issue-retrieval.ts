@@ -7,6 +7,7 @@ import {
   issueMergeCandidates,
   issueProtocolArtifacts,
   issueProtocolMessages,
+  issues,
   knowledgeChunkLinks,
   knowledgeChunks,
   knowledgeDocumentVersions,
@@ -55,6 +56,23 @@ import {
 } from "./retrieval/graph.js";
 import { applyModelRerankOrder } from "./retrieval/model-rerank.js";
 import {
+  buildRetrievalQueryText,
+  deriveBriefScope,
+  deriveDynamicRetrievalSignals,
+  deriveRetrievalEventType,
+  selectProtocolRetrievalRecipients,
+  type RetrievalBriefScope,
+  type RetrievalEventType,
+  type RetrievalTargetRole,
+} from "./retrieval/query.js";
+import {
+  computeRetrievalReuseSummary,
+  isExactPathSatisfied,
+  summarizeBriefQuality,
+  type BriefQualitySummary,
+  type RetrievalReuseSummary,
+} from "./retrieval/quality.js";
+import {
   buildHitRationale,
   computeAuthorityBoost,
   computeDocumentPathBoost,
@@ -62,6 +80,7 @@ import {
   computeFreshnessBoost,
   computeLatestBoost,
   computeOrganizationalMemoryPenalty,
+  computeRelatedIssueReuseBoost,
   computeScopeBoost,
   computeSourceTypeBoost,
   computeSymbolBoost,
@@ -74,6 +93,7 @@ import {
   basenameWithoutExtension,
   compactWhitespace,
   metadataStringArray,
+  normalizeIssueIdentifier,
   normalizeHintPath,
   truncateRetrievalSegment,
   uniqueNonEmpty,
@@ -94,32 +114,20 @@ export {
   shouldAllowGraphExactPathRediscovery,
 } from "./retrieval/graph.js";
 export { applyModelRerankOrder } from "./retrieval/model-rerank.js";
+export {
+  buildRetrievalQueryText,
+  deriveBriefScope,
+  deriveDynamicRetrievalSignals,
+  deriveRetrievalEventType,
+  selectProtocolRetrievalRecipients,
+} from "./retrieval/query.js";
+export { computeRetrievalReuseSummary } from "./retrieval/quality.js";
 export { fuseRetrievalCandidates } from "./retrieval/scoring.js";
-
-const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
-  ASSIGN_TASK: "on_assignment",
-  REASSIGN_TASK: "on_assignment",
-  ACK_ASSIGNMENT: "on_acceptance",
-  ASK_CLARIFICATION: "on_progress_report",
-  PROPOSE_PLAN: "on_plan_requested",
-  REPORT_PROGRESS: "on_progress_report",
-  ESCALATE_BLOCKER: "on_blocker",
-  SUBMIT_FOR_REVIEW: "on_review_submit",
-  START_REVIEW: "on_review_start",
-  REQUEST_CHANGES: "on_change_request",
-  APPROVE_IMPLEMENTATION: "on_approval",
-  CLOSE_TASK: "on_close",
-} as const satisfies Partial<Record<CreateIssueProtocolMessage["messageType"], string>>;
 
 const QUERY_EMBEDDING_CACHE_TTL_SECONDS = 24 * 60 * 60;
 const CANDIDATE_HIT_CACHE_TTL_SECONDS = 20 * 60;
 const FINAL_HIT_CACHE_TTL_SECONDS = 10 * 60;
 const CHUNK_GRAPH_EXPANSION_MAX_HOPS = 3;
-
-type RetrievalEventType = (typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE)[keyof typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE];
-
-type RetrievalTargetRole = "engineer" | "reviewer" | "tech_lead" | "cto" | "pm" | "qa" | "human_board";
-type RetrievalBriefScope = "global" | "engineer" | "reviewer" | "tech_lead" | "cto" | "pm" | "qa" | "closure";
 
 export function buildQueryEmbeddingCacheKey(input: {
   queryText: string;
@@ -412,6 +420,22 @@ function readCachedBriefQualitySummary(value: Record<string, unknown> | null | u
       typeof value.organizationalMemoryHitCount === "number" ? value.organizationalMemoryHitCount : 0,
     codeHitCount: typeof value.codeHitCount === "number" ? value.codeHitCount : 0,
     reviewHitCount: typeof value.reviewHitCount === "number" ? value.reviewHitCount : 0,
+    requestedRelatedIssueCount: typeof value.requestedRelatedIssueCount === "number" ? value.requestedRelatedIssueCount : 0,
+    reuseHitCount: typeof value.reuseHitCount === "number" ? value.reuseHitCount : 0,
+    reusedIssueCount: typeof value.reusedIssueCount === "number" ? value.reusedIssueCount : 0,
+    reusedIssueIds: Array.isArray(value.reusedIssueIds)
+      ? value.reusedIssueIds.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    reusedIssueIdentifiers: Array.isArray(value.reusedIssueIdentifiers)
+      ? value.reusedIssueIdentifiers.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    reuseArtifactKinds: Array.isArray(value.reuseArtifactKinds)
+      ? value.reuseArtifactKinds.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    reuseDecisionHitCount: typeof value.reuseDecisionHitCount === "number" ? value.reuseDecisionHitCount : 0,
+    reuseFixHitCount: typeof value.reuseFixHitCount === "number" ? value.reuseFixHitCount : 0,
+    reuseReviewHitCount: typeof value.reuseReviewHitCount === "number" ? value.reuseReviewHitCount : 0,
+    reuseCloseHitCount: typeof value.reuseCloseHitCount === "number" ? value.reuseCloseHitCount : 0,
     sourceDiversity: typeof value.sourceDiversity === "number" ? value.sourceDiversity : 0,
     candidateCacheHit: value.candidateCacheHit === true,
     finalCacheHit: value.finalCacheHit === true,
@@ -469,6 +493,8 @@ export interface RetrievalSignals {
   preferredSourceTypes: string[];
   projectAffinityIds: string[];
   projectAffinityNames: string[];
+  relatedIssueIds?: string[];
+  relatedIssueIdentifiers?: string[];
   blockerCode: string | null;
   questionType: string | null;
 }
@@ -564,46 +590,6 @@ type RetrievalCandidate = Omit<RetrievalHitView, "fusedScore"> & {
   fusedScore?: number;
 };
 
-interface BriefQualitySummary {
-  confidenceLevel: "high" | "medium" | "low";
-  evidenceCount: number;
-  denseEnabled: boolean;
-  denseHitCount: number;
-  sparseHitCount: number;
-  pathHitCount: number;
-  symbolHitCount: number;
-  graphSeedCount: number;
-  graphHitCount: number;
-  graphEntityTypes: string[];
-  symbolGraphSeedCount: number;
-  symbolGraphHitCount: number;
-  edgeTraversalCount: number;
-  edgeTypeCounts: Record<string, number>;
-  graphMaxDepth: number;
-  graphHopDepthCounts: Record<string, number>;
-  multiHopGraphHitCount: number;
-  temporalContextAvailable: boolean;
-  temporalHitCount: number;
-  branchAlignedTopHitCount: number;
-  staleVersionPenaltyCount: number;
-  exactCommitMatchCount: number;
-  personalizationApplied: boolean;
-  personalizedHitCount: number;
-  averagePersonalizationBoost: number;
-  organizationalMemoryHitCount: number;
-  codeHitCount: number;
-  reviewHitCount: number;
-  sourceDiversity: number;
-  candidateCacheHit: boolean;
-  finalCacheHit: boolean;
-  candidateCacheReason: RetrievalCacheState | null;
-  finalCacheReason: RetrievalCacheState | null;
-  candidateCacheProvenance: RetrievalCacheHitProvenance | null;
-  finalCacheProvenance: RetrievalCacheHitProvenance | null;
-  exactPathSatisfied: boolean;
-  degradedReasons: string[];
-}
-
 interface RetrievalCacheIdentityView {
   queryFingerprint: string | null;
   policyFingerprint: string | null;
@@ -694,129 +680,11 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   organizationalIssueMissPenalty: -1.1,
   organizationalProtocolMissPenalty: -0.45,
   organizationalReviewMissPenalty: -1.35,
+  relatedIssueDecisionBoost: 0.2,
+  relatedIssueFixBoost: 0.32,
+  relatedIssueReviewBoost: 0.42,
+  relatedIssueCloseBoost: 0.48,
 } as const satisfies RetrievalRerankWeights;
-
-function summarizeBriefQuality(input: {
-  finalHits: RetrievalHitView[];
-  queryEmbedding: number[] | null;
-  sparseHitCount: number;
-  pathHitCount: number;
-  symbolHitCount: number;
-  denseHitCount: number;
-  graphSeedCount: number;
-  graphHitCount: number;
-  graphEntityTypes: string[];
-  symbolGraphSeedCount: number;
-  symbolGraphHitCount: number;
-  edgeTraversalCount: number;
-  edgeTypeCounts: Record<string, number>;
-  graphMaxDepth: number;
-  graphHopDepthCounts: Record<string, number>;
-  multiHopGraphHitCount: number;
-  temporalContext: RetrievalTemporalContext | null;
-  crossProjectRequested: boolean;
-  candidateCacheHit?: boolean;
-  finalCacheHit?: boolean;
-  candidateCacheInspection?: Pick<RetrievalCacheInspectionResult, "reason" | "provenance">;
-  finalCacheInspection?: Pick<RetrievalCacheInspectionResult, "reason" | "provenance">;
-  exactPathSatisfied?: boolean;
-}): BriefQualitySummary {
-  const evidenceCount = input.finalHits.length;
-  const sourceDiversity = new Set(
-    input.finalHits.map((hit) => hit.sourceType).filter((sourceType) => sourceType.trim().length > 0),
-  ).size;
-  const degradedReasons: string[] = [];
-  if (!input.queryEmbedding) {
-    degradedReasons.push("semantic_search_unavailable");
-  } else if (input.denseHitCount === 0) {
-    degradedReasons.push("semantic_search_empty");
-  }
-  if (evidenceCount === 0) {
-    degradedReasons.push("no_retrieval_hits");
-  } else if (evidenceCount < 3) {
-    degradedReasons.push("low_evidence_count");
-  }
-  if (evidenceCount > 0 && sourceDiversity < 2) {
-    degradedReasons.push("narrow_source_diversity");
-  }
-  if (input.crossProjectRequested && input.graphHitCount === 0) {
-    degradedReasons.push("cross_project_graph_empty");
-  }
-
-  const temporalHitCount = input.finalHits.filter((hit) => (hit.temporalMetadata?.score ?? 0) > 0).length;
-  const personalizedHits = input.finalHits.filter((hit) => (hit.personalizationMetadata?.totalBoost ?? 0) !== 0);
-  const averagePersonalizationBoost =
-    personalizedHits.length > 0
-      ? personalizedHits.reduce((total, hit) => total + Math.abs(hit.personalizationMetadata?.totalBoost ?? 0), 0)
-        / personalizedHits.length
-      : 0;
-  const branchAlignedTopHitCount = input.finalHits
-    .slice(0, 3)
-    .filter((hit) =>
-      hit.temporalMetadata?.matchType === "exact_commit"
-      || hit.temporalMetadata?.matchType === "same_branch_head"
-      || hit.temporalMetadata?.matchType === "default_branch_head"
-    )
-    .length;
-  const staleVersionPenaltyCount = input.finalHits.filter((hit) => hit.temporalMetadata?.stale === true).length;
-  const exactCommitMatchCount = input.finalHits.filter((hit) => hit.temporalMetadata?.matchType === "exact_commit").length;
-  const organizationalMemoryHitCount = input.finalHits.filter((hit) => classifyOrganizationalArtifact(hit) != null).length;
-  const codeHitCount = input.finalHits.filter((hit) => hit.sourceType === "code").length;
-  const reviewHitCount = input.finalHits.filter((hit) => hit.sourceType === "review").length;
-  if (input.temporalContext && temporalHitCount === 0) {
-    degradedReasons.push("temporal_context_unmatched");
-  }
-
-  let confidenceLevel: BriefQualitySummary["confidenceLevel"] = "low";
-  if (evidenceCount >= 5 && Boolean(input.queryEmbedding) && input.denseHitCount > 0 && sourceDiversity >= 2) {
-    confidenceLevel = "high";
-  } else if (evidenceCount >= 3) {
-    confidenceLevel = "medium";
-  }
-  if (confidenceLevel === "high" && input.crossProjectRequested && input.graphHitCount === 0) {
-    confidenceLevel = "medium";
-  }
-
-  return {
-    confidenceLevel,
-    evidenceCount,
-    denseEnabled: Boolean(input.queryEmbedding),
-    denseHitCount: input.denseHitCount,
-    sparseHitCount: input.sparseHitCount,
-    pathHitCount: input.pathHitCount,
-    symbolHitCount: input.symbolHitCount,
-    graphSeedCount: input.graphSeedCount,
-    graphHitCount: input.graphHitCount,
-    graphEntityTypes: input.graphEntityTypes,
-    symbolGraphSeedCount: input.symbolGraphSeedCount,
-    symbolGraphHitCount: input.symbolGraphHitCount,
-    edgeTraversalCount: input.edgeTraversalCount,
-    edgeTypeCounts: input.edgeTypeCounts,
-    graphMaxDepth: input.graphMaxDepth,
-    graphHopDepthCounts: input.graphHopDepthCounts,
-    multiHopGraphHitCount: input.multiHopGraphHitCount,
-    temporalContextAvailable: Boolean(input.temporalContext),
-    temporalHitCount,
-    branchAlignedTopHitCount,
-    staleVersionPenaltyCount,
-    exactCommitMatchCount,
-    personalizationApplied: personalizedHits.length > 0,
-    personalizedHitCount: personalizedHits.length,
-    averagePersonalizationBoost,
-    organizationalMemoryHitCount,
-    codeHitCount,
-    reviewHitCount,
-    sourceDiversity,
-    candidateCacheHit: input.candidateCacheHit === true,
-    finalCacheHit: input.finalCacheHit === true,
-    candidateCacheReason: input.candidateCacheInspection?.reason ?? null,
-    finalCacheReason: input.finalCacheInspection?.reason ?? null,
-    candidateCacheProvenance: input.candidateCacheInspection?.provenance ?? null,
-    finalCacheProvenance: input.finalCacheInspection?.provenance ?? null,
-    exactPathSatisfied: input.exactPathSatisfied !== false,
-    degradedReasons,
-  };
-}
 
 function readRetrievalCacheIdentityView(value: unknown): RetrievalCacheIdentityView {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -845,17 +713,6 @@ function resolveRetrievalCacheHitProvenance(input: {
   if (input.requestedCacheKey === input.matchedCacheKey) return "exact_key";
   if (input.requestedFeedbackFingerprint !== input.matchedFeedbackFingerprint) return "feedback_drift";
   return "normalized_input";
-}
-
-function isExactPathSatisfied(input: {
-  finalHits: RetrievalHitView[];
-  exactPaths: string[];
-}) {
-  if (input.exactPaths.length === 0) return true;
-  return input.finalHits.some((hit) => {
-    const candidatePath = hit.path ? normalizeHintPath(hit.path) : null;
-    return candidatePath != null && input.exactPaths.includes(candidatePath);
-  });
 }
 
 function buildKnowledgeRevisionSignature(input: {
@@ -889,31 +746,6 @@ function buildKnowledgeRevisionSignature(input: {
       };
     }),
   }));
-}
-
-function extractPathHintsFromTextValues(values: Array<string | null | undefined>) {
-  const pathPattern = /\b(?:[A-Za-z0-9_.-]+\/)+(?:[A-Za-z0-9_.-]+\.[A-Za-z0-9]+)\b/g;
-  const results: string[] = [];
-  for (const value of values) {
-    if (typeof value !== "string" || value.trim().length === 0) continue;
-    const matches = value.match(pathPattern) ?? [];
-    for (const match of matches) {
-      results.push(normalizeHintPath(match));
-    }
-  }
-  return uniqueNonEmpty(results);
-}
-
-function extractIdentifierHints(values: string[]) {
-  const identifiers: string[] = [];
-  for (const value of values) {
-    const matches = value.match(/\b[A-Za-z_][A-Za-z0-9_]{2,}\b/g) ?? [];
-    for (const match of matches) {
-      if (!/[A-Z_]/.test(match) && match === match.toLowerCase()) continue;
-      identifiers.push(match);
-    }
-  }
-  return uniqueNonEmpty(identifiers);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -973,300 +805,6 @@ export function computeCosineSimilarity(leftInput: unknown, rightInput: unknown)
 
   if (leftMagnitude === 0 || rightMagnitude === 0) return 0;
   return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
-}
-
-function extractPayloadTerms(message: CreateIssueProtocolMessage) {
-  const payload = message.payload as Record<string, unknown>;
-
-  switch (message.messageType) {
-    case "ASSIGN_TASK":
-      return uniqueNonEmpty([
-        String(payload.goal ?? ""),
-        ...((payload.acceptanceCriteria as string[] | undefined) ?? []),
-        ...((payload.definitionOfDone as string[] | undefined) ?? []),
-        ...((payload.requiredKnowledgeTags as string[] | undefined) ?? []),
-      ]);
-    case "ACK_ASSIGNMENT":
-      return uniqueNonEmpty([
-        String(payload.understoodScope ?? ""),
-        ...((payload.initialRisks as string[] | undefined) ?? []),
-      ]);
-    case "ASK_CLARIFICATION":
-      return uniqueNonEmpty([
-        String(payload.question ?? ""),
-        ...((payload.proposedAssumptions as string[] | undefined) ?? []),
-      ]);
-    case "PROPOSE_PLAN":
-      return uniqueNonEmpty([
-        String(payload.planSummary ?? ""),
-        ...(((payload.steps as Array<Record<string, unknown>> | undefined) ?? []).map((step) => String(step.title ?? ""))),
-        ...((payload.risks as string[] | undefined) ?? []),
-      ]);
-    case "REPORT_PROGRESS":
-      return uniqueNonEmpty([
-        ...((payload.completedItems as string[] | undefined) ?? []),
-        ...((payload.nextSteps as string[] | undefined) ?? []),
-        ...((payload.changedFiles as string[] | undefined) ?? []),
-        String(payload.testSummary ?? ""),
-      ]);
-    case "ESCALATE_BLOCKER":
-      return uniqueNonEmpty([
-        String(payload.blockerCode ?? ""),
-        String(payload.blockingReason ?? ""),
-        String(payload.requestedAction ?? ""),
-      ]);
-    case "SUBMIT_FOR_REVIEW":
-      return uniqueNonEmpty([
-        String(payload.implementationSummary ?? ""),
-        ...((payload.reviewChecklist as string[] | undefined) ?? []),
-        ...((payload.changedFiles as string[] | undefined) ?? []),
-        ...((payload.testResults as string[] | undefined) ?? []),
-        ...((payload.residualRisks as string[] | undefined) ?? []),
-        String(payload.diffSummary ?? ""),
-      ]);
-    case "START_REVIEW":
-      return uniqueNonEmpty([
-        ...((payload.reviewFocus as string[] | undefined) ?? []),
-      ]);
-    case "REQUEST_CHANGES":
-      return uniqueNonEmpty([
-        String(payload.reviewSummary ?? ""),
-        ...((payload.requiredEvidence as string[] | undefined) ?? []),
-        ...(((payload.changeRequests as Array<Record<string, unknown>> | undefined) ?? []).flatMap((request) => [
-          String(request.title ?? ""),
-          String(request.reason ?? ""),
-          ...(((request.affectedFiles as string[] | undefined) ?? [])),
-          String(request.suggestedAction ?? ""),
-        ])),
-      ]);
-    case "APPROVE_IMPLEMENTATION":
-      return uniqueNonEmpty([
-        String(payload.approvalSummary ?? ""),
-        ...((payload.approvalChecklist as string[] | undefined) ?? []),
-        ...((payload.verifiedEvidence as string[] | undefined) ?? []),
-        ...((payload.residualRisks as string[] | undefined) ?? []),
-        ...((payload.followUpActions as string[] | undefined) ?? []),
-      ]);
-    case "CLOSE_TASK":
-      return uniqueNonEmpty([
-        String(payload.closeReason ?? ""),
-        String(payload.closureSummary ?? ""),
-        String(payload.verificationSummary ?? ""),
-        String(payload.rollbackPlan ?? ""),
-        ...((payload.finalArtifacts as string[] | undefined) ?? []),
-        ...((payload.remainingRisks as string[] | undefined) ?? []),
-      ]);
-    default:
-      return [];
-  }
-}
-
-export function deriveRetrievalEventType(messageType: CreateIssueProtocolMessage["messageType"]) {
-  if (!(messageType in RETRIEVAL_EVENT_BY_MESSAGE_TYPE)) return null;
-  return RETRIEVAL_EVENT_BY_MESSAGE_TYPE[messageType as keyof typeof RETRIEVAL_EVENT_BY_MESSAGE_TYPE];
-}
-
-export function deriveBriefScope(input: {
-  eventType: RetrievalEventType;
-  recipientRole: string;
-}): RetrievalBriefScope {
-  if (input.eventType === "on_close") return "closure";
-  if (input.recipientRole === "reviewer") return "reviewer";
-  if (input.recipientRole === "tech_lead") return "tech_lead";
-  if (input.recipientRole === "cto") return "cto";
-  if (input.recipientRole === "pm") return "pm";
-  if (input.recipientRole === "qa") return "qa";
-  if (input.recipientRole === "human_board") return "global";
-  return "engineer";
-}
-
-export function selectProtocolRetrievalRecipients(input: {
-  messageType: string;
-  recipients: Array<{
-    recipientType: string;
-    recipientId: string;
-    role: string;
-  }>;
-}) {
-  const shouldInclude = (recipientRole: string) => {
-    if (input.messageType === "ASSIGN_TASK" || input.messageType === "REASSIGN_TASK") {
-      return (
-        recipientRole === "engineer"
-        || recipientRole === "tech_lead"
-        || recipientRole === "pm"
-        || recipientRole === "cto"
-        || recipientRole === "qa"
-      );
-    }
-
-    return (
-      recipientRole === "engineer"
-      || recipientRole === "reviewer"
-      || recipientRole === "tech_lead"
-      || recipientRole === "pm"
-      || recipientRole === "cto"
-      || recipientRole === "qa"
-      || recipientRole === "human_board"
-    );
-  };
-
-  return input.recipients.filter(
-    (recipient, index, all) =>
-      shouldInclude(recipient.role)
-      && all.findIndex(
-        (candidate) =>
-          candidate.recipientId === recipient.recipientId
-          && candidate.role === recipient.role
-          && candidate.recipientType === recipient.recipientType,
-      ) === index,
-  );
-}
-
-export function buildRetrievalQueryText(input: {
-  issue: {
-    title: string;
-    description: string | null;
-    identifier: string | null;
-    labels?: Array<{ name: string }>;
-    mentionedProjects?: Array<{ id: string; name: string }>;
-  };
-  message: CreateIssueProtocolMessage;
-  recipientRole: string;
-}) {
-  const payloadTerms = extractPayloadTerms(input.message);
-  const querySegments = uniqueNonEmpty([
-    truncateRetrievalSegment(input.issue.identifier ?? "", 64),
-    truncateRetrievalSegment(input.issue.title, 180),
-    truncateRetrievalSegment(input.issue.description ?? "", 1200),
-    truncateRetrievalSegment(input.message.summary, 320),
-    input.message.messageType,
-    input.message.workflowStateAfter,
-    input.recipientRole,
-    ...((input.issue.labels ?? []).map((label) => truncateRetrievalSegment(label.name, 64))),
-    ...((input.issue.mentionedProjects ?? []).map((project) => truncateRetrievalSegment(project.name, 96))),
-    ...payloadTerms.slice(0, 16).map((term) => truncateRetrievalSegment(term, 180)),
-  ]);
-
-  const budgetedSegments: string[] = [];
-  let consumed = 0;
-  const maxQueryLength = 2400;
-  for (const segment of querySegments) {
-    const projected = consumed + segment.length + (budgetedSegments.length > 0 ? 1 : 0);
-    if (projected > maxQueryLength) break;
-    budgetedSegments.push(segment);
-    consumed = projected;
-  }
-
-  return budgetedSegments.join("\n");
-}
-
-export function deriveDynamicRetrievalSignals(input: {
-  message: CreateIssueProtocolMessage;
-  issue: {
-    projectId: string | null;
-    title?: string | null;
-    description?: string | null;
-    mentionedProjects?: Array<{ id: string; name: string }>;
-  };
-  recipientRole: string;
-  eventType: RetrievalEventType;
-  baselineSourceTypes?: string[];
-}) {
-  const payload = input.message.payload as Record<string, unknown>;
-  const preferredSourceTypesByRole: Record<string, string[]> = {
-    engineer: ["code", "test_report", "review", "adr", "runbook", "issue"],
-    reviewer: ["code", "test_report", "review", "adr", "runbook", "issue"],
-    tech_lead: ["adr", "prd", "issue", "runbook", "review", "code"],
-    human_board: ["prd", "adr", "issue", "review", "runbook", "protocol_message"],
-  };
-  const baselineSourceTypes = uniqueNonEmpty([
-    ...(preferredSourceTypesByRole[input.recipientRole] ?? preferredSourceTypesByRole.engineer),
-    ...(input.baselineSourceTypes ?? []),
-  ]);
-
-  const textDerivedPaths = extractPathHintsFromTextValues([
-    input.issue.title,
-    input.issue.description,
-    input.message.summary,
-    typeof payload.goal === "string" ? payload.goal : null,
-    typeof payload.reason === "string" ? payload.reason : null,
-    typeof payload.implementationSummary === "string" ? payload.implementationSummary : null,
-    typeof payload.diffSummary === "string" ? payload.diffSummary : null,
-    typeof payload.reviewSummary === "string" ? payload.reviewSummary : null,
-    typeof payload.approvalSummary === "string" ? payload.approvalSummary : null,
-    typeof payload.closureSummary === "string" ? payload.closureSummary : null,
-    typeof payload.verificationSummary === "string" ? payload.verificationSummary : null,
-    ...((payload.requiredEvidence as string[] | undefined) ?? []),
-    ...((payload.reviewChecklist as string[] | undefined) ?? []),
-    ...((payload.testResults as string[] | undefined) ?? []),
-    ...((payload.residualRisks as string[] | undefined) ?? []),
-    ...((payload.changedFiles as string[] | undefined) ?? []),
-    ...(((payload.changeRequests as Array<Record<string, unknown>> | undefined) ?? []).flatMap((request) => [
-      typeof request.title === "string" ? request.title : null,
-      typeof request.reason === "string" ? request.reason : null,
-      typeof request.suggestedAction === "string" ? request.suggestedAction : null,
-      ...(((request.affectedFiles as string[] | undefined) ?? [])),
-    ])),
-  ]);
-  const exactPaths = uniqueNonEmpty([
-    ...((payload.changedFiles as string[] | undefined) ?? []),
-    ...(((payload.changeRequests as Array<Record<string, unknown>> | undefined) ?? []).flatMap((request) => (
-      (request.affectedFiles as string[] | undefined) ?? []
-    ))),
-    ...((payload.relatedArtifacts as string[] | undefined) ?? []),
-    ...textDerivedPaths,
-  ]).map(normalizeHintPath);
-  const fileNames = uniqueNonEmpty(exactPaths.map((entry) => path.posix.basename(entry)));
-  const knowledgeTags = uniqueNonEmpty([
-    ...((payload.requiredKnowledgeTags as string[] | undefined) ?? []),
-    ...((payload.reviewChecklist as string[] | undefined) ?? []),
-    ...((payload.reviewFocus as string[] | undefined) ?? []),
-    ...((payload.requiredEvidence as string[] | undefined) ?? []),
-    ...((payload.approvalChecklist as string[] | undefined) ?? []),
-    ...((payload.verifiedEvidence as string[] | undefined) ?? []),
-  ]);
-  const identifierHints = extractIdentifierHints([
-    ...knowledgeTags,
-    ...exactPaths.map(basenameWithoutExtension),
-    String(payload.question ?? ""),
-    String(payload.blockerCode ?? ""),
-    String(payload.implementationSummary ?? ""),
-    String(payload.diffSummary ?? ""),
-    String(payload.reviewSummary ?? ""),
-    String(payload.approvalSummary ?? ""),
-    String(payload.closureSummary ?? ""),
-    String(payload.verificationSummary ?? ""),
-  ]);
-
-  const preferredSourceTypes = uniqueNonEmpty([
-    ...(exactPaths.length > 0 ? ["code"] : []),
-    ...(input.eventType === "on_review_submit" || input.eventType === "on_review_start" || input.eventType === "on_change_request"
-      ? ["code", "test_report", "review"]
-      : []),
-    ...((payload.questionType === "requirement" || payload.questionType === "scope") ? ["prd", "issue"] : []),
-    ...(String(payload.blockerCode ?? "").includes("architecture") ? ["adr", "runbook"] : []),
-    ...baselineSourceTypes,
-  ]);
-
-  const projectAffinityIds = uniqueNonEmpty([
-    input.issue.projectId ?? "",
-    ...((input.issue.mentionedProjects ?? []).map((project) => project.id)),
-  ]);
-  const projectAffinityNames = uniqueNonEmpty([
-    ...((input.issue.mentionedProjects ?? []).map((project) => project.name)),
-  ]);
-
-  return {
-    exactPaths,
-    fileNames,
-    symbolHints: uniqueNonEmpty([...identifierHints, ...exactPaths.map(basenameWithoutExtension)]),
-    knowledgeTags,
-    preferredSourceTypes,
-    projectAffinityIds,
-    projectAffinityNames,
-    blockerCode: typeof payload.blockerCode === "string" ? payload.blockerCode : null,
-    questionType: typeof payload.questionType === "string" ? payload.questionType : null,
-  } satisfies RetrievalSignals;
 }
 
 export function resolveRetrievalPolicyRerankConfig(input: {
@@ -1344,6 +882,22 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     organizationalReviewMissPenalty: readConfiguredNumber(
       weightsRecord.organizationalReviewMissPenalty,
       DEFAULT_RETRIEVAL_RERANK_WEIGHTS.organizationalReviewMissPenalty,
+    ),
+    relatedIssueDecisionBoost: readConfiguredNumber(
+      weightsRecord.relatedIssueDecisionBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.relatedIssueDecisionBoost,
+    ),
+    relatedIssueFixBoost: readConfiguredNumber(
+      weightsRecord.relatedIssueFixBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.relatedIssueFixBoost,
+    ),
+    relatedIssueReviewBoost: readConfiguredNumber(
+      weightsRecord.relatedIssueReviewBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.relatedIssueReviewBoost,
+    ),
+    relatedIssueCloseBoost: readConfiguredNumber(
+      weightsRecord.relatedIssueCloseBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.relatedIssueCloseBoost,
     ),
   } satisfies RetrievalRerankWeights;
 
@@ -1801,6 +1355,12 @@ function computeLinkBoost(input: {
     if (link.entityType === "issue" && link.entityId === input.issueId) {
       score += Math.max(input.weights.issueLinkMinBoost, link.weight * input.weights.issueLinkWeightMultiplier);
     }
+    if (link.entityType === "issue" && (input.signals.relatedIssueIds ?? []).includes(link.entityId)) {
+      score += Math.max(
+        input.weights.issueLinkMinBoost * 0.75,
+        link.weight * input.weights.issueLinkWeightMultiplier * 0.75,
+      );
+    }
     if (input.projectId && link.entityType === "project" && link.entityId === input.projectId) {
       score += Math.max(input.weights.projectLinkMinBoost, link.weight * input.weights.projectLinkWeightMultiplier);
     }
@@ -1897,6 +1457,11 @@ export function rerankRetrievalHits(input: {
           issueId: input.issueId,
           projectId: input.projectId,
           projectAffinityIds: input.projectAffinityIds ?? input.signals.projectAffinityIds,
+          signals: input.signals,
+          weights: rerankConfig.weights,
+        })
+        + computeRelatedIssueReuseBoost({
+          hit,
           signals: input.signals,
           weights: rerankConfig.weights,
         })
@@ -2297,11 +1862,121 @@ export function issueRetrievalService(db: Db) {
     return symbolMap;
   }
 
+  async function listRelatedIssueIdentifierMap(input: {
+    companyId: string;
+    issueIds: string[];
+  }) {
+    const issueIds = uniqueNonEmpty(input.issueIds);
+    if (issueIds.length === 0) return {} as Record<string, string>;
+
+    const rows = await db
+      .select({
+        id: issues.id,
+        identifier: issues.identifier,
+      })
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, input.companyId),
+        inArray(issues.id, issueIds),
+      ));
+
+    return Object.fromEntries(
+      rows.map((row) => [row.id, row.identifier ?? row.id] as const),
+    );
+  }
+
+  async function listRelatedIssueIdsByIdentifiers(input: {
+    companyId: string;
+    identifiers: string[];
+  }) {
+    const identifiers = uniqueNonEmpty(input.identifiers.map((identifier) => normalizeIssueIdentifier(identifier)));
+    if (identifiers.length === 0) return {} as Record<string, string>;
+
+    const rows = await db
+      .select({
+        id: issues.id,
+        identifier: issues.identifier,
+      })
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, input.companyId),
+        inArray(issues.identifier, identifiers),
+      ));
+
+    return Object.fromEntries(
+      rows
+        .filter((row): row is typeof row & { identifier: string } => typeof row.identifier === "string" && row.identifier.length > 0)
+        .map((row) => [row.id, row.identifier] as const),
+    );
+  }
+
+  async function listBacklinkedRelatedIssueIds(input: {
+    companyId: string;
+    issueId: string;
+  }) {
+    const rows = await db
+      .select({
+        documentIssueId: knowledgeDocuments.issueId,
+      })
+      .from(knowledgeChunkLinks)
+      .innerJoin(knowledgeChunks, eq(knowledgeChunkLinks.chunkId, knowledgeChunks.id))
+      .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+      .where(and(
+        eq(knowledgeChunkLinks.companyId, input.companyId),
+        eq(knowledgeChunkLinks.entityType, "issue"),
+        eq(knowledgeChunkLinks.entityId, input.issueId),
+        sql`${knowledgeDocuments.issueId} is not null`,
+        sql`${knowledgeDocuments.issueId} <> ${input.issueId}`,
+        sql`${knowledgeDocuments.authorityLevel} <> 'deprecated'`,
+      ))
+      .orderBy(desc(knowledgeChunkLinks.weight), desc(knowledgeDocuments.updatedAt))
+      .limit(24);
+
+    return uniqueNonEmpty(
+      rows.map((row) => (typeof row.documentIssueId === "string" ? row.documentIssueId : null)),
+    );
+  }
+
+  async function resolveRelatedIssueSignals(input: {
+    companyId: string;
+    issueId: string;
+    issueIdentifier: string | null;
+    signals: RetrievalSignals;
+    backlinkedIssueIds: string[];
+  }) {
+    const currentIssueIdentifier = input.issueIdentifier ? normalizeIssueIdentifier(input.issueIdentifier) : null;
+    const referencedIdentifiers = uniqueNonEmpty((input.signals.relatedIssueIdentifiers ?? [])
+      .map((identifier) => normalizeIssueIdentifier(identifier))
+      .filter((identifier) => identifier !== currentIssueIdentifier));
+    const identifierMatches = await listRelatedIssueIdsByIdentifiers({
+      companyId: input.companyId,
+      identifiers: referencedIdentifiers,
+    });
+    const relatedIssueIds = uniqueNonEmpty([
+      ...(input.signals.relatedIssueIds ?? []),
+      ...Object.keys(identifierMatches),
+      ...input.backlinkedIssueIds,
+    ]).filter((issueId) => issueId !== input.issueId);
+
+    return {
+      ...input.signals,
+      preferredSourceTypes: relatedIssueIds.length > 0
+        ? uniqueNonEmpty(["review", "protocol_message", "issue", ...input.signals.preferredSourceTypes])
+        : input.signals.preferredSourceTypes,
+      relatedIssueIds,
+      relatedIssueIdentifiers: uniqueNonEmpty([
+        ...referencedIdentifiers,
+        ...Object.values(identifierMatches),
+      ]),
+    } satisfies RetrievalSignals;
+  }
+
   async function queryGraphExpansionKnowledge(input: {
     companyId: string;
     issueId: string;
     projectId: string | null;
     projectAffinityIds: string[];
+    relatedIssueIds: string[];
     seeds: RetrievalGraphSeed[];
     allowedSourceTypes: string[];
     allowedAuthorityLevels: string[];
@@ -2476,6 +2151,7 @@ export function issueRetrievalService(db: Db) {
                 issueId: input.issueId,
                 projectId: input.projectId,
                 projectAffinityIds: input.projectAffinityIds,
+                relatedIssueIds: input.relatedIssueIds,
               })
               + computeAuthorityBoost(row.authorityLevel),
             updatedAt: row.updatedAt,
@@ -2823,6 +2499,16 @@ export function issueRetrievalService(db: Db) {
         messageType: input.message.messageType,
         recipients: input.message.recipients,
       });
+      let backlinkedRelatedIssueIdsPromise: Promise<string[]> | null = null;
+      const getBacklinkedRelatedIssueIds = () => {
+        if (!backlinkedRelatedIssueIdsPromise) {
+          backlinkedRelatedIssueIdsPromise = listBacklinkedRelatedIssueIds({
+            companyId: input.companyId,
+            issueId: input.issueId,
+          });
+        }
+        return backlinkedRelatedIssueIdsPromise;
+      };
 
       const recipientHints: RecipientRetrievalHint[] = [];
       const retrievalRuns: Array<{ retrievalRunId: string; briefId: string; recipientRole: string; recipientId: string }> = [];
@@ -2874,12 +2560,19 @@ export function issueRetrievalService(db: Db) {
           queryLength: queryText.length,
           queryPreview: queryText.substring(0, 100),
         });
-        const baselineSignals = deriveDynamicRetrievalSignals({
+        const rawBaselineSignals = deriveDynamicRetrievalSignals({
           message: input.message,
           issue: input.issue,
           recipientRole: recipient.role,
           eventType,
           baselineSourceTypes: rerankConfig.preferredSourceTypes,
+        });
+        const baselineSignals = await resolveRelatedIssueSignals({
+          companyId: input.companyId,
+          issueId: input.issueId,
+          issueIdentifier: input.issue.identifier,
+          signals: rawBaselineSignals,
+          backlinkedIssueIds: await getBacklinkedRelatedIssueIds(),
         });
         const executionLane = resolveExecutionLane({
           issueProjectId: input.issue.projectId,
@@ -2943,6 +2636,14 @@ export function issueRetrievalService(db: Db) {
           signals: baselineSignals,
           profile: personalizationProfile,
         });
+        const relatedIssueIds = dynamicSignals.relatedIssueIds ?? [];
+        const relatedIssueIdentifierMap = await listRelatedIssueIdentifierMap({
+          companyId: input.companyId,
+          issueIds: relatedIssueIds,
+        });
+        const relatedIssueIdentifiers = relatedIssueIds.map(
+          (issueId) => relatedIssueIdentifierMap[issueId] ?? issueId,
+        );
 
         let queryEmbedding: number[] | null = null;
         let queryEmbeddingDebug: Record<string, unknown> = {
@@ -3052,6 +2753,13 @@ export function issueRetrievalService(db: Db) {
             mentionedProjectIds: (input.issue.mentionedProjects ?? []).map((project) => project.id),
             mentionedProjectNames: (input.issue.mentionedProjects ?? []).map((project) => project.name),
             projectAffinityIds: dynamicSignals.projectAffinityIds,
+            relatedIssueIds,
+            relatedIssueIdentifiers,
+            reuseHitCount: 0,
+            reuseDecisionHitCount: 0,
+            reuseFixHitCount: 0,
+            reuseReviewHitCount: 0,
+            reuseCloseHitCount: 0,
             exactPathCount: dynamicSignals.exactPaths.length,
             symbolHintCount: dynamicSignals.symbolHints.length,
             preferredSourceTypes: dynamicSignals.preferredSourceTypes,
@@ -3351,6 +3059,7 @@ export function issueRetrievalService(db: Db) {
             issueId: input.issueId,
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
+            relatedIssueIds,
             finalK: Math.max(lanePolicy.rerankK, lanePolicy.finalK),
           });
           await knowledge.upsertRetrievalCacheEntry({
@@ -3377,6 +3086,7 @@ export function issueRetrievalService(db: Db) {
         console.log("[RETRIEVAL] Fused candidates:", hits.length);
         let finalHits: RetrievalHitView[] = [];
         let briefQuality: BriefQualitySummary | null = null;
+        let reuseSummary: RetrievalReuseSummary | null = null;
         let graphSeeds: RetrievalGraphSeed[] = [];
         let chunkGraphResult: ChunkGraphExpansionResult = {
           hits: [],
@@ -3432,6 +3142,7 @@ export function issueRetrievalService(db: Db) {
             issueId: input.issueId,
             projectId: input.issue.projectId,
             projectAffinityIds: dynamicSignals.projectAffinityIds,
+            relatedIssueIds,
             seeds: graphSeeds,
             allowedSourceTypes: policy.allowedSourceTypes,
             allowedAuthorityLevels: policy.allowedAuthorityLevels,
@@ -3601,6 +3312,11 @@ export function issueRetrievalService(db: Db) {
             }).slice(0, lanePolicy.finalK);
           }
 
+          reuseSummary = computeRetrievalReuseSummary({
+            relatedIssueIds,
+            relatedIssueIdentifierMap,
+            finalHits,
+          });
           const graphHits = finalHits.filter((hit) => hit.graphMetadata != null);
           const multiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
           const exactPathSatisfied = isExactPathSatisfied({
@@ -3639,6 +3355,9 @@ export function issueRetrievalService(db: Db) {
             candidateCacheInspection,
             finalCacheInspection,
             exactPathSatisfied,
+            relatedIssueIds,
+            relatedIssueIdentifierMap,
+            reuseSummary,
           });
 
           await knowledge.upsertRetrievalCacheEntry({
@@ -3660,6 +3379,13 @@ export function issueRetrievalService(db: Db) {
           });
         }
 
+        if (!reuseSummary) {
+          reuseSummary = computeRetrievalReuseSummary({
+            relatedIssueIds,
+            relatedIssueIdentifierMap,
+            finalHits,
+          });
+        }
         if (!briefQuality) {
           const exactPathSatisfied = isExactPathSatisfied({
             finalHits,
@@ -3697,6 +3423,9 @@ export function issueRetrievalService(db: Db) {
             candidateCacheInspection,
             finalCacheInspection,
             exactPathSatisfied,
+            relatedIssueIds,
+            relatedIssueIdentifierMap,
+            reuseSummary,
           });
         } else {
           briefQuality = {
@@ -3711,6 +3440,16 @@ export function issueRetrievalService(db: Db) {
               finalHits,
               exactPaths: dynamicSignals.exactPaths,
             }),
+            requestedRelatedIssueCount: reuseSummary.requestedRelatedIssueCount,
+            reuseHitCount: reuseSummary.reuseHitCount,
+            reusedIssueCount: reuseSummary.reusedIssueCount,
+            reusedIssueIds: reuseSummary.reusedIssueIds,
+            reusedIssueIdentifiers: reuseSummary.reusedIssueIdentifiers,
+            reuseArtifactKinds: reuseSummary.reuseArtifactKinds,
+            reuseDecisionHitCount: reuseSummary.reuseDecisionHitCount,
+            reuseFixHitCount: reuseSummary.reuseFixHitCount,
+            reuseReviewHitCount: reuseSummary.reuseReviewHitCount,
+            reuseCloseHitCount: reuseSummary.reuseCloseHitCount,
           };
         }
 
@@ -3784,6 +3523,9 @@ export function issueRetrievalService(db: Db) {
             candidateCacheInspection,
             finalCacheInspection,
             exactPathSatisfied,
+            relatedIssueIds,
+            relatedIssueIdentifierMap,
+            reuseSummary,
           });
         }
         const resolvedBriefQuality = briefQuality;
@@ -3847,6 +3589,16 @@ export function issueRetrievalService(db: Db) {
           topHitPath: finalHits[0]?.path ?? null,
           topHitSourceType: finalHits[0]?.sourceType ?? null,
           topHitArtifactKind: readMetadataString(finalHits[0]?.documentMetadata ?? {}, "artifactKind"),
+          relatedIssueIds,
+          relatedIssueIdentifiers,
+          reusedIssueIds: reuseSummary?.reusedIssueIds ?? [],
+          reusedIssueIdentifiers: reuseSummary?.reusedIssueIdentifiers ?? [],
+          reuseArtifactKinds: reuseSummary?.reuseArtifactKinds ?? [],
+          reuseHitCount: reuseSummary?.reuseHitCount ?? 0,
+          reuseDecisionHitCount: reuseSummary?.reuseDecisionHitCount ?? 0,
+          reuseFixHitCount: reuseSummary?.reuseFixHitCount ?? 0,
+          reuseReviewHitCount: reuseSummary?.reuseReviewHitCount ?? 0,
+          reuseCloseHitCount: reuseSummary?.reuseCloseHitCount ?? 0,
           graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
           graphSeedTypes: uniqueNonEmpty([
             ...graphSeeds.map((seed) => seed.entityType),
