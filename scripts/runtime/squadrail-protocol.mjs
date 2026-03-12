@@ -12,6 +12,27 @@ const REQUEST_TIMEOUT_MS = Number(process.env.SQUADRAIL_PROTOCOL_TIMEOUT_MS ?? 1
 const DEFAULT_DISPATCH_MODE = process.env.SQUADRAIL_PROTOCOL_DISPATCH_MODE ?? "async";
 let cachedSelfAgent = null;
 
+const ENGINEER_SENDER_COMMANDS = new Set([
+  "ack-assignment",
+  "start-implementation",
+  "report-progress",
+  "submit-for-review",
+  "ack-change-request",
+]);
+
+const TECH_LEAD_SENDER_COMMANDS = new Set([
+  "reassign-task",
+  "close-task",
+  "cancel-task",
+]);
+
+const REVIEW_SENDER_COMMANDS = new Set([
+  "start-review",
+  "request-changes",
+  "request-human-decision",
+  "approve-implementation",
+]);
+
 function runGit(args) {
   return execFileSync("git", args, {
     cwd: process.cwd(),
@@ -429,7 +450,7 @@ async function getSelfAgent() {
   return cachedSelfAgent;
 }
 
-function inferSenderRoleFromAgent(agent) {
+function inferSenderRoleFromAgent(agent, options = {}) {
   if (!agent || typeof agent !== "object") return null;
   const explicitRole =
     typeof agent.role === "string" && agent.role.trim().length > 0
@@ -443,6 +464,10 @@ function inferSenderRoleFromAgent(agent) {
     typeof agent.urlKey === "string" && agent.urlKey.trim().length > 0
       ? agent.urlKey.trim()
       : "";
+
+  if (options.preferExplicitEngineer && explicitRole === "engineer") {
+    return "engineer";
+  }
 
   if (explicitRole === "manager" || explicitRole === "tech_lead") {
     return "tech_lead";
@@ -458,21 +483,41 @@ function inferSenderRoleFromAgent(agent) {
   return explicitRole;
 }
 
-async function resolveSenderRole(options) {
+async function resolveSenderRole(options, commandName = null) {
   const explicitRole = readOption(options, "sender-role");
   if (explicitRole) return explicitRole;
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   const selfAgent = await getSelfAgent();
+  const preferExplicitEngineer = ENGINEER_SENDER_COMMANDS.has(commandName);
   if (issueId) {
     const issueState = await getIssueState(issueId);
-    if (issueState?.qaAgentId === AGENT_ID) {
-      return "qa";
-    }
-    if (issueState?.reviewerAgentId === AGENT_ID) {
-      return "reviewer";
+    if (TECH_LEAD_SENDER_COMMANDS.has(commandName)) {
+      if (issueState?.techLeadAgentId === AGENT_ID) {
+        return "tech_lead";
+      }
+    } else if (REVIEW_SENDER_COMMANDS.has(commandName)) {
+      if (issueState?.qaAgentId === AGENT_ID) {
+        return "qa";
+      }
+      if (issueState?.reviewerAgentId === AGENT_ID) {
+        return "reviewer";
+      }
+      if (issueState?.techLeadAgentId === AGENT_ID) {
+        return "tech_lead";
+      }
+    } else if (!preferExplicitEngineer) {
+      if (issueState?.qaAgentId === AGENT_ID) {
+        return "qa";
+      }
+      if (issueState?.reviewerAgentId === AGENT_ID) {
+        return "reviewer";
+      }
+      if (issueState?.techLeadAgentId === AGENT_ID) {
+        return "tech_lead";
+      }
     }
   }
-  const inferredRole = inferSenderRoleFromAgent(selfAgent);
+  const inferredRole = inferSenderRoleFromAgent(selfAgent, { preferExplicitEngineer });
   if (inferredRole) return inferredRole;
   fail("Missing required option: --sender-role");
 }
@@ -584,7 +629,7 @@ async function reassignTaskCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "reassign-task");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const assigneeId = readAnyOption(options, [
     "new-assignee-agent-id",
@@ -674,7 +719,7 @@ async function ackAssignmentCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "ack-assignment");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const understoodScope = readAliasedOption(
     options,
@@ -728,7 +773,7 @@ async function startImplementationCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "start-implementation");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? "Start implementation");
   if (!summary) fail("Missing required option: --summary");
@@ -774,7 +819,7 @@ async function reportProgressCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "report-progress");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? "Report implementation progress");
   if (!summary) fail("Missing required option: --summary");
@@ -845,7 +890,7 @@ async function submitForReviewCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "submit-for-review");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const reviewerId = readAliasedOption(
     options,
@@ -937,7 +982,7 @@ async function ackChangeRequestCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "ack-change-request");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const summary = readAnyOption(
     options,
@@ -992,7 +1037,7 @@ async function startReviewCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "start-review");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const reviewFocus = parseListOptionOrPayload(
     options,
@@ -1050,13 +1095,14 @@ async function startReviewCommand(options) {
 }
 
 async function approveImplementationCommand(options) {
+  const commandName = "approve-implementation";
   if (isHelpRequested(options)) {
-    printHelp("approve-implementation");
+    printHelp(commandName);
     return;
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, commandName);
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const approvalSummary = readAliasedOption(
     options,
@@ -1118,13 +1164,14 @@ async function approveImplementationCommand(options) {
 }
 
 async function requestChangesCommand(options) {
+  const commandName = "request-changes";
   if (isHelpRequested(options)) {
-    printHelp("request-changes");
+    printHelp(commandName);
     return;
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, commandName);
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const reviewSummary = readAliasedOption(
     options,
@@ -1193,13 +1240,14 @@ async function requestChangesCommand(options) {
 }
 
 async function requestHumanDecisionCommand(options) {
+  const commandName = "request-human-decision";
   if (isHelpRequested(options)) {
-    printHelp("request-human-decision");
+    printHelp(commandName);
     return;
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, commandName);
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const decisionQuestion = readAliasedOption(
     options,
@@ -1266,7 +1314,7 @@ async function closeTaskCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
-  const senderRole = await resolveSenderRole(options);
+  const senderRole = await resolveSenderRole(options, "close-task");
   const closureSummary = requireAliasedOption(options, ["closure-summary", "closureSummary"]);
   const summary = readAliasedOption(options, ["summary"], closureSummary);
   const verificationSummary = requireAliasedOption(options, ["verification-summary", "verificationSummary"]);

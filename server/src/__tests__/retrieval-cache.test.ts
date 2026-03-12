@@ -24,6 +24,7 @@ const baseInput = {
     knowledgeTags: [],
     preferredSourceTypes: ["code", "review"],
     projectAffinityIds: ["project-1"],
+    relatedIssueIds: [],
     blockerCode: null,
     questionType: null,
   },
@@ -34,6 +35,7 @@ const baseInput = {
     knowledgeTags: [],
     preferredSourceTypes: ["code", "review"],
     projectAffinityIds: ["project-1"],
+    relatedIssueIds: [],
     blockerCode: null,
     questionType: null,
   },
@@ -129,6 +131,44 @@ describe("retrieval cache normalization", () => {
     });
 
     expect(firstIdentity).toEqual(secondIdentity);
+  });
+
+  it("changes cache identity and stage keys when related issue reuse scope changes", () => {
+    const firstStageKey = buildRetrievalStageCacheKey({
+      ...baseInput,
+      queryText: "Review SafeJoin nested path preservation.",
+      dynamicSignals: {
+        ...baseInput.dynamicSignals,
+        relatedIssueIds: ["issue-a"],
+      },
+    });
+    const secondStageKey = buildRetrievalStageCacheKey({
+      ...baseInput,
+      queryText: "Review SafeJoin nested path preservation.",
+      dynamicSignals: {
+        ...baseInput.dynamicSignals,
+        relatedIssueIds: ["issue-b"],
+      },
+    });
+    const firstIdentity = buildRetrievalCacheIdentity({
+      ...baseInput,
+      queryText: "Review SafeJoin nested path preservation.",
+      baselineSignals: {
+        ...baseInput.baselineSignals,
+        relatedIssueIds: ["issue-a"],
+      },
+    });
+    const secondIdentity = buildRetrievalCacheIdentity({
+      ...baseInput,
+      queryText: "Review SafeJoin nested path preservation.",
+      baselineSignals: {
+        ...baseInput.baselineSignals,
+        relatedIssueIds: ["issue-b"],
+      },
+    });
+
+    expect(firstStageKey).not.toBe(secondStageKey);
+    expect(firstIdentity).not.toEqual(secondIdentity);
   });
 
   it("reuses personalization fingerprints when only feedback counters drift", () => {

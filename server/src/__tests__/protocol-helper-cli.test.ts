@@ -3,10 +3,11 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
-const SCRIPT_PATH = path.resolve(process.cwd(), "scripts/runtime/squadrail-protocol.mjs");
+const SCRIPT_PATH = fileURLToPath(new URL("../../../scripts/runtime/squadrail-protocol.mjs", import.meta.url));
 const execFileAsync = promisify(execFile);
 
 function buildEnv(): NodeJS.ProcessEnv {
@@ -165,6 +166,106 @@ describe("squadrail protocol helper CLI", () => {
     }
   });
 
+  it("defaults TL-titled engineers to engineer sender-role for engineer-only commands", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          workflowState: "accepted",
+          techLeadAgentId: "agent-123",
+          primaryEngineerAgentId: null,
+          reviewerAgentId: "reviewer-123",
+          qaAgentId: null,
+          currentReviewCycle: 0,
+        }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([
+          { id: "agent-123", role: "engineer", title: "Tech Lead", urlKey: "swiftsight-cloud-tl" },
+        ]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "start-implementation",
+          "--issue",
+          "issue-123",
+          "--summary",
+          "TL starts implementation directly",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      const payload = requests[0]?.body as Record<string, unknown>;
+      expect(payload.sender).toMatchObject({
+        actorType: "agent",
+        actorId: "agent-123",
+        role: "engineer",
+      });
+      expect(payload.recipients).toEqual([
+        {
+          recipientType: "agent",
+          recipientId: "agent-123",
+          role: "engineer",
+        },
+      ]);
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("accepts camelCase close-task aliases used by live agents", async () => {
     const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
     const server = http.createServer((req, res) => {
@@ -265,6 +366,110 @@ describe("squadrail protocol helper CLI", () => {
         finalTestStatus: "passed",
         remainingRisks: ["Needs maintainer merge"],
       });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("defaults close-task to tech_lead when the same TL-titled engineer is also the reviewer", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          workflowState: "approved",
+          techLeadAgentId: "agent-123",
+          reviewerAgentId: "agent-123",
+          currentReviewCycle: 1,
+        }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([
+          { id: "agent-123", role: "engineer", title: "Tech Lead", urlKey: "swiftsight-cloud-tl" },
+        ]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "close-task",
+          "--issue",
+          "issue-123",
+          "--closure-summary",
+          "Closure recorded",
+          "--verification-summary",
+          "Approval already exists",
+          "--rollback-plan",
+          "Revert the focused patch",
+          "--final-artifacts",
+          "diff||approval",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      const payload = requests[0]?.body as Record<string, unknown>;
+      expect(payload.sender).toMatchObject({
+        actorType: "agent",
+        actorId: "agent-123",
+        role: "tech_lead",
+      });
+      expect(payload.recipients).toEqual([
+        {
+          recipientType: "agent",
+          recipientId: "agent-123",
+          role: "tech_lead",
+        },
+      ]);
     } finally {
       await closeTestServer(server);
     }

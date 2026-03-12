@@ -62,6 +62,7 @@ function toStableCacheSignals(input: RetrievalSignals) {
     fileNames: [...input.fileNames].sort(),
     preferredSourceTypes: [...input.preferredSourceTypes].sort(),
     projectAffinityIds: [...input.projectAffinityIds].sort(),
+    relatedIssueIds: [...(input.relatedIssueIds ?? [])].sort(),
     blockerCode: input.blockerCode,
     questionType: input.questionType,
   };
@@ -111,6 +112,7 @@ export function buildRetrievalStageCacheKey(input: {
       knowledgeTags: [...input.dynamicSignals.knowledgeTags].sort(),
       preferredSourceTypes: [...input.dynamicSignals.preferredSourceTypes].sort(),
       projectAffinityIds: [...input.dynamicSignals.projectAffinityIds].sort(),
+      relatedIssueIds: [...(input.dynamicSignals.relatedIssueIds ?? [])].sort(),
       blockerCode: input.dynamicSignals.blockerCode,
       questionType: input.dynamicSignals.questionType,
     },

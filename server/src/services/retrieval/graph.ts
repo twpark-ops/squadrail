@@ -70,6 +70,15 @@ export function buildGraphExpansionSeeds(input: {
     }
   }
 
+  for (const relatedIssueId of (input.signals.relatedIssueIds ?? []).slice(0, Math.min(maxSeeds, 4))) {
+    pushSeed({
+      entityType: "issue",
+      entityId: relatedIssueId,
+      seedBoost: 1.05,
+      seedReasons: ["signal_related_issue"],
+    });
+  }
+
   for (const hit of input.hits.slice(0, maxSeedHits)) {
     if (hit.symbolName) {
       pushSeed({

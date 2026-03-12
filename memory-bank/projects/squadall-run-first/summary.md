@@ -1,6 +1,6 @@
 # Squadall Run-First Priority Summary
 
-작성일: 2026-03-11
+작성일: 2026-03-12
 
 ## 현재 기준
 
@@ -161,18 +161,49 @@
   - summary에 `candidateCacheProvenanceCounts`, `finalCacheProvenanceCounts`, `topHitSourceTypeCounts`, `perSourceType`를 추가
   - brief quality에도 candidate/final cache reason/provenance와 `exactPathSatisfied`를 포함해 E2E/inspection 경로를 일치시킴
   - focused retrieval tests + 전체 `typecheck/test/build` 모두 통과
+- `cross-issue memory reuse` 완료
+  - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts` 추가
+  - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결
+  - `issue-retrieval`, `shared`, `scoring`, `knowledge`와 focused tests를 함께 갱신
+  - 검증:
+    - `pnpm vitest run server/src/__tests__/issue-retrieval.test.ts server/src/__tests__/knowledge-quality-trend.test.ts server/src/__tests__/knowledge-routes.test.ts server/src/__tests__/retrieval-cache.test.ts`
+    - `pnpm -r typecheck`
+    - `pnpm test:run`
+    - `pnpm build`
+- `18-agent real-org burn-in` 완료
+  - `scripts/runtime/squadrail-protocol.mjs`
+    - TL title을 가진 agent의 engineer-only command 기본 sender-role 추론 보강
+  - `scripts/e2e/cloud-swiftsight-real-org.mjs`
+    - `diff || commit` artifact 허용
+    - active-run timeout grace 추가
+    - base repo snapshot 검증을 HEAD-aware 방식으로 완화
+  - 추가 검증:
+    - `pnpm vitest run server/src/__tests__/protocol-helper-cli.test.ts`
+    - `node --check scripts/e2e/cloud-swiftsight-real-org.mjs`
+    - `SQUADRAIL_BASE_URL=http://127.0.0.1:3144 pnpm e2e:cloud-swiftsight-burn-in`
+  - 최종 배치 결과:
+    - `ok=true`
+    - `durationMs=3230399`
+    - single-lane `CLO-204`, `CLO-205`, `CLO-206`, `CLO-207` 모두 `done`
+    - coordinated root `CLO-208`은 child fan-out 후 의도대로 `cancelled`
+    - coordinated child `CLO-209`, `CLO-210`, `CLO-211` 모두 reviewer/QA 포함 `done`
 
 ## 현재 남은 우선순위
 
-1. cross-issue memory reuse
-2. rerank provider abstraction 2차
-3. execution lane / fast lane 실운영 계측
+1. rerank provider abstraction 2차
+2. execution lane / fast lane 실운영 계측
+
+상세 실행 문서:
+
+- `docs/backend-next-priority-detailed-plan.md`
 
 ## 다음 세션 핸드오프
 
 - 다음 확인 순서는 `docs/backend-post-phase-plan.md` -> `docs/run-first-burn-in-priority-plan.md` -> `memory-bank/projects/squadall-run-first/summary.md`다.
-- 다음 시작 작업은 바로 `cross-issue memory reuse`다.
+- 다음 시작 작업은 바로 `rerank provider abstraction` 2차다.
+- 세부 슬라이스와 후속 우선순위 설명은 `docs/backend-next-priority-detailed-plan.md`에 풀어 적어뒀다.
 - 기본 검증 순서는 `pnpm -r typecheck` -> `pnpm test:run` -> `pnpm build`다.
-- retrieval 쪽만 수정할 때는 먼저 `pnpm vitest run server/src/__tests__/issue-retrieval.test.ts`와 `pnpm vitest run server/src/__tests__/knowledge-reranking.test.ts`를 좁게 돌린다.
+- rerank/provider 쪽만 수정할 때는 먼저 `pnpm vitest run server/src/__tests__/knowledge-reranking.test.ts`를 좁게 돌린다.
+- protocol helper나 burn-in harness를 건드릴 때는 `pnpm vitest run server/src/__tests__/protocol-helper-cli.test.ts`와 `node --check scripts/e2e/cloud-swiftsight-real-org.mjs`를 같이 확인한다.
 - 건드리지 말아야 할 경로는 `memory-bank/README.md`와 `memory-bank/projects/squadall-ui-only-followup/`다.
 - 제품 방향은 계속 `standardized software delivery org kernel`이며, `peer mode`는 후순위다.

@@ -71,6 +71,7 @@ export type KnowledgeQualityTrendSample = {
   candidateCacheHit: boolean;
   finalCacheHit: boolean;
   personalized: boolean;
+  reused: boolean;
   actorRole: string | null;
   issueProjectId: string | null;
   topHitSourceType: string | null;
@@ -241,7 +242,9 @@ function readRetrievalCacheIdentity(value: unknown): RetrievalCacheIdentityView 
 export function buildKnowledgeQualityDailyTrend(input: {
   samples: KnowledgeQualityTrendSample[];
   days: number;
+  now?: Date;
 }) {
+  const now = input.now ?? new Date();
   const bucketMap = new Map<string, {
     date: string;
     totalRuns: number;
@@ -251,6 +254,7 @@ export function buildKnowledgeQualityDailyTrend(input: {
     candidateCacheHits: number;
     finalCacheHits: number;
     personalizedRuns: number;
+    reuseRuns: number;
     roleCounts: Record<string, number>;
     projectCounts: Record<string, number>;
     topHitSourceTypeCounts: Record<string, number>;
@@ -261,7 +265,7 @@ export function buildKnowledgeQualityDailyTrend(input: {
   }>();
 
   for (let offset = input.days - 1; offset >= 0; offset -= 1) {
-    const date = new Date(Date.now() - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const date = new Date(now.getTime() - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     bucketMap.set(date, {
       date,
       totalRuns: 0,
@@ -271,6 +275,7 @@ export function buildKnowledgeQualityDailyTrend(input: {
       candidateCacheHits: 0,
       finalCacheHits: 0,
       personalizedRuns: 0,
+      reuseRuns: 0,
       roleCounts: {},
       projectCounts: {},
       topHitSourceTypeCounts: {},
@@ -292,6 +297,7 @@ export function buildKnowledgeQualityDailyTrend(input: {
     if (sample.candidateCacheHit) bucket.candidateCacheHits += 1;
     if (sample.finalCacheHit) bucket.finalCacheHits += 1;
     if (sample.personalized) bucket.personalizedRuns += 1;
+    if (sample.reused) bucket.reuseRuns += 1;
     incrementCount(bucket.roleCounts, sample.actorRole);
     incrementCount(bucket.projectCounts, sample.issueProjectId);
     incrementCount(bucket.topHitSourceTypeCounts, sample.topHitSourceType);
@@ -2028,6 +2034,21 @@ export function knowledgeService(db: Db) {
           organizationalMemoryHitCount: readNumber(quality.organizationalMemoryHitCount),
           codeHitCount: readNumber(quality.codeHitCount),
           reviewHitCount: readNumber(quality.reviewHitCount),
+          reuseHitCount: readNumber(quality.reuseHitCount),
+          reusedIssueCount: readNumber(quality.reusedIssueCount),
+          reuseDecisionHitCount: readNumber(quality.reuseDecisionHitCount),
+          reuseFixHitCount: readNumber(quality.reuseFixHitCount),
+          reuseReviewHitCount: readNumber(quality.reuseReviewHitCount),
+          reuseCloseHitCount: readNumber(quality.reuseCloseHitCount),
+          reusedIssueIds: Array.isArray(queryDebug.reusedIssueIds)
+            ? queryDebug.reusedIssueIds.filter((value): value is string => typeof value === "string")
+            : [],
+          reusedIssueIdentifiers: Array.isArray(queryDebug.reusedIssueIdentifiers)
+            ? queryDebug.reusedIssueIdentifiers.filter((value): value is string => typeof value === "string")
+            : [],
+          reuseArtifactKinds: Array.isArray(queryDebug.reuseArtifactKinds)
+            ? queryDebug.reuseArtifactKinds.filter((value): value is string => typeof value === "string")
+            : [],
           candidateCacheHit: readBoolean(cache.candidateHit),
           finalCacheHit: readBoolean(cache.finalHit),
           candidateCacheState,
@@ -2279,15 +2300,24 @@ export function knowledgeService(db: Db) {
       let organizationalMemoryHitCountTotal = 0;
       let codeHitCountTotal = 0;
       let reviewHitCountTotal = 0;
+      let reuseRunCount = 0;
+      let reuseHitCountTotal = 0;
+      let reusedIssueCountTotal = 0;
+      let reuseDecisionHitCountTotal = 0;
+      let reuseFixHitCountTotal = 0;
+      let reuseReviewHitCountTotal = 0;
+      let reuseCloseHitCountTotal = 0;
       const graphEntityTypeCounts: Record<string, number> = {};
       const edgeTypeCounts: Record<string, number> = {};
       const graphHopDepthCounts: Record<string, number> = {};
+      const reuseArtifactKindCounts: Record<string, number> = {};
       const candidateCacheMissReasonCounts: Record<string, number> = {};
       const finalCacheMissReasonCounts: Record<string, number> = {};
       const candidateCacheProvenanceCounts: Record<string, number> = {};
       const finalCacheProvenanceCounts: Record<string, number> = {};
       const topHitSourceTypeCounts: Record<string, number> = {};
       const dailyTrendSamples: KnowledgeQualityTrendSample[] = [];
+      const reusedIssueIdSet = new Set<string>();
 
       for (const row of rows) {
         const debug = (row.queryDebug ?? {}) as Record<string, unknown>;
@@ -2317,8 +2347,19 @@ export function knowledgeService(db: Db) {
           : 0;
         const codeHitCountForRun = typeof quality.codeHitCount === "number" ? quality.codeHitCount : 0;
         const reviewHitCountForRun = typeof quality.reviewHitCount === "number" ? quality.reviewHitCount : 0;
+        const reuseHitCountForRun = typeof quality.reuseHitCount === "number" ? quality.reuseHitCount : 0;
+        const reusedIssueCountForRun = typeof quality.reusedIssueCount === "number" ? quality.reusedIssueCount : 0;
+        const reuseDecisionHitCountForRun = typeof quality.reuseDecisionHitCount === "number"
+          ? quality.reuseDecisionHitCount
+          : 0;
+        const reuseFixHitCountForRun = typeof quality.reuseFixHitCount === "number" ? quality.reuseFixHitCount : 0;
+        const reuseReviewHitCountForRun = typeof quality.reuseReviewHitCount === "number" ? quality.reuseReviewHitCount : 0;
+        const reuseCloseHitCountForRun = typeof quality.reuseCloseHitCount === "number" ? quality.reuseCloseHitCount : 0;
         const graphEntityTypes = Array.isArray(quality.graphEntityTypes)
           ? quality.graphEntityTypes.filter((value): value is string => typeof value === "string")
+          : [];
+        const reuseArtifactKinds = Array.isArray(quality.reuseArtifactKinds)
+          ? quality.reuseArtifactKinds.filter((value): value is string => typeof value === "string")
           : [];
         const edgeTypes = quality.edgeTypeCounts && typeof quality.edgeTypeCounts === "object"
           ? Object.entries(quality.edgeTypeCounts as Record<string, unknown>)
@@ -2373,6 +2414,18 @@ export function knowledgeService(db: Db) {
         organizationalMemoryHitCountTotal += organizationalMemoryHitCountForRun;
         codeHitCountTotal += codeHitCountForRun;
         reviewHitCountTotal += reviewHitCountForRun;
+        reuseHitCountTotal += reuseHitCountForRun;
+        reusedIssueCountTotal += reusedIssueCountForRun;
+        if (reuseHitCountForRun > 0) reuseRunCount += 1;
+        reuseDecisionHitCountTotal += reuseDecisionHitCountForRun;
+        reuseFixHitCountTotal += reuseFixHitCountForRun;
+        reuseReviewHitCountTotal += reuseReviewHitCountForRun;
+        reuseCloseHitCountTotal += reuseCloseHitCountForRun;
+        for (const reusedIssueId of Array.isArray(debug.reusedIssueIds)
+          ? debug.reusedIssueIds.filter((value): value is string => typeof value === "string")
+          : []) {
+          reusedIssueIdSet.add(reusedIssueId);
+        }
         temporalHitCountTotal += temporalHitCount;
         branchAlignedTopHitCountTotal += branchAlignedTopHitCount;
         if (personalization.applied === true) personalizedRunCount += 1;
@@ -2410,6 +2463,9 @@ export function knowledgeService(db: Db) {
         }
         for (const [depth, count] of hopDepths) {
           graphHopDepthCounts[depth] = (graphHopDepthCounts[depth] ?? 0) + count;
+        }
+        for (const reuseArtifactKind of reuseArtifactKinds) {
+          reuseArtifactKindCounts[reuseArtifactKind] = (reuseArtifactKindCounts[reuseArtifactKind] ?? 0) + 1;
         }
         for (const reason of degradedReasons) {
           degradedReasonCounts[reason] = (degradedReasonCounts[reason] ?? 0) + 1;
@@ -2504,6 +2560,7 @@ export function knowledgeService(db: Db) {
           candidateCacheHit: cache.candidateHit === true,
           finalCacheHit: cache.finalHit === true,
           personalized: personalization.applied === true,
+          reused: reuseHitCountForRun > 0,
           actorRole: row.actorRole,
           issueProjectId,
           topHitSourceType,
@@ -2725,6 +2782,15 @@ export function knowledgeService(db: Db) {
         averageOrganizationalMemoryHitCount: totalRuns > 0 ? organizationalMemoryHitCountTotal / totalRuns : 0,
         averageCodeHitCount: totalRuns > 0 ? codeHitCountTotal / totalRuns : 0,
         averageReviewHitCount: totalRuns > 0 ? reviewHitCountTotal / totalRuns : 0,
+        reuseRunCount,
+        reuseHitRate: totalRuns > 0 ? reuseRunCount / totalRuns : 0,
+        reuseIssueCount: reusedIssueIdSet.size,
+        averageReuseHitCount: totalRuns > 0 ? reuseHitCountTotal / totalRuns : 0,
+        averageReusedIssueCount: totalRuns > 0 ? reusedIssueCountTotal / totalRuns : 0,
+        averageReuseDecisionHitCount: totalRuns > 0 ? reuseDecisionHitCountTotal / totalRuns : 0,
+        averageReuseFixHitCount: totalRuns > 0 ? reuseFixHitCountTotal / totalRuns : 0,
+        averageReuseReviewHitCount: totalRuns > 0 ? reuseReviewHitCountTotal / totalRuns : 0,
+        averageReuseCloseHitCount: totalRuns > 0 ? reuseCloseHitCountTotal / totalRuns : 0,
         averageSymbolGraphHitCount: totalRuns > 0 ? symbolGraphHitCountTotal / totalRuns : 0,
         averageEdgeTraversalCount: totalRuns > 0 ? edgeTraversalCountTotal / totalRuns : 0,
         averageGraphMaxDepth: totalRuns > 0 ? graphMaxDepthTotal / totalRuns : 0,
@@ -2753,6 +2819,7 @@ export function knowledgeService(db: Db) {
         symbolGraphExpandedRuns,
         multiHopGraphExpandedRuns,
         confidenceCounts,
+        reuseArtifactKindCounts,
         degradedReasonCounts,
         graphEntityTypeCounts,
         edgeTypeCounts,

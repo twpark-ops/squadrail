@@ -5,6 +5,7 @@ describe("knowledge quality daily trend", () => {
   it("builds fixed daily buckets and aggregates cache, graph, and personalization counts", () => {
     const trend = buildKnowledgeQualityDailyTrend({
       days: 3,
+      now: new Date("2026-03-11T00:00:00Z"),
       samples: [
         {
           createdAt: new Date("2026-03-09T12:00:00Z"),
@@ -14,6 +15,7 @@ describe("knowledge quality daily trend", () => {
           candidateCacheHit: true,
           finalCacheHit: false,
           personalized: true,
+          reused: false,
           actorRole: "reviewer",
           issueProjectId: "project-a",
           topHitSourceType: "code",
@@ -30,6 +32,7 @@ describe("knowledge quality daily trend", () => {
           candidateCacheHit: false,
           finalCacheHit: true,
           personalized: false,
+          reused: true,
           actorRole: "engineer",
           issueProjectId: "project-a",
           topHitSourceType: "review",
@@ -46,6 +49,7 @@ describe("knowledge quality daily trend", () => {
           candidateCacheHit: false,
           finalCacheHit: false,
           personalized: true,
+          reused: true,
           actorRole: "reviewer",
           issueProjectId: "project-b",
           topHitSourceType: "code",
@@ -69,6 +73,7 @@ describe("knowledge quality daily trend", () => {
       candidateCacheHits: 1,
       finalCacheHits: 1,
       personalizedRuns: 1,
+      reuseRuns: 1,
       roleCounts: {
         reviewer: 1,
         engineer: 1,
@@ -103,6 +108,7 @@ describe("knowledge quality daily trend", () => {
       candidateCacheHits: 0,
       finalCacheHits: 0,
       personalizedRuns: 1,
+      reuseRuns: 1,
       roleCounts: {
         reviewer: 1,
       },

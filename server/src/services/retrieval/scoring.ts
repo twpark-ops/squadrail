@@ -9,6 +9,7 @@ import {
   isExecutableEvidenceSourceType,
 } from "../retrieval-evidence-guards.js";
 import {
+  classifyReuseArtifactKind,
   metadataStringArray,
   normalizeHintPath,
   uniqueNonEmpty,
@@ -52,6 +53,10 @@ export interface RetrievalRerankWeights {
   organizationalIssueMissPenalty: number;
   organizationalProtocolMissPenalty: number;
   organizationalReviewMissPenalty: number;
+  relatedIssueDecisionBoost: number;
+  relatedIssueFixBoost: number;
+  relatedIssueReviewBoost: number;
+  relatedIssueCloseBoost: number;
 }
 
 export type RetrievalPathBoostKind = "none" | "direct" | "metadata_exact" | "metadata_file";
@@ -82,8 +87,10 @@ export function computeScopeBoost(input: {
   issueId: string;
   projectId: string | null;
   projectAffinityIds?: string[];
+  relatedIssueIds?: string[];
 }) {
   if (input.hitIssueId === input.issueId) return 2;
+  if (input.hitIssueId && (input.relatedIssueIds ?? []).includes(input.hitIssueId)) return 1.15;
   if (input.projectId && input.hitProjectId === input.projectId) return 1;
   if (input.hitProjectId && (input.projectAffinityIds ?? []).includes(input.hitProjectId)) return 0.8;
   return 0;
@@ -110,6 +117,7 @@ export function fuseRetrievalCandidates(input: {
   issueId: string;
   projectId: string | null;
   projectAffinityIds?: string[];
+  relatedIssueIds?: string[];
   finalK: number;
 }) {
   const merged = new Map<string, RetrievalCandidate>();
@@ -144,6 +152,7 @@ export function fuseRetrievalCandidates(input: {
         issueId: input.issueId,
         projectId: input.projectId,
         projectAffinityIds: input.projectAffinityIds,
+        relatedIssueIds: input.relatedIssueIds,
       });
       const authorityBoost = computeAuthorityBoost(candidate.authorityLevel);
       const fusedScore = clampScore(candidate.sparseScore) + clampScore(candidate.denseScore) + scopeBoost + authorityBoost;
@@ -303,6 +312,27 @@ export function computeLatestBoost(hit: RetrievalHitView, weights: RetrievalRera
   return 0;
 }
 
+export function computeRelatedIssueReuseBoost(input: {
+  hit: RetrievalHitView;
+  signals: RetrievalSignals;
+  weights: RetrievalRerankWeights;
+}) {
+  if (!input.hit.documentIssueId || !(input.signals.relatedIssueIds ?? []).includes(input.hit.documentIssueId)) {
+    return 0;
+  }
+
+  switch (classifyReuseArtifactKind(input.hit)) {
+    case "close":
+      return input.weights.relatedIssueCloseBoost;
+    case "review":
+      return input.weights.relatedIssueReviewBoost;
+    case "fix":
+      return input.weights.relatedIssueFixBoost;
+    default:
+      return input.weights.relatedIssueDecisionBoost;
+  }
+}
+
 export function computeFreshnessBoost(hit: RetrievalHitView, weights: RetrievalRerankWeights, now = new Date()) {
   let score = 0;
   const validFrom = parseIsoDate(hit.documentMetadata.validFrom);
@@ -346,8 +376,10 @@ export function buildHitRationale(input: {
     issueId: input.issueId,
     projectId: input.projectId,
     projectAffinityIds: input.projectAffinityIds,
+    relatedIssueIds: input.signals.relatedIssueIds,
   });
   if (scopeBoost >= 2) reasons.push("issue_scoped");
+  else if (input.hit.documentIssueId && (input.signals.relatedIssueIds ?? []).includes(input.hit.documentIssueId)) reasons.push("related_issue_reuse");
   else if (scopeBoost >= 1) reasons.push("project_scoped");
   else if (scopeBoost > 0) reasons.push("project_affinity");
   if (computeAuthorityBoost(input.hit.authorityLevel) > 0) reasons.push("high_authority");
@@ -363,6 +395,14 @@ export function buildHitRationale(input: {
   }) > 0) reasons.push("executable_path_bridge");
   if (symbolBoost > 0) reasons.push("symbol_match");
   if (computeTagBoost(input.hit, input.signals, input.weights) > 0) reasons.push("tag_match");
+  const relatedIssueReuseBoost = computeRelatedIssueReuseBoost({
+    hit: input.hit,
+    signals: input.signals,
+    weights: input.weights,
+  });
+  if (relatedIssueReuseBoost > 0) {
+    reasons.push(`reuse_${classifyReuseArtifactKind(input.hit)}_artifact`);
+  }
   const freshnessBoost = computeFreshnessBoost(input.hit, input.weights);
   if (freshnessBoost > 0) reasons.push("fresh_content");
   if (freshnessBoost < 0) reasons.push("stale_or_invalid");

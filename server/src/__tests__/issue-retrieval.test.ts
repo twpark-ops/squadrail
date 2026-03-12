@@ -11,6 +11,7 @@ import {
   buildSymbolGraphExpandedHits,
   buildSymbolGraphExpansionSeeds,
   buildRetrievalQueryText,
+  computeRetrievalReuseSummary,
   computeCosineSimilarity,
   deriveSemanticGraphHopDepth,
   shouldAllowGraphExactPathRediscovery,
@@ -24,6 +25,7 @@ import {
   renderRetrievedBriefMarkdown,
   selectProtocolRetrievalRecipients,
 } from "../services/issue-retrieval.js";
+import { buildHitRationale } from "../services/retrieval/scoring.js";
 
 describe("issue retrieval helpers", () => {
   it("builds a stable query embedding cache key", () => {
@@ -1770,6 +1772,98 @@ describe("issue retrieval helpers", () => {
     expect(signals.preferredSourceTypes).toContain("adr");
   });
 
+  it("collects related issue reuse hints from protocol payload aliases", () => {
+    const signals = deriveDynamicRetrievalSignals({
+      recipientRole: "reviewer",
+      eventType: "on_change_request",
+      issue: {
+        projectId: "project-1",
+        title: "Reuse prior retry decisions",
+        description: null,
+        mentionedProjects: [],
+      },
+      baselineSourceTypes: ["code", "review"],
+      message: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "Reuse prior retry decisions",
+        payload: {
+          reviewSummary: "Reuse prior retry decisions",
+          relatedIssueIds: ["issue-a", "issue-b"],
+          linkedIssueIds: ["issue-b", "issue-c"],
+          followUpIssueIds: ["issue-d"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(signals.relatedIssueIds).toEqual(["issue-a", "issue-b", "issue-c", "issue-d"]);
+  });
+
+  it("collects related issue identifier hints from issue text, labels, and payload", () => {
+    const signals = deriveDynamicRetrievalSignals({
+      recipientRole: "engineer",
+      eventType: "on_assignment",
+      issue: {
+        projectId: "project-1",
+        identifier: "CLO-140",
+        title: "Follow up CLO-88 rollout verification",
+        description: "Continue the CLO-91 and CLO-92 stabilization loop.",
+        labels: [{ name: "follow-up:CLO-93" }],
+        mentionedProjects: [],
+      },
+      baselineSourceTypes: ["code", "review"],
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "pm-1",
+          role: "pm",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "todo",
+        workflowStateAfter: "todo",
+        summary: "Reuse CLO-94 rollout lessons",
+        payload: {
+          goal: "Finish the CLO-95 close loop without replaying the same regression.",
+          relatedIssueIdentifiers: ["CLO-96"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(signals.relatedIssueIdentifiers).toHaveLength(7);
+    expect(signals.relatedIssueIdentifiers).toEqual(expect.arrayContaining([
+      "CLO-88",
+      "CLO-91",
+      "CLO-92",
+      "CLO-93",
+      "CLO-94",
+      "CLO-95",
+      "CLO-96",
+    ]));
+    expect(signals.preferredSourceTypes).toEqual(expect.arrayContaining(["review", "protocol_message", "issue"]));
+  });
+
   it("derives exact paths from issue text when payload paths are absent", () => {
     const signals = deriveDynamicRetrievalSignals({
       recipientRole: "engineer",
@@ -2305,6 +2399,281 @@ describe("issue retrieval helpers", () => {
     expect(reranked[1]?.chunkId).toBe("chunk-issue");
     expect(reranked[2]?.chunkId).toBe("chunk-review");
     expect(reranked[2]?.rerankScore).toBeLessThan(reranked[0]?.rerankScore ?? 0);
+  });
+
+  it("adds explicit related issue ids as graph expansion seeds", () => {
+    const seeds = buildGraphExpansionSeeds({
+      hits: [],
+      linkMap: new Map(),
+      signals: {
+        exactPaths: [],
+        fileNames: [],
+        symbolHints: [],
+        knowledgeTags: [],
+        preferredSourceTypes: ["issue", "review", "code"],
+        blockerCode: null,
+        questionType: null,
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-agent"],
+        relatedIssueIds: ["issue-related-1"],
+      },
+    });
+
+    expect(seeds.map((seed) => `${seed.entityType}:${seed.entityId}`)).toContain("issue:issue-related-1");
+  });
+
+  it("prefers related issue organizational memory over unrelated issue memory when direct evidence is absent", () => {
+    const reranked = rerankRetrievalHits({
+      issueId: "issue-1",
+      projectId: "project-1",
+      finalK: 2,
+      signals: {
+        exactPaths: [],
+        fileNames: [],
+        symbolHints: [],
+        knowledgeTags: [],
+        preferredSourceTypes: ["issue", "review", "code"],
+        blockerCode: null,
+        questionType: null,
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-agent"],
+        relatedIssueIds: ["issue-related-1"],
+      },
+      hits: [
+        {
+          chunkId: "related-review",
+          documentId: "doc-related-review",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-related-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-88/review/submit.md",
+          title: "Related review artifact",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Resolved the same failure mode in a sibling issue.",
+          documentMetadata: { artifactKind: "review_event" },
+          chunkMetadata: {},
+          denseScore: 0.4,
+          sparseScore: 0.3,
+          rerankScore: null,
+          fusedScore: 1.5,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "unrelated-review",
+          documentId: "doc-unrelated-review",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-unrelated-9",
+          documentProjectId: "project-1",
+          path: "issues/CLO-91/review/submit.md",
+          title: "Unrelated review artifact",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Different regression without matching issue lineage.",
+          documentMetadata: { artifactKind: "review_event" },
+          chunkMetadata: {},
+          denseScore: 0.4,
+          sparseScore: 0.3,
+          rerankScore: null,
+          fusedScore: 1.5,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(reranked[0]?.chunkId).toBe("related-review");
+  });
+
+  it("boosts related close artifacts and explains the reuse rationale", () => {
+    const reranked = rerankRetrievalHits({
+      issueId: "issue-1",
+      projectId: "project-1",
+      finalK: 2,
+      signals: {
+        exactPaths: [],
+        fileNames: [],
+        symbolHints: [],
+        knowledgeTags: [],
+        preferredSourceTypes: ["review", "protocol_message", "issue", "code"],
+        blockerCode: null,
+        questionType: null,
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-agent"],
+        relatedIssueIds: ["issue-related-1"],
+      },
+      hits: [
+        {
+          chunkId: "related-close",
+          documentId: "doc-related-close",
+          sourceType: "protocol_message",
+          authorityLevel: "working",
+          documentIssueId: "issue-related-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-88/protocol/close.md",
+          title: "Related close artifact",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Rollout closed after verification and rollback planning.",
+          documentMetadata: { artifactKind: "protocol_event", messageType: "CLOSE_TASK" },
+          chunkMetadata: {},
+          denseScore: 0.32,
+          sparseScore: 0.24,
+          rerankScore: null,
+          fusedScore: 1.3,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "unrelated-close",
+          documentId: "doc-unrelated-close",
+          sourceType: "protocol_message",
+          authorityLevel: "working",
+          documentIssueId: "issue-unrelated-9",
+          documentProjectId: "project-1",
+          path: "issues/CLO-99/protocol/close.md",
+          title: "Unrelated close artifact",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Different close flow without the same lineage.",
+          documentMetadata: { artifactKind: "protocol_event", messageType: "CLOSE_TASK" },
+          chunkMetadata: {},
+          denseScore: 0.32,
+          sparseScore: 0.24,
+          rerankScore: null,
+          fusedScore: 1.3,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(reranked[0]?.chunkId).toBe("related-close");
+    expect(buildHitRationale({
+      hit: reranked[0]!,
+      issueId: "issue-1",
+      projectId: "project-1",
+      projectAffinityIds: ["project-1"],
+      signals: {
+        exactPaths: [],
+        fileNames: [],
+        symbolHints: [],
+        knowledgeTags: [],
+        preferredSourceTypes: ["review", "protocol_message", "issue", "code"],
+        blockerCode: null,
+        questionType: null,
+        projectAffinityIds: ["project-1"],
+        projectAffinityNames: ["swiftsight-agent"],
+        relatedIssueIds: ["issue-related-1"],
+      },
+      weights: resolveRetrievalPolicyRerankConfig({
+        allowedSourceTypes: ["review", "protocol_message", "issue", "code"],
+      }).weights,
+    })).toContain("reuse_close_artifact");
+  });
+
+  it("summarizes reuse evidence by related issue and artifact class", () => {
+    const summary = computeRetrievalReuseSummary({
+      relatedIssueIds: ["issue-related-1", "issue-related-2"],
+      relatedIssueIdentifierMap: {
+        "issue-related-1": "CLO-88",
+        "issue-related-2": "CLO-91",
+      },
+      finalHits: [
+        {
+          chunkId: "fix-hit",
+          documentId: "doc-fix",
+          sourceType: "code",
+          authorityLevel: "working",
+          documentIssueId: "issue-related-1",
+          documentProjectId: "project-1",
+          path: "src/retry.ts",
+          title: "retry.ts",
+          headingPath: null,
+          symbolName: "retryWorker",
+          textContent: "Retry worker fix",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: 0.7,
+          sparseScore: 0.4,
+          rerankScore: 1.2,
+          fusedScore: 2.3,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "review-hit",
+          documentId: "doc-review",
+          sourceType: "review",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-related-1",
+          documentProjectId: "project-1",
+          path: "issues/CLO-88/review/submit.md",
+          title: "Review artifact",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Review artifact",
+          documentMetadata: { artifactKind: "review_event" },
+          chunkMetadata: {},
+          denseScore: 0.6,
+          sparseScore: 0.5,
+          rerankScore: 1.1,
+          fusedScore: 2.2,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "close-hit",
+          documentId: "doc-close",
+          sourceType: "protocol_message",
+          authorityLevel: "working",
+          documentIssueId: "issue-related-2",
+          documentProjectId: "project-1",
+          path: "issues/CLO-91/close.md",
+          title: "Close artifact",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Closed after rollout verification",
+          documentMetadata: { artifactKind: "protocol_event", messageType: "CLOSE_TASK" },
+          chunkMetadata: {},
+          denseScore: 0.5,
+          sparseScore: 0.2,
+          rerankScore: 0.9,
+          fusedScore: 1.8,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+        {
+          chunkId: "decision-hit",
+          documentId: "doc-decision",
+          sourceType: "issue",
+          authorityLevel: "canonical",
+          documentIssueId: "issue-related-2",
+          documentProjectId: "project-1",
+          path: "issues/CLO-91/issue.md",
+          title: "Issue snapshot",
+          headingPath: null,
+          symbolName: null,
+          textContent: "Decision snapshot",
+          documentMetadata: { artifactKind: "issue_snapshot" },
+          chunkMetadata: {},
+          denseScore: 0.4,
+          sparseScore: 0.2,
+          rerankScore: 0.8,
+          fusedScore: 1.5,
+          updatedAt: new Date("2026-03-10T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(summary).toMatchObject({
+      requestedRelatedIssueCount: 2,
+      reuseHitCount: 4,
+      reusedIssueCount: 2,
+      reusedIssueIds: ["issue-related-1", "issue-related-2"],
+      reusedIssueIdentifiers: ["CLO-88", "CLO-91"],
+      reuseArtifactKinds: ["fix", "review", "close", "decision"],
+      reuseFixHitCount: 1,
+      reuseReviewHitCount: 1,
+      reuseCloseHitCount: 1,
+      reuseDecisionHitCount: 1,
+    });
   });
 
   it("applies policy-configured rerank weights and source preferences", () => {
