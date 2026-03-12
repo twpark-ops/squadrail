@@ -2,6 +2,21 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 heartbeat / issue-retrieval / knowledge coverage+decomposition 업데이트
+
+- `13-E runtime coverage/decomposition batch 1`: **진행 중**
+  - `heartbeat.ts`에서 dispatch preemption context/detail builder seam을 추출하고 runtime state service test를 추가했다.
+  - `issue-retrieval.ts`에서 finalization graph/exact-path metric builder seam을 추출하고 direct test를 추가했다.
+  - `knowledge.ts`에서 project revision / document deprecation builder seam을 추출하고 `createDocument`, `touchProjectKnowledgeRevision` service test를 추가했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-priority.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-retrieval-finalization.test.ts src/__tests__/knowledge-service-builders.test.ts src/__tests__/knowledge-service-operations.test.ts`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `38.49%`, branches `65.14%`, functions `62.42%`
+  - 최신 server tests: `95 files / 637 tests` 통과
+  - immediate next는 그대로 `heartbeat / issue-retrieval / knowledge` coverage + decomposition이며, 그 다음은 `PR bridge / merge recovery / workflow template` 통합 시나리오 강화다.
+
 ## 2026-03-13 workflow/recovery/custom-role hardening 업데이트
 
 - `13-D workflow/recovery/custom-role hardening`: **완료**

@@ -1395,6 +1395,34 @@ export function buildCombinedGraphMetrics(
   };
 }
 
+export function buildRecipientFinalizationMetrics(input: {
+  finalHits: RetrievalHitView[];
+  chunkGraphResult: ChunkGraphExpansionResult;
+  symbolGraphResult: {
+    hits: RetrievalHitView[];
+    edgeTraversalCount: number;
+    edgeTypeCounts: Record<string, number>;
+    graphMaxDepth: number;
+    graphHopDepthCounts: Record<string, number>;
+  };
+  exactPaths: string[];
+}) {
+  const combinedGraphMetrics = buildCombinedGraphMetrics(input.chunkGraphResult, input.symbolGraphResult);
+  return {
+    briefGraphHits: input.finalHits.filter((hit) => hit.graphMetadata != null),
+    symbolGraphHitCount: input.symbolGraphResult.hits.length,
+    edgeTraversalCount: input.chunkGraphResult.edgeTraversalCount + input.symbolGraphResult.edgeTraversalCount,
+    edgeTypeCounts: input.symbolGraphResult.edgeTypeCounts,
+    graphMaxDepth: combinedGraphMetrics.combinedGraphMaxDepth,
+    graphHopDepthCounts: combinedGraphMetrics.combinedGraphHopDepthCounts,
+    multiHopGraphHitCount: input.finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length,
+    exactPathSatisfied: isExactPathSatisfied({
+      finalHits: input.finalHits,
+      exactPaths: input.exactPaths,
+    }),
+  };
+}
+
 export function resolveRecipientBriefQuality(input: {
   finalHits: RetrievalHitView[];
   queryEmbedding: number[] | null;
@@ -4077,9 +4105,12 @@ export function issueRetrievalService(db: Db) {
         }
 
         const resolvedBriefQuality = briefQuality;
-        const briefGraphHits = finalHits.filter((hit) => hit.graphMetadata != null);
-        const briefGraphMetrics = buildCombinedGraphMetrics(chunkGraphResult, symbolGraphResult);
-        const briefMultiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
+        const finalizationMetrics = buildRecipientFinalizationMetrics({
+          finalHits,
+          chunkGraphResult,
+          symbolGraphResult,
+          exactPaths: dynamicSignals.exactPaths,
+        });
         const briefDraft = buildRetrievalBriefDraft({
           eventType,
           triggeringMessageId: input.triggeringMessageId,
@@ -4137,13 +4168,13 @@ export function issueRetrievalService(db: Db) {
           reuseSummary,
           graphSeeds,
           symbolGraphSeeds,
-          briefGraphHits,
-          symbolGraphHitCount: symbolGraphResult.hits.length,
-          edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
-          edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
-          graphMaxDepth: briefGraphMetrics.combinedGraphMaxDepth,
-          graphHopDepthCounts: briefGraphMetrics.combinedGraphHopDepthCounts,
-          multiHopGraphHitCount: briefMultiHopGraphHitCount,
+          briefGraphHits: finalizationMetrics.briefGraphHits,
+          symbolGraphHitCount: finalizationMetrics.symbolGraphHitCount,
+          edgeTraversalCount: finalizationMetrics.edgeTraversalCount,
+          edgeTypeCounts: finalizationMetrics.edgeTypeCounts,
+          graphMaxDepth: finalizationMetrics.graphMaxDepth,
+          graphHopDepthCounts: finalizationMetrics.graphHopDepthCounts,
+          multiHopGraphHitCount: finalizationMetrics.multiHopGraphHitCount,
           temporalContext,
           queryEmbeddingCacheHit: queryEmbeddingDebug.embeddingCacheHit === true,
           candidateCacheHit,
@@ -4151,10 +4182,7 @@ export function issueRetrievalService(db: Db) {
           revisionSignature,
           candidateCacheInspection,
           finalCacheInspection,
-          exactPathSatisfied: isExactPathSatisfied({
-            finalHits,
-            exactPaths: dynamicSignals.exactPaths,
-          }),
+          exactPathSatisfied: finalizationMetrics.exactPathSatisfied,
           personalizationProfile,
           maxEvidenceItems: lanePolicy.maxEvidenceItems,
         });

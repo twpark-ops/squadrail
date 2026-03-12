@@ -132,6 +132,64 @@ export function buildKnowledgeDocumentVersionValues(input: {
   } satisfies typeof knowledgeDocumentVersions.$inferInsert;
 }
 
+export function buildProjectKnowledgeRevisionValues(input: {
+  companyId: string;
+  projectId: string;
+  existing?: {
+    revision: number;
+    lastHeadSha?: string | null;
+    lastTreeSignature?: string | null;
+    lastImportMode?: string | null;
+    metadata?: unknown;
+  } | null;
+  bump?: boolean;
+  headSha?: string | null;
+  treeSignature?: string | null;
+  importMode?: string | null;
+  importedAt?: string | Date | null;
+  metadata?: Record<string, unknown>;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  const importedAt = input.importedAt
+    ? (input.importedAt instanceof Date ? input.importedAt : new Date(input.importedAt))
+    : now;
+
+  return {
+    companyId: input.companyId,
+    projectId: input.projectId,
+    revision: input.existing ? input.existing.revision + (input.bump ? 1 : 0) : 1,
+    lastHeadSha: input.headSha ?? input.existing?.lastHeadSha ?? null,
+    lastTreeSignature: input.treeSignature ?? input.existing?.lastTreeSignature ?? null,
+    lastImportMode: input.importMode ?? input.existing?.lastImportMode ?? null,
+    lastImportedAt: importedAt,
+    metadata: {
+      ...asRecord(input.existing?.metadata),
+      ...(input.metadata ?? {}),
+    },
+    updatedAt: now,
+  } satisfies typeof projectKnowledgeRevisions.$inferInsert;
+}
+
+export function buildDeprecatedDocumentMetadata(input: {
+  existingMetadata?: unknown;
+  metadata?: Record<string, unknown>;
+  reason?: string | null;
+  deprecatedAt?: string | null;
+  supersededByDocumentId?: string | null;
+  supersededAt?: string | null;
+}) {
+  return {
+    ...asRecord(input.existingMetadata),
+    ...(input.metadata ?? {}),
+    ...(input.reason ? { deprecatedReason: input.reason } : {}),
+    ...(input.deprecatedAt ? { deprecatedAt: input.deprecatedAt } : {}),
+    ...(input.supersededByDocumentId ? { supersededByDocumentId: input.supersededByDocumentId } : {}),
+    ...(input.supersededAt ? { supersededAt: input.supersededAt } : {}),
+    isLatestForScope: false,
+  };
+}
+
 export function buildTaskBriefValues(input: {
   companyId: string;
   issueId: string;
@@ -1340,21 +1398,17 @@ export function knowledgeService(db: Db) {
         )
         .then((rows) => rows[0] ?? null);
 
-      const revision = existing ? existing.revision + (input.bump ? 1 : 0) : 1;
-      const values = {
+      const values = buildProjectKnowledgeRevisionValues({
         companyId: input.companyId,
         projectId: input.projectId,
-        revision,
-        lastHeadSha: input.headSha ?? existing?.lastHeadSha ?? null,
-        lastTreeSignature: input.treeSignature ?? existing?.lastTreeSignature ?? null,
-        lastImportMode: input.importMode ?? existing?.lastImportMode ?? null,
-        lastImportedAt: importedAt,
-        metadata: {
-          ...(existing?.metadata ?? {}),
-          ...(input.metadata ?? {}),
-        },
-        updatedAt: new Date(),
-      };
+        existing,
+        bump: input.bump,
+        headSha: input.headSha ?? null,
+        treeSignature: input.treeSignature ?? null,
+        importMode: input.importMode ?? null,
+        importedAt,
+        metadata: input.metadata,
+      });
 
       if (!existing) {
         const [created] = await db
@@ -1695,13 +1749,12 @@ export function knowledgeService(db: Db) {
           .update(knowledgeDocuments)
           .set({
             authorityLevel: "deprecated",
-            metadata: {
-              ...(candidate.metadata ?? {}),
-              ...(input.metadata ?? {}),
-              deprecatedReason: input.reason,
+            metadata: buildDeprecatedDocumentMetadata({
+              existingMetadata: candidate.metadata ?? {},
+              metadata: input.metadata,
+              reason: input.reason,
               deprecatedAt,
-              isLatestForScope: false,
-            },
+            }),
             updatedAt: new Date(),
           })
           .where(eq(knowledgeDocuments.id, candidate.id))
@@ -1748,12 +1801,11 @@ export function knowledgeService(db: Db) {
           .update(knowledgeDocuments)
           .set({
             authorityLevel: "deprecated",
-            metadata: {
-              ...(candidate.metadata ?? {}),
+            metadata: buildDeprecatedDocumentMetadata({
+              existingMetadata: candidate.metadata ?? {},
               supersededByDocumentId: input.supersededByDocumentId,
               supersededAt,
-              isLatestForScope: false,
-            },
+            }),
             updatedAt: new Date(),
           })
           .where(eq(knowledgeDocuments.id, candidate.id))

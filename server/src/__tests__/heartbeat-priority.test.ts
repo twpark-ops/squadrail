@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDispatchPriorityContextSnapshot,
+  buildDispatchPrioritySelectionDetails,
   enrichWakeContextSnapshot,
   prioritizeQueuedRunsForDispatch,
 } from "../services/heartbeat.js";
@@ -82,5 +84,59 @@ describe("heartbeat priority dispatch", () => {
       issuePriority: "high",
       wakeReason: "issue_assigned",
     });
+  });
+
+  it("builds stable dispatch priority details for event and activity traces", () => {
+    expect(buildDispatchPrioritySelectionDetails({
+      priorityClass: "critical",
+      issuePriority: "critical",
+      ageBoost: 2,
+      preemptedRunIds: ["run-medium", "run-low"],
+    })).toEqual({
+      priorityClass: "critical",
+      issuePriority: "critical",
+      ageBoost: 2,
+      preemptedRunIds: ["run-medium", "run-low"],
+    });
+  });
+
+  it("adds preemption metadata to the run context only when preemption occurred", () => {
+    expect(buildDispatchPriorityContextSnapshot({
+      existingContext: {
+        issueId: "issue-1",
+      },
+      selection: {
+        issuePriority: "critical",
+        priorityClass: "critical",
+        ageBoost: 0,
+        queuedForMs: 60_000,
+        preemptedRunIds: ["run-medium"],
+      },
+      selectedAt: new Date("2026-03-12T02:00:00.000Z"),
+    })).toMatchObject({
+      issueId: "issue-1",
+      issuePriority: "critical",
+      dispatchPriorityClass: "critical",
+      dispatchPriorityQueuedForMs: 60_000,
+      dispatchPreemption: {
+        preempted: true,
+        priorityClass: "critical",
+        preemptedRunIds: ["run-medium"],
+      },
+    });
+
+    expect(buildDispatchPriorityContextSnapshot({
+      existingContext: {
+        issueId: "issue-2",
+      },
+      selection: {
+        issuePriority: "medium",
+        priorityClass: "normal",
+        ageBoost: 0,
+        queuedForMs: 30_000,
+        preemptedRunIds: [],
+      },
+      selectedAt: new Date("2026-03-12T02:00:00.000Z"),
+    })).not.toHaveProperty("dispatchPreemption");
   });
 });

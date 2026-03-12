@@ -49,6 +49,7 @@ function createKnowledgeDbMock(input: {
         insertValues.push({ table, value });
         const chain = {
           onConflictDoUpdate: () => chain,
+          onConflictDoNothing: () => chain,
           returning: async () => shiftTableRows(insertRows, table),
           then: <T>(resolve: (value: unknown[]) => T | PromiseLike<T>) =>
             Promise.resolve([]).then(resolve),
@@ -78,6 +79,47 @@ function createKnowledgeDbMock(input: {
 }
 
 describe("knowledge service operations", () => {
+  it("falls back to the existing document when createDocument hits a uniqueness conflict", async () => {
+    const existing = {
+      id: "doc-existing",
+      companyId: "company-1",
+      sourceType: "issue_snapshot",
+      contentSha256: "sha-1",
+      repoUrl: "https://github.com/acme/app",
+      repoRef: "github.com/acme/app",
+      path: "src/retry.ts",
+    };
+    const { db, insertValues } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [knowledgeDocuments, [[existing]]],
+      ]),
+      insertRows: new Map([
+        [knowledgeDocuments, [[]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.createDocument({
+      companyId: "company-1",
+      sourceType: "issue_snapshot",
+      authorityLevel: "canonical",
+      contentSha256: "sha-1",
+      rawContent: "snapshot",
+      repoUrl: "https://github.com/acme/app",
+      repoRef: "github.com/acme/app",
+      path: "src/retry.ts",
+    });
+
+    expect(result).toEqual(existing);
+    expect(insertValues[0]?.value).toMatchObject({
+      companyId: "company-1",
+      sourceType: "issue_snapshot",
+      authorityLevel: "canonical",
+      contentSha256: "sha-1",
+      path: "src/retry.ts",
+    });
+  });
+
   it("records a new document version and clears prior head markers for the same branch path", async () => {
     const { db, insertValues, updateSets } = createKnowledgeDbMock({
       selectRows: new Map([
@@ -220,6 +262,68 @@ describe("knowledge service operations", () => {
     });
     expect(updateSets[0]?.value).toMatchObject({
       hitCount: 4,
+    });
+  });
+
+  it("bumps project knowledge revisions while merging prior metadata", async () => {
+    const { db, updateSets } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [projectKnowledgeRevisions, [[{
+          id: "rev-1",
+          companyId: "company-1",
+          projectId: "project-1",
+          revision: 4,
+          lastHeadSha: "old-head",
+          lastTreeSignature: "old-tree",
+          lastImportMode: "bootstrap",
+          metadata: {
+            source: "previous",
+          },
+        }]]],
+      ]),
+      updateRows: new Map([
+        [projectKnowledgeRevisions, [[{
+          id: "rev-1",
+          revision: 5,
+          lastHeadSha: "new-head",
+          metadata: {
+            source: "sync",
+            actor: "test",
+          },
+        }]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.touchProjectKnowledgeRevision({
+      companyId: "company-1",
+      projectId: "project-1",
+      bump: true,
+      headSha: "new-head",
+      metadata: {
+        source: "sync",
+        actor: "test",
+      },
+    });
+
+    expect(result).toMatchObject({
+      id: "rev-1",
+      revision: 5,
+      lastHeadSha: "new-head",
+      metadata: {
+        source: "sync",
+        actor: "test",
+      },
+    });
+    expect(updateSets[0]?.value).toMatchObject({
+      revision: 5,
+      lastHeadSha: "new-head",
+      lastTreeSignature: "old-tree",
+      lastImportMode: "bootstrap",
+      metadata: {
+        source: "sync",
+        actor: "test",
+      },
     });
   });
 
