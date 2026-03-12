@@ -203,6 +203,15 @@ export const LIVE_EVENT_TYPES = [
 ] as const;
 export type LiveEventType = (typeof LIVE_EVENT_TYPES)[number];
 
+export const OPERATING_ALERT_SEVERITIES = ["medium", "high", "critical"] as const;
+export type OperatingAlertSeverity = (typeof OPERATING_ALERT_SEVERITIES)[number];
+
+export const OPERATING_ALERT_DESTINATION_TYPES = ["generic_webhook", "slack_webhook"] as const;
+export type OperatingAlertDestinationType = (typeof OPERATING_ALERT_DESTINATION_TYPES)[number];
+
+export const OPERATING_ALERT_DELIVERY_STATUSES = ["delivered", "failed"] as const;
+export type OperatingAlertDeliveryStatus = (typeof OPERATING_ALERT_DELIVERY_STATUSES)[number];
+
 export const PRINCIPAL_TYPES = ["user", "agent"] as const;
 export type PrincipalType = (typeof PRINCIPAL_TYPES)[number];
 

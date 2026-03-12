@@ -2,6 +2,28 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 운영 알림 / goal planning / cost forecast 업데이트
+
+- `11. external operating alerts`: **완료**
+  - company-level webhook/slack config를 `setupProgress.metadata`에 저장하고, live event sink에서 runtime failure / review changes / dependency block / ready-to-close / protocol violation을 외부 채널로 fan-out한다.
+  - Company Settings에서 alert enable, severity threshold, cooldown, destinations, test alert, recent delivery history를 바로 관리할 수 있다.
+- `12. goal progress / sprint / capacity`: **완료**
+  - `goals` schema에 `progressPercent`, `targetDate`, `sprintName`, `capacityTargetPoints`, `capacityCommittedPoints`를 추가했다.
+  - Goal detail / side properties에서 진행률, 스프린트, 목표일, capacity planning을 직접 편집할 수 있다.
+- `13-A cost prediction`: **완료**
+  - Costs surface에 month-end projected spend와 budget risk status를 추가했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/operating-alerts.test.ts src/__tests__/companies-routes.test.ts src/__tests__/goals-routes.test.ts src/__tests__/costs.test.ts`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/ui build`
+  - `pnpm --filter @squadrail/server test`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `37.34%`, branches `64.67%`, functions `61.46%`
+  - 최신 server tests: `93 files / 614 tests` 통과
+
 ## 2026-03-12 P2 failure-learning gate integration 업데이트
 
 - `10. execution-failure learning`: **완료**

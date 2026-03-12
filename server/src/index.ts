@@ -24,7 +24,13 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
-import { heartbeatService, issueProtocolTimeoutService, knowledgeBackfillService } from "./services/index.js";
+import {
+  heartbeatService,
+  issueProtocolTimeoutService,
+  knowledgeBackfillService,
+  operatingAlertService,
+  registerLiveEventSink,
+} from "./services/index.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
@@ -475,6 +481,9 @@ setupLiveEventsWebSocketServer(server, db as any, {
   deploymentMode: config.deploymentMode,
   resolveSessionFromHeaders,
 });
+
+const operatingAlerts = operatingAlertService(db as any);
+registerLiveEventSink((event) => operatingAlerts.dispatchLiveEvent(event));
 
 if (config.heartbeatSchedulerEnabled) {
   const heartbeat = heartbeatService(db as any);

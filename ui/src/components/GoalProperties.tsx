@@ -31,6 +31,13 @@ function label(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function toDateInputValue(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
 function PickerButton({
   current,
   options,
@@ -134,6 +141,90 @@ export function GoalProperties({ goal, onUpdate }: GoalPropertiesProps) {
             </Link>
           ) : (
             <span className="text-sm text-muted-foreground">None</span>
+          )}
+        </PropertyRow>
+
+        <PropertyRow label="Progress">
+          {onUpdate ? (
+            <input
+              key={`progress-${goal.id}-${goal.progressPercent}`}
+              type="number"
+              min={0}
+              max={100}
+              defaultValue={goal.progressPercent}
+              onBlur={(event) => onUpdate({ progressPercent: Number(event.target.value || 0) })}
+              className="w-20 rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none"
+            />
+          ) : (
+            <span className="text-sm">{goal.progressPercent}%</span>
+          )}
+        </PropertyRow>
+
+        <PropertyRow label="Sprint">
+          {onUpdate ? (
+            <input
+              key={`sprint-${goal.id}-${goal.sprintName ?? "none"}`}
+              defaultValue={goal.sprintName ?? ""}
+              onBlur={(event) => onUpdate({ sprintName: event.target.value || null })}
+              placeholder="Sprint 14"
+              className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none"
+            />
+          ) : (
+            <span className="text-sm text-muted-foreground">{goal.sprintName ?? "Unscheduled"}</span>
+          )}
+        </PropertyRow>
+
+        <PropertyRow label="Target date">
+          {onUpdate ? (
+            <input
+              key={`target-${goal.id}-${toDateInputValue(goal.targetDate)}`}
+              type="date"
+              defaultValue={toDateInputValue(goal.targetDate)}
+              onBlur={(event) => onUpdate({ targetDate: event.target.value ? new Date(event.target.value) : null })}
+              className="rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none"
+            />
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {goal.targetDate ? formatDate(goal.targetDate) : "No target"}
+            </span>
+          )}
+        </PropertyRow>
+
+        <PropertyRow label="Capacity">
+          {onUpdate ? (
+            <div className="flex items-center gap-2">
+              <input
+                key={`capacity-committed-${goal.id}-${goal.capacityCommittedPoints ?? "none"}`}
+                type="number"
+                min={0}
+                defaultValue={goal.capacityCommittedPoints ?? ""}
+                onBlur={(event) =>
+                  onUpdate({
+                    capacityCommittedPoints: event.target.value === "" ? null : Number(event.target.value),
+                  })}
+                className="w-20 rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none"
+                placeholder="0"
+              />
+              <span className="text-xs text-muted-foreground">/</span>
+              <input
+                key={`capacity-target-${goal.id}-${goal.capacityTargetPoints ?? "none"}`}
+                type="number"
+                min={0}
+                defaultValue={goal.capacityTargetPoints ?? ""}
+                onBlur={(event) =>
+                  onUpdate({
+                    capacityTargetPoints: event.target.value === "" ? null : Number(event.target.value),
+                  })}
+                className="w-20 rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none"
+                placeholder="0"
+              />
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {goal.capacityTargetPoints == null
+                ? "Open"
+                : `${goal.capacityCommittedPoints ?? 0}/${goal.capacityTargetPoints} pts`}
+            </span>
           )}
         </PropertyRow>
 

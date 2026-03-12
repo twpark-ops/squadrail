@@ -20,6 +20,7 @@ import { Layers3, SearchCheck, Settings, ShieldCheck } from "lucide-react";
 import {
   ROLE_PACK_FILE_NAMES,
   type DoctorCheckStatus,
+  type OperatingAlertDestinationConfig,
   type RolePackFileName,
   type RolePackPresetDescriptor,
   type RolePackPresetKey,
@@ -97,6 +98,18 @@ function csvToList(value: string) {
     .filter(Boolean);
 }
 
+function createOperatingAlertDestinationDraft(): OperatingAlertDestinationConfig {
+  return {
+    id: `destination-${Math.random().toString(36).slice(2, 10)}`,
+    label: "",
+    type: "slack_webhook",
+    url: "",
+    enabled: true,
+    authHeaderName: null,
+    authHeaderValue: null,
+  };
+}
+
 export function CompanySettings() {
   const { companies, selectedCompany, selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -127,6 +140,10 @@ export function CompanySettings() {
   const [policySourceTypes, setPolicySourceTypes] = useState("code, adr, issue, runbook, meeting");
   const [policyAuthorityLevels, setPolicyAuthorityLevels] = useState("canonical, draft");
   const [policyMetadataText, setPolicyMetadataText] = useState("{}");
+  const [alertEnabled, setAlertEnabled] = useState(false);
+  const [alertMinSeverity, setAlertMinSeverity] = useState<"medium" | "high" | "critical">("high");
+  const [alertCooldownMinutes, setAlertCooldownMinutes] = useState("15");
+  const [alertDestinations, setAlertDestinations] = useState<OperatingAlertDestinationConfig[]>([]);
 
   // Sync local state from selected company
   useEffect(() => {
@@ -187,6 +204,12 @@ export function CompanySettings() {
   const { data: retrievalPolicies = [] } = useQuery({
     queryKey: selectedCompanyId ? queryKeys.companies.retrievalPolicies(selectedCompanyId) : ["companies", "__none__", "retrieval-policies"],
     queryFn: () => knowledgeApi.listRetrievalPolicies(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const { data: operatingAlerts } = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.companies.operatingAlerts(selectedCompanyId) : ["companies", "__none__", "operating-alerts"],
+    queryFn: () => companiesApi.getOperatingAlerts(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
 
@@ -269,6 +292,14 @@ export function CompanySettings() {
     setPolicyMetadataText(JSON.stringify(policy.metadata ?? {}, null, 2));
   }, [retrievalPolicies, selectedPolicyKey]);
 
+  useEffect(() => {
+    if (!operatingAlerts) return;
+    setAlertEnabled(operatingAlerts.config.enabled);
+    setAlertMinSeverity(operatingAlerts.config.minSeverity);
+    setAlertCooldownMinutes(String(operatingAlerts.config.cooldownMinutes));
+    setAlertDestinations(operatingAlerts.config.destinations);
+  }, [operatingAlerts]);
+
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
@@ -282,6 +313,32 @@ export function CompanySettings() {
     Boolean(selectedCompanyId) &&
     (setupEngine !== (setupProgress?.selectedEngine ?? "") ||
       setupWorkspaceId !== (setupProgress?.selectedWorkspaceId ?? ""));
+
+  const normalizedAlertDestinations = alertDestinations.map((destination) => ({
+    ...destination,
+    label: destination.label.trim(),
+    url: destination.url.trim(),
+    authHeaderName: destination.authHeaderName?.trim() || null,
+    authHeaderValue: destination.authHeaderValue?.trim() || null,
+  }));
+  const alertDraft = {
+    enabled: alertEnabled,
+    minSeverity: alertMinSeverity,
+    cooldownMinutes: Number(alertCooldownMinutes || 0),
+    destinations: normalizedAlertDestinations,
+  };
+  const alertSavedConfig = operatingAlerts?.config ?? {
+    enabled: false,
+    minSeverity: "high" as const,
+    cooldownMinutes: 15,
+    destinations: [],
+  };
+  const alertDirty =
+    JSON.stringify(alertDraft) !== JSON.stringify(alertSavedConfig);
+  const alertConfigValid =
+    Number.isInteger(alertDraft.cooldownMinutes)
+    && alertDraft.cooldownMinutes >= 1
+    && normalizedAlertDestinations.every((destination) => destination.label && destination.url);
 
   const generalMutation = useMutation({
     mutationFn: (data: { name: string; description: string | null; brandColor: string | null }) =>
@@ -465,6 +522,24 @@ export function CompanySettings() {
     },
   });
 
+  const operatingAlertsMutation = useMutation({
+    mutationFn: () => companiesApi.updateOperatingAlerts(selectedCompanyId!, alertDraft),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.operatingAlerts(selectedCompanyId!) });
+    },
+  });
+
+  const operatingAlertTestMutation = useMutation({
+    mutationFn: () =>
+      companiesApi.sendOperatingAlertTest(selectedCompanyId!, {
+        severity: alertMinSeverity,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.operatingAlerts(selectedCompanyId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activity(selectedCompanyId!) });
+    },
+  });
+
   useEffect(() => {
     setBreadcrumbs([
       { label: selectedCompany?.name ?? "Company", href: appRoutes.overview },
@@ -549,6 +624,18 @@ export function CompanySettings() {
       [selectedRolePack.id]: null,
     }));
     setRolePackRevisionMessage("");
+  }
+
+  function updateAlertDestination(id: string, patch: Partial<OperatingAlertDestinationConfig>) {
+    setAlertDestinations((current) =>
+      current.map((destination) =>
+        destination.id === id
+          ? {
+              ...destination,
+              ...patch,
+            }
+          : destination),
+    );
   }
 
   return (
@@ -1322,6 +1409,229 @@ export function CompanySettings() {
                   ? upsertRetrievalPolicyMutation.error.message
                   : "Failed to save policy"}
               </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Operating Alerts
+        </div>
+        <div className="space-y-4 rounded-md border border-border px-4 py-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="md:col-span-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+              <ToggleField
+                label="Enable external operator alerts"
+                hint="Fan out high-signal review, dependency, protocol, and runtime incidents to Slack or generic webhooks."
+                checked={alertEnabled}
+                onChange={setAlertEnabled}
+              />
+            </div>
+            <Field label="Minimum severity" hint="Only alerts at or above this severity will be delivered.">
+              <select
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                value={alertMinSeverity}
+                onChange={(event) => setAlertMinSeverity(event.target.value as "medium" | "high" | "critical")}
+              >
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </Field>
+            <Field label="Cooldown minutes" hint="Suppress repeated deliveries for the same dedupe key within this window.">
+              <input
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                value={alertCooldownMinutes}
+                onChange={(event) => setAlertCooldownMinutes(event.target.value.replace(/[^0-9]/g, ""))}
+                placeholder="15"
+              />
+            </Field>
+            <div className="rounded-md border border-border/70 bg-background/60 px-3 py-3 text-sm">
+              <div className="font-medium text-foreground">Recent deliveries</div>
+              <div className="mt-1 text-muted-foreground">
+                {operatingAlerts?.recentDeliveries.length ?? 0} logged delivery attempts
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Destinations</div>
+                <p className="text-xs text-muted-foreground">
+                  Slack incoming webhooks and generic JSON webhooks are supported in this slice.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAlertDestinations((current) => [...current, createOperatingAlertDestinationDraft()])}
+              >
+                Add destination
+              </Button>
+            </div>
+
+            {alertDestinations.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+                No external destinations configured yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {alertDestinations.map((destination, index) => (
+                  <div key={destination.id} className="space-y-3 rounded-md border border-border px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold">Destination {index + 1}</div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setAlertDestinations((current) =>
+                            current.filter((entry) => entry.id !== destination.id))
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field label="Label" hint="Shown in recent delivery history and outbound metadata.">
+                        <input
+                          className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                          value={destination.label}
+                          onChange={(event) => updateAlertDestination(destination.id, { label: event.target.value })}
+                          placeholder="Ops Slack"
+                        />
+                      </Field>
+                      <Field label="Type" hint="Slack uses block-formatted payloads. Generic webhook receives full JSON.">
+                        <select
+                          className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                          value={destination.type}
+                          onChange={(event) =>
+                            updateAlertDestination(destination.id, {
+                              type: event.target.value as OperatingAlertDestinationConfig["type"],
+                            })}
+                        >
+                          <option value="slack_webhook">Slack webhook</option>
+                          <option value="generic_webhook">Generic webhook</option>
+                        </select>
+                      </Field>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field label="Webhook URL" hint="HTTPS endpoint that receives the outbound alert payload.">
+                        <input
+                          className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                          value={destination.url}
+                          onChange={(event) => updateAlertDestination(destination.id, { url: event.target.value })}
+                          placeholder="https://hooks.slack.com/services/..."
+                        />
+                      </Field>
+                      <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                        <ToggleField
+                          label="Enabled"
+                          hint="Disabled destinations stay in config but do not receive events."
+                          checked={destination.enabled}
+                          onChange={(value) => updateAlertDestination(destination.id, { enabled: value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field label="Auth header name" hint="Optional header name for generic endpoints that require authentication.">
+                        <input
+                          className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                          value={destination.authHeaderName ?? ""}
+                          onChange={(event) =>
+                            updateAlertDestination(destination.id, {
+                              authHeaderName: event.target.value || null,
+                            })}
+                          placeholder="Authorization"
+                        />
+                      </Field>
+                      <Field label="Auth header value" hint="Stored in company setup metadata for now, so treat it like a temporary secret.">
+                        <input
+                          className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                          value={destination.authHeaderValue ?? ""}
+                          onChange={(event) =>
+                            updateAlertDestination(destination.id, {
+                              authHeaderValue: event.target.value || null,
+                            })}
+                          placeholder="Bearer ..."
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => operatingAlertsMutation.mutate()}
+              disabled={!alertDirty || !alertConfigValid || operatingAlertsMutation.isPending}
+            >
+              {operatingAlertsMutation.isPending ? "Saving..." : "Save alerts"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => operatingAlertTestMutation.mutate()}
+              disabled={operatingAlertTestMutation.isPending}
+            >
+              {operatingAlertTestMutation.isPending ? "Sending..." : "Send test alert"}
+            </Button>
+            {!alertConfigValid && (
+              <span className="text-xs text-destructive">
+                Cooldown must be at least 1 minute and every destination needs a label and URL.
+              </span>
+            )}
+            {operatingAlertsMutation.isError && (
+              <span className="text-xs text-destructive">
+                {operatingAlertsMutation.error instanceof Error
+                  ? operatingAlertsMutation.error.message
+                  : "Failed to save operating alerts"}
+              </span>
+            )}
+            {operatingAlertTestMutation.isError && (
+              <span className="text-xs text-destructive">
+                {operatingAlertTestMutation.error instanceof Error
+                  ? operatingAlertTestMutation.error.message
+                  : "Failed to send test alert"}
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="text-sm font-semibold">Recent delivery activity</div>
+            {(operatingAlerts?.recentDeliveries.length ?? 0) === 0 ? (
+              <div className="rounded-md border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+                No outbound alert delivery has been logged yet.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {operatingAlerts?.recentDeliveries.map((delivery) => (
+                  <div key={delivery.id} className="rounded-md border border-border px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full border border-border px-2 py-0.5">
+                        {delivery.status}
+                      </span>
+                      <span>{delivery.severity}</span>
+                      <span>{delivery.reason}</span>
+                      <span>{delivery.destinationLabel}</span>
+                    </div>
+                    <div className="mt-2 text-sm font-medium text-foreground">{delivery.summary}</div>
+                    {delivery.detail && (
+                      <div className="mt-1 text-sm text-muted-foreground">{delivery.detail}</div>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>{new Date(delivery.createdAt).toLocaleString()}</span>
+                      {delivery.issue?.identifier && <span>{delivery.issue.identifier}</span>}
+                      {delivery.responseStatus != null && <span>HTTP {delivery.responseStatus}</span>}
+                      {delivery.errorMessage && <span>{delivery.errorMessage}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

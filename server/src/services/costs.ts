@@ -8,6 +8,38 @@ export interface CostDateRange {
   to?: Date;
 }
 
+export function buildMonthlyCostForecast(input: {
+  spendCentsToDate: number;
+  budgetCents: number;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+  const elapsedDays = Math.max(1, now.getUTCDate());
+  const totalDays = monthEnd.getUTCDate();
+  const projectedSpendCents = Math.round((input.spendCentsToDate / elapsedDays) * totalDays);
+  const projectedUtilizationPercent =
+    input.budgetCents > 0 ? Number(((projectedSpendCents / input.budgetCents) * 100).toFixed(2)) : 0;
+  const status =
+    input.budgetCents <= 0
+      ? "unbounded"
+      : projectedUtilizationPercent >= 100
+        ? "over_budget"
+        : projectedUtilizationPercent >= 85
+          ? "watch"
+          : "on_track";
+  return {
+    monthStart,
+    monthEnd,
+    elapsedDays,
+    totalDays,
+    projectedSpendCents,
+    projectedUtilizationPercent,
+    status,
+  } as const;
+}
+
 export function costService(db: Db) {
   return {
     createEvent: async (companyId: string, data: Omit<typeof costEvents.$inferInsert, "companyId">) => {
@@ -91,12 +123,31 @@ export function costService(db: Db) {
         company.budgetMonthlyCents > 0
           ? (spendCents / company.budgetMonthlyCents) * 100
           : 0;
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const [{ monthTotal }] = await db
+        .select({
+          monthTotal: sql<number>`coalesce(sum(${costEvents.costCents}), 0)::int`,
+        })
+        .from(costEvents)
+        .where(
+          and(
+            eq(costEvents.companyId, companyId),
+            gte(costEvents.occurredAt, monthStart),
+            lte(costEvents.occurredAt, now),
+          ),
+        );
 
       return {
         companyId,
         spendCents,
         budgetCents: company.budgetMonthlyCents,
         utilizationPercent: Number(utilization.toFixed(2)),
+        monthlyForecast: buildMonthlyCostForecast({
+          spendCentsToDate: Number(monthTotal ?? 0),
+          budgetCents: company.budgetMonthlyCents,
+          now,
+        }),
       };
     },
 

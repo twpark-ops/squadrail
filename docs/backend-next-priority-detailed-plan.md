@@ -4,7 +4,7 @@
 기준 커밋: `163a444` `feat(retrieval): consolidate cache provenance trends`
 작성자: Taewoong Park <park.taewoong@airsmed.com>
 
-> 업데이트 2026-03-12:
+> 업데이트 2026-03-13:
 > 이 문서는 원래 retrieval follow-up 중심 계획이었지만, 현재 즉시 시작 기준은 아래 상태가 우선이다.
 > 완료된 항목:
 > - `1. 통합 경계 안정화` P0 1차 완료
@@ -17,7 +17,10 @@
 > - `8. per-agent performance scorecard` 완료
 > - `9. merge conflict assist` 완료
 > - `10. execution-failure learning` 완료
-> 현재 다음 순차 작업은 `11. external operating alerts`이고, 그 다음은 `12. goal progress / sprint / capacity`, `13. auto revert / custom role / templates / cost prediction` 순서다.
+> - `11. external operating alerts` 완료
+> - `12. goal progress / sprint / capacity` 완료
+> - `13-A. cost prediction` 완료
+> 현재 다음 순차 작업은 `13-B workflow templates + auto revert assist`이고, 그 다음은 `13-C custom role creation` 순서다.
 
 ## 목적
 
@@ -81,6 +84,19 @@
     - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issues-routes.test.ts src/__tests__/failure-learning.test.ts src/__tests__/issue-protocol-policy.test.ts src/__tests__/issue-change-surface.test.ts`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `37.28%`, branches `64.81%`, functions `61.34%`
+- `2026-03-13 external alerts + goal planning + cost forecast` 완료
+  - company-level external operating alerts를 `setupProgress.metadata` 기반 config, live-event sink, webhook/slack transport, recent delivery history, test alert로 제품화했다.
+  - goal schema에 progress / sprint / target date / capacity points를 추가하고 Goal detail/properties 편집 UI를 연결했다.
+  - Costs 화면에 month-end projected spend와 budget risk 상태를 추가했다.
+  - 검증:
+    - `pnpm --filter @squadrail/shared typecheck`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/ui typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/ui build`
+    - `pnpm --filter @squadrail/server test`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `37.34%`, branches `64.67%`, functions `61.46%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -92,69 +108,63 @@
 
 ## 현재 남은 우선순위
 
-1. `external operating alerts`
-2. `goal progress / sprint / capacity`
-3. `auto revert / custom role / templates / cost prediction`
+1. `workflow templates`
+2. `auto revert assist`
+3. `custom role creation`
 
 한 줄 요약:
 
-- 다음 구현은 `내부 operator signal을 실제 외부 운영 채널로 fan-out하고, 중요한 상태 변화를 UI 밖으로 밀어내는 것`이다.
+- 다음 구현은 `board/operator action을 더 빠르게 반복하게 만들고, landed change의 rollback/reopen recovery를 제품 안으로 끌어오는 것`이다.
 
-## Immediate Next: External Operating Alerts
+## Immediate Next: Workflow Templates + Auto Revert Assist
 
 ### 목표
 
-- review / merge / runtime recovery / blocked dispatch 같은 high-signal operator 상태를 외부 운영 채널로 보낸다.
-- UI를 보고 있지 않아도 operator가 critical state 변화를 즉시 받을 수 있게 한다.
-- live event와 dashboard signal을 재사용하되, alert storm를 막는 최소 severity / dedupe / cooldown 규칙을 함께 둔다.
+- board/operator가 매번 같은 구조의 human intervention payload를 다시 쓰지 않게 한다.
+- landed or near-close change에서 rollback/reopen recovery가 제품 내부 action으로 이어지게 만든다.
+- template usage와 revert assist trace를 activity/change surface에 남겨 operator 판단이 설명 가능하게 한다.
 
 ### 구현 슬라이스
 
-#### Slice 11-A. Alert Taxonomy
+#### Slice 13-B1. Workflow Templates
 
-1. `runtime recovery`, `merge gate blocked`, `review requested changes`, `blocked dependency`, `ready-to-close` 가운데 외부 운영 알림으로 나갈 사건을 정리한다.
-2. `critical / high / medium` severity와 `operator_required / informative` intent로 정규화한다.
-3. 같은 issue/failure family가 짧은 간격으로 반복될 때 dedupe할 alert key를 정의한다.
+1. Protocol Action Console의 `Load template`를 hardcoded helper가 아니라 company-configurable template set으로 승격한다.
+2. `ASSIGN_TASK`, `REQUEST_CHANGES`, `APPROVE_IMPLEMENTATION`, `CLOSE_TASK` 기본 템플릿을 회사별 override 가능하게 둔다.
+3. template apply 시 action kind / template id / company scope trace를 activity에 남긴다.
 
-#### Slice 11-B. Outbound Transport
+#### Slice 13-B2. Auto Revert Assist
 
-1. configurable webhook/slack payload builder를 만든다.
-2. company/global config에서 최소한 endpoint, auth header, severity threshold를 읽게 한다.
-3. live event publish 지점에서 outbound alert sink를 같이 태우되, core request path는 block하지 않게 비동기/실패 격리한다.
+1. merge candidate / latest close snapshot의 `rollbackPlan`, `mergeCommitSha`, `followUpIssueIds`를 기반으로 revert assist read model을 만든다.
+2. `revert follow-up issue 생성` 또는 `reopen with rollback context` action을 Change Review Desk/Issue Detail에서 노출한다.
+3. 실제 git revert automation까지는 넣지 않고, operator-safe recovery issue bootstrap까지 닫는다.
 
-#### Slice 11-C. Operator Surface
+#### Slice 13-B3. Tests / Trace
 
-1. Company Settings 또는 operator surface에서 alert 설정과 최근 delivery 상태를 확인할 최소 read model을 붙인다.
-2. test alert trigger와 최근 실패 원인을 보여주는 surface를 둔다.
-3. Review Desk / Runs / Inbox가 이미 가진 severity와 wording을 outbound payload와 맞춘다.
-
-#### Slice 11-D. Tests
-
-1. severity filter와 dedupe key가 일관되게 동작하는지
-2. webhook/slack payload가 issue/review/runtime metadata를 잃지 않는지
-3. outbound failure가 core write path를 깨지 않는지
-4. operator test/send preview surface가 route/service 경계에서 유지되는지
+1. template config read/write와 apply trace가 route/service 경계에서 유지되는지
+2. revert assist가 merge candidate / close snapshot metadata를 잃지 않는지
+3. recovery action이 core workflow를 깨지 않고 follow-up issue 또는 reopen trace만 남기는지
 
 우선 테스트 파일:
 
-- `server/src/__tests__/dashboard.test.ts`
-- `server/src/__tests__/dashboard-routes.test.ts`
-- `server/src/__tests__/issue-protocol-policy.test.ts`
 - `server/src/__tests__/issues-routes.test.ts`
+- `server/src/__tests__/issue-change-surface.test.ts`
+- `server/src/__tests__/issue-merge-automation.test.ts`
+- `server/src/__tests__/companies-routes.test.ts`
 
 ### 우선 구현 파일
 
-- `server/src/services/live-events.ts`
-- `server/src/services/activity-log.ts`
-- `server/src/services/dashboard.ts`
+- `ui/src/components/ProtocolActionConsole.tsx`
+- `ui/src/components/ChangeReviewDesk.tsx`
 - `server/src/routes/companies.ts`
-- `ui/src/pages/CompanySettings.tsx`
+- `server/src/routes/issues/merge-routes.ts`
+- `server/src/services/issue-merge-automation.ts`
+- `server/src/routes/issues.ts`
 
 ### 완료 기준
 
-1. 중요한 operator signal이 severity/dedupe 규칙을 가진 outbound alert event로 생성된다.
-2. webhook/slack delivery 실패가 core workflow를 깨지 않는다.
-3. operator가 설정과 최근 delivery 상태를 최소한 확인/테스트할 수 있다.
+1. company-scoped workflow template set이 저장/로드되고 board action console에서 실제로 적용된다.
+2. revert assist가 landed or near-close issue에서 recovery follow-up을 일관되게 만든다.
+3. template/revert action trace가 activity/change surface에 남는다.
 4. `pnpm -r typecheck`, `pnpm test:run`, `pnpm build`가 모두 통과한다.
 
 ## Archive Note

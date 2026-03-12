@@ -5,6 +5,9 @@ const {
   mockCompanyCreate,
   mockSetupGetView,
   mockSetupUpdate,
+  mockOperatingAlertsGetView,
+  mockOperatingAlertsUpdateConfig,
+  mockOperatingAlertsSendTest,
   mockKnowledgeSetupGetOrgSync,
   mockKnowledgeSetupRepairOrgSync,
   mockKnowledgeSetupGetKnowledgeSetup,
@@ -26,6 +29,9 @@ const {
   mockCompanyCreate: vi.fn(),
   mockSetupGetView: vi.fn(),
   mockSetupUpdate: vi.fn(),
+  mockOperatingAlertsGetView: vi.fn(),
+  mockOperatingAlertsUpdateConfig: vi.fn(),
+  mockOperatingAlertsSendTest: vi.fn(),
   mockKnowledgeSetupGetOrgSync: vi.fn(),
   mockKnowledgeSetupRepairOrgSync: vi.fn(),
   mockKnowledgeSetupGetKnowledgeSetup: vi.fn(),
@@ -76,6 +82,11 @@ vi.mock("../services/index.js", () => ({
     getKnowledgeSyncJob: mockKnowledgeSetupGetKnowledgeSyncJob,
   }),
   logActivity: mockLogActivity,
+  operatingAlertService: () => ({
+    getView: mockOperatingAlertsGetView,
+    updateConfig: mockOperatingAlertsUpdateConfig,
+    sendTestAlert: mockOperatingAlertsSendTest,
+  }),
   rolePackService: () => ({
     listPresets: mockListPresets,
     listRolePacks: mockListRolePacks,
@@ -237,6 +248,131 @@ describe("company routes", () => {
       selectedEngine: "claude_local",
     });
     expect(mockSetupGetView).toHaveBeenCalledWith("company-1");
+  });
+
+  it("returns operating alert settings for the requested company", async () => {
+    mockOperatingAlertsGetView.mockResolvedValue({
+      companyId: "company-1",
+      config: {
+        enabled: true,
+        minSeverity: "high",
+        cooldownMinutes: 15,
+        destinations: [],
+      },
+      recentDeliveries: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/operating-alerts",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      companyId: "company-1",
+      config: {
+        enabled: true,
+        minSeverity: "high",
+      },
+    });
+    expect(mockOperatingAlertsGetView).toHaveBeenCalledWith("company-1");
+  });
+
+  it("updates operating alert settings and records activity", async () => {
+    mockOperatingAlertsUpdateConfig.mockResolvedValue({
+      companyId: "company-1",
+      config: {
+        enabled: true,
+        minSeverity: "critical",
+        cooldownMinutes: 30,
+        destinations: [
+          {
+            id: "dest-1",
+            label: "Ops Slack",
+            type: "slack_webhook",
+            url: "https://hooks.slack.com/services/test",
+            enabled: true,
+            authHeaderName: null,
+            authHeaderValue: null,
+          },
+        ],
+      },
+      recentDeliveries: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/operating-alerts",
+      method: "patch",
+      params: { companyId: "company-1" },
+      body: {
+        enabled: true,
+        minSeverity: "critical",
+        cooldownMinutes: 30,
+        destinations: [
+          {
+            id: "dest-1",
+            label: "Ops Slack",
+            type: "slack_webhook",
+            url: "https://hooks.slack.com/services/test",
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockOperatingAlertsUpdateConfig).toHaveBeenCalledWith("company-1", {
+      enabled: true,
+      minSeverity: "critical",
+      cooldownMinutes: 30,
+      destinations: [
+        {
+          id: "dest-1",
+          label: "Ops Slack",
+          type: "slack_webhook",
+          url: "https://hooks.slack.com/services/test",
+          enabled: true,
+        },
+      ],
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.operating_alerts.updated",
+        companyId: "company-1",
+      }),
+    );
+  });
+
+  it("sends a test operating alert and returns a 202 response", async () => {
+    mockOperatingAlertsSendTest.mockResolvedValue({
+      companyId: "company-1",
+      attemptedCount: 1,
+      deliveredCount: 1,
+      failedCount: 0,
+      records: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/operating-alerts/test",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        severity: "high",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(mockOperatingAlertsSendTest).toHaveBeenCalledWith("company-1", {
+      severity: "high",
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.operating_alerts.test_requested",
+        companyId: "company-1",
+      }),
+    );
   });
 
   it("updates setup progress and records activity", async () => {
