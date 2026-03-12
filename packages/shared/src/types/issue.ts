@@ -222,6 +222,21 @@ export interface IssueMergeCandidateConflictAssist {
   suggestedActions: string[];
 }
 
+export interface IssueMergeCandidateFailureAssist {
+  status: "clean" | "watch" | "blocked";
+  summary: string;
+  retryability: "retryable" | "operator_required" | "blocked" | "clean";
+  failureFamily:
+    | "dispatch"
+    | "runtime_process"
+    | "workspace"
+    | null;
+  blockers: string[];
+  suggestedActions: string[];
+  repeatedFailureCount24h: number;
+  lastSeenAt: Date | null;
+}
+
 export interface IssueMergeCandidate {
   issueId: string;
   identifier: string | null;
@@ -245,6 +260,7 @@ export interface IssueMergeCandidate {
   prBridge: IssueMergeCandidatePrBridge | null;
   gateStatus: IssueMergeCandidateGateStatus | null;
   conflictAssist: IssueMergeCandidateConflictAssist | null;
+  failureAssist: IssueMergeCandidateFailureAssist | null;
 }
 
 export interface IssueChangeSurface {

@@ -52,6 +52,7 @@ const {
   mockRunWithoutDbContext,
   mockLogActivity,
   mockKnowledgeListTaskBriefs,
+  mockSummarizeIssueFailureLearning,
 } = vi.hoisted(() => ({
   mockEnqueueAfterDbCommit: vi.fn(),
   mockEnsureMembership: vi.fn(),
@@ -104,6 +105,7 @@ const {
   mockRunWithoutDbContext: vi.fn(),
   mockLogActivity: vi.fn(),
   mockKnowledgeListTaskBriefs: vi.fn(),
+  mockSummarizeIssueFailureLearning: vi.fn(),
 }));
 
 vi.mock("@squadrail/db", async (importOriginal) => {
@@ -229,6 +231,10 @@ vi.mock("../services/issue-merge-candidates.js", () => ({
     patchAutomationMetadata: mockMergeCandidatePatchAutomationMetadata,
     deleteByIssueId: mockMergeCandidateDeleteByIssueId,
   }),
+}));
+
+vi.mock("../services/failure-learning.js", () => ({
+  summarizeIssueFailureLearning: mockSummarizeIssueFailureLearning,
 }));
 
 import { issueRoutes } from "../routes/issues.js";
@@ -504,6 +510,16 @@ describe("issue routes wakeup handling", () => {
       feedbackTypeCounts: {},
     });
     mockKnowledgeListTaskBriefs.mockResolvedValue([]);
+    mockSummarizeIssueFailureLearning.mockResolvedValue({
+      closeReady: true,
+      retryability: "clean",
+      failureFamily: null,
+      blockingReasons: [],
+      summary: "No unresolved repeated runtime failure signal is blocking close.",
+      suggestedActions: [],
+      repeatedFailureCount24h: 0,
+      lastSeenAt: null,
+    });
     mockProjectGetById.mockResolvedValue(null);
     mockMergeCandidateGetByIssueId.mockResolvedValue(null);
     mockMergeCandidateUpsertDecision.mockResolvedValue(null);

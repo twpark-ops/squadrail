@@ -34,6 +34,7 @@ export type {
   IssueMergeCandidatePrBridge,
   IssueMergeCandidateGateStatus,
   IssueMergeCandidateConflictAssist,
+  IssueMergeCandidateFailureAssist,
   IssueMergeCandidate,
   IssueChangeSurface,
 } from "./issue.js";

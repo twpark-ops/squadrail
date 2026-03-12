@@ -174,6 +174,7 @@ export type {
   IssueMergeCandidatePrBridge,
   IssueMergeCandidateGateStatus,
   IssueMergeCandidateConflictAssist,
+  IssueMergeCandidateFailureAssist,
   IssueMergeCandidate,
   IssueChangeSurface,
   Goal,

@@ -204,6 +204,10 @@ export function evaluateProtocolEvidenceRequirement(input: {
     mergeReady: boolean;
     blockingReasons: string[];
   } | null;
+  failureLearningGate?: {
+    closeReady: boolean;
+    blockingReasons: string[];
+  } | null;
   enforceMergeGate?: boolean;
 }): ProtocolPolicyViolationResult | null {
   const { message, latestReviewArtifacts = [], latestReviewPayload = null } = input;
@@ -303,6 +307,16 @@ export function evaluateProtocolEvidenceRequirement(input: {
       return {
         violationCode: "close_without_verification",
         message: `Close task requires passing synced CI gate before merged handoff (${input.mergeGateStatus.blockingReasons.join(" ")})`,
+      };
+    }
+    if (
+      (message.payload.mergeStatus === "merged" || message.payload.closeReason === "completed")
+      && input.failureLearningGate
+      && input.failureLearningGate.closeReady === false
+    ) {
+      return {
+        violationCode: "close_without_verification",
+        message: `Close task requires operator review of unresolved repeated failure signals before close (${input.failureLearningGate.blockingReasons.join(" ")})`,
       };
     }
     return null;

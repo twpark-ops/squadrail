@@ -295,6 +295,20 @@ describe("issue change surface", () => {
         operatorNote: null,
         resolvedAt: null,
       },
+      failureLearningGate: {
+        closeReady: false,
+        retryability: "operator_required",
+        failureFamily: "dispatch",
+        blockingReasons: [
+          "Dispatch timeout repeated 2 times after the last successful run and should be reviewed before close.",
+        ],
+        summary: "Close should stay gated until the repeated runtime failure is reviewed by an operator.",
+        suggestedActions: [
+          "Inspect dispatch watchdog and adapter cold-start before retrying merged close.",
+        ],
+        repeatedFailureCount24h: 2,
+        lastSeenAt: "2026-03-12T03:30:00.000Z",
+      },
     });
 
     expect(surface.mergeCandidate?.prBridge).toEqual(
@@ -314,6 +328,13 @@ describe("issue change surface", () => {
     expect(surface.mergeCandidate?.conflictAssist).toEqual(
       expect.objectContaining({
         status: "warning",
+      }),
+    );
+    expect(surface.mergeCandidate?.failureAssist).toEqual(
+      expect.objectContaining({
+        status: "watch",
+        retryability: "operator_required",
+        repeatedFailureCount24h: 2,
       }),
     );
   });

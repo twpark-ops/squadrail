@@ -29,6 +29,7 @@ import {
   buildMergeCandidatePrBridge,
   mergeCandidateRequiresGateEnforcement,
 } from "./merge-candidate-gates.js";
+import { summarizeIssueFailureLearning } from "./failure-learning.js";
 import {
   sealProtocolMessageIntegrity,
   verifyProtocolMessageIntegrity,
@@ -566,9 +567,23 @@ export function issueProtocolService(db: Db) {
       automationMetadata: mergeCandidateRecord?.automationMetadata ?? null,
     });
     const gateStatus = buildMergeCandidateGateStatus({ prBridge });
+    const issueRow = await tx
+      .select({
+        companyId: issues.companyId,
+      })
+      .from(issues)
+      .where(eq(issues.id, issueId))
+      .then((rows: Array<{ companyId: string }>) => rows[0] ?? null);
+    const failureLearningGate = issueRow
+      ? await summarizeIssueFailureLearning(tx as Db, {
+        companyId: issueRow.companyId,
+        issueId,
+      })
+      : null;
     const violation = evaluateProtocolEvidenceRequirement({
       message,
       mergeGateStatus: gateStatus,
+      failureLearningGate,
       enforceMergeGate: mergeCandidateRequiresGateEnforcement({ prBridge, gateStatus }),
     });
     if (!violation) return;

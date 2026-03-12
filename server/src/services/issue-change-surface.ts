@@ -58,6 +58,17 @@ type RetrievalFeedbackSummaryLike = {
   feedbackTypeCounts: Record<string, number>;
 };
 
+type FailureLearningGateLike = {
+  closeReady: boolean;
+  retryability: "retryable" | "operator_required" | "blocked" | "clean";
+  failureFamily: "dispatch" | "runtime_process" | "workspace" | null;
+  blockingReasons: string[];
+  summary: string;
+  suggestedActions: string[];
+  repeatedFailureCount24h: number;
+  lastSeenAt: Date | string | null;
+} | null;
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -120,6 +131,35 @@ function buildMergeConflictAssist(input: {
       ? uniqueBlockers
       : input.gateStatus?.blockingReasons ?? [],
     suggestedActions,
+  };
+}
+
+function buildMergeFailureAssist(input: {
+  failureLearningGate: FailureLearningGateLike;
+}) {
+  const gate = input.failureLearningGate;
+  if (!gate || gate.closeReady) {
+    return {
+      status: "clean" as const,
+      summary: "No unresolved runtime failure signal is currently blocking close.",
+      retryability: "clean" as const,
+      failureFamily: null,
+      blockers: [],
+      suggestedActions: [],
+      repeatedFailureCount24h: 0,
+      lastSeenAt: null,
+    };
+  }
+
+  return {
+    status: gate.retryability === "blocked" ? "blocked" as const : "watch" as const,
+    summary: gate.summary,
+    retryability: gate.retryability,
+    failureFamily: gate.failureFamily,
+    blockers: gate.blockingReasons,
+    suggestedActions: gate.suggestedActions,
+    repeatedFailureCount24h: gate.repeatedFailureCount24h,
+    lastSeenAt: gate.lastSeenAt ? normalizeDate(gate.lastSeenAt) : null,
   };
 }
 
@@ -219,6 +259,7 @@ export function buildIssueChangeSurface(input: {
   mergeCandidateRecord?: MergeCandidateRecordLike;
   briefs?: BriefLike[];
   retrievalFeedbackSummary?: RetrievalFeedbackSummaryLike | null;
+  failureLearningGate?: FailureLearningGateLike;
 }): IssueChangeSurface {
   const mergeCandidateClose = findMergeCandidateCloseMessage(input);
   const candidateCutoff = mergeCandidateClose ? normalizeDate(mergeCandidateClose.createdAt) : null;
@@ -316,6 +357,9 @@ export function buildIssueChangeSurface(input: {
       prBridge,
       gateStatus,
     });
+    const failureAssist = buildMergeFailureAssist({
+      failureLearningGate: input.failureLearningGate ?? null,
+    });
     mergeCandidate = {
       issueId: input.issue.id,
       identifier: input.issue.identifier,
@@ -341,6 +385,7 @@ export function buildIssueChangeSurface(input: {
       prBridge,
       gateStatus,
       conflictAssist,
+      failureAssist,
     };
   }
 

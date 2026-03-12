@@ -38,6 +38,7 @@ import {
 } from "../services/index.js";
 import { buildIssueChangeSurface } from "../services/issue-change-surface.js";
 import { issueMergeCandidateService } from "../services/issue-merge-candidates.js";
+import { summarizeIssueFailureLearning } from "../services/failure-learning.js";
 import { logger } from "../middleware/logger.js";
 import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -295,12 +296,18 @@ export function issueRoutes(db: Db, storage: StorageService) {
     companyId?: string | null;
     projectId?: string | null;
   }) {
-    const [messages, mergeCandidateRecord, briefs, retrievalFeedbackSummary] = await Promise.all([
+    const [messages, mergeCandidateRecord, briefs, retrievalFeedbackSummary, failureLearningGate] = await Promise.all([
       protocolSvc.listMessages(issue.id),
       mergeCandidatesSvc.getByIssueId(issue.id),
       knowledge.listTaskBriefs({ issueId: issue.id, limit: 20 }),
       issue.companyId
         ? retrievalPersonalization.summarizeIssueFeedback({
+          companyId: issue.companyId,
+          issueId: issue.id,
+        })
+        : Promise.resolve(null),
+      issue.companyId
+        ? summarizeIssueFailureLearning(db, {
           companyId: issue.companyId,
           issueId: issue.id,
         })
@@ -315,6 +322,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       mergeCandidateRecord,
       briefs,
       retrievalFeedbackSummary,
+      failureLearningGate,
     });
   }
 
