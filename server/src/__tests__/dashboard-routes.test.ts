@@ -194,11 +194,33 @@ describe("dashboard routes", () => {
 
   it("returns recovery queue data", async () => {
     mockRecoveryQueue.mockResolvedValue({
-      items: [],
       summary: {
-        total: 0,
-        byType: { violation: 0, timeout: 0, integrity: 0 },
+        totalCases: 1,
+        repeatedCases: 1,
+        retryableCases: 0,
+        operatorRequiredCases: 1,
+        blockedCases: 0,
       },
+      items: [
+        {
+          issueId: "issue-1",
+          identifier: "CLO-1",
+          title: "Dispatch timeout",
+          workflowState: "blocked",
+          recoveryType: "runtime",
+          failureFamily: "dispatch",
+          retryability: "operator_required",
+          severity: "high",
+          code: "dispatch_timeout",
+          summary: "Dispatch watchdog timed out.",
+          nextAction: "Inspect adapter cold-start and watchdog events.",
+          operatorActionLabel: "Review repeated runtime failure",
+          occurrenceCount24h: 2,
+          repeated: true,
+          lastSeenAt: new Date("2026-03-12T00:00:00.000Z"),
+          createdAt: new Date("2026-03-12T00:00:00.000Z"),
+        },
+      ],
     });
 
     const response = await invokeRoute({
@@ -212,6 +234,21 @@ describe("dashboard routes", () => {
     expect(mockRecoveryQueue).toHaveBeenCalledWith({
       companyId: "company-1",
       limit: 12,
+    });
+    expect(response.body).toMatchObject({
+      summary: {
+        totalCases: 1,
+        repeatedCases: 1,
+        operatorRequiredCases: 1,
+      },
+      items: [
+        {
+          issueId: "issue-1",
+          failureFamily: "dispatch",
+          retryability: "operator_required",
+          occurrenceCount24h: 2,
+        },
+      ],
     });
   });
 

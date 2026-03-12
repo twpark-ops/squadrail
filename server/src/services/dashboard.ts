@@ -120,11 +120,32 @@ export interface DashboardRecoveryCase {
   title: string;
   workflowState: string;
   recoveryType: "violation" | "timeout" | "integrity" | "runtime";
+  failureFamily:
+    | "protocol_violation"
+    | "protocol_timeout"
+    | "protocol_integrity"
+    | "dispatch"
+    | "runtime_process"
+    | "workspace"
+    | "runtime_unknown";
+  retryability: "retryable" | "operator_required" | "blocked";
   severity: string;
   code: string | null;
   summary: string;
   nextAction: string;
+  operatorActionLabel: string;
+  occurrenceCount24h: number;
+  repeated: boolean;
+  lastSeenAt: Date;
   createdAt: Date;
+}
+
+export interface DashboardRecoveryQueueSummary {
+  totalCases: number;
+  repeatedCases: number;
+  retryableCases: number;
+  operatorRequiredCases: number;
+  blockedCases: number;
 }
 
 export interface DashboardTeamSupervisionItem {
@@ -571,25 +592,85 @@ function runtimeRecoveryDescriptor(errorCode: string | null | undefined, message
   switch (errorCode) {
     case "process_lost":
       return {
+        failureFamily: "runtime_process" as const,
+        retryability: "operator_required" as const,
         severity: "critical" as const,
         summary: compactText(message ?? "Heartbeat process disappeared before completion."),
         nextAction: "Inspect run events and host health, then retry the run or escalate to the tech lead.",
+        operatorActionLabel: "Inspect host and retry",
       };
     case "dispatch_timeout":
       return {
+        failureFamily: "dispatch" as const,
+        retryability: "retryable" as const,
         severity: "high" as const,
         summary: compactText(message ?? "Dispatch watchdog timed out before execution started."),
         nextAction: "Inspect adapter cold-start and watchdog events, then rerun once execution can start cleanly.",
+        operatorActionLabel: "Inspect dispatch and rerun",
       };
     case "workspace_required":
       return {
+        failureFamily: "workspace" as const,
+        retryability: "blocked" as const,
         severity: "warning" as const,
         summary: compactText(message ?? "Implementation run was blocked because no safe isolated workspace was available."),
         nextAction: "Repair or clean the isolated workspace before retrying implementation.",
+        operatorActionLabel: "Repair workspace",
       };
     default:
       return null;
   }
+}
+
+function recoveryRetryabilityFromDescriptor(input: {
+  retryability: "retryable" | "operator_required" | "blocked";
+  occurrenceCount24h: number;
+}) {
+  if (input.retryability !== "retryable") return input.retryability;
+  return input.occurrenceCount24h >= 2 ? "operator_required" : "retryable";
+}
+
+function compareRecoveryCases(left: DashboardRecoveryCase, right: DashboardRecoveryCase) {
+  const retryabilityRank = {
+    operator_required: 0,
+    blocked: 1,
+    retryable: 2,
+  } as const;
+  if (retryabilityRank[left.retryability] !== retryabilityRank[right.retryability]) {
+    return retryabilityRank[left.retryability] - retryabilityRank[right.retryability];
+  }
+  if (left.repeated !== right.repeated) {
+    return left.repeated ? -1 : 1;
+  }
+  if (severityRank(left.severity) !== severityRank(right.severity)) {
+    return severityRank(right.severity) - severityRank(left.severity);
+  }
+  if (left.lastSeenAt.getTime() !== right.lastSeenAt.getTime()) {
+    return right.lastSeenAt.getTime() - left.lastSeenAt.getTime();
+  }
+  return left.title.localeCompare(right.title);
+}
+
+export function buildRecoveryLearningSummary(input: {
+  items: DashboardRecoveryCase[];
+}): DashboardRecoveryQueueSummary {
+  return input.items.reduce(
+    (summary, item) => {
+      summary.totalCases += 1;
+      if (item.repeated) summary.repeatedCases += 1;
+      if (item.retryability === "retryable") summary.retryableCases += 1;
+      if (item.retryability === "operator_required") summary.operatorRequiredCases += 1;
+      if (item.retryability === "blocked") summary.blockedCases += 1;
+      return summary;
+    },
+    {
+      totalCases: 0,
+      repeatedCases: 0,
+      retryableCases: 0,
+      operatorRequiredCases: 0,
+      blockedCases: 0,
+    },
+  );
 }
 
 function emptyProtocolWorkflowCounts() {
@@ -1712,18 +1793,40 @@ export function dashboardService(db: Db) {
       ]);
 
       const dedupedRuntimeRows = new Map<string, (typeof runtimeRows)[number]>();
+      const runtimeOccurrenceCountByKey = new Map<string, number>();
       for (const row of runtimeRows) {
         const issueId = deriveRunIssueId(row.contextSnapshot);
         if (!issueId) continue;
         const key = `${issueId}:${row.errorCode ?? "unknown"}`;
+        runtimeOccurrenceCountByKey.set(key, (runtimeOccurrenceCountByKey.get(key) ?? 0) + 1);
         if (!dedupedRuntimeRows.has(key)) {
           dedupedRuntimeRows.set(key, row);
         }
       }
 
+      const dedupedViolationRows = new Map<string, (typeof violationRows)[number]>();
+      const violationOccurrenceCountByKey = new Map<string, number>();
+      for (const row of violationRows) {
+        const key = `${row.issueId}:${row.code ?? "violation"}`;
+        violationOccurrenceCountByKey.set(key, (violationOccurrenceCountByKey.get(key) ?? 0) + 1);
+        if (!dedupedViolationRows.has(key)) {
+          dedupedViolationRows.set(key, row);
+        }
+      }
+
+      const dedupedTimeoutRows = new Map<string, (typeof timeoutRows)[number]>();
+      const timeoutOccurrenceCountByKey = new Map<string, number>();
+      for (const row of timeoutRows) {
+        const key = `${row.issueId}:${row.code ?? "timeout"}`;
+        timeoutOccurrenceCountByKey.set(key, (timeoutOccurrenceCountByKey.get(key) ?? 0) + 1);
+        if (!dedupedTimeoutRows.has(key)) {
+          dedupedTimeoutRows.set(key, row);
+        }
+      }
+
       const referencedIssueIds = Array.from(new Set([
-        ...violationRows.map((row) => row.issueId),
-        ...timeoutRows.map((row) => row.issueId),
+        ...Array.from(dedupedViolationRows.values()).map((row) => row.issueId),
+        ...Array.from(dedupedTimeoutRows.values()).map((row) => row.issueId),
         ...integrityRows.map((row) => row.issueId),
         ...Array.from(dedupedRuntimeRows.values()).map((row) => deriveRunIssueId(row.contextSnapshot)).filter((value): value is string => Boolean(value)),
       ]));
@@ -1731,6 +1834,7 @@ export function dashboardService(db: Db) {
         return {
           companyId: input.companyId,
           generatedAt: new Date().toISOString(),
+          summary: buildRecoveryLearningSummary({ items: [] }),
           items: [] as DashboardRecoveryCase[],
         };
       }
@@ -1754,37 +1858,51 @@ export function dashboardService(db: Db) {
       const issueMap = new Map(issueRows.map((row) => [row.issueId, row]));
       const cases: DashboardRecoveryCase[] = [];
 
-      for (const row of violationRows) {
+      for (const row of dedupedViolationRows.values()) {
         const issue = issueMap.get(row.issueId);
         if (!issue) continue;
         const details = (row.summary as Record<string, unknown> | null) ?? {};
+        const occurrenceCount24h = violationOccurrenceCountByKey.get(`${row.issueId}:${row.code ?? "violation"}`) ?? 1;
         cases.push({
           issueId: row.issueId,
           identifier: issue.identifier,
           title: issue.title,
           workflowState: issue.workflowState,
           recoveryType: "violation",
+          failureFamily: "protocol_violation",
+          retryability: "operator_required",
           severity: row.severity,
           code: row.code,
           summary: compactText(String(details.error ?? details.messageType ?? row.code ?? "Protocol violation detected")),
           nextAction: "Open the issue, inspect the violation payload, and post the corrective protocol message.",
+          operatorActionLabel: "Post corrective protocol note",
+          occurrenceCount24h,
+          repeated: occurrenceCount24h >= 2,
+          lastSeenAt: row.createdAt,
           createdAt: row.createdAt,
         });
       }
 
-      for (const row of timeoutRows) {
+      for (const row of dedupedTimeoutRows.values()) {
         const issue = issueMap.get(row.issueId);
         if (!issue) continue;
+        const occurrenceCount24h = timeoutOccurrenceCountByKey.get(`${row.issueId}:${row.code ?? "timeout"}`) ?? 1;
         cases.push({
           issueId: row.issueId,
           identifier: issue.identifier,
           title: issue.title,
           workflowState: issue.workflowState,
           recoveryType: "timeout",
+          failureFamily: "protocol_timeout",
+          retryability: "operator_required",
           severity: "warning",
           code: row.code,
           summary: compactText(row.summary),
           nextAction: "Open the issue, review the stale owner, and either unblock, reassign, or close the task.",
+          operatorActionLabel: "Review stalled owner",
+          occurrenceCount24h,
+          repeated: occurrenceCount24h >= 2,
+          lastSeenAt: row.createdAt,
           createdAt: row.createdAt,
         });
       }
@@ -1792,16 +1910,23 @@ export function dashboardService(db: Db) {
       for (const row of integrityRows) {
         const issue = issueMap.get(row.issueId);
         if (!issue) continue;
+        const occurrenceCount24h = Number(row.unsignedCount ?? 0);
         cases.push({
           issueId: row.issueId,
           identifier: issue.identifier,
           title: issue.title,
           workflowState: issue.workflowState,
           recoveryType: "integrity",
+          failureFamily: "protocol_integrity",
+          retryability: "operator_required",
           severity: "warning",
           code: "legacy_unsealed",
           summary: `${row.unsignedCount} protocol messages are missing integrity signatures.`,
           nextAction: "Inspect the issue timeline and re-run or archive legacy protocol messages before audit export.",
+          operatorActionLabel: "Repair protocol integrity",
+          occurrenceCount24h,
+          repeated: occurrenceCount24h >= 2,
+          lastSeenAt: row.createdAt,
           createdAt: row.createdAt,
         });
       }
@@ -1813,29 +1938,43 @@ export function dashboardService(db: Db) {
         if (!issue) continue;
         const descriptor = runtimeRecoveryDescriptor(row.errorCode, row.error);
         if (!descriptor) continue;
+        const occurrenceCount24h = runtimeOccurrenceCountByKey.get(`${issueId}:${row.errorCode ?? "unknown"}`) ?? 1;
+        const retryability = recoveryRetryabilityFromDescriptor({
+          retryability: descriptor.retryability,
+          occurrenceCount24h,
+        });
         cases.push({
           issueId,
           identifier: issue.identifier,
           title: issue.title,
           workflowState: issue.workflowState,
           recoveryType: "runtime",
+          failureFamily: descriptor.failureFamily,
+          retryability,
           severity: descriptor.severity,
           code: row.errorCode,
           summary: descriptor.summary,
-          nextAction: descriptor.nextAction,
+          nextAction:
+            retryability === "retryable" || occurrenceCount24h < 2
+              ? descriptor.nextAction
+              : `${descriptor.nextAction} Repeated failures should be reviewed before another blind retry.`,
+          operatorActionLabel:
+            retryability === "retryable" || occurrenceCount24h < 2
+              ? descriptor.operatorActionLabel
+              : "Review repeated runtime failure",
+          occurrenceCount24h,
+          repeated: occurrenceCount24h >= 2,
+          lastSeenAt: row.finishedAt ?? row.updatedAt,
           createdAt: row.finishedAt ?? row.updatedAt,
         });
       }
 
-      cases.sort((left, right) => {
-        const severityDelta = severityRank(right.severity) - severityRank(left.severity);
-        if (severityDelta !== 0) return severityDelta;
-        return right.createdAt.getTime() - left.createdAt.getTime();
-      });
+      cases.sort(compareRecoveryCases);
 
       return {
         companyId: input.companyId,
         generatedAt: new Date().toISOString(),
+        summary: buildRecoveryLearningSummary({ items: cases }),
         items: cases.slice(0, limit),
       };
     },

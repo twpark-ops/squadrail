@@ -2,6 +2,23 @@
 
 작성일: 2026-03-12
 
+## 2026-03-12 P2 failure-learning 업데이트
+
+- `10. execution-failure learning`: **1차 부분 완료**
+  - recovery queue를 `failureFamily / retryability / repeated / occurrenceCount24h / operatorActionLabel`를 가진 failure-learning feed로 확장했다.
+  - runtime `dispatch_timeout / process_lost / workspace_required`는 repeated case를 감지해 blind retry보다 operator review를 먼저 유도하도록 score를 올린다.
+  - Runs 화면에서 repeated case, operator-required case, next action을 바로 읽을 수 있게 summary card와 grouped recovery card를 보강했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/ui build`
+  - `pnpm --filter @squadrail/server test`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - focused vitest `14 tests` 통과
+  - 최신 server coverage: statements/lines `37.07%`, branches `64.68%`, functions `61.21%`
+
 ## 2026-03-12 P2 운영 최적화 업데이트
 
 - `7. priority preemption`: **완료**
@@ -70,7 +87,8 @@
 - P0 `1, 2, 3`은 이번 라운드에서 닫혔다.
 - P1 `4, 5, 6`도 이번 라운드에서 닫혔다.
 - P2 `7, 8, 9`도 이번 라운드에서 닫혔다.
-- 따라서 다음 순차 작업은 `10. execution-failure learning`부터 시작하면 된다.
+- `10. execution-failure learning`은 1차 feed/summary까지 진행됐다.
+- 따라서 다음 순차 작업은 `10-C review/close gate integration`부터 이어가면 된다.
 - 단, `1. 통합 경계 안정화`는 broad quality track이라 후속 기능 작업 때마다 계속 병행된다.
 
 ## 현재 기준
@@ -267,7 +285,7 @@
 ## 다음 세션 핸드오프
 
 - 다음 확인 순서는 `docs/next-session-handoff.md` -> `memory-bank/projects/squadall-run-first/summary.md`다.
-- 다음 시작 작업은 `execution-failure learning`이다.
+- 다음 시작 작업은 `execution-failure learning`의 `review/close gate integration`이다.
 - 그 다음은 `external operating alerts`, 이후 `goal progress / sprint / capacity` 순서다.
 - 기본 검증 순서는 `pnpm -r typecheck` -> `pnpm test:run` -> `pnpm build`다.
 - merge/review/protocol 경계를 건드릴 때는 먼저 `pnpm --filter @squadrail/server test`를 기준 검증으로 삼는다.

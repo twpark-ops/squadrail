@@ -5,10 +5,12 @@ import {
   buildDashboardKnowledgeSummary,
   buildExecutionReliabilitySummary,
   buildProtocolDashboardBuckets,
+  buildRecoveryLearningSummary,
   buildTeamSupervisionSummary,
   isProtocolDashboardStale,
   type DashboardAgentPerformanceItem,
   type DashboardProtocolQueueItem,
+  type DashboardRecoveryCase,
   type DashboardTeamSupervisionItem,
 } from "../services/dashboard.js";
 
@@ -98,6 +100,29 @@ function agentPerformanceItem(
     health: overrides.health ?? "warning",
     summaryText:
       overrides.summaryText ?? "Performance is acceptable but worth watching before assigning more queue depth.",
+  };
+}
+
+function recoveryCase(
+  overrides: Partial<DashboardRecoveryCase>,
+): DashboardRecoveryCase {
+  return {
+    issueId: overrides.issueId ?? crypto.randomUUID(),
+    identifier: overrides.identifier ?? "CLO-1",
+    title: overrides.title ?? "Recovery case",
+    workflowState: overrides.workflowState ?? "blocked",
+    recoveryType: overrides.recoveryType ?? "runtime",
+    failureFamily: overrides.failureFamily ?? "dispatch",
+    retryability: overrides.retryability ?? "retryable",
+    severity: overrides.severity ?? "high",
+    code: overrides.code ?? "dispatch_timeout",
+    summary: overrides.summary ?? "Dispatch watchdog timed out.",
+    nextAction: overrides.nextAction ?? "Inspect dispatch and rerun.",
+    operatorActionLabel: overrides.operatorActionLabel ?? "Inspect dispatch and rerun",
+    occurrenceCount24h: overrides.occurrenceCount24h ?? 1,
+    repeated: overrides.repeated ?? false,
+    lastSeenAt: overrides.lastSeenAt ?? new Date("2026-03-12T01:00:00.000Z"),
+    createdAt: overrides.createdAt ?? new Date("2026-03-12T01:00:00.000Z"),
   };
 }
 
@@ -279,6 +304,24 @@ describe("dashboard helpers", () => {
       warningAgents: 1,
       riskAgents: 1,
       priorityPreemptions7d: 3,
+    });
+  });
+
+  it("builds recovery learning summary buckets", () => {
+    expect(
+      buildRecoveryLearningSummary({
+        items: [
+          recoveryCase({ retryability: "retryable" }),
+          recoveryCase({ retryability: "operator_required", repeated: true }),
+          recoveryCase({ retryability: "blocked", repeated: true }),
+        ],
+      }),
+    ).toEqual({
+      totalCases: 3,
+      repeatedCases: 2,
+      retryableCases: 1,
+      operatorRequiredCases: 1,
+      blockedCases: 1,
     });
   });
 });

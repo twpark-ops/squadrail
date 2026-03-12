@@ -16,7 +16,8 @@
 > - `7. priority preemption` 완료
 > - `8. per-agent performance scorecard` 완료
 > - `9. merge conflict assist` 완료
-> 현재 다음 순차 작업은 `10. execution-failure learning`이고, 그 다음은 `11. external operating alerts`, `12. goal progress / sprint / capacity` 순서다.
+> - `10. execution-failure learning` 1차 부분 완료
+> 현재 다음 순차 작업은 `10-C review/close gate integration`이고, 그 다음은 `11. external operating alerts`, `12. goal progress / sprint / capacity` 순서다.
 
 ## 목적
 
@@ -53,6 +54,19 @@
     - `pnpm --filter @squadrail/server test`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `37.11%`, branches `64.64%`, functions `61.25%`
+- `2026-03-12 failure-learning batch` 1차 부분 완료
+  - recovery queue를 structured failure-learning feed로 확장했다.
+  - `failureFamily / retryability / repeated / occurrenceCount24h / operatorActionLabel`를 dashboard contract와 Runs UI로 올렸다.
+  - repeated runtime case는 retryability를 operator review 쪽으로 보수화한다.
+  - 검증:
+    - `pnpm --filter @squadrail/shared typecheck`
+    - `pnpm --filter @squadrail/ui typecheck`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/ui build`
+    - `pnpm --filter @squadrail/server test`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `37.07%`, branches `64.68%`, functions `61.21%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -64,7 +78,7 @@
 
 ## 현재 남은 우선순위
 
-1. `execution-failure learning`
+1. `execution-failure learning` (`10-C gate integration` remaining)
 2. `external operating alerts`
 3. `goal progress / sprint / capacity`
 4. `auto revert / custom role / templates / cost prediction`
@@ -73,7 +87,7 @@
 
 - 다음 구현은 `execution failure를 구조화된 학습 입력으로 승격하고, operator가 repeated failure를 더 빨리 감지/개입할 수 있게 만드는 것`이다.
 
-## Immediate Next: Execution-Failure Learning
+## Immediate Next: Execution-Failure Learning Gate Integration
 
 ### 목표
 

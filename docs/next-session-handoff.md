@@ -10,7 +10,7 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then start immediately with `execution-failure learning`
+- open this handoff first, then continue immediately with `execution-failure learning` gate integration
 
 ## Current Status
 
@@ -36,6 +36,9 @@ One-line startup rule:
   - dashboard route와 Team page에 agent health / success rate / run duration / bounce / priority preemption scorecard 추가
 - `9. merge conflict assist`: 완료
   - change surface와 Review Desk에 mergeability warning / preflight blocker / suggested action surface 추가
+- `10. execution-failure learning`: 1차 부분 완료
+  - recovery queue가 `failureFamily / retryability / repeated / occurrenceCount24h / operatorActionLabel`를 가진 structured feed가 됐다.
+  - Runs 화면에서 repeated case와 operator-required case를 바로 읽을 수 있게 summary/grouped surface를 보강했다.
 
 ## Current Product State
 
@@ -46,12 +49,13 @@ One-line startup rule:
 - `team supervision feed + internal work item operator flow` 완료
 - `dependency-blocked dispatch enforcement` 완료
 - `priority-aware dispatch + agent scorecard + merge conflict assist` 완료
+- `execution-failure learning feed` 1차 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm --filter @squadrail/server test` `598 tests` 통과
+  - `pnpm --filter @squadrail/server test` `599 tests` 통과
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - server coverage `37.11%`
-- 현재 다음 순차 작업은 `10. execution-failure learning`
+  - server coverage `37.07%`
+- 현재 다음 순차 작업은 `10-C execution-failure learning gate integration`
 
 ## Next Priorities
 
@@ -67,13 +71,13 @@ Interpretation:
 
 ## Recommended First Task Next Session
 
-Start with `execution-failure learning`.
+Start with `execution-failure learning` gate integration.
 
 Suggested slice:
 
-1. execution / review / QA / close failure를 재시도 가능한 taxonomy로 정규화
-2. failure code / retryability / operator next action을 protocol metadata와 dashboard에 surface
-3. repeated failure 패턴을 next dispatch / review gate에서 읽을 수 있는 학습 input으로 저장
+1. repeated failure learning feed를 review/close gate가 실제로 읽도록 연결
+2. retryable이 아닌 repeated runtime case는 blind close/merge path에서 더 보수적으로 차단
+3. operator가 recovery note와 gate blocker를 한 화면에서 이해할 수 있게 surface 정리
 4. failure trend regression tests와 memory-bank summary 업데이트
 
 ## Important Files
@@ -91,6 +95,7 @@ Next failure / runtime surfaces:
 - [heartbeat.ts](/home/taewoong/company-project/squadall/server/src/services/heartbeat.ts)
 - [issue-protocol-execution.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol-execution.ts)
 - [issue-protocol.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol.ts)
+- [issue-protocol-policy.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol-policy.ts)
 - [dashboard.ts](/home/taewoong/company-project/squadall/server/src/services/dashboard.ts)
 
 Planning / memory:
@@ -111,7 +116,7 @@ pnpm build
 For failure-learning work:
 
 ```bash
-pnpm vitest run server/src/__tests__/issue-protocol-execution.test.ts server/src/__tests__/dashboard.test.ts server/src/__tests__/heartbeat-service-flow.test.ts
+pnpm vitest run server/src/__tests__/issue-protocol-execution.test.ts server/src/__tests__/issue-protocol-policy.test.ts server/src/__tests__/dashboard.test.ts server/src/__tests__/heartbeat-service-flow.test.ts
 ```
 
 ## Product Direction Reminder
