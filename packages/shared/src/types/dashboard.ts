@@ -224,16 +224,38 @@ export interface DashboardRecoveryCase {
   title: string;
   workflowState: IssueProtocolWorkflowState;
   recoveryType: "violation" | "timeout" | "integrity" | "runtime";
+  failureFamily:
+    | "protocol_violation"
+    | "protocol_timeout"
+    | "protocol_integrity"
+    | "dispatch"
+    | "runtime_process"
+    | "workspace"
+    | "runtime_unknown";
+  retryability: "retryable" | "operator_required" | "blocked";
   severity: IssueProtocolViolationSeverity | "warning";
   code: string | null;
   summary: string;
   nextAction: string;
+  operatorActionLabel: string;
+  occurrenceCount24h: number;
+  repeated: boolean;
+  lastSeenAt: Date;
   createdAt: Date;
+}
+
+export interface DashboardRecoveryQueueSummary {
+  totalCases: number;
+  repeatedCases: number;
+  retryableCases: number;
+  operatorRequiredCases: number;
+  blockedCases: number;
 }
 
 export interface DashboardRecoveryQueue {
   companyId: string;
   generatedAt: string;
+  summary: DashboardRecoveryQueueSummary;
   items: DashboardRecoveryCase[];
 }
 

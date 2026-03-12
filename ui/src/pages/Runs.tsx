@@ -51,10 +51,11 @@ export function Runs() {
   const liveRuns = liveRunsQuery.data ?? [];
   const recentRuns = recentRunsQuery.data ?? [];
   const recoveryItems = recoveryQuery.data?.items ?? [];
+  const recoverySummary = recoveryQuery.data?.summary;
   const failureCount = recentRuns.filter((run) => ["failed", "timed_out"].includes(run.status)).length;
   const groupedRecovery = Object.entries(
     recoveryItems.reduce<Record<string, typeof recoveryItems>>((acc, item) => {
-      acc[item.recoveryType] = [...(acc[item.recoveryType] ?? []), item];
+      acc[item.failureFamily] = [...(acc[item.failureFamily] ?? []), item];
       return acc;
     }, {}),
   );
@@ -84,20 +85,23 @@ export function Runs() {
         </div>
         <div className="rounded-[1.4rem] border border-border bg-card px-5 py-4 shadow-card">
           <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Recovery Queue</div>
-          <div className="mt-2 text-3xl font-semibold text-foreground">{recoveryItems.length}</div>
-          <div className="mt-2 text-sm text-muted-foreground">Recovery items grouped by runtime, timeout, integrity, or violation handling.</div>
+          <div className="mt-2 text-3xl font-semibold text-foreground">{recoverySummary?.totalCases ?? recoveryItems.length}</div>
+          <div className="mt-2 text-sm text-muted-foreground">Failure learning feed grouped by recovery family and retryability.</div>
+        </div>
+        <div className="rounded-[1.4rem] border border-border bg-card px-5 py-4 shadow-card">
+          <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Repeated cases</div>
+          <div className="mt-2 text-3xl font-semibold text-foreground">{recoverySummary?.repeatedCases ?? 0}</div>
+          <div className="mt-2 text-sm text-muted-foreground">Recovery cases seen at least twice in the last 24 hours.</div>
+        </div>
+        <div className="rounded-[1.4rem] border border-border bg-card px-5 py-4 shadow-card">
+          <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Operator required</div>
+          <div className="mt-2 text-3xl font-semibold text-foreground">{recoverySummary?.operatorRequiredCases ?? 0}</div>
+          <div className="mt-2 text-sm text-muted-foreground">Cases that should not be blindly retried before operator review.</div>
         </div>
         <div className="rounded-[1.4rem] border border-border bg-card px-5 py-4 shadow-card">
           <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Recent failures</div>
           <div className="mt-2 text-3xl font-semibold text-foreground">{failureCount}</div>
           <div className="mt-2 text-sm text-muted-foreground">Recent failed or timed out runs that still deserve operator context.</div>
-        </div>
-        <div className="rounded-[1.4rem] border border-border bg-card px-5 py-4 shadow-card">
-          <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">Affected issues</div>
-          <div className="mt-2 text-3xl font-semibold text-foreground">
-            {new Set(recoveryItems.map((item) => item.issueId)).size}
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">Issues touched by the current recovery queue.</div>
         </div>
       </section>
 
@@ -187,16 +191,32 @@ export function Runs() {
                   </div>
                   <div className="mt-4 space-y-3">
                     {items.slice(0, 3).map((item) => (
-                      <div key={`${item.issueId}-${item.code ?? "runtime"}`} className="rounded-[1rem] border border-border bg-card px-4 py-4">
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {item.severity} · {item.workflowState}
-                        </div>
-                        <div className="mt-2 text-sm font-semibold text-foreground">{item.title}</div>
-                        <div className="mt-1 text-sm text-muted-foreground">{item.summary}</div>
-                        <div className="mt-3 flex items-center justify-between gap-3">
-                          <span className="text-xs text-muted-foreground">{item.nextAction}</span>
-                          <Link
+                    <div key={`${item.issueId}-${item.code ?? "runtime"}`} className="rounded-[1rem] border border-border bg-card px-4 py-4">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        {item.severity} · {item.workflowState}
+                        <span className="rounded-full border border-border px-2 py-0.5">
+                          {item.retryability.replace(/_/g, " ")}
+                        </span>
+                        {item.repeated ? (
+                          <span className="rounded-full border border-red-300 px-2 py-0.5 text-red-600">
+                            repeated
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-foreground">{item.title}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{item.summary}</div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                          {item.occurrenceCount24h} hits / 24h
+                        </span>
+                        <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                          {item.operatorActionLabel}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">{item.nextAction}</span>
+                        <Link
                             to={workIssuePath(item.identifier ?? item.issueId)}
                             className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground no-underline hover:bg-accent"
                           >

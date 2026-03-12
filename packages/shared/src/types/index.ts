@@ -73,6 +73,7 @@ export type {
   DashboardAgentPerformanceItem,
   DashboardAgentPerformanceFeed,
   DashboardRecoveryCase,
+  DashboardRecoveryQueueSummary,
   DashboardRecoveryQueue,
   DashboardRecoveryActionType,
   DashboardRecoveryActionRequest,
