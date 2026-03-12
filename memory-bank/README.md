@@ -8,5 +8,7 @@
 
 현재 활성 컨텍스트:
 
+- `projects/squadall-backend-stability-phase/summary.md`
 - `projects/squadall-run-first/summary.md`
+- `projects/squadall-ui-only-followup/summary.md`
 - `projects/squadall-ui-review-desk/summary.md`

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execute } from "@squadrail/adapter-codex-local/server";
+
+const SQUADRAIL_SKILL_PATH = fileURLToPath(new URL("../../../skills/squadrail", import.meta.url));
 
 async function writeFakeCodexCommand(commandPath: string): Promise<void> {
   const script = `#!/usr/bin/env node
@@ -91,7 +94,7 @@ describe("codex execute", () => {
       expect(result.exitCode).toBe(0);
       expect((await fs.lstat(brokenSkillTarget)).isSymbolicLink()).toBe(true);
       expect(await fs.realpath(brokenSkillTarget)).toBe(
-        await fs.realpath(path.resolve(process.cwd(), "skills", "squadrail")),
+        await fs.realpath(SQUADRAIL_SKILL_PATH),
       );
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
