@@ -527,6 +527,63 @@ describe("heartbeat service flow coverage", () => {
     });
   });
 
+  it("lists task sessions for an agent in descending freshness order", async () => {
+    const sessions = [
+      {
+        id: "task-session-2",
+        companyId: "company-1",
+        agentId: "agent-1",
+        adapterType: "codex_local",
+        taskKey: "issue:2",
+        sessionDisplayId: "display-2",
+        updatedAt: new Date("2026-03-13T06:00:00Z"),
+        createdAt: new Date("2026-03-13T05:00:00Z"),
+      },
+      {
+        id: "task-session-1",
+        companyId: "company-1",
+        agentId: "agent-1",
+        adapterType: "codex_local",
+        taskKey: "issue:1",
+        sessionDisplayId: "display-1",
+        updatedAt: new Date("2026-03-13T05:30:00Z"),
+        createdAt: new Date("2026-03-13T05:00:00Z"),
+      },
+    ];
+    const { db } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agents, [[makeAgent()]]],
+        [agentTaskSessions, [sessions]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.listTaskSessions("agent-1");
+
+    expect(result).toEqual(sessions);
+  });
+
+  it("returns the newest running heartbeat run for an agent", async () => {
+    const runningRun = makeRun({
+      id: "run-running-1",
+      status: "running",
+      startedAt: new Date("2026-03-13T06:15:00Z"),
+    });
+    const { db } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [heartbeatRuns, [[runningRun]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.getActiveRunForAgent("agent-1");
+
+    expect(result).toMatchObject({
+      id: "run-running-1",
+      status: "running",
+    });
+  });
+
   it("resets runtime session globally and clears task sessions when no task key is provided", async () => {
     const existingState = {
       agentId: "agent-1",

@@ -1,0 +1,38 @@
+@startuml
+title Reopen Recovery Inconsistency
+
+actor Board
+participant "ChangeReviewDesk" as Desk
+participant "POST /issues/:id/merge-candidate/recovery" as RecoveryRoute
+database "issues" as IssuesTable
+database "issue_protocol_state" as ProtocolState
+participant "IssueDetail" as IssueDetail
+participant "ProtocolActionConsole" as Console
+participant "heartbeat" as Heartbeat
+
+Board -> Desk : Click "Reopen with rollback context"
+Desk -> RecoveryRoute : POST reopen_with_rollback_context
+RecoveryRoute -> IssuesTable : update status = todo
+RecoveryRoute -> IssuesTable : add recovery comment
+RecoveryRoute --> Desk : reopened = true
+
+IssueDetail -> ProtocolState : GET protocol state
+ProtocolState --> IssueDetail : workflowState = done/cancelled
+IssueDetail -> Console : availableActions(protocolState)
+Console --> IssueDetail : NOTE only
+
+RecoveryRoute -> Heartbeat : enqueue reopen wake
+Heartbeat -> Heartbeat : reset only on assigned/reassigned/retry/manual wakes
+note right of Heartbeat
+issue_reopened_via_comment /
+recovery reopen is not first-class
+session reset trigger today
+end note
+
+note bottom
+Result:
+- issue row looks reopened
+- protocol/UI may still behave like terminal state
+end note
+
+@enduml

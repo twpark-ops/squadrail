@@ -90,6 +90,10 @@ One-line startup rule:
   - `heartbeat-service-flow.test.ts`에 `resetRuntimeSession` global clear와 `cancelSupersededIssueFollowups` direct service test를 추가했다.
   - `knowledge-service-operations.test.ts`에 retrieval policy upsert, retrieval run brief link, retrieval debug patch merge service test를 추가했다.
   - `issue-retrieval-finalization.test.ts`에 zero-evidence finalization artifact regression을 추가했다.
+- `13-M. runtime/protocol coverage uplift batch 6`: 진행 중
+  - `projects-routes.test.ts`, `secrets-routes.test.ts`, `access-admin-routes.test.ts`를 추가해 low-coverage route shell 1차를 닫았다.
+  - `issue-protocol-service.test.ts`, `heartbeat-service-flow.test.ts`, `knowledge-service-operations.test.ts`, `issue-retrieval-finalization.test.ts`에 direct service/finalization branch를 추가했다.
+  - `access.ts`, `projects.ts`, `secrets.ts` route coverage를 끌어올리고, `knowledge.ts`, `heartbeat.ts`, `issue-protocol.ts`, `issue-retrieval.ts` bottleneck을 추가로 눌렀다.
 
 ## Current Product State
 
@@ -112,15 +116,15 @@ One-line startup rule:
   - `pnpm -r typecheck`
   - `pnpm --filter @squadrail/server build`
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - `102 files / 693 tests` 통과
-  - server coverage `45.78%`
+  - `105 files / 717 tests` 통과
+  - server coverage `46.75%`
 - 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`
 
 ## Next Priorities
 
 1. remaining global coverage uplift toward `60%` across large runtime/operator services
 2. `issue-protocol.ts / heartbeat.ts / knowledge.ts / issue-retrieval.ts` direct test와 tail branch coverage 확대
-3. low-coverage route/service shell (`access.ts`, `projects.ts`, `secrets.ts`, `companies.ts` route shell) 중 ROI 높은 표면만 선택 보강
+3. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface) 중 ROI 높은 표면만 선택 보강
 
 Interpretation:
 
@@ -137,7 +141,8 @@ Suggested slice:
 2. `heartbeat.ts`는 `tickTimers/reap/reset/cancel/promote` service path를 계속 direct test로 늘리기
 3. `knowledge.ts`는 retrieval policy/run/debug/cache/report 계열 service path를 더 직접 고정하기
 4. `issue-retrieval.ts`는 finalization/orchestration helper coverage를 계속 올리기
-5. 마지막에 `pnpm -r typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
+5. shell 쪽은 `access/projects/secrets` 1차 이후 `board-claim.ts`와 `dashboard/companies` service surface 위주로 좁혀서 메우기
+6. 마지막에 `pnpm -r typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
 
 ## Important Files
 
@@ -181,7 +186,7 @@ pnpm vitest run server/src/__tests__/heartbeat-service-flow.test.ts server/src/_
 For operator integration + coverage uplift:
 
 ```bash
-pnpm vitest run server/src/__tests__/issues-routes.test.ts server/src/__tests__/issue-change-surface.test.ts server/src/__tests__/companies-routes.test.ts server/src/__tests__/merge-pr-bridge.test.ts server/src/__tests__/operating-alerts.test.ts server/src/__tests__/costs.test.ts server/src/__tests__/activity-log.test.ts server/src/__tests__/live-events.test.ts
+pnpm vitest run server/src/__tests__/issues-routes.test.ts server/src/__tests__/issue-change-surface.test.ts server/src/__tests__/companies-routes.test.ts server/src/__tests__/projects-routes.test.ts server/src/__tests__/secrets-routes.test.ts server/src/__tests__/access-admin-routes.test.ts server/src/__tests__/merge-pr-bridge.test.ts server/src/__tests__/operating-alerts.test.ts server/src/__tests__/costs.test.ts server/src/__tests__/activity-log.test.ts server/src/__tests__/live-events.test.ts
 ```
 
 ## Product Direction Reminder

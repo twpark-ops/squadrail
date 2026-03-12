@@ -2,6 +2,21 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 runtime/protocol coverage uplift 6차 업데이트
+
+- `13-M runtime/protocol coverage uplift batch 6`: **진행 중**
+  - `projects-routes.test.ts`, `secrets-routes.test.ts`, `access-admin-routes.test.ts`를 추가해 low-coverage route shell 1차를 닫았다.
+  - `issue-protocol-service.test.ts`, `heartbeat-service-flow.test.ts`, `knowledge-service-operations.test.ts`, `issue-retrieval-finalization.test.ts`에 direct service/finalization branch를 추가했다.
+  - `access.ts`, `projects.ts`, `secrets.ts` route coverage를 끌어올리고, `knowledge.ts`, `heartbeat.ts`, `issue-protocol.ts`, `issue-retrieval.ts` bottleneck에 추가 테스트를 넣었다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/projects-routes.test.ts src/__tests__/secrets-routes.test.ts src/__tests__/access-admin-routes.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/knowledge-service-operations.test.ts src/__tests__/issue-retrieval-finalization.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `46.75%`, branches `63.56%`, functions `69.56%`
+  - 최신 server tests: `105 files / 717 tests` 통과
+  - immediate next는 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`이되, shell 쪽은 `board-claim.ts / dashboard.ts / companies.ts / secrets.ts` ROI pass로 좁혀졌다.
+
 ## 2026-03-13 runtime/protocol coverage uplift 5차 업데이트
 
 - `13-L runtime coverage/decomposition batch 5`: **진행 중**
@@ -469,9 +484,9 @@
 
 ## 현재 남은 우선순위
 
-1. external operating alerts
-2. goal progress / sprint / capacity
-3. auto revert / custom role / templates / cost prediction
+1. remaining global coverage uplift toward `60%`
+2. `issue-protocol.ts / heartbeat.ts / knowledge.ts / issue-retrieval.ts` direct test와 tail branch coverage 확대
+3. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts`) ROI pass
 
 상세 실행 문서:
 

@@ -194,6 +194,17 @@ describe("issue protocol service", () => {
     ]);
   });
 
+  it("returns an empty protocol timeline when the issue has no messages yet", async () => {
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [[]],
+    });
+    const service = issueProtocolService(db as never);
+
+    const messages = await service.listMessages("issue-empty");
+
+    expect(messages).toEqual([]);
+  });
+
   it("creates a protocol violation with the issue company context", async () => {
     const { db, insertValues } = createIssueProtocolDbMock({
       selectResults: [[{
@@ -239,5 +250,28 @@ describe("issue protocol service", () => {
         violationCode: "close_without_verification",
       }),
     });
+  });
+
+  it("rejects protocol violations for missing issues", async () => {
+    const { db, insertValues } = createIssueProtocolDbMock({
+      selectResults: [[]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.createViolation({
+      issueId: "issue-missing",
+      violation: {
+        threadId: null,
+        messageId: null,
+        violationCode: "close_without_verification",
+        severity: "high",
+        detectedByActorType: "system",
+        detectedByActorId: "protocol-gate",
+        status: "open",
+        details: {},
+      },
+    })).rejects.toThrow("Issue not found");
+
+    expect(insertValues).toHaveLength(0);
   });
 });
