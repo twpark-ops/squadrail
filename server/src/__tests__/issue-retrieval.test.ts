@@ -6,7 +6,9 @@ import {
   applyOrganizationalBridgeGuard,
   applyModelRerankOrder,
   applyOrganizationalMemorySaturationGuard,
+  buildKnowledgeRevisionSignature,
   buildQueryEmbeddingCacheKey,
+  deserializeRetrievalHit,
   buildGraphExpansionSeeds,
   buildSymbolGraphExpandedHits,
   buildSymbolGraphExpansionSeeds,
@@ -20,9 +22,17 @@ import {
   deriveRetrievalEventType,
   fuseRetrievalCandidates,
   mergeGraphExpandedHits,
+  readCachedBriefQualitySummary,
+  readCachedEmbedding,
+  readCachedRetrievalHits,
+  readRetrievalCacheIdentityView,
+  readRetrievalCachePayload,
   resolveRetrievalPolicyRerankConfig,
+  resolveRetrievalCacheHitProvenance,
   rerankRetrievalHits,
   renderRetrievedBriefMarkdown,
+  serializeRetrievalCachePayload,
+  serializeRetrievalHit,
   selectProtocolRetrievalRecipients,
 } from "../services/issue-retrieval.js";
 import { buildHitRationale } from "../services/retrieval/scoring.js";
@@ -44,6 +54,190 @@ describe("issue retrieval helpers", () => {
 
     expect(first).toBe(second);
     expect(first).not.toBe(different);
+  });
+
+  it("normalizes cached embedding payloads and drops empty vectors", () => {
+    expect(readCachedEmbedding({
+      embedding: ["1", 2, "bad", 3],
+      provider: "openai",
+      model: "text-embedding-3-small",
+      dimensions: 3,
+      totalTokens: 42,
+    })).toEqual({
+      embedding: [1, 2, 3],
+      provider: "openai",
+      model: "text-embedding-3-small",
+      dimensions: 3,
+      totalTokens: 42,
+    });
+
+    expect(readCachedEmbedding({
+      embedding: ["bad"],
+    })).toBeNull();
+  });
+
+  it("serializes and deserializes retrieval hits with cache-safe timestamps", () => {
+    const hit = {
+      chunkId: "chunk-1",
+      documentId: "doc-1",
+      sourceType: "code",
+      authorityLevel: "canonical",
+      documentIssueId: "issue-1",
+      documentProjectId: "project-1",
+      path: "server/src/runtime.ts",
+      title: "Runtime",
+      headingPath: "Runtime > Retry",
+      symbolName: "retryLoop",
+      textContent: "retry loop implementation",
+      documentMetadata: { repoRef: "github.com/acme/app" },
+      chunkMetadata: { language: "ts" },
+      denseScore: 0.8,
+      sparseScore: 0.4,
+      rerankScore: 0.9,
+      fusedScore: 1.2,
+      updatedAt: new Date("2026-03-13T09:00:00.000Z"),
+      modelRerankRank: 1,
+      graphMetadata: null,
+      temporalMetadata: null,
+      personalizationMetadata: null,
+      saturationMetadata: null,
+      diversityMetadata: null,
+    } satisfies Parameters<typeof serializeRetrievalHit>[0];
+
+    const serialized = serializeRetrievalHit(hit);
+    expect(serialized.updatedAt).toBe("2026-03-13T09:00:00.000Z");
+    expect(deserializeRetrievalHit(serialized)).toEqual(hit);
+    expect(deserializeRetrievalHit({ chunkId: "broken" })).toBeNull();
+  });
+
+  it("hydrates cached retrieval payloads, quality, and identity views", () => {
+    const payload = serializeRetrievalCachePayload({
+      hits: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          sourceType: "code",
+          authorityLevel: "canonical",
+          documentIssueId: null,
+          documentProjectId: "project-1",
+          path: "server/src/runtime.ts",
+          title: null,
+          headingPath: null,
+          symbolName: null,
+          textContent: "runtime",
+          documentMetadata: {},
+          chunkMetadata: {},
+          denseScore: null,
+          sparseScore: null,
+          rerankScore: null,
+          fusedScore: 1,
+          updatedAt: new Date("2026-03-13T09:10:00.000Z"),
+          modelRerankRank: null,
+          graphMetadata: null,
+          temporalMetadata: null,
+          personalizationMetadata: null,
+          saturationMetadata: null,
+          diversityMetadata: null,
+        },
+      ],
+      quality: { confidenceLevel: "high" },
+      metadata: {
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+        revisionSignature: "revision-1",
+      },
+    });
+
+    expect(readCachedRetrievalHits(payload)).toMatchObject({
+      hits: [expect.objectContaining({ chunkId: "chunk-1" })],
+      quality: { confidenceLevel: "high" },
+      metadata: expect.objectContaining({ queryFingerprint: "query-1" }),
+    });
+    expect(readRetrievalCachePayload(payload)).toMatchObject({
+      hits: [expect.objectContaining({ chunkId: "chunk-1" })],
+    });
+    expect(readRetrievalCacheIdentityView(payload.metadata)).toEqual({
+      queryFingerprint: "query-1",
+      policyFingerprint: "policy-1",
+      feedbackFingerprint: "feedback-1",
+      revisionSignature: "revision-1",
+    });
+  });
+
+  it("reads cached brief quality summaries and cache provenance", () => {
+    expect(readCachedBriefQualitySummary({
+      confidenceLevel: "medium",
+      evidenceCount: 3,
+      candidateCacheHit: true,
+      candidateCacheReason: "hit",
+      candidateCacheProvenance: "normalized_input",
+      finalCacheHit: false,
+      finalCacheReason: "miss_feedback_changed",
+      finalCacheProvenance: "feedback_drift",
+      reusedIssueIds: ["issue-1"],
+      degradedReasons: ["cache_miss"],
+    })).toMatchObject({
+      confidenceLevel: "medium",
+      evidenceCount: 3,
+      candidateCacheHit: true,
+      candidateCacheReason: "hit",
+      finalCacheReason: "miss_feedback_changed",
+      reusedIssueIds: ["issue-1"],
+      degradedReasons: ["cache_miss"],
+    });
+
+    expect(resolveRetrievalCacheHitProvenance({
+      requestedCacheKey: "a",
+      matchedCacheKey: "a",
+      requestedFeedbackFingerprint: "f1",
+      matchedFeedbackFingerprint: "f1",
+    })).toBe("exact_key");
+    expect(resolveRetrievalCacheHitProvenance({
+      requestedCacheKey: "a",
+      matchedCacheKey: "b",
+      requestedFeedbackFingerprint: "f1",
+      matchedFeedbackFingerprint: "f2",
+    })).toBe("feedback_drift");
+    expect(resolveRetrievalCacheHitProvenance({
+      requestedCacheKey: "a",
+      matchedCacheKey: "b",
+      requestedFeedbackFingerprint: "f1",
+      matchedFeedbackFingerprint: "f1",
+    })).toBe("normalized_input");
+  });
+
+  it("builds a stable knowledge revision signature from ordered project affinity", () => {
+    const first = buildKnowledgeRevisionSignature({
+      companyId: "company-1",
+      issueProjectId: "project-1",
+      projectAffinityIds: ["project-2", "project-1"],
+      revisions: [
+        { projectId: "project-1", revision: 4, lastHeadSha: "sha-1", lastTreeSignature: "tree-1" },
+        { projectId: "project-2", revision: 2, lastHeadSha: "sha-2", lastTreeSignature: "tree-2" },
+      ],
+    });
+    const second = buildKnowledgeRevisionSignature({
+      companyId: "company-1",
+      issueProjectId: "project-1",
+      projectAffinityIds: ["project-2", "project-1"],
+      revisions: [
+        { projectId: "project-1", revision: 4, lastHeadSha: "sha-1", lastTreeSignature: "tree-1" },
+        { projectId: "project-2", revision: 2, lastHeadSha: "sha-2", lastTreeSignature: "tree-2" },
+      ],
+    });
+    const changed = buildKnowledgeRevisionSignature({
+      companyId: "company-1",
+      issueProjectId: "project-1",
+      projectAffinityIds: ["project-2", "project-1"],
+      revisions: [
+        { projectId: "project-1", revision: 5, lastHeadSha: "sha-1", lastTreeSignature: "tree-1" },
+        { projectId: "project-2", revision: 2, lastHeadSha: "sha-2", lastTreeSignature: "tree-2" },
+      ],
+    });
+
+    expect(first).toBe(second);
+    expect(first).not.toBe(changed);
   });
 
   it("treats issue-context and changed-path seeds as semantic multi-hop evidence", () => {

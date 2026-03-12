@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyProjectedIssueStatus,
+  mapProtocolStateToIssueStatus,
+  renderMirrorComment,
   resolveProtocolOwnershipForMessage,
+  resolveExpectedWorkflowStateAfter,
   validateHumanBoardProtocolIntervention,
   validateProtocolRecipientContract,
 } from "../services/issue-protocol.js";
@@ -243,5 +247,108 @@ describe("resolveProtocolOwnershipForMessage", () => {
       reviewerAgentId: "reviewer-1",
       qaAgentId: "qa-1",
     });
+  });
+});
+
+describe("protocol state projection helpers", () => {
+  it("maps workflow states into coarse issue statuses", () => {
+    expect(mapProtocolStateToIssueStatus("assigned")).toBe("todo");
+    expect(mapProtocolStateToIssueStatus("implementing")).toBe("in_progress");
+    expect(mapProtocolStateToIssueStatus("approved")).toBe("in_review");
+    expect(mapProtocolStateToIssueStatus("done")).toBe("done");
+  });
+
+  it("applies projected issue status timestamps consistently", () => {
+    expect(applyProjectedIssueStatus("todo")).toMatchObject({
+      status: "todo",
+      updatedAt: expect.any(Date),
+    });
+    expect(applyProjectedIssueStatus("in_progress")).toMatchObject({
+      status: "in_progress",
+      startedAt: expect.any(Date),
+    });
+    expect(applyProjectedIssueStatus("done")).toMatchObject({
+      status: "done",
+      completedAt: expect.any(Date),
+    });
+    expect(applyProjectedIssueStatus("cancelled")).toMatchObject({
+      status: "cancelled",
+      cancelledAt: expect.any(Date),
+    });
+  });
+
+  it("renders protocol mirror comments with state, recipients, and payload", () => {
+    const comment = renderMirrorComment({
+      messageType: "NOTE",
+      sender: {
+        actorType: "user",
+        actorId: "board-1",
+        role: "human_board",
+      },
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "eng-1",
+          role: "engineer",
+        },
+      ],
+      workflowStateBefore: "assigned",
+      workflowStateAfter: "assigned",
+      summary: "Capture delivery context",
+      payload: {
+        noteType: "context",
+        body: "Keep rollback risk explicit",
+      },
+      artifacts: [],
+    });
+
+    expect(comment).toContain("**Protocol NOTE**");
+    expect(comment).toContain("assigned");
+    expect(comment).toContain("engineer:eng-1");
+    expect(comment).toContain("\"noteType\": \"context\"");
+  });
+
+  it("resolves review and approval state transitions from current ownership", () => {
+    expect(resolveExpectedWorkflowStateAfter({
+      before: "submitted_for_review",
+      currentState: null,
+      message: {
+        messageType: "START_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [],
+        workflowStateBefore: "submitted_for_review",
+        workflowStateAfter: "under_review",
+        summary: "Start reviewer pass",
+        payload: {},
+        artifacts: [],
+      },
+      rule: { to: "same" },
+    })).toBe("under_review");
+
+    expect(resolveExpectedWorkflowStateAfter({
+      before: "under_review",
+      currentState: {
+        qaAgentId: "qa-1",
+      } as any,
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "qa_pending",
+        summary: "Approve and hand off to QA",
+        payload: {},
+        artifacts: [],
+      },
+      rule: { to: "same" },
+    })).toBe("qa_pending");
   });
 });

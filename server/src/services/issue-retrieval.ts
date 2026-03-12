@@ -136,7 +136,7 @@ export function buildQueryEmbeddingCacheKey(input: {
   return hashString(`${input.embeddingFingerprint}\n${input.queryText}`);
 }
 
-function readCachedEmbedding(entryValue: Record<string, unknown> | null | undefined) {
+export function readCachedEmbedding(entryValue: Record<string, unknown> | null | undefined) {
   const embedding = Array.isArray(entryValue?.embedding)
     ? entryValue.embedding.map((value) => Number(value)).filter((value) => Number.isFinite(value))
     : [];
@@ -214,14 +214,14 @@ export interface RetrievalHitView {
   } | null;
 }
 
-function serializeRetrievalHit(hit: RetrievalHitView) {
+export function serializeRetrievalHit(hit: RetrievalHitView) {
   return {
     ...hit,
     updatedAt: hit.updatedAt.toISOString(),
   };
 }
 
-function deserializeRetrievalHit(value: unknown): RetrievalHitView | null {
+export function deserializeRetrievalHit(value: unknown): RetrievalHitView | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const chunkId = typeof record.chunkId === "string" ? record.chunkId : null;
@@ -279,7 +279,7 @@ function deserializeRetrievalHit(value: unknown): RetrievalHitView | null {
   };
 }
 
-function readCachedRetrievalHits(value: unknown) {
+export function readCachedRetrievalHits(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const hits = Array.isArray(record.hits)
@@ -299,7 +299,7 @@ function readCachedRetrievalHits(value: unknown) {
   };
 }
 
-interface RetrievalCachePayload {
+export interface RetrievalCachePayload {
   hits: RetrievalHitView[];
   quality: Record<string, unknown> | null;
   metadata: Record<string, unknown>;
@@ -338,13 +338,13 @@ interface ChunkGraphExpansionResult {
   graphEntityTypeCounts: Record<string, number>;
 }
 
-function readRetrievalCachePayload(value: unknown): RetrievalCachePayload | null {
+export function readRetrievalCachePayload(value: unknown): RetrievalCachePayload | null {
   const payload = readCachedRetrievalHits(value);
   if (!payload) return null;
   return payload;
 }
 
-function serializeRetrievalCachePayload(input: RetrievalCachePayload) {
+export function serializeRetrievalCachePayload(input: RetrievalCachePayload) {
   return {
     hits: input.hits.map((hit) => serializeRetrievalHit(hit)),
     quality: input.quality ?? null,
@@ -352,7 +352,7 @@ function serializeRetrievalCachePayload(input: RetrievalCachePayload) {
   };
 }
 
-function readCachedBriefQualitySummary(value: Record<string, unknown> | null | undefined): BriefQualitySummary | null {
+export function readCachedBriefQualitySummary(value: Record<string, unknown> | null | undefined): BriefQualitySummary | null {
   if (!value) return null;
   const confidenceLevel = typeof value.confidenceLevel === "string" ? value.confidenceLevel : null;
   if (confidenceLevel !== "high" && confidenceLevel !== "medium" && confidenceLevel !== "low") return null;
@@ -590,7 +590,7 @@ type RetrievalCandidate = Omit<RetrievalHitView, "fusedScore"> & {
   fusedScore?: number;
 };
 
-interface RetrievalCacheIdentityView {
+export interface RetrievalCacheIdentityView {
   queryFingerprint: string | null;
   policyFingerprint: string | null;
   feedbackFingerprint: string | null;
@@ -686,7 +686,7 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   relatedIssueCloseBoost: 0.48,
 } as const satisfies RetrievalRerankWeights;
 
-function readRetrievalCacheIdentityView(value: unknown): RetrievalCacheIdentityView {
+export function readRetrievalCacheIdentityView(value: unknown): RetrievalCacheIdentityView {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {
       queryFingerprint: null,
@@ -704,7 +704,7 @@ function readRetrievalCacheIdentityView(value: unknown): RetrievalCacheIdentityV
   };
 }
 
-function resolveRetrievalCacheHitProvenance(input: {
+export function resolveRetrievalCacheHitProvenance(input: {
   requestedCacheKey: string;
   matchedCacheKey: string;
   requestedFeedbackFingerprint: string | null;
@@ -715,7 +715,7 @@ function resolveRetrievalCacheHitProvenance(input: {
   return "normalized_input";
 }
 
-function buildKnowledgeRevisionSignature(input: {
+export function buildKnowledgeRevisionSignature(input: {
   companyId: string;
   issueProjectId: string | null;
   projectAffinityIds: string[];

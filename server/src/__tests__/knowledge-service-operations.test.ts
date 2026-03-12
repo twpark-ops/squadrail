@@ -855,4 +855,85 @@ describe("knowledge service operations", () => {
       },
     });
   });
+
+  it("returns documents and retrieval policy reads through direct service helpers", async () => {
+    const document = {
+      id: "doc-1",
+      companyId: "company-1",
+      projectId: "project-1",
+      sourceType: "code",
+      path: "server/src/runtime.ts",
+      updatedAt: new Date("2026-03-13T09:00:00.000Z"),
+    };
+    const policy = {
+      id: "policy-1",
+      companyId: "company-1",
+      role: "engineer",
+      eventType: "on_assignment",
+      workflowState: "assigned",
+      allowedSourceTypes: ["code"],
+      allowedAuthorityLevels: ["canonical"],
+      updatedAt: new Date("2026-03-13T09:00:00.000Z"),
+    };
+    const { db } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [knowledgeDocuments, [[document], [document]]],
+        [retrievalPolicies, [[policy], [policy]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const byId = await service.getDocumentById("doc-1");
+    const listed = await service.listDocuments({
+      companyId: "company-1",
+      projectId: "project-1",
+      sourceType: "code",
+      limit: 10,
+    });
+    const foundPolicy = await service.getRetrievalPolicy({
+      companyId: "company-1",
+      role: "engineer",
+      eventType: "on_assignment",
+      workflowState: "assigned",
+    });
+    const policies = await service.listRetrievalPolicies({
+      companyId: "company-1",
+      role: "engineer",
+      limit: 10,
+    });
+
+    expect(byId).toEqual(document);
+    expect(listed).toEqual([document]);
+    expect(foundPolicy).toEqual(policy);
+    expect(policies).toEqual([policy]);
+  });
+
+  it("returns retrieval runs by id without mutating the record", async () => {
+    const retrievalRun = {
+      id: "retrieval-1",
+      companyId: "company-1",
+      actorType: "agent",
+      actorId: "eng-1",
+      actorRole: "engineer",
+      eventType: "on_assignment",
+      workflowState: "assigned",
+      queryText: "find retry worker",
+      queryDebug: {
+        quality: {
+          confidenceLevel: "high",
+        },
+      },
+      createdAt: new Date("2026-03-13T09:30:00.000Z"),
+    };
+    const { db } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [retrievalRuns, [[retrievalRun]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const found = await service.getRetrievalRunById("retrieval-1");
+
+    expect(found).toEqual(retrievalRun);
+  });
 });

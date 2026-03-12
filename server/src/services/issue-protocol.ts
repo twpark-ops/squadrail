@@ -122,7 +122,7 @@ const MESSAGE_RULES: Record<
   RECORD_PROTOCOL_VIOLATION: { from: "*", to: "same", roles: ["system"], stateChanging: false },
 };
 
-function mapProtocolStateToIssueStatus(state: IssueProtocolWorkflowState): IssueStatus {
+export function mapProtocolStateToIssueStatus(state: IssueProtocolWorkflowState): IssueStatus {
   switch (state) {
     case "backlog":
       return "backlog";
@@ -149,7 +149,7 @@ function mapProtocolStateToIssueStatus(state: IssueProtocolWorkflowState): Issue
   }
 }
 
-function applyProjectedIssueStatus(status: IssueStatus): Partial<typeof issues.$inferInsert> {
+export function applyProjectedIssueStatus(status: IssueStatus): Partial<typeof issues.$inferInsert> {
   const patch: Partial<typeof issues.$inferInsert> = { status, updatedAt: new Date() };
   if (status === "in_progress" && !patch.startedAt) patch.startedAt = new Date();
   if (status === "done") patch.completedAt = new Date();
@@ -166,7 +166,7 @@ function buildRecoveryReopenIssuePatch(status: IssueStatus): Partial<typeof issu
   };
 }
 
-function renderMirrorComment(input: CreateIssueProtocolMessage) {
+export function renderMirrorComment(input: CreateIssueProtocolMessage) {
   const recipients = input.recipients.map((recipient) => `${recipient.role}:${recipient.recipientId}`).join(", ");
   const payload = JSON.stringify(input.payload, null, 2);
   return [
@@ -327,7 +327,7 @@ type ProtocolOwnershipState = {
   qaAgentId: string | null;
 };
 
-function resolveExpectedWorkflowStateAfter(input: {
+export function resolveExpectedWorkflowStateAfter(input: {
   before: IssueProtocolWorkflowState;
   currentState: typeof issueProtocolState.$inferSelect | null;
   message: CreateIssueProtocolMessage;

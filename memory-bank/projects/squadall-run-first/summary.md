@@ -2,6 +2,22 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 runtime/protocol coverage uplift 7차 업데이트
+
+- `13-O runtime/protocol coverage uplift batch 7`: **완료**
+  - `issue-protocol-state-policy.test.ts`에 state projection, mirror comment, review/approval transition helper coverage를 추가했다.
+  - `issue-retrieval.test.ts`에 cached embedding / retrieval hit serialization / cache payload / provenance / revision signature helper coverage를 추가했다.
+  - `knowledge-service-operations.test.ts`에 document / retrieval policy / retrieval run read path direct service test를 추가했다.
+  - `heartbeat-service-flow.test.ts`에 `invoke` wrapper와 `cancelActiveForAgent` direct service branch를 추가했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issue-protocol-state-policy.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/knowledge-service-operations.test.ts src/__tests__/issue-retrieval.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `47.70%`, branches `62.88%`, functions `71.31%`
+  - 최신 server tests: `105 files / 736 tests` 통과
+  - immediate next는 `issue-protocol appendMessage / heartbeat reap-watchdog / knowledge listRecentRetrievalRuns / issue-retrieval service-body cache-revision path`다.
+
 ## 2026-03-13 recovery / workflow / role integrity hardening 업데이트
 
 - `review doc follow-up 1~4`: **완료**

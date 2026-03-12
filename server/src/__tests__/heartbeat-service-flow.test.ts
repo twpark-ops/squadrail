@@ -688,4 +688,87 @@ describe("heartbeat service flow coverage", () => {
       errorCode: "cancelled",
     });
   });
+
+  it("invokes an agent through the wakeup wrapper with actor context", async () => {
+    const { db, insertValues } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agents, [[makeAgent()]]],
+        [heartbeatRuns, [[]]],
+        [agentRuntimeState, [[]]],
+      ]),
+      insertRows: new Map([
+        [agentWakeupRequests, [[{ id: "wake-invoke-1" }]]],
+        [heartbeatRuns, [[makeRun({
+          id: "run-invoke-1",
+          wakeupRequestId: "wake-invoke-1",
+          invocationSource: "on_demand",
+          triggerDetail: "manual",
+        })]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const run = await service.invoke(
+      "agent-1",
+      "on_demand",
+      { source: "manual.invoke" },
+      "manual",
+      { actorType: "user", actorId: "board-1" },
+    );
+
+    expect(run).toMatchObject({
+      id: "run-invoke-1",
+      wakeupRequestId: "wake-invoke-1",
+      invocationSource: "on_demand",
+    });
+    expect(insertValues.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      source: "on_demand",
+      triggerDetail: "manual",
+      requestedByActorType: "user",
+      requestedByActorId: "board-1",
+    });
+  });
+
+  it("cancels queued or running work for a paused agent", async () => {
+    const queuedRun = makeRun({
+      id: "run-pause-1",
+      wakeupRequestId: "wake-pause-1",
+      status: "queued",
+    });
+    const cancelledRun = {
+      ...queuedRun,
+      status: "cancelled",
+      finishedAt: new Date("2026-03-13T05:30:00Z"),
+      error: "Cancelled due to agent pause",
+      errorCode: "cancelled",
+    };
+    const { db, updateSets, conflictSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [heartbeatRuns, [[queuedRun]]],
+        [issues, [[]]],
+      ]),
+      updateRows: new Map([
+        [heartbeatRuns, [[cancelledRun]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const cancelledCount = await service.cancelActiveForAgent("agent-1");
+
+    expect(cancelledCount).toBe(1);
+    expect(updateSets.find((entry) => entry.table === heartbeatRuns)?.value).toMatchObject({
+      status: "cancelled",
+      errorCode: "cancelled",
+    });
+    expect(updateSets.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      status: "cancelled",
+      error: "Cancelled due to agent pause",
+    });
+    expect(conflictSets.find((entry) => entry.table === heartbeatRunLeases)?.value).toMatchObject({
+      status: "cancelled",
+      checkpointJson: expect.objectContaining({
+        phase: "finalize.cancelled",
+      }),
+    });
+  });
 });
