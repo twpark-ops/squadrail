@@ -7,9 +7,10 @@ import { runMergeCandidateRecoverySchema } from "@squadrail/shared";
 
 export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
   const { router, db } = ctx;
-  const { svc, projectsSvc, retrievalPersonalization, mergeCandidatesSvc } = ctx.services;
+  const { svc, projectsSvc, protocolSvc, retrievalPersonalization, mergeCandidatesSvc } = ctx.services;
   const {
     loadIssueChangeSurface,
+    queueIssueWakeup,
     buildMergeAutomationPlan,
     runMergeAutomationAction,
   } = ctx.helpers;
@@ -375,11 +376,8 @@ export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
       return;
     }
 
-    const reopenedIssue = await svc.update(issue.id, { status: "todo" });
-    if (!reopenedIssue) {
-      res.status(404).json({ error: "Issue not found" });
-      return;
-    }
+    const reopenResult = await protocolSvc.reopenForRecovery(issue.id);
+    const reopenedIssue = reopenResult.issue;
 
     const comment = await svc.addComment(issue.id, recoveryBody, {
       agentId: actor.agentId ?? undefined,
@@ -410,6 +408,8 @@ export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
         reopenedFrom: issue.status,
         source: "revert_assist",
         identifier: reopenedIssue.identifier,
+        reopenedFromWorkflowState: reopenResult.reopenedFromWorkflowState,
+        nextWorkflowState: reopenResult.nextWorkflowState,
       },
     });
 
@@ -430,6 +430,8 @@ export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
         reopened: true,
         reopenedFrom: issue.status,
         source: "revert_assist",
+        reopenedFromWorkflowState: reopenResult.reopenedFromWorkflowState,
+        nextWorkflowState: reopenResult.nextWorkflowState,
       },
     });
 
@@ -444,8 +446,41 @@ export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
       entityId: reopenedIssue.id,
       details: {
         commentId: comment.id,
+        reopenedFromWorkflowState: reopenResult.reopenedFromWorkflowState,
+        nextWorkflowState: reopenResult.nextWorkflowState,
       },
     });
+
+    if (reopenResult.wakeAssigneeAgentId) {
+      await queueIssueWakeup(
+        reopenedIssue,
+        reopenResult.wakeAssigneeAgentId,
+        {
+          source: "automation",
+          triggerDetail: "system",
+          reason: "issue_reopened_via_revert_assist",
+          payload: {
+            issueId: reopenedIssue.id,
+            commentId: comment.id,
+            reopenedFrom: issue.status,
+            reopenedFromWorkflowState: reopenResult.reopenedFromWorkflowState,
+            mutation: "merge_recovery",
+          },
+          requestedByActorType: actor.actorType,
+          requestedByActorId: actor.actorId,
+          contextSnapshot: {
+            issueId: reopenedIssue.id,
+            taskId: reopenedIssue.id,
+            commentId: comment.id,
+            source: "issue.revert_assist.reopen",
+            wakeReason: "issue_reopened_via_revert_assist",
+            reopenedFrom: issue.status,
+            reopenedFromWorkflowState: reopenResult.reopenedFromWorkflowState,
+          },
+        },
+        "failed to enqueue revert assist reopen wakeup",
+      );
+    }
 
     res.json({
       actionType: "reopen_with_rollback_context",

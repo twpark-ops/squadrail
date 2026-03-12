@@ -2,6 +2,25 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 recovery / workflow / role integrity hardening 업데이트
+
+- `review doc follow-up 1~4`: **완료**
+  - `merge-routes.ts` recovery reopen이 `issueProtocolService.reopenForRecovery()`를 사용해 terminal protocol state를 `assigned`로 되돌리고 assignee wakeup까지 함께 처리한다.
+  - `workflow-template` shared validator와 `workflow-templates.ts` service가 duplicate ID / reserved `default-*` ID를 함께 차단한다.
+  - `role-packs.ts createCustomRolePack()`은 transaction으로 감싸 partial persisted custom role row를 남기지 않게 했다.
+  - `CompanySettings.tsx` custom role create success는 `setupProgress` / `doctor` query까지 invalidate한다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issues-routes.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/workflow-templates.test.ts src/__tests__/role-pack-service.test.ts src/__tests__/companies-routes.test.ts`
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/ui build`
+  - `pnpm --filter @squadrail/server test`
+  - 최신 server tests: `105 files / 723 tests` 통과
+  - coverage baseline은 직전 측정치 `46.75%`
+  - immediate next는 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`이다.
+
 ## 2026-03-13 runtime/protocol coverage uplift 6차 업데이트
 
 - `13-M runtime/protocol coverage uplift batch 6`: **진행 중**
@@ -491,12 +510,15 @@
 상세 실행 문서:
 
 - `docs/backend-next-priority-detailed-plan.md`
+- `docs/issue-board-ux-plan.md`
+- `docs/agent-presence-ui-plan.md`
 
 ## 다음 세션 핸드오프
 
 - 다음 확인 순서는 `docs/next-session-handoff.md` -> `memory-bank/projects/squadall-run-first/summary.md`다.
 - 다음 시작 작업은 `external operating alerts`다.
 - 그 다음은 `goal progress / sprint / capacity`, 이후 `auto revert / custom role / templates / cost prediction` 순서다.
+- UI 확장 탐색은 `issue board`와 `agent presence`를 별도 UX 라운드로 보고, 현재 초안은 `docs/issue-board-ux-plan.md`, `docs/agent-presence-ui-plan.md`에 있다.
 - 기본 검증 순서는 `pnpm -r typecheck` -> `pnpm test:run` -> `pnpm build`다.
 - merge/review/protocol 경계를 건드릴 때는 먼저 `pnpm --filter @squadrail/server test`를 기준 검증으로 삼는다.
 - 건드리지 말아야 할 경로는 `memory-bank/README.md`와 `memory-bank/projects/squadall-ui-only-followup/`다.

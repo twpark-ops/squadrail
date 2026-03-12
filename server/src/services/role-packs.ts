@@ -1068,21 +1068,6 @@ export function rolePackService(db: Db) {
       roleSlug: input.customRole.roleSlug ?? null,
       publish: input.customRole.publish,
     });
-    const existing = await db
-      .select({ id: rolePackSets.id })
-      .from(rolePackSets)
-      .where(
-        and(
-          eq(rolePackSets.companyId, input.companyId),
-          eq(rolePackSets.scopeType, DEFAULT_ROLE_PACK_SCOPE_TYPE),
-          eq(rolePackSets.scopeId, scopeId),
-          eq(rolePackSets.roleKey, "custom"),
-        ),
-      )
-      .then((rows) => rows[0] ?? null);
-    if (existing) {
-      throw unprocessable("A custom role with this slug already exists");
-    }
 
     const files = buildCustomRolePackFiles({
       roleName,
@@ -1090,50 +1075,70 @@ export function rolePackService(db: Db) {
       description: input.customRole.description ?? null,
     });
 
-    const [createdSet] = await db
-      .insert(rolePackSets)
-      .values({
-        companyId: input.companyId,
-        scopeType: DEFAULT_ROLE_PACK_SCOPE_TYPE,
-        scopeId,
-        roleKey: "custom",
-        status,
-        metadata: buildCustomRolePackMetadata({
-          roleName,
-          roleSlug,
-          description: input.customRole.description ?? null,
-          baseRoleKey: input.customRole.baseRoleKey,
-        }),
-      })
-      .returning();
+    const createdSetId = await db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: rolePackSets.id })
+        .from(rolePackSets)
+        .where(
+          and(
+            eq(rolePackSets.companyId, input.companyId),
+            eq(rolePackSets.scopeType, DEFAULT_ROLE_PACK_SCOPE_TYPE),
+            eq(rolePackSets.scopeId, scopeId),
+            eq(rolePackSets.roleKey, "custom"),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+      if (existing) {
+        throw unprocessable("A custom role with this slug already exists");
+      }
 
-    const [revision] = await db
-      .insert(rolePackRevisions)
-      .values({
-        rolePackSetId: createdSet!.id,
-        version: 1,
-        status,
-        message: `Create custom role ${roleName}`,
-        createdByUserId: input.actor.userId ?? null,
-        createdByAgentId: input.actor.agentId ?? null,
-        publishedAt: status === "published" ? new Date() : null,
-      })
-      .returning();
+      const [createdSet] = await tx
+        .insert(rolePackSets)
+        .values({
+          companyId: input.companyId,
+          scopeType: DEFAULT_ROLE_PACK_SCOPE_TYPE,
+          scopeId,
+          roleKey: "custom",
+          status,
+          metadata: buildCustomRolePackMetadata({
+            roleName,
+            roleSlug,
+            description: input.customRole.description ?? null,
+            baseRoleKey: input.customRole.baseRoleKey,
+          }),
+        })
+        .returning();
 
-    await db
-      .insert(rolePackFiles)
-      .values(
-        files.map((file) => ({
-          revisionId: revision!.id,
-          filename: file.filename,
-          content: file.content,
-          checksumSha256: hashContent(file.content),
-        })),
-      );
+      const [revision] = await tx
+        .insert(rolePackRevisions)
+        .values({
+          rolePackSetId: createdSet!.id,
+          version: 1,
+          status,
+          message: `Create custom role ${roleName}`,
+          createdByUserId: input.actor.userId ?? null,
+          createdByAgentId: input.actor.agentId ?? null,
+          publishedAt: status === "published" ? new Date() : null,
+        })
+        .returning();
+
+      await tx
+        .insert(rolePackFiles)
+        .values(
+          files.map((file) => ({
+            revisionId: revision!.id,
+            filename: file.filename,
+            content: file.content,
+            checksumSha256: hashContent(file.content),
+          })),
+        );
+
+      return createdSet!.id;
+    });
 
     return getRolePack({
       companyId: input.companyId,
-      rolePackSetId: createdSet!.id,
+      rolePackSetId: createdSetId,
     });
   }
 

@@ -46,7 +46,17 @@ function createRolePackDbMock(input: {
         };
       },
     }),
-    transaction: async <T>(callback: (tx: typeof db) => Promise<T>) => callback(db),
+    transaction: async <T>(callback: (tx: typeof db) => Promise<T>) => {
+      const insertCheckpoint = insertValues.length;
+      const updateCheckpoint = updateSets.length;
+      try {
+        return await callback(db);
+      } catch (error) {
+        insertValues.splice(insertCheckpoint);
+        updateSets.splice(updateCheckpoint);
+        throw error;
+      }
+    },
   };
 
   return {
@@ -243,6 +253,56 @@ describe("role pack service", () => {
         }),
       ]),
     });
+  });
+
+  it("rolls back custom role creation when file persistence fails", async () => {
+    const { db, insertValues } = createRolePackDbMock({
+      selectResults: [
+        [],
+      ],
+      insertResults: [
+        [{
+          id: "set-1",
+          companyId: "company-1",
+          scopeType: "company",
+          scopeId: "custom:release-captain",
+          roleKey: "custom",
+          status: "published",
+          metadata: {},
+          createdAt: new Date("2026-03-13T09:00:00.000Z"),
+          updatedAt: new Date("2026-03-13T09:00:00.000Z"),
+        }],
+        [{
+          id: "rev-1",
+          rolePackSetId: "set-1",
+          version: 1,
+          status: "published",
+          message: "Create custom role Release Captain",
+          createdByUserId: "board-1",
+          createdByAgentId: null,
+          createdAt: new Date("2026-03-13T09:01:00.000Z"),
+          publishedAt: new Date("2026-03-13T09:01:00.000Z"),
+        }],
+        new Error("disk full"),
+      ],
+    });
+    const service = rolePackService(db as never);
+
+    await expect(service.createCustomRolePack({
+      companyId: "company-1",
+      actor: {
+        userId: "board-1",
+      },
+      customRole: {
+        roleName: "Release Captain",
+        roleSlug: null,
+        description: "Own release orchestration",
+        baseRoleKey: "tech_lead",
+        publish: true,
+      },
+    })).rejects.toThrow("disk full");
+
+    expect(insertValues).toEqual([]);
   });
 
   it("creates a published draft revision and refreshes the latest revision view", async () => {

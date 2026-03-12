@@ -9,6 +9,7 @@ function createResolvedChain(rows: unknown[]) {
     orderBy: () => chain,
     innerJoin: () => chain,
     leftJoin: () => chain,
+    for: () => chain,
     then: <T>(resolve: (value: unknown[]) => T | PromiseLike<T>) =>
       Promise.resolve(rows).then(resolve),
   };
@@ -18,10 +19,13 @@ function createResolvedChain(rows: unknown[]) {
 function createIssueProtocolDbMock(input: {
   selectResults?: unknown[][];
   insertResults?: Array<unknown[] | Error>;
+  updateResults?: Array<unknown[] | Error>;
 }) {
   const selectQueue = [...(input.selectResults ?? [])];
   const insertQueue = [...(input.insertResults ?? [])];
+  const updateQueue = [...(input.updateResults ?? [])];
   const insertValues: Array<{ table: unknown; value: unknown }> = [];
+  const updateValues: Array<{ table: unknown; value: unknown }> = [];
 
   const db = {
     select: () => createResolvedChain(selectQueue.shift() ?? []),
@@ -35,11 +39,25 @@ function createIssueProtocolDbMock(input: {
         };
       },
     }),
+    update: (table: unknown) => ({
+      set: (value: unknown) => {
+        updateValues.push({ table, value });
+        const next = updateQueue.shift();
+        if (next instanceof Error) throw next;
+        return {
+          where: () => ({
+            returning: async () => next ?? [],
+          }),
+        };
+      },
+    }),
+    transaction: async <T>(callback: (tx: typeof db) => Promise<T>) => callback(db),
   };
 
   return {
     db,
     insertValues,
+    updateValues,
   };
 }
 
@@ -273,5 +291,111 @@ describe("issue protocol service", () => {
     })).rejects.toThrow("Issue not found");
 
     expect(insertValues).toHaveLength(0);
+  });
+
+  it("reopens a terminal protocol state into assigned delivery state for recovery", async () => {
+    const issue = {
+      id: "issue-1",
+      companyId: "company-1",
+      identifier: "CLO-900",
+      title: "Rolled back issue",
+      description: null,
+      status: "done",
+      priority: "high",
+      assigneeAgentId: "eng-1",
+      completedAt: new Date("2026-03-13T08:00:00.000Z"),
+      cancelledAt: null,
+      checkoutRunId: "run-1",
+    };
+    const currentState = {
+      issueId: "issue-1",
+      companyId: "company-1",
+      workflowState: "done",
+      coarseIssueStatus: "done",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 1,
+      lastProtocolMessageId: "close-1",
+      lastTransitionAt: new Date("2026-03-13T08:00:00.000Z"),
+      blockedPhase: null,
+      blockedCode: null,
+      blockedByMessageId: null,
+      metadata: {},
+    };
+    const updatedState = {
+      ...currentState,
+      workflowState: "assigned",
+      coarseIssueStatus: "todo",
+      metadata: {
+        recoveryReopen: {
+          lastReopenedAt: "2026-03-13T09:00:00.000Z",
+          reopenedFromWorkflowState: "done",
+        },
+      },
+    };
+    const reopenedIssue = {
+      ...issue,
+      status: "todo",
+      completedAt: null,
+      checkoutRunId: null,
+      assigneeUserId: null,
+    };
+    const { db, updateValues } = createIssueProtocolDbMock({
+      selectResults: [[issue], [currentState]],
+      updateResults: [[updatedState], [reopenedIssue]],
+    });
+    const service = issueProtocolService(db as never);
+
+    const reopened = await service.reopenForRecovery("issue-1");
+
+    expect(reopened).toMatchObject({
+      issue: expect.objectContaining({
+        id: "issue-1",
+        status: "todo",
+      }),
+      reopenedFromWorkflowState: "done",
+      nextWorkflowState: "assigned",
+      wakeAssigneeAgentId: "eng-1",
+    });
+    expect(updateValues).toContainEqual({
+      table: expect.anything(),
+      value: expect.objectContaining({
+        workflowState: "assigned",
+        coarseIssueStatus: "todo",
+        blockedPhase: null,
+        blockedCode: null,
+      }),
+    });
+    expect(updateValues).toContainEqual({
+      table: expect.anything(),
+      value: expect.objectContaining({
+        status: "todo",
+        completedAt: null,
+        cancelledAt: null,
+        checkoutRunId: null,
+        assigneeAgentId: "eng-1",
+        assigneeUserId: null,
+      }),
+    });
+  });
+
+  it("rejects recovery reopen when the protocol is not terminal", async () => {
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [[{
+        id: "issue-1",
+        companyId: "company-1",
+        status: "in_review",
+      }], [{
+        issueId: "issue-1",
+        companyId: "company-1",
+        workflowState: "under_review",
+        metadata: {},
+      }]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.reopenForRecovery("issue-1")).rejects.toThrow("Issue protocol is not in a terminal state");
   });
 });

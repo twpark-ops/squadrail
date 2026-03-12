@@ -135,4 +135,52 @@ describe("workflow template service", () => {
       },
     ]);
   });
+
+  it("rejects reserved default-prefixed company template IDs", async () => {
+    const db = createDb(() => ({ metadata: null, updatedAt: null }));
+    const service = workflowTemplateService(db);
+
+    await expect(service.updateConfig("company-1", {
+      templates: [
+        {
+          id: "default-close-task",
+          actionType: "CLOSE_TASK",
+          label: "Override close",
+          description: null,
+          summary: null,
+          fields: {},
+        },
+      ],
+    })).rejects.toThrow("reserved default-* prefix");
+
+    expect(mockSetupUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate company template IDs even across different action types", async () => {
+    const db = createDb(() => ({ metadata: null, updatedAt: null }));
+    const service = workflowTemplateService(db);
+
+    await expect(service.updateConfig("company-1", {
+      templates: [
+        {
+          id: "company-shared-template",
+          actionType: "ASSIGN_TASK",
+          label: "Assignment",
+          description: null,
+          summary: null,
+          fields: {},
+        },
+        {
+          id: "company-shared-template",
+          actionType: "CLOSE_TASK",
+          label: "Close",
+          description: null,
+          summary: null,
+          fields: {},
+        },
+      ],
+    })).rejects.toThrow("Workflow template IDs must be unique");
+
+    expect(mockSetupUpdate).not.toHaveBeenCalled();
+  });
 });

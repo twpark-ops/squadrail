@@ -25,6 +25,7 @@
 > - `13-K. large operator/service direct coverage uplift` 진행 중
 > - `13-L. runtime coverage/decomposition batch 5` 진행 중
 > - `13-M. runtime/protocol coverage uplift batch 6` 진행 중
+> - `13-N. recovery/template/role integrity hardening` 완료
 > 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`이다.
 
 ## 목적
@@ -222,6 +223,21 @@
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `46.75%`, branches `63.56%`, functions `69.56%`
   - 최신 server tests: `105 files / 717 tests` 통과
+- `2026-03-13 recovery / workflow / role integrity hardening` 완료
+  - `merge-routes.ts` recovery reopen이 `issueProtocolService.reopenForRecovery()`를 통해 terminal protocol state를 `assigned`로 되돌리고, recovery comment 이후 assignee wakeup까지 이어지게 맞췄다.
+  - `workflow-template` validator와 `workflow-templates.ts` service 양쪽에 duplicate ID / reserved `default-*` ID invariant를 추가했다.
+  - `role-packs.ts createCustomRolePack()`을 transaction으로 감싸 partial `set / revision / files` row를 남기지 않게 했다.
+  - `CompanySettings.tsx` custom role success path에 `setupProgress` / `doctor` invalidate를 추가했다.
+  - 검증:
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issues-routes.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/workflow-templates.test.ts src/__tests__/role-pack-service.test.ts src/__tests__/companies-routes.test.ts`
+    - `pnpm --filter @squadrail/shared typecheck`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/ui typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/ui build`
+    - `pnpm --filter @squadrail/server test`
+  - 최신 server tests: `105 files / 723 tests` 통과
+  - coverage baseline은 직전 측정치 `46.75%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
