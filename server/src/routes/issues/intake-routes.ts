@@ -136,13 +136,19 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
       try {
         await svc.remove(issue.id);
       } catch (cleanupErr) {
-        ctx.helpers.recordProtocolViolation({
-          issueId: issue.id,
-          senderRole: sender.role,
-          messageType: "ASSIGN_TASK",
-          code: "pm_intake_cleanup_failed",
-          message: "failed to clean up PM intake issue after initial assignment failed",
-          details: { err: cleanupErr },
+        void logActivity(db, {
+          companyId,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          runId: actor.runId,
+          action: "issue.intake.cleanup_failed",
+          entityType: "issue",
+          entityId: issue.id,
+          details: {
+            stage: "initial_assignment",
+            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          },
         }).catch(() => {});
       }
       throw err;

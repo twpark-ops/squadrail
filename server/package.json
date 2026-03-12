@@ -27,15 +27,17 @@
     "build": "tsc",
     "clean": "rm -rf dist",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src/__tests__",
+    "test:coverage": "vitest run src/__tests__ --coverage.enabled"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
     "@squadrail/adapter-claude-local": "workspace:*",
     "@squadrail/adapter-codex-local": "workspace:*",
     "@squadrail/adapter-cursor-local": "workspace:*",
-    "@squadrail/adapter-opencode-local": "workspace:*",
     "@squadrail/adapter-openclaw": "workspace:*",
+    "@squadrail/adapter-opencode-local": "workspace:*",
     "@squadrail/adapter-utils": "workspace:*",
     "@squadrail/db": "workspace:*",
     "@squadrail/shared": "workspace:*",
@@ -60,6 +62,7 @@
     "@types/node": "^24.6.0",
     "@types/supertest": "^6.0.2",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^3.0.5",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",

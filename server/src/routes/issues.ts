@@ -50,6 +50,7 @@ import { registerIssueAttachmentRoutes } from "./issues/attachments-routes.js";
 import { registerIssueIntakeRoutes } from "./issues/intake-routes.js";
 import { registerIssueMergeRoutes } from "./issues/merge-routes.js";
 import { registerIssueProtocolReadRoutes } from "./issues/protocol-read-routes.js";
+import type { IssueRouteContext } from "./issues/context.js";
 
 const MAX_ATTACHMENT_BYTES = Number(process.env.SQUADRAIL_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_CONTENT_TYPES = new Set([
@@ -1498,12 +1499,13 @@ export function issueRoutes(db: Db, storage: StorageService) {
       pmIntakeLabelSpecs: PM_INTAKE_LABEL_SPECS,
     },
   };
+  const typedRouteContext: IssueRouteContext = routeContext;
 
-  registerIssueApprovalRoutes(routeContext);
-  registerIssueIntakeRoutes(routeContext);
-  registerIssueProtocolReadRoutes(routeContext);
-  registerIssueMergeRoutes(routeContext);
-  registerIssueAttachmentRoutes(routeContext);
+  registerIssueApprovalRoutes(typedRouteContext);
+  registerIssueIntakeRoutes(typedRouteContext);
+  registerIssueProtocolReadRoutes(typedRouteContext);
+  registerIssueMergeRoutes(typedRouteContext);
+  registerIssueAttachmentRoutes(typedRouteContext);
 
   router.get("/companies/:companyId/issues", async (req, res) => {
     const companyId = req.params.companyId as string;
