@@ -49,6 +49,10 @@ interface IssueRouteIssueService {
   getById(id: string): Promise<IssueRouteIssueRecord | null>;
   create(companyId: string, input: Record<string, unknown>): Promise<IssueRouteIssueRecord>;
   update(issueId: string, input: Record<string, unknown>): Promise<IssueRouteIssueRecord | null>;
+  addComment(issueId: string, body: string, actor: { agentId?: string; userId?: string }): Promise<{
+    id: string;
+    body: string;
+  }>;
   remove(issueId: string): Promise<IssueRouteIssueRecord | null>;
   listAttachments(issueId: string): Promise<IssueRouteAttachmentRecord[]>;
   createAttachment(input: {

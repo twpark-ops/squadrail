@@ -4,9 +4,11 @@ import type { Db } from "@squadrail/db";
 import { rolePackFiles, rolePackRevisions, rolePackSets } from "@squadrail/db";
 import { formatProtocolHelperCommand } from "@squadrail/adapter-utils/server-utils";
 import type {
+  CreateCustomRolePack,
   CreateRolePackDraft,
   RolePackFile,
   RolePackFileName,
+  RolePackCustomBaseRoleKey,
   RolePackPresetDescriptor,
   RolePackPresetKey,
   RolePackRevision,
@@ -84,14 +86,27 @@ const ROLE_PACK_PRESETS: Record<RolePackPresetKey, RolePackPresetDescriptor> = {
 };
 
 function toRolePackSet(row: RolePackSetRow): RolePackSet {
+  const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
+  const customRoleName = readString(metadata.customRoleName);
+  const customRoleDescription = readString(metadata.customRoleDescription);
+  const customRoleSlug = readString(metadata.customRoleSlug);
+  const baseRoleKey = readBaseRoleKey(metadata.baseRoleKey);
   return {
     id: row.id,
     companyId: row.companyId,
     scopeType: row.scopeType as RolePackSet["scopeType"],
     scopeId: row.scopeId || null,
     roleKey: row.roleKey as RolePackRoleKey,
+    displayName:
+      row.roleKey === "custom"
+        ? customRoleName ?? customRoleSlug ?? "Custom Role"
+        : formatRoleKeyLabel(row.roleKey),
+    baseRoleKey,
+    customRoleName,
+    customRoleDescription,
+    customRoleSlug,
     status: row.status as RolePackSet["status"],
-    metadata: (row.metadata as Record<string, unknown> | null) ?? {},
+    metadata,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -124,6 +139,67 @@ function toRolePackFile(row: RolePackFileRow): RolePackFile {
 
 function hashContent(content: string) {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function slugify(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized.length > 0 ? normalized : "custom-role";
+}
+
+function formatRoleKeyLabel(roleKey: string) {
+  return roleKey
+    .split("_")
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function readBaseRoleKey(value: unknown): RolePackCustomBaseRoleKey | null {
+  return value === "cto"
+    || value === "tech_lead"
+    || value === "engineer"
+    || value === "reviewer"
+    || value === "qa"
+    || value === "human_board"
+    || value === "pm"
+    ? value
+    : null;
+}
+
+export function buildCustomRolePackIdentity(input: {
+  roleName: string;
+  roleSlug?: string | null;
+  publish?: boolean;
+}) {
+  const roleName = input.roleName.trim();
+  const roleSlug = slugify(input.roleSlug ?? roleName);
+  return {
+    roleName,
+    roleSlug,
+    scopeId: `custom:${roleSlug}`,
+    status: input.publish === false ? "draft" as const : "published" as const,
+  };
+}
+
+export function buildCustomRolePackMetadata(input: {
+  roleName: string;
+  roleSlug: string;
+  description?: string | null;
+  baseRoleKey: RolePackCustomBaseRoleKey;
+}) {
+  return {
+    customRoleName: input.roleName,
+    customRoleSlug: input.roleSlug,
+    customRoleDescription: input.description ?? null,
+    baseRoleKey: input.baseRoleKey,
+  };
 }
 
 function filesMatchByChecksum(left: RolePackFileRow[], right: RolePackFileRow[]) {
@@ -261,6 +337,17 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
         "Do not approve implementation without technical review.",
         "Do not change scope silently after implementation starts.",
         "Do not inspect repository files before sending the first routing or clarification protocol action.",
+      ],
+    },
+    custom: {
+      role: "Custom Role",
+      focus: [
+        "Follow the published markdown pack and keep decisions aligned with the company's custom operating model.",
+        "Reuse the inherited base role rules unless the custom pack explicitly narrows or overrides them.",
+      ],
+      rules: [
+        "Do not assume authority beyond the published custom role pack.",
+        "Escalate when the custom pack conflicts with protocol policy or company guardrails.",
       ],
     },
   };
@@ -403,6 +490,34 @@ export function buildDefaultRolePackFiles(
   presetKey: RolePackPresetKey = DEFAULT_ROLE_PACK_PRESET_KEY,
 ): Array<{ filename: RolePackFileName; content: string }> {
   return applyPresetOverrides(presetKey, roleKey, buildBaseRolePackFiles(roleKey));
+}
+
+export function buildCustomRolePackFiles(input: {
+  roleName: string;
+  baseRoleKey: RolePackCustomBaseRoleKey;
+  description?: string | null;
+}) {
+  const inherited = buildDefaultRolePackFiles(input.baseRoleKey);
+  const fileMap = new Map(inherited.map((file) => [file.filename, file.content] as const));
+  const customHeader = [
+    `# ${input.roleName}`,
+    "",
+    `- Derived from base role: ${formatRoleKeyLabel(input.baseRoleKey)}`,
+    input.description ? `- Intent: ${input.description}` : null,
+    "- This custom role inherits the base delivery contract and can be refined further in Role Studio.",
+    "",
+  ].filter((line): line is string => line !== null).join("\n");
+
+  fileMap.set(
+    "ROLE.md",
+    `${customHeader}\n## Inherited Base Pack\n\n${fileMap.get("ROLE.md") ?? ""}`.trim(),
+  );
+  fileMap.set(
+    "AGENTS.md",
+    `${customHeader}\n${fileMap.get("AGENTS.md") ?? ""}`.trim(),
+  );
+
+  return Array.from(fileMap.entries()).map(([filename, content]) => ({ filename, content }));
 }
 
 export function listRolePackPresets(): RolePackPresetDescriptor[] {
@@ -680,6 +795,7 @@ function buildSimulationSuggestions(roleKey: RolePackRoleKey, scenario: RolePack
 
 function buildSimulationRuntimePrompt(input: {
   roleKey: RolePackRoleKey;
+  roleLabel?: string;
   scenario: RolePackSimulationInput;
   files: Array<{ filename: RolePackFileName; content: string }>;
   checklist: string[];
@@ -708,7 +824,7 @@ function buildSimulationRuntimePrompt(input: {
   ].filter(Boolean);
 
   return [
-    `# ${input.roleKey} runtime simulation`,
+    `# ${input.roleLabel ?? input.roleKey} runtime simulation`,
     "",
     "## Scenario",
     ...scenarioLines,
@@ -939,6 +1055,88 @@ export function rolePackService(db: Db) {
     return refreshed ?? null;
   }
 
+  async function createCustomRolePack(input: {
+    companyId: string;
+    actor: {
+      userId?: string | null;
+      agentId?: string | null;
+    };
+    customRole: CreateCustomRolePack;
+  }) {
+    const { roleName, roleSlug, scopeId, status } = buildCustomRolePackIdentity({
+      roleName: input.customRole.roleName,
+      roleSlug: input.customRole.roleSlug ?? null,
+      publish: input.customRole.publish,
+    });
+    const existing = await db
+      .select({ id: rolePackSets.id })
+      .from(rolePackSets)
+      .where(
+        and(
+          eq(rolePackSets.companyId, input.companyId),
+          eq(rolePackSets.scopeType, DEFAULT_ROLE_PACK_SCOPE_TYPE),
+          eq(rolePackSets.scopeId, scopeId),
+          eq(rolePackSets.roleKey, "custom"),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    if (existing) {
+      throw unprocessable("A custom role with this slug already exists");
+    }
+
+    const files = buildCustomRolePackFiles({
+      roleName,
+      baseRoleKey: input.customRole.baseRoleKey,
+      description: input.customRole.description ?? null,
+    });
+
+    const [createdSet] = await db
+      .insert(rolePackSets)
+      .values({
+        companyId: input.companyId,
+        scopeType: DEFAULT_ROLE_PACK_SCOPE_TYPE,
+        scopeId,
+        roleKey: "custom",
+        status,
+        metadata: buildCustomRolePackMetadata({
+          roleName,
+          roleSlug,
+          description: input.customRole.description ?? null,
+          baseRoleKey: input.customRole.baseRoleKey,
+        }),
+      })
+      .returning();
+
+    const [revision] = await db
+      .insert(rolePackRevisions)
+      .values({
+        rolePackSetId: createdSet!.id,
+        version: 1,
+        status,
+        message: `Create custom role ${roleName}`,
+        createdByUserId: input.actor.userId ?? null,
+        createdByAgentId: input.actor.agentId ?? null,
+        publishedAt: status === "published" ? new Date() : null,
+      })
+      .returning();
+
+    await db
+      .insert(rolePackFiles)
+      .values(
+        files.map((file) => ({
+          revisionId: revision!.id,
+          filename: file.filename,
+          content: file.content,
+          checksumSha256: hashContent(file.content),
+        })),
+      );
+
+    return getRolePack({
+      companyId: input.companyId,
+      rolePackSetId: createdSet!.id,
+    });
+  }
+
   async function getRolePack(input: {
     companyId: string;
     rolePackSetId: string;
@@ -1085,7 +1283,8 @@ export function rolePackService(db: Db) {
       latestFiles: rolePack.latestFiles,
       draftFiles: input.simulation.draftFiles,
     });
-    const checklist = buildSimulationChecklist(rolePack.roleKey, {
+    const simulationRoleKey = rolePack.baseRoleKey ?? rolePack.roleKey;
+    const checklist = buildSimulationChecklist(simulationRoleKey, {
       ...input.simulation.scenario,
       taskBrief: input.simulation.scenario.taskBrief ?? null,
       retrievalSummary: input.simulation.scenario.retrievalSummary ?? null,
@@ -1112,7 +1311,8 @@ export function rolePackService(db: Db) {
       },
       compiledFiles,
       runtimePrompt: buildSimulationRuntimePrompt({
-        roleKey: rolePack.roleKey,
+        roleKey: simulationRoleKey,
+        roleLabel: rolePack.displayName,
         scenario: {
           ...input.simulation.scenario,
           taskBrief: input.simulation.scenario.taskBrief ?? null,
@@ -1124,7 +1324,7 @@ export function rolePackService(db: Db) {
       }),
       checklist,
       guardrails,
-      suggestedMessages: buildSimulationSuggestions(rolePack.roleKey, {
+      suggestedMessages: buildSimulationSuggestions(simulationRoleKey, {
         ...input.simulation.scenario,
         taskBrief: input.simulation.scenario.taskBrief ?? null,
         retrievalSummary: input.simulation.scenario.retrievalSummary ?? null,
@@ -1137,6 +1337,7 @@ export function rolePackService(db: Db) {
     listPresets: listRolePackPresets,
     listRolePacks,
     seedDefaults,
+    createCustomRolePack,
     createDraftRevision,
     getRolePack,
     listRevisions,

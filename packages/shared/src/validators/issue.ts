@@ -173,6 +173,14 @@ export const addIssueCommentSchema = z.object({
 
 export type AddIssueComment = z.infer<typeof addIssueCommentSchema>;
 
+export const runMergeCandidateRecoverySchema = z.object({
+  actionType: z.enum(["create_revert_followup", "reopen_with_rollback_context"]),
+  title: z.string().trim().max(200).nullable().optional(),
+  body: z.string().trim().max(8_000).nullable().optional(),
+}).strict();
+
+export type RunMergeCandidateRecovery = z.infer<typeof runMergeCandidateRecoverySchema>;
+
 export const linkIssueApprovalSchema = z.object({
   approvalId: z.string().uuid(),
 });

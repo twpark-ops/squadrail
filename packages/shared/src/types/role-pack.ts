@@ -1,6 +1,7 @@
 import type {
   IssueProtocolMessageType,
   IssueProtocolWorkflowState,
+  RolePackCustomBaseRoleKey,
   RolePackFileName,
   RolePackPresetKey,
   RolePackRevisionStatus,
@@ -15,6 +16,11 @@ export interface RolePackSet {
   scopeType: RolePackScopeType;
   scopeId: string | null;
   roleKey: RolePackRoleKey;
+  displayName: string;
+  baseRoleKey: RolePackCustomBaseRoleKey | null;
+  customRoleName: string | null;
+  customRoleDescription: string | null;
+  customRoleSlug: string | null;
   status: RolePackSetStatus;
   metadata: Record<string, unknown>;
   createdAt: Date;

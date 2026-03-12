@@ -20,7 +20,9 @@
 > - `11. external operating alerts` 완료
 > - `12. goal progress / sprint / capacity` 완료
 > - `13-A. cost prediction` 완료
-> 현재 다음 순차 작업은 `13-B workflow templates + auto revert assist`이고, 그 다음은 `13-C custom role creation` 순서다.
+> - `13-B. workflow templates + auto revert assist` 완료
+> - `13-C. custom role creation` 완료
+> 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge coverage + decomposition`이다.
 
 ## 목적
 
@@ -95,8 +97,34 @@
     - `pnpm --filter @squadrail/server build`
     - `pnpm --filter @squadrail/ui build`
     - `pnpm --filter @squadrail/server test`
-    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `37.34%`, branches `64.67%`, functions `61.46%`
+- `2026-03-13 workflow templates + auto revert assist + custom role creation` 완료
+  - workflow templates를 `setupProgress.metadata.workflowTemplates` 기반 company config로 올리고, Protocol Action Console이 실제 company/default template set을 읽게 했다.
+  - protocol payload에 board template trace를 넣고 change surface / Review Desk에서 template usage를 읽을 수 있게 했다.
+  - merge recovery route에 `create_revert_followup` / `reopen_with_rollback_context` action을 추가했다.
+  - Company Settings에서 base role 상속형 custom role pack을 생성하고 곧바로 Role Studio/Simulation으로 이어지게 했다.
+  - 검증:
+    - `pnpm --filter @squadrail/shared typecheck`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/ui typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/ui build`
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/companies-routes.test.ts src/__tests__/issue-change-surface.test.ts src/__tests__/issues-routes.test.ts src/__tests__/role-packs.test.ts`
+    - `pnpm --filter @squadrail/server test`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `38.03%`, branches `64.76%`, functions `61.86%`
+- `2026-03-13 workflow/recovery/custom-role hardening` 완료
+  - `workflow-templates.ts`, `revert-assist.ts`, `role-packs.ts` direct service test를 추가해 template clone/update/delete, revert recovery action, custom role identity/metadata normalization을 직접 고정했다.
+  - `issue-retrieval.ts`에서 recipient brief quality 계산을 exported helper로 분리하고 direct test를 추가했다.
+  - `role-packs.ts`는 custom role identity/metadata builder seam을 추출해 slug/status drift를 줄였다.
+  - 검증:
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/role-packs.test.ts src/__tests__/issue-retrieval-finalization.test.ts src/__tests__/workflow-templates.test.ts src/__tests__/revert-assist.test.ts`
+    - `pnpm --filter @squadrail/server test`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `38.20%`, branches `65.03%`, functions `62.04%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -108,69 +136,78 @@
 
 ## 현재 남은 우선순위
 
-1. `workflow templates`
-2. `auto revert assist`
-3. `custom role creation`
+1. `heartbeat / issue-retrieval / knowledge` coverage + decomposition
+2. PR bridge / merge recovery / workflow template integration scenario 강화
+3. global coverage uplift toward `60%` across runtime/operator services
 
 한 줄 요약:
 
-- 다음 구현은 `board/operator action을 더 빠르게 반복하게 만들고, landed change의 rollback/reopen recovery를 제품 안으로 끌어오는 것`이다.
+- 다음 구현은 `세 개의 대형 runtime service 구조 리스크를 낮추고, 방금 추가한 operator surface를 통합 시나리오로 고정하는 것`이다.
 
-## Immediate Next: Workflow Templates + Auto Revert Assist
+## Immediate Next: Heartbeat / Issue Retrieval / Knowledge Coverage + Decomposition
 
 ### 목표
 
-- board/operator가 매번 같은 구조의 human intervention payload를 다시 쓰지 않게 한다.
-- landed or near-close change에서 rollback/reopen recovery가 제품 내부 action으로 이어지게 만든다.
-- template usage와 revert assist trace를 activity/change surface에 남겨 operator 판단이 설명 가능하게 한다.
+- `heartbeat.ts`, `issue-retrieval.ts`, `knowledge.ts`의 가장 위험한 orchestration block을 더 작은 seam으로 나눈다.
+- service 본체 coverage를 직접 올려 route 중심 coverage 착시를 줄인다.
+- 동시에 새 operator surface가 실제 end-to-end flow에서 흔들리지 않도록 integration scenario를 보강한다.
 
 ### 구현 슬라이스
 
-#### Slice 13-B1. Workflow Templates
+#### Slice D1. Heartbeat Service Hardening
 
-1. Protocol Action Console의 `Load template`를 hardcoded helper가 아니라 company-configurable template set으로 승격한다.
-2. `ASSIGN_TASK`, `REQUEST_CHANGES`, `APPROVE_IMPLEMENTATION`, `CLOSE_TASK` 기본 템플릿을 회사별 override 가능하게 둔다.
-3. template apply 시 action kind / template id / company scope trace를 activity에 남긴다.
+1. `heartbeat.ts` queued selection / dispatch / session resume / follow-up wakeup 경계를 pure helper 또는 smaller service seam으로 더 분리
+2. queued/preempted/retry/operator-required 흐름을 direct service test로 추가
+3. event trace / activity log / starvation guard regression을 test로 고정
 
-#### Slice 13-B2. Auto Revert Assist
+#### Slice D2. Issue Retrieval Finalization Hardening
 
-1. merge candidate / latest close snapshot의 `rollbackPlan`, `mergeCommitSha`, `followUpIssueIds`를 기반으로 revert assist read model을 만든다.
-2. `revert follow-up issue 생성` 또는 `reopen with rollback context` action을 Change Review Desk/Issue Detail에서 노출한다.
-3. 실제 git revert automation까지는 넣지 않고, operator-safe recovery issue bootstrap까지 닫는다.
+1. `issue-retrieval.ts` finalization / persistence / live-event publish 블록을 helper로 더 추출
+2. recipient brief quality, retrieval debug patch, live-event payload seam을 direct test로 확장
+3. cache/provenance/reuse trace가 final saved brief까지 유지되는지 회귀 테스트 추가
 
-#### Slice 13-B3. Tests / Trace
+#### Slice D3. Knowledge Service Path Hardening
 
-1. template config read/write와 apply trace가 route/service 경계에서 유지되는지
-2. revert assist가 merge candidate / close snapshot metadata를 잃지 않는지
-3. recovery action이 core workflow를 깨지 않고 follow-up issue 또는 reopen trace만 남기는지
+1. `knowledge.ts`의 document version / retrieval policy / run summary / debug merge 경로를 더 작은 builder seam으로 분리
+2. DB-backed service path 테스트를 추가해 route test가 못 막는 drift를 줄이기
+3. quality trend / policy / retrieval run aggregation의 edge case를 직접 고정
+
+#### Slice D4. Operator Integration Scenario
+
+1. `ProtocolActionConsole -> issues route -> change surface -> ChangeReviewDesk` 시나리오 회귀를 더 보강
+2. workflow template / revert assist / custom role trace가 issue route와 review desk에서 일관되게 보이는지 확인
+3. PR bridge / merge recovery / template flow 경계를 통합 테스트로 한 번 더 고정
 
 우선 테스트 파일:
 
+- `server/src/__tests__/heartbeat-service-flow.test.ts`
+- `server/src/__tests__/issue-retrieval-finalization.test.ts`
+- `server/src/__tests__/knowledge-service-operations.test.ts`
 - `server/src/__tests__/issues-routes.test.ts`
 - `server/src/__tests__/issue-change-surface.test.ts`
-- `server/src/__tests__/issue-merge-automation.test.ts`
 - `server/src/__tests__/companies-routes.test.ts`
 
 ### 우선 구현 파일
 
+- `server/src/services/heartbeat.ts`
+- `server/src/services/issue-retrieval.ts`
+- `server/src/services/knowledge.ts`
+- `server/src/routes/issues.ts`
+- `server/src/services/issue-change-surface.ts`
 - `ui/src/components/ProtocolActionConsole.tsx`
 - `ui/src/components/ChangeReviewDesk.tsx`
-- `server/src/routes/companies.ts`
-- `server/src/routes/issues/merge-routes.ts`
-- `server/src/services/issue-merge-automation.ts`
-- `server/src/routes/issues.ts`
 
 ### 완료 기준
 
-1. company-scoped workflow template set이 저장/로드되고 board action console에서 실제로 적용된다.
-2. revert assist가 landed or near-close issue에서 recovery follow-up을 일관되게 만든다.
-3. template/revert action trace가 activity/change surface에 남는다.
+1. `heartbeat.ts`, `issue-retrieval.ts`, `knowledge.ts`의 핵심 block이 적어도 한 단계 더 seam으로 분리된다.
+2. service 직접 테스트가 늘어 세 파일의 coverage가 의미 있게 상승한다.
+3. workflow/revert/custom-role trace가 end-to-end issue/change surface에서 계속 유지된다.
 4. `pnpm -r typecheck`, `pnpm test:run`, `pnpm build`가 모두 통과한다.
 
 ## Archive Note
 
 - 아래 본문은 이전 retrieval/rerank follow-up 계획을 보존한 archive다.
-- historical context는 유지하되, immediate next-start 기준은 위 `execution-failure learning` 섹션을 따른다.
+- historical context는 유지하되, immediate next-start 기준은 위 `Immediate Next` 섹션을 따른다.
 
 ## Completed: Cross-Issue Memory Reuse
 
@@ -179,7 +216,7 @@
 - reusable prior issue artifact taxonomy를 `decision / fix / review / close` 계열로 retrieval scoring에 연결했다.
 - follow-up/related issue identifier 추출과 `knowledge_chunk_links` backlink를 합성해 reuse seed를 주입했다.
 - brief quality / knowledge quality summary에 `reuseRunCount`, `reuseHitRate`, `reuseIssueCount`, `reuseDecisionHitCount`, `reuseCloseHitCount` 등 trace를 추가했다.
-- 이 항목은 현재 완료된 archival worklog로 유지한다. immediate next-start 기준은 위 `execution-failure learning` 섹션을 따른다.
+- 이 항목은 현재 완료된 archival worklog로 유지한다. immediate next-start 기준은 위 `Immediate Next` 섹션을 따른다.
 
 ### 목표
 

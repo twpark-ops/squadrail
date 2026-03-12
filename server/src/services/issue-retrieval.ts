@@ -1395,6 +1395,92 @@ export function buildCombinedGraphMetrics(
   };
 }
 
+export function resolveRecipientBriefQuality(input: {
+  finalHits: RetrievalHitView[];
+  queryEmbedding: number[] | null;
+  sparseHitCount: number;
+  pathHitCount: number;
+  symbolHitCount: number;
+  denseHitCount: number;
+  graphSeedCount: number;
+  symbolGraphSeedCount: number;
+  symbolGraphHitCount: number;
+  edgeTraversalCount: number;
+  edgeTypeCounts: Record<string, number>;
+  graphMaxDepth: number;
+  graphHopDepthCounts: Record<string, number>;
+  temporalContext: RetrievalTemporalContext | null;
+  exactPaths: string[];
+  projectAffinityIds: string[];
+  candidateCacheHit: boolean;
+  finalCacheHit: boolean;
+  candidateCacheInspection: Pick<RetrievalCacheInspectionResult, "reason" | "provenance">;
+  finalCacheInspection: Pick<RetrievalCacheInspectionResult, "reason" | "provenance">;
+  relatedIssueIds: string[];
+  relatedIssueIdentifierMap: Record<string, string>;
+  reuseSummary: RetrievalReuseSummary;
+  existingBriefQuality: BriefQualitySummary | null;
+}): BriefQualitySummary {
+  const graphHits = input.finalHits.filter((hit) => hit.graphMetadata != null);
+  const multiHopGraphHitCount = input.finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
+  const exactPathSatisfied = isExactPathSatisfied({
+    finalHits: input.finalHits,
+    exactPaths: input.exactPaths,
+  });
+
+  if (!input.existingBriefQuality) {
+    return summarizeBriefQuality({
+      finalHits: input.finalHits,
+      queryEmbedding: input.queryEmbedding,
+      sparseHitCount: input.sparseHitCount,
+      pathHitCount: input.pathHitCount,
+      symbolHitCount: input.symbolHitCount,
+      denseHitCount: input.denseHitCount,
+      graphSeedCount: input.graphSeedCount,
+      graphHitCount: graphHits.length,
+      graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
+      symbolGraphSeedCount: input.symbolGraphSeedCount,
+      symbolGraphHitCount: input.symbolGraphHitCount,
+      edgeTraversalCount: input.edgeTraversalCount,
+      edgeTypeCounts: input.edgeTypeCounts,
+      graphMaxDepth: input.graphMaxDepth,
+      graphHopDepthCounts: input.graphHopDepthCounts,
+      multiHopGraphHitCount,
+      temporalContext: input.temporalContext,
+      crossProjectRequested: input.projectAffinityIds.length > 1,
+      candidateCacheHit: input.candidateCacheHit,
+      finalCacheHit: input.finalCacheHit,
+      candidateCacheInspection: input.candidateCacheInspection,
+      finalCacheInspection: input.finalCacheInspection,
+      exactPathSatisfied,
+      relatedIssueIds: input.relatedIssueIds,
+      relatedIssueIdentifierMap: input.relatedIssueIdentifierMap,
+      reuseSummary: input.reuseSummary,
+    });
+  }
+
+  return {
+    ...input.existingBriefQuality,
+    candidateCacheHit: input.candidateCacheHit,
+    finalCacheHit: input.finalCacheHit,
+    candidateCacheReason: input.candidateCacheInspection.reason,
+    finalCacheReason: input.finalCacheInspection.reason,
+    candidateCacheProvenance: input.candidateCacheInspection.provenance,
+    finalCacheProvenance: input.finalCacheInspection.provenance,
+    exactPathSatisfied,
+    requestedRelatedIssueCount: input.reuseSummary.requestedRelatedIssueCount,
+    reuseHitCount: input.reuseSummary.reuseHitCount,
+    reusedIssueCount: input.reuseSummary.reusedIssueCount,
+    reusedIssueIds: input.reuseSummary.reusedIssueIds,
+    reusedIssueIdentifiers: input.reuseSummary.reusedIssueIdentifiers,
+    reuseArtifactKinds: input.reuseSummary.reuseArtifactKinds,
+    reuseDecisionHitCount: input.reuseSummary.reuseDecisionHitCount,
+    reuseFixHitCount: input.reuseSummary.reuseFixHitCount,
+    reuseReviewHitCount: input.reuseSummary.reuseReviewHitCount,
+    reuseCloseHitCount: input.reuseSummary.reuseCloseHitCount,
+  };
+}
+
 function defaultPolicyTemplate(input: {
   role: RetrievalTargetRole;
   eventType: RetrievalEventType;
@@ -3789,83 +3875,6 @@ export function issueRetrievalService(db: Db) {
 
       type ResolvedRecipientFinalStage = Awaited<ReturnType<typeof resolveRecipientFinalStage>>;
 
-      const resolveRecipientBriefQuality = (input2: {
-        context: PreparedRecipientRetrievalContext;
-        stage: ResolvedRecipientCandidateStage;
-        queryEmbedding: number[] | null;
-        finalHits: RetrievalHitView[];
-        briefQuality: BriefQualitySummary | null;
-        reuseSummary: RetrievalReuseSummary;
-        graphSeeds: ResolvedRecipientFinalStage["graphSeeds"];
-        chunkGraphResult: ResolvedRecipientFinalStage["chunkGraphResult"];
-        symbolGraphSeeds: ResolvedRecipientFinalStage["symbolGraphSeeds"];
-        symbolGraphResult: ResolvedRecipientFinalStage["symbolGraphResult"];
-        finalCacheHit: boolean;
-      }): BriefQualitySummary => {
-        const graphHits = input2.finalHits.filter((hit) => hit.graphMetadata != null);
-        const combinedGraphMetrics = buildCombinedGraphMetrics(
-          input2.chunkGraphResult,
-          input2.symbolGraphResult,
-        );
-        const multiHopGraphHitCount = input2.finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
-        const exactPathSatisfied = isExactPathSatisfied({
-          finalHits: input2.finalHits,
-          exactPaths: input2.context.dynamicSignals.exactPaths,
-        });
-
-        if (!input2.briefQuality) {
-          return summarizeBriefQuality({
-            finalHits: input2.finalHits,
-            queryEmbedding: input2.queryEmbedding,
-            sparseHitCount: input2.stage.sparseHitCount,
-            pathHitCount: input2.stage.pathHitCount,
-            symbolHitCount: input2.stage.symbolHitCount,
-            denseHitCount: input2.stage.denseHitCount,
-            graphSeedCount: input2.graphSeeds.length + input2.symbolGraphSeeds.length,
-            graphHitCount: graphHits.length,
-            graphEntityTypes: uniqueNonEmpty(graphHits.flatMap((hit) => hit.graphMetadata?.entityTypes ?? [])),
-            symbolGraphSeedCount: input2.symbolGraphSeeds.length,
-            symbolGraphHitCount: input2.symbolGraphResult.hits.length,
-            edgeTraversalCount: input2.chunkGraphResult.edgeTraversalCount + input2.symbolGraphResult.edgeTraversalCount,
-            edgeTypeCounts: input2.symbolGraphResult.edgeTypeCounts,
-            graphMaxDepth: combinedGraphMetrics.combinedGraphMaxDepth,
-            graphHopDepthCounts: combinedGraphMetrics.combinedGraphHopDepthCounts,
-            multiHopGraphHitCount,
-            temporalContext: input2.context.temporalContext,
-            crossProjectRequested: input2.context.dynamicSignals.projectAffinityIds.length > 1,
-            candidateCacheHit: input2.stage.candidateCacheHit,
-            finalCacheHit: input2.finalCacheHit,
-            candidateCacheInspection: input2.stage.candidateCacheInspection,
-            finalCacheInspection: input2.stage.finalCacheInspection,
-            exactPathSatisfied,
-            relatedIssueIds: input2.context.relatedIssueIds,
-            relatedIssueIdentifierMap: input2.context.relatedIssueIdentifierMap,
-            reuseSummary: input2.reuseSummary,
-          });
-        }
-
-        return {
-          ...input2.briefQuality,
-          candidateCacheHit: input2.stage.candidateCacheHit,
-          finalCacheHit: input2.finalCacheHit,
-          candidateCacheReason: input2.stage.candidateCacheInspection.reason,
-          finalCacheReason: input2.stage.finalCacheInspection.reason,
-          candidateCacheProvenance: input2.stage.candidateCacheInspection.provenance,
-          finalCacheProvenance: input2.stage.finalCacheInspection.provenance,
-          exactPathSatisfied,
-          requestedRelatedIssueCount: input2.reuseSummary.requestedRelatedIssueCount,
-          reuseHitCount: input2.reuseSummary.reuseHitCount,
-          reusedIssueCount: input2.reuseSummary.reusedIssueCount,
-          reusedIssueIds: input2.reuseSummary.reusedIssueIds,
-          reusedIssueIdentifiers: input2.reuseSummary.reusedIssueIdentifiers,
-          reuseArtifactKinds: input2.reuseSummary.reuseArtifactKinds,
-          reuseDecisionHitCount: input2.reuseSummary.reuseDecisionHitCount,
-          reuseFixHitCount: input2.reuseSummary.reuseFixHitCount,
-          reuseReviewHitCount: input2.reuseSummary.reuseReviewHitCount,
-          reuseCloseHitCount: input2.reuseSummary.reuseCloseHitCount,
-        };
-      };
-
       const recipientHints: RecipientRetrievalHint[] = [];
       const retrievalRuns: Array<{ retrievalRunId: string; briefId: string; recipientRole: string; recipientId: string }> = [];
 
@@ -4012,18 +4021,35 @@ export function issueRetrievalService(db: Db) {
             finalHits,
           });
         }
-        briefQuality = resolveRecipientBriefQuality({
-          context: recipientContext,
-          stage: candidateStage,
-          queryEmbedding,
-          finalHits,
-          briefQuality,
-          reuseSummary,
-          graphSeeds,
+        const combinedGraphMetrics = buildCombinedGraphMetrics(
           chunkGraphResult,
-          symbolGraphSeeds,
           symbolGraphResult,
+        );
+        briefQuality = resolveRecipientBriefQuality({
+          finalHits,
+          queryEmbedding,
+          sparseHitCount: candidateStage.sparseHitCount,
+          pathHitCount: candidateStage.pathHitCount,
+          symbolHitCount: candidateStage.symbolHitCount,
+          denseHitCount: candidateStage.denseHitCount,
+          graphSeedCount: graphSeeds.length + symbolGraphSeeds.length,
+          symbolGraphSeedCount: symbolGraphSeeds.length,
+          symbolGraphHitCount: symbolGraphResult.hits.length,
+          edgeTraversalCount: chunkGraphResult.edgeTraversalCount + symbolGraphResult.edgeTraversalCount,
+          edgeTypeCounts: symbolGraphResult.edgeTypeCounts,
+          graphMaxDepth: combinedGraphMetrics.combinedGraphMaxDepth,
+          graphHopDepthCounts: combinedGraphMetrics.combinedGraphHopDepthCounts,
+          temporalContext: recipientContext.temporalContext,
+          exactPaths: recipientContext.dynamicSignals.exactPaths,
+          projectAffinityIds: recipientContext.dynamicSignals.projectAffinityIds,
+          candidateCacheHit: candidateStage.candidateCacheHit,
           finalCacheHit,
+          candidateCacheInspection: candidateStage.candidateCacheInspection,
+          finalCacheInspection: candidateStage.finalCacheInspection,
+          relatedIssueIds: recipientContext.relatedIssueIds,
+          relatedIssueIdentifierMap: recipientContext.relatedIssueIdentifierMap,
+          reuseSummary,
+          existingBriefQuality: briefQuality,
         });
 
         if (finalHits.length > 0) {

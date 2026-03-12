@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ROLE_PACK_FILE_NAMES } from "@squadrail/shared";
-import { buildDefaultRolePackFiles } from "../services/role-packs.js";
+import {
+  buildCustomRolePackFiles,
+  buildCustomRolePackIdentity,
+  buildCustomRolePackMetadata,
+  buildDefaultRolePackFiles,
+} from "../services/role-packs.js";
 
 describe("role pack defaults", () => {
   it("creates the full file set for tech lead", () => {
@@ -68,5 +73,51 @@ describe("role pack defaults", () => {
     expect(qaFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Example Large Org QA Addendum");
     expect(qaFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Respect focused validation scope");
     expect(qaFiles.find((file) => file.filename === "REVIEW.md")?.content).toContain("Approval requires acceptance criteria coverage");
+  });
+
+  it("creates custom role packs by inheriting the base role contract", () => {
+    const files = buildCustomRolePackFiles({
+      roleName: "Release Captain",
+      baseRoleKey: "tech_lead",
+      description: "Own release orchestration and rollback decisions",
+    });
+
+    expect(files.map((file) => file.filename).sort()).toEqual([...ROLE_PACK_FILE_NAMES].sort());
+    expect(files.find((file) => file.filename === "ROLE.md")?.content).toContain("# Release Captain");
+    expect(files.find((file) => file.filename === "ROLE.md")?.content).toContain("Derived from base role: Tech Lead");
+    expect(files.find((file) => file.filename === "ROLE.md")?.content).toContain("## Inherited Base Pack");
+    expect(files.find((file) => file.filename === "AGENTS.md")?.content).toContain("Release Captain");
+    expect(files.find((file) => file.filename === "AGENTS.md")?.content).toContain("Own release orchestration and rollback decisions");
+  });
+
+  it("normalizes custom role identity for slugged company-scoped roles", () => {
+    expect(
+      buildCustomRolePackIdentity({
+        roleName: " Release Captain ",
+        roleSlug: null,
+        publish: false,
+      }),
+    ).toEqual({
+      roleName: "Release Captain",
+      roleSlug: "release-captain",
+      scopeId: "custom:release-captain",
+      status: "draft",
+    });
+  });
+
+  it("builds custom role metadata with inherited base role details", () => {
+    expect(
+      buildCustomRolePackMetadata({
+        roleName: "Release Captain",
+        roleSlug: "release-captain",
+        description: "Own release orchestration",
+        baseRoleKey: "tech_lead",
+      }),
+    ).toEqual({
+      customRoleName: "Release Captain",
+      customRoleSlug: "release-captain",
+      customRoleDescription: "Own release orchestration",
+      baseRoleKey: "tech_lead",
+    });
   });
 });

@@ -10,6 +10,7 @@ import type {
   IssueComment,
   IssueLabel,
   IssueMergeCandidate,
+  IssueMergeCandidateRecoveryResult,
   IssueProtocolMessage,
   IssueProtocolState,
   IssueProtocolViolation,
@@ -92,6 +93,12 @@ export type MergeAutomationActionResult = {
 export type MergeCandidateAutomationResponse = {
   result: MergeAutomationActionResult;
   mergeCandidate: IssueMergeCandidate | null;
+};
+
+export type MergeCandidateRecoveryInput = {
+  actionType: "create_revert_followup" | "reopen_with_rollback_context";
+  title?: string | null;
+  body?: string | null;
 };
 
 export type CreatePmIntakeIssueResponse = {
@@ -182,6 +189,8 @@ export const issuesApi = {
   getMergeCandidate: (id: string) => api.get<IssueMergeCandidate>(`/issues/${id}/merge-candidate`),
   resolveMergeCandidate: (id: string, data: MergeCandidateResolutionInput) =>
     api.post<IssueMergeCandidate>(`/issues/${id}/merge-candidate/actions`, data),
+  runMergeCandidateRecovery: (id: string, data: MergeCandidateRecoveryInput) =>
+    api.post<IssueMergeCandidateRecoveryResult>(`/issues/${id}/merge-candidate/recovery`, data),
   runMergeCandidateAutomation: (id: string, data: MergeCandidateAutomationInput) =>
     api.post<MergeCandidateAutomationResponse>(`/issues/${id}/merge-candidate/automation`, data),
   create: (companyId: string, data: Record<string, unknown>) =>

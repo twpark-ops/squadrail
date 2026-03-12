@@ -47,12 +47,18 @@ export interface IssueProtocolArtifact {
   metadata?: Record<string, unknown> | null;
 }
 
+interface IssueProtocolBoardTemplateTrace {
+  boardTemplateId?: string;
+  boardTemplateLabel?: string;
+  boardTemplateScope?: "default" | "company";
+}
+
 interface IssueProtocolRelatedIssueRefs {
   relatedIssueIds?: string[];
   relatedIssueIdentifiers?: string[];
 }
 
-export interface IssueProtocolAssignTaskPayload extends IssueProtocolRelatedIssueRefs {
+export interface IssueProtocolAssignTaskPayload extends IssueProtocolRelatedIssueRefs, IssueProtocolBoardTemplateTrace {
   goal: string;
   acceptanceCriteria: string[];
   definitionOfDone: string[];
@@ -136,7 +142,7 @@ export interface IssueProtocolChangeRequestItem {
   suggestedAction?: string | null;
 }
 
-export interface IssueProtocolRequestChangesPayload extends IssueProtocolRelatedIssueRefs {
+export interface IssueProtocolRequestChangesPayload extends IssueProtocolRelatedIssueRefs, IssueProtocolBoardTemplateTrace {
   reviewSummary: string;
   changeRequests: IssueProtocolChangeRequestItem[];
   severity: IssueProtocolReviewSeverity;
@@ -157,7 +163,7 @@ export interface IssueProtocolRequestHumanDecisionPayload {
   recommendedOption?: string | null;
 }
 
-export interface IssueProtocolApproveImplementationPayload extends IssueProtocolRelatedIssueRefs {
+export interface IssueProtocolApproveImplementationPayload extends IssueProtocolRelatedIssueRefs, IssueProtocolBoardTemplateTrace {
   approvalSummary: string;
   approvalMode: IssueProtocolApprovalMode;
   approvalChecklist: string[];
@@ -166,7 +172,7 @@ export interface IssueProtocolApproveImplementationPayload extends IssueProtocol
   followUpActions?: string[];
 }
 
-export interface IssueProtocolCloseTaskPayload extends IssueProtocolRelatedIssueRefs {
+export interface IssueProtocolCloseTaskPayload extends IssueProtocolRelatedIssueRefs, IssueProtocolBoardTemplateTrace {
   closeReason: IssueProtocolCloseReason;
   closureSummary: string;
   verificationSummary: string;
@@ -178,7 +184,7 @@ export interface IssueProtocolCloseTaskPayload extends IssueProtocolRelatedIssue
   remainingRisks?: string[];
 }
 
-export interface IssueProtocolReassignTaskPayload {
+export interface IssueProtocolReassignTaskPayload extends IssueProtocolBoardTemplateTrace {
   reason: string;
   newAssigneeAgentId: string;
   newReviewerAgentId?: string | null;
@@ -190,13 +196,13 @@ export interface IssueProtocolReassignTaskPayload {
   risks?: string[];
 }
 
-export interface IssueProtocolCancelTaskPayload {
+export interface IssueProtocolCancelTaskPayload extends IssueProtocolBoardTemplateTrace {
   reason: string;
   cancelType: IssueProtocolCancelType;
   replacementIssueId?: string | null;
 }
 
-export interface IssueProtocolNotePayload {
+export interface IssueProtocolNotePayload extends IssueProtocolBoardTemplateTrace {
   noteType: IssueProtocolNoteType;
   body: string;
 }

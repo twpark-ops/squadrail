@@ -5,6 +5,7 @@ import {
   buildRetrievalCompletionArtifacts,
   buildRecipientBriefEvidenceSummary,
   buildRecipientRetrievalHint,
+  resolveRecipientBriefQuality,
   buildTaskBriefContentJson,
   buildRetrievalRunCompletionActivityDetails,
   buildRetrievalRunCompletionEvents,
@@ -596,6 +597,135 @@ describe("issue retrieval finalization builders", () => {
         "3": 1,
       },
       combinedGraphMaxDepth: 4,
+    });
+  });
+
+  it("resolves brief quality from retrieval stage inputs when no prior quality exists", () => {
+    const quality = resolveRecipientBriefQuality({
+      finalHits: [makeHit()],
+      queryEmbedding: [0.2, 0.4, 0.6],
+      sparseHitCount: 2,
+      pathHitCount: 1,
+      symbolHitCount: 1,
+      denseHitCount: 1,
+      graphSeedCount: 3,
+      symbolGraphSeedCount: 1,
+      symbolGraphHitCount: 1,
+      edgeTraversalCount: 4,
+      edgeTypeCounts: { calls: 1 },
+      graphMaxDepth: 2,
+      graphHopDepthCounts: { "1": 1, "2": 1 },
+      temporalContext: {
+        branchName: "main",
+        defaultBranchName: "main",
+        headSha: "abc123",
+        source: "artifact",
+      },
+      exactPaths: ["src/retry.ts"],
+      projectAffinityIds: ["project-1", "project-2"],
+      candidateCacheHit: true,
+      finalCacheHit: false,
+      candidateCacheInspection: {
+        reason: "hit",
+        provenance: "exact_key",
+      },
+      finalCacheInspection: {
+        reason: "miss_cold",
+        provenance: null,
+      },
+      relatedIssueIds: ["issue-related-1", "issue-related-2"],
+      relatedIssueIdentifierMap: {
+        "issue-related-1": "SW-101",
+        "issue-related-2": "SW-102",
+      },
+      reuseSummary: {
+        requestedRelatedIssueCount: 2,
+        reuseHitCount: 1,
+        reusedIssueCount: 1,
+        reusedIssueIds: ["issue-related-1"],
+        reusedIssueIdentifiers: ["SW-101"],
+        reuseArtifactKinds: ["decision"],
+        reuseDecisionHitCount: 1,
+        reuseFixHitCount: 0,
+        reuseReviewHitCount: 0,
+        reuseCloseHitCount: 0,
+      },
+      existingBriefQuality: null,
+    });
+
+    expect(quality).toMatchObject({
+      candidateCacheHit: true,
+      finalCacheHit: false,
+      candidateCacheReason: "hit",
+      finalCacheReason: "miss_cold",
+      exactPathSatisfied: true,
+      requestedRelatedIssueCount: 2,
+      reuseHitCount: 1,
+      reusedIssueIdentifiers: ["SW-101"],
+    });
+  });
+
+  it("patches existing brief quality with latest cache and reuse traces", () => {
+    const quality = resolveRecipientBriefQuality({
+      finalHits: [makeHit()],
+      queryEmbedding: [0.2, 0.4, 0.6],
+      sparseHitCount: 2,
+      pathHitCount: 1,
+      symbolHitCount: 1,
+      denseHitCount: 1,
+      graphSeedCount: 3,
+      symbolGraphSeedCount: 1,
+      symbolGraphHitCount: 1,
+      edgeTraversalCount: 4,
+      edgeTypeCounts: { calls: 1 },
+      graphMaxDepth: 2,
+      graphHopDepthCounts: { "1": 1, "2": 1 },
+      temporalContext: {
+        branchName: "main",
+        defaultBranchName: "main",
+        headSha: "abc123",
+        source: "artifact",
+      },
+      exactPaths: ["src/retry.ts"],
+      projectAffinityIds: ["project-1"],
+      candidateCacheHit: false,
+      finalCacheHit: true,
+      candidateCacheInspection: {
+        reason: "miss_policy_changed",
+        provenance: null,
+      },
+      finalCacheInspection: {
+        reason: "hit",
+        provenance: "normalized_input",
+      },
+      relatedIssueIds: ["issue-related-1"],
+      relatedIssueIdentifierMap: {
+        "issue-related-1": "SW-101",
+      },
+      reuseSummary: {
+        requestedRelatedIssueCount: 1,
+        reuseHitCount: 1,
+        reusedIssueCount: 1,
+        reusedIssueIds: ["issue-related-1"],
+        reusedIssueIdentifiers: ["SW-101"],
+        reuseArtifactKinds: ["decision"],
+        reuseDecisionHitCount: 1,
+        reuseFixHitCount: 0,
+        reuseReviewHitCount: 0,
+        reuseCloseHitCount: 0,
+      },
+      existingBriefQuality: makeQuality(),
+    });
+
+    expect(quality).toMatchObject({
+      confidenceLevel: "high",
+      candidateCacheHit: false,
+      finalCacheHit: true,
+      candidateCacheReason: "miss_policy_changed",
+      finalCacheReason: "hit",
+      finalCacheProvenance: "normalized_input",
+      reuseHitCount: 1,
+      reusedIssueIdentifiers: ["SW-101"],
     });
   });
 });

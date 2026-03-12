@@ -18,13 +18,17 @@ import { SupportMetricCard } from "../components/SupportMetricCard";
 import { Field, ToggleField, HintIcon } from "../components/agent-config-primitives";
 import { Layers3, SearchCheck, Settings, ShieldCheck } from "lucide-react";
 import {
+  WORKFLOW_TEMPLATE_ACTION_TYPES,
   ROLE_PACK_FILE_NAMES,
   type DoctorCheckStatus,
   type OperatingAlertDestinationConfig,
+  type RolePackCustomBaseRoleKey,
   type RolePackFileName,
   type RolePackPresetDescriptor,
   type RolePackPresetKey,
   type RolePackWithLatestRevision,
+  type WorkflowTemplate,
+  type WorkflowTemplateActionType,
 } from "@squadrail/shared";
 
 const ENGINE_OPTIONS = [
@@ -43,6 +47,14 @@ function formatRoleKeyLabel(roleKey: string) {
     .split("_")
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
+}
+
+function rolePackDisplayName(rolePack: Pick<RolePackWithLatestRevision, "displayName" | "roleKey">) {
+  return rolePack.displayName || formatRoleKeyLabel(rolePack.roleKey);
+}
+
+function formatWorkflowActionLabel(actionType: string) {
+  return formatRoleKeyLabel(actionType.toLowerCase());
 }
 
 function formatSetupStepLabel(stepKey: string) {
@@ -110,6 +122,22 @@ function createOperatingAlertDestinationDraft(): OperatingAlertDestinationConfig
   };
 }
 
+function createWorkflowTemplateDraft(actionType: WorkflowTemplateActionType): WorkflowTemplate {
+  return {
+    id: `company-${actionType.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}`,
+    actionType,
+    label: `Company ${formatWorkflowActionLabel(actionType)}`,
+    description: null,
+    summary: null,
+    fields: {},
+    scope: "company",
+  };
+}
+
+function stringifyWorkflowTemplateFields(fields: Record<string, string>) {
+  return JSON.stringify(fields, null, 2);
+}
+
 export function CompanySettings() {
   const { companies, selectedCompany, selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -129,6 +157,17 @@ export function CompanySettings() {
   const [rolePackDrafts, setRolePackDrafts] = useState<Record<string, Record<RolePackFileName, string>>>({});
   const [rolePackRestoreSources, setRolePackRestoreSources] = useState<Record<string, string | null>>({});
   const [selectedRolePackPresetKey, setSelectedRolePackPresetKey] = useState<RolePackPresetKey>("squadrail_default_v1");
+  const [selectedWorkflowTemplateId, setSelectedWorkflowTemplateId] = useState<string | null>(null);
+  const [workflowTemplateLabel, setWorkflowTemplateLabel] = useState("");
+  const [workflowTemplateDescription, setWorkflowTemplateDescription] = useState("");
+  const [workflowTemplateSummary, setWorkflowTemplateSummary] = useState("");
+  const [workflowTemplateFieldsText, setWorkflowTemplateFieldsText] = useState("{}");
+  const [newWorkflowTemplateAction, setNewWorkflowTemplateAction] = useState<WorkflowTemplateActionType>("ASSIGN_TASK");
+  const [customRoleName, setCustomRoleName] = useState("");
+  const [customRoleSlug, setCustomRoleSlug] = useState("");
+  const [customRoleBaseRoleKey, setCustomRoleBaseRoleKey] = useState<RolePackCustomBaseRoleKey>("engineer");
+  const [customRoleDescription, setCustomRoleDescription] = useState("");
+  const [customRolePublish, setCustomRolePublish] = useState(true);
   const [selectedPolicyKey, setSelectedPolicyKey] = useState("");
   const [policyRole, setPolicyRole] = useState("engineer");
   const [policyEventType, setPolicyEventType] = useState("START_IMPLEMENTATION");
@@ -179,6 +218,12 @@ export function CompanySettings() {
     queryFn: () => companiesApi.getDoctorReport(selectedCompanyId!, {
       workspaceId: setupProgress?.selectedWorkspaceId ?? undefined,
     }),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const { data: workflowTemplatesView } = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.companies.workflowTemplates(selectedCompanyId) : ["companies", "__none__", "workflow-templates"],
+    queryFn: () => companiesApi.getWorkflowTemplates(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
 
@@ -265,6 +310,28 @@ export function CompanySettings() {
         ? current
         : selectedRolePackRevisions[0]?.id ?? null);
   }, [selectedRolePackRevisions]);
+
+  useEffect(() => {
+    const templates = workflowTemplatesView?.templates ?? [];
+    if (templates.length === 0) {
+      setSelectedWorkflowTemplateId(null);
+      return;
+    }
+    setSelectedWorkflowTemplateId((current) =>
+      current && templates.some((template) => template.id === current)
+        ? current
+        : templates[0]?.id ?? null);
+  }, [workflowTemplatesView?.templates]);
+
+  useEffect(() => {
+    const template = (workflowTemplatesView?.templates ?? []).find((entry) => entry.id === selectedWorkflowTemplateId);
+    if (!template) return;
+    setWorkflowTemplateLabel(template.label);
+    setWorkflowTemplateDescription(template.description ?? "");
+    setWorkflowTemplateSummary(template.summary ?? "");
+    setWorkflowTemplateFieldsText(stringifyWorkflowTemplateFields(template.fields));
+    setNewWorkflowTemplateAction(template.actionType);
+  }, [selectedWorkflowTemplateId, workflowTemplatesView?.templates]);
 
   useEffect(() => {
     if (retrievalPolicies.length === 0) {
@@ -429,6 +496,52 @@ export function CompanySettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.doctor(selectedCompanyId!) });
     },
   });
+
+  const workflowTemplatesMutation = useMutation({
+    mutationFn: (templates: WorkflowTemplate[]) =>
+      companiesApi.updateWorkflowTemplates(selectedCompanyId!, {
+        templates: templates.map((template) => ({
+          id: template.id,
+          actionType: template.actionType,
+          label: template.label,
+          description: template.description,
+          summary: template.summary,
+          fields: template.fields,
+        })),
+      }),
+    onSuccess: (view) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.workflowTemplates(selectedCompanyId!) });
+      setSelectedWorkflowTemplateId((current) =>
+        current && view.templates.some((template) => template.id === current)
+          ? current
+          : view.companyTemplates[0]?.id ?? view.templates[0]?.id ?? null);
+    },
+  });
+
+  const createCustomRoleMutation = useMutation({
+    mutationFn: () =>
+      companiesApi.createCustomRolePack(selectedCompanyId!, {
+        roleName: customRoleName.trim(),
+        roleSlug: customRoleSlug.trim() || null,
+        baseRoleKey: customRoleBaseRoleKey,
+        description: customRoleDescription.trim() || null,
+        publish: customRolePublish,
+      }),
+    onSuccess: (rolePack) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.rolePacks(selectedCompanyId!) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.companies.rolePackRevisions(selectedCompanyId!, rolePack.id),
+      });
+      setSelectedRolePackId(rolePack.id);
+      setSelectedRolePackFile("ROLE.md");
+      setCustomRoleName("");
+      setCustomRoleSlug("");
+      setCustomRoleDescription("");
+      setCustomRoleBaseRoleKey("engineer");
+      setCustomRolePublish(true);
+    },
+  });
+
   const selectedRolePackPreset =
     rolePackPresets.find((preset) => preset.key === selectedRolePackPresetKey) ??
     ({
@@ -601,6 +714,48 @@ export function CompanySettings() {
   const doctorFailCount = activeDoctorReport
     ? activeDoctorReport.checks.filter((check) => check.status === "fail").length
     : 0;
+  const workflowTemplates = workflowTemplatesView?.templates ?? [];
+  const companyWorkflowTemplates = workflowTemplatesView?.companyTemplates ?? [];
+  const selectedWorkflowTemplate = selectedWorkflowTemplateId
+    ? workflowTemplates.find((template) => template.id === selectedWorkflowTemplateId) ?? null
+    : null;
+  const workflowTemplateFieldsParse = useMemo(() => {
+    try {
+      const parsed = workflowTemplateFieldsText.trim().length > 0
+        ? JSON.parse(workflowTemplateFieldsText) as unknown
+        : {};
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {
+          fields: null,
+          error: "Fields JSON must be an object of string values.",
+        };
+      }
+      const invalidEntry = Object.entries(parsed).find(([, value]) => typeof value !== "string");
+      if (invalidEntry) {
+        return {
+          fields: null,
+          error: "Each workflow template field value must be a string.",
+        };
+      }
+      return {
+        fields: parsed as Record<string, string>,
+        error: null,
+      };
+    } catch (error) {
+      return {
+        fields: null,
+        error: error instanceof Error ? error.message : "Invalid JSON",
+      };
+    }
+  }, [workflowTemplateFieldsText]);
+  const workflowTemplateDirty = selectedWorkflowTemplate
+    ? workflowTemplateLabel.trim() !== selectedWorkflowTemplate.label
+      || workflowTemplateDescription.trim() !== (selectedWorkflowTemplate.description ?? "")
+      || workflowTemplateSummary.trim() !== (selectedWorkflowTemplate.summary ?? "")
+      || stringifyWorkflowTemplateFields(workflowTemplateFieldsParse.fields ?? {}) !== stringifyWorkflowTemplateFields(selectedWorkflowTemplate.fields)
+    : false;
+  const customRoleSlugValid = customRoleSlug.trim().length === 0 || /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(customRoleSlug.trim());
+  const customRoleValid = customRoleName.trim().length > 0 && customRoleSlugValid;
 
   function updateRolePackDraft(filename: RolePackFileName, content: string) {
     if (!selectedRolePackId) return;
@@ -636,6 +791,52 @@ export function CompanySettings() {
             }
           : destination),
     );
+  }
+
+  function resetWorkflowTemplateEditor(template: WorkflowTemplate) {
+    setSelectedWorkflowTemplateId(template.id);
+    setWorkflowTemplateLabel(template.label);
+    setWorkflowTemplateDescription(template.description ?? "");
+    setWorkflowTemplateSummary(template.summary ?? "");
+    setWorkflowTemplateFieldsText(stringifyWorkflowTemplateFields(template.fields));
+    setNewWorkflowTemplateAction(template.actionType);
+  }
+
+  function handleCreateWorkflowTemplate() {
+    const template = createWorkflowTemplateDraft(newWorkflowTemplateAction);
+    const nextCompanyTemplates = [...companyWorkflowTemplates, template];
+    setSelectedWorkflowTemplateId(template.id);
+    setWorkflowTemplateLabel(template.label);
+    setWorkflowTemplateDescription(template.description ?? "");
+    setWorkflowTemplateSummary(template.summary ?? "");
+    setWorkflowTemplateFieldsText(stringifyWorkflowTemplateFields(template.fields));
+    workflowTemplatesMutation.mutate(nextCompanyTemplates);
+  }
+
+  function handleSaveWorkflowTemplate() {
+    if (!selectedWorkflowTemplate || !workflowTemplateFieldsParse.fields) return;
+    const nextTemplate: WorkflowTemplate = {
+      id: selectedWorkflowTemplate.scope === "company"
+        ? selectedWorkflowTemplate.id
+        : `company-${selectedWorkflowTemplate.actionType.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}`,
+      actionType: selectedWorkflowTemplate.actionType,
+      label: workflowTemplateLabel.trim(),
+      description: workflowTemplateDescription.trim() || null,
+      summary: workflowTemplateSummary.trim() || null,
+      fields: workflowTemplateFieldsParse.fields,
+      scope: "company",
+    };
+    const withoutCurrent = companyWorkflowTemplates.filter((template) => template.id !== nextTemplate.id);
+    const nextCompanyTemplates = [...withoutCurrent, nextTemplate];
+    setSelectedWorkflowTemplateId(nextTemplate.id);
+    workflowTemplatesMutation.mutate(nextCompanyTemplates);
+  }
+
+  function handleDeleteWorkflowTemplate() {
+    if (!selectedWorkflowTemplate || selectedWorkflowTemplate.scope !== "company") return;
+    const nextCompanyTemplates = companyWorkflowTemplates.filter((template) => template.id !== selectedWorkflowTemplate.id);
+    setSelectedWorkflowTemplateId(nextCompanyTemplates[0]?.id ?? workflowTemplates.find((template) => template.scope === "default")?.id ?? null);
+    workflowTemplatesMutation.mutate(nextCompanyTemplates);
   }
 
   return (
@@ -928,6 +1129,193 @@ export function CompanySettings() {
 
       <div className="space-y-4">
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Workflow Templates
+        </div>
+        <div className="space-y-4 rounded-md border border-border px-4 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Board action templates</div>
+              <p className="text-xs text-muted-foreground">
+                Pre-fill board protocol actions with reusable summaries, fields, and close handoff defaults.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                value={newWorkflowTemplateAction}
+                onChange={(event) => setNewWorkflowTemplateAction(event.target.value as WorkflowTemplateActionType)}
+              >
+                {WORKFLOW_TEMPLATE_ACTION_TYPES.map((actionType) => (
+                  <option key={actionType} value={actionType}>
+                    {formatWorkflowActionLabel(actionType)}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCreateWorkflowTemplate}
+                disabled={workflowTemplatesMutation.isPending}
+              >
+                New company template
+              </Button>
+            </div>
+          </div>
+
+          {workflowTemplates.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+              Workflow templates are not available yet.
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {workflowTemplates.map((template) => {
+                  const active = template.id === selectedWorkflowTemplateId;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => resetWorkflowTemplateEditor(template)}
+                      className={`rounded-full border px-3 py-1 text-xs transition-colors ${active ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:bg-accent/50"}`}
+                    >
+                      {template.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedWorkflowTemplate && (
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.9fr)]">
+                  <div className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field label="Action type" hint="Board action this template applies to.">
+                        <input
+                          className="w-full rounded-md border border-border bg-muted/20 px-2.5 py-2 text-sm text-muted-foreground outline-none"
+                          value={formatWorkflowActionLabel(selectedWorkflowTemplate.actionType)}
+                          readOnly
+                        />
+                      </Field>
+                      <Field label="Scope" hint="Default templates are read-only until copied into company scope.">
+                        <input
+                          className="w-full rounded-md border border-border bg-muted/20 px-2.5 py-2 text-sm text-muted-foreground outline-none"
+                          value={selectedWorkflowTemplate.scope}
+                          readOnly
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Template label" hint="Displayed in Protocol Action Console and Review Desk trace.">
+                      <input
+                        className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                        value={workflowTemplateLabel}
+                        onChange={(event) => setWorkflowTemplateLabel(event.target.value)}
+                        placeholder="Human close handoff"
+                      />
+                    </Field>
+                    <Field label="Description" hint="Operator-facing explanation for when this template should be used.">
+                      <textarea
+                        className="min-h-[88px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                        value={workflowTemplateDescription}
+                        onChange={(event) => setWorkflowTemplateDescription(event.target.value)}
+                        placeholder="Use when closing human-reviewed merges that require rollback context."
+                      />
+                    </Field>
+                    <Field label="Summary" hint="Optional summary injected into the protocol message. Supports {issueIdentifier}.">
+                      <input
+                        className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                        value={workflowTemplateSummary}
+                        onChange={(event) => setWorkflowTemplateSummary(event.target.value)}
+                        placeholder="Board closed {issueIdentifier}"
+                      />
+                    </Field>
+                    <Field label="Fields JSON" hint="String map merged into the protocol payload. Use only string values.">
+                      <textarea
+                        className="min-h-[220px] w-full rounded-md border border-border bg-transparent px-3 py-3 font-mono text-sm outline-none"
+                        value={workflowTemplateFieldsText}
+                        onChange={(event) => setWorkflowTemplateFieldsText(event.target.value)}
+                      />
+                    </Field>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleSaveWorkflowTemplate}
+                        disabled={
+                          workflowTemplatesMutation.isPending
+                          || workflowTemplateFieldsParse.fields === null
+                          || workflowTemplateLabel.trim().length === 0
+                          || !workflowTemplateDirty
+                        }
+                      >
+                        {workflowTemplatesMutation.isPending
+                          ? "Saving..."
+                          : selectedWorkflowTemplate.scope === "company"
+                            ? "Save company template"
+                            : "Clone to company"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => resetWorkflowTemplateEditor(selectedWorkflowTemplate)}
+                        disabled={workflowTemplatesMutation.isPending || !workflowTemplateDirty}
+                      >
+                        Reset editor
+                      </Button>
+                      {selectedWorkflowTemplate.scope === "company" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleDeleteWorkflowTemplate}
+                          disabled={workflowTemplatesMutation.isPending}
+                        >
+                          Delete company template
+                        </Button>
+                      )}
+                      {workflowTemplatesMutation.isError && (
+                        <span className="text-xs text-destructive">
+                          {workflowTemplatesMutation.error instanceof Error
+                            ? workflowTemplatesMutation.error.message
+                            : "Failed to update workflow templates"}
+                        </span>
+                      )}
+                    </div>
+                    {workflowTemplateFieldsParse.error && (
+                      <div className="text-xs text-destructive">{workflowTemplateFieldsParse.error}</div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Template Notes
+                    </div>
+                    <div className="rounded-md border border-border bg-background px-3 py-3">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Trace visibility</div>
+                      <p className="mt-2 text-sm text-foreground">
+                        Saved templates are traced into protocol payloads and surfaced in Change Review so operators can see which board template shaped the close or approval action.
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-border bg-background px-3 py-3">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Template inventory</div>
+                      <div className="mt-2 text-sm text-foreground">
+                        {companyWorkflowTemplates.length} company template(s) overriding {workflowTemplates.length - companyWorkflowTemplates.length} default template(s).
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-border bg-background px-3 py-3">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Field preview</div>
+                      <pre className="mt-2 whitespace-pre-wrap text-xs text-foreground">
+                        {workflowTemplateFieldsParse.fields
+                          ? stringifyWorkflowTemplateFields(workflowTemplateFieldsParse.fields)
+                          : workflowTemplateFieldsText}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Role Packs
         </div>
         <div className="space-y-4 rounded-md border border-border px-4 py-4">
@@ -977,6 +1365,97 @@ export function CompanySettings() {
               {seedRolePacksMutation.error instanceof Error ? seedRolePacksMutation.error.message : "Failed to seed role packs"}
             </p>
           )}
+          <div className="grid gap-4 rounded-lg border border-border bg-muted/20 px-4 py-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.9fr)]">
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm font-semibold">Create custom role</div>
+                <p className="text-xs text-muted-foreground">
+                  Start from an existing delivery base role, then refine its markdown contract in Role Studio.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Role name" hint="Operator-facing display name for this custom role.">
+                  <input
+                    className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                    value={customRoleName}
+                    onChange={(event) => setCustomRoleName(event.target.value)}
+                    placeholder="Release Captain"
+                  />
+                </Field>
+                <Field label="Role slug" hint="Optional stable identifier. Lowercase letters, digits, and dashes only.">
+                  <input
+                    className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                    value={customRoleSlug}
+                    onChange={(event) => setCustomRoleSlug(event.target.value)}
+                    placeholder="release-captain"
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Base role" hint="Initial runtime contract that this custom role inherits.">
+                  <select
+                    className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                    value={customRoleBaseRoleKey}
+                    onChange={(event) => setCustomRoleBaseRoleKey(event.target.value as RolePackCustomBaseRoleKey)}
+                  >
+                    <option value="cto">CTO</option>
+                    <option value="tech_lead">Tech Lead</option>
+                    <option value="engineer">Engineer</option>
+                    <option value="reviewer">Reviewer</option>
+                    <option value="qa">QA</option>
+                    <option value="human_board">Human Board</option>
+                    <option value="pm">PM</option>
+                  </select>
+                </Field>
+                <div className="rounded-md border border-border/70 bg-background/60 px-3 py-3">
+                  <ToggleField
+                    label="Publish initial revision"
+                    hint="Turn off to create the first revision as draft only."
+                    checked={customRolePublish}
+                    onChange={setCustomRolePublish}
+                  />
+                </div>
+              </div>
+              <Field label="Description" hint="Short explanation of the custom role's delivery responsibility.">
+                <textarea
+                  className="min-h-[96px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                  value={customRoleDescription}
+                  onChange={(event) => setCustomRoleDescription(event.target.value)}
+                  placeholder="Own release coordination, evidence collection, and rollback escalation across multiple work items."
+                />
+              </Field>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => createCustomRoleMutation.mutate()}
+                  disabled={createCustomRoleMutation.isPending || !customRoleValid}
+                >
+                  {createCustomRoleMutation.isPending ? "Creating..." : "Create custom role"}
+                </Button>
+                {!customRoleSlugValid && (
+                  <span className="text-xs text-destructive">
+                    Custom role slug must use lowercase letters, digits, and dashes only.
+                  </span>
+                )}
+                {createCustomRoleMutation.isError && (
+                  <span className="text-xs text-destructive">
+                    {createCustomRoleMutation.error instanceof Error
+                      ? createCustomRoleMutation.error.message
+                      : "Failed to create custom role"}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-md border border-border bg-background px-4 py-4">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">How custom roles work</div>
+              <ul className="space-y-2 text-sm text-foreground">
+                <li>They inherit one base role contract and remain editable through normal Role Studio revisions.</li>
+                <li>The runtime still follows the same protocol workflow and review gates as seeded roles.</li>
+                <li>Use custom roles for company-specific specializations such as Release Captain or Staff Architect.</li>
+              </ul>
+            </div>
+          </div>
           <div className="grid gap-3">
             {rolePacks.length === 0 ? (
               <div className="text-sm text-muted-foreground">No role packs have been seeded yet.</div>
@@ -985,13 +1464,18 @@ export function CompanySettings() {
               return (
                 <div key={rolePack.id} className="rounded-md border border-border px-4 py-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-semibold">{formatRoleKeyLabel(rolePack.roleKey)}</div>
+                    <div className="text-sm font-semibold">{rolePackDisplayName(rolePack)}</div>
                     <div className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
                       {rolePack.latestRevision ? `v${rolePack.latestRevision.version}` : "No revision"}
                     </div>
                     <div className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
                       {rolePack.latestRevision?.status ?? rolePack.status}
                     </div>
+                    {rolePack.baseRoleKey && (
+                      <div className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                        Base {formatRoleKeyLabel(rolePack.baseRoleKey)}
+                      </div>
+                    )}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {rolePack.latestFiles.map((file) => (
@@ -1028,7 +1512,7 @@ export function CompanySettings() {
                   >
                     {rolePacks.map((rolePack) => (
                       <option key={rolePack.id} value={rolePack.id}>
-                        {formatRoleKeyLabel(rolePack.roleKey)}
+                        {rolePackDisplayName(rolePack)}
                       </option>
                     ))}
                   </select>
@@ -1199,7 +1683,7 @@ export function CompanySettings() {
                                         ...current,
                                         [selectedRolePack.id]: revision.id,
                                       }));
-                                      setRolePackRevisionMessage(`Restore v${revision.version} for ${formatRoleKeyLabel(selectedRolePack.roleKey)}`);
+                                      setRolePackRevisionMessage(`Restore v${revision.version} for ${rolePackDisplayName(selectedRolePack)}`);
                                     }}
                                   >
                                     Load to editor
@@ -1210,7 +1694,7 @@ export function CompanySettings() {
                                     onClick={() => restoreRolePackRevisionMutation.mutate({
                                       rolePackSetId: selectedRolePack.id,
                                       revisionId: revision.id,
-                                      message: `Restore v${revision.version} for ${formatRoleKeyLabel(selectedRolePack.roleKey)}`,
+                                      message: `Restore v${revision.version} for ${rolePackDisplayName(selectedRolePack)}`,
                                     })}
                                     disabled={
                                       restoreRolePackRevisionMutation.isPending
@@ -1271,7 +1755,7 @@ export function CompanySettings() {
               <RoleSimulationConsole
                 companyId={selectedCompanyId!}
                 rolePackSetId={selectedRolePack.id}
-                roleKey={selectedRolePack.roleKey}
+                roleKey={selectedRolePack.baseRoleKey ?? selectedRolePack.roleKey}
                 draftFiles={selectedRolePackDraft}
               />
             </div>

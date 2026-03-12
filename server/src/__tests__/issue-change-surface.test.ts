@@ -39,6 +39,9 @@ describe("issue change surface", () => {
             verificationSummary: "Focused tests passed",
             rollbackPlan: "Revert patch",
             remainingRisks: ["Merge remains external"],
+            boardTemplateId: "company-close-template",
+            boardTemplateLabel: "Release close",
+            boardTemplateScope: "company",
           },
           artifacts: [
             {
@@ -112,6 +115,18 @@ describe("issue change surface", () => {
     expect(surface.changedFiles).toEqual(["src/app.ts"]);
     expect(surface.mergeCandidate?.state).toBe("pending");
     expect(surface.mergeCandidate?.approvalSummary).toBe("Looks good");
+    expect(surface.mergeCandidate?.templateTrace).toEqual({
+      id: "company-close-template",
+      label: "Release close",
+      scope: "company",
+    });
+    expect(surface.mergeCandidate?.revertAssist).toMatchObject({
+      status: "ready",
+      rollbackPlan: "Revert patch",
+      followUpIssueIds: [],
+      canCreateFollowUp: true,
+      canReopen: true,
+    });
     expect(surface.retrievalContext.latestRuns[0]?.retrievalRunId).toBe("run-reviewer");
     expect(surface.retrievalContext.latestRuns[0]?.candidateCacheHit).toBe(true);
     expect(surface.retrievalContext.feedbackSummary.pinnedPathCount).toBe(2);
@@ -137,6 +152,12 @@ describe("issue change surface", () => {
         mergeCommitSha: "def456",
         automationMetadata: {
           lastPreparedBranch: "squadrail/merge/clo-1",
+          revertAssist: {
+            lastActionSummary: "Created follow-up CLO-77",
+            lastActionAt: "2026-03-10T12:05:00.000Z",
+            lastCreatedIssueId: "issue-77",
+            lastCreatedIssueIdentifier: "CLO-77",
+          },
         },
         operatorNote: "Merged by operator",
         resolvedAt: "2026-03-10T12:00:00Z",
@@ -148,6 +169,18 @@ describe("issue change surface", () => {
     expect(surface.mergeCandidate?.mergeCommitSha).toBe("def456");
     expect(surface.mergeCandidate?.automationMetadata).toEqual({
       lastPreparedBranch: "squadrail/merge/clo-1",
+      revertAssist: {
+        lastActionSummary: "Created follow-up CLO-77",
+        lastActionAt: "2026-03-10T12:05:00.000Z",
+        lastCreatedIssueId: "issue-77",
+        lastCreatedIssueIdentifier: "CLO-77",
+      },
+    });
+    expect(surface.mergeCandidate?.revertAssist).toMatchObject({
+      mergeCommitSha: "def456",
+      lastActionSummary: "Created follow-up CLO-77",
+      lastCreatedIssueId: "issue-77",
+      lastCreatedIssueIdentifier: "CLO-77",
     });
   });
 

@@ -71,6 +71,7 @@ export {
   updateIssueSchema,
   checkoutIssueSchema,
   addIssueCommentSchema,
+  runMergeCandidateRecoverySchema,
   linkIssueApprovalSchema,
   createIssueAttachmentMetadataSchema,
   type CreateIssue,
@@ -81,6 +82,7 @@ export {
   type UpdateIssue,
   type CheckoutIssue,
   type AddIssueComment,
+  type RunMergeCandidateRecovery,
   type LinkIssueApproval,
   type CreateIssueAttachmentMetadata,
 } from "./issue.js";
@@ -135,6 +137,10 @@ export {
   type UpdateSetupProgress,
 } from "./setup.js";
 export {
+  updateWorkflowTemplatesSchema,
+  type UpdateWorkflowTemplates,
+} from "./workflow-template.js";
+export {
   operatingAlertSeveritySchema,
   operatingAlertDestinationTypeSchema,
   operatingAlertDestinationConfigSchema,
@@ -158,12 +164,14 @@ export {
 
 export {
   seedDefaultRolePacksSchema,
+  createCustomRolePackSchema,
   createRolePackDraftSchema,
   restoreRolePackRevisionSchema,
   listRolePacksQuerySchema,
   rolePackSimulationInputSchema,
   rolePackSimulationRequestSchema,
   type SeedDefaultRolePacks,
+  type CreateCustomRolePack,
   type CreateRolePackDraft,
   type RestoreRolePackRevision,
   type ListRolePacksQuery,

@@ -237,6 +237,37 @@ export interface IssueMergeCandidateFailureAssist {
   lastSeenAt: Date | null;
 }
 
+export interface IssueMergeCandidateTemplateTrace {
+  id: string;
+  label: string;
+  scope: "default" | "company";
+}
+
+export interface IssueMergeCandidateRevertAssist {
+  status: "none" | "watch" | "ready";
+  summary: string;
+  rollbackPlan: string | null;
+  mergeCommitSha: string | null;
+  followUpIssueIds: string[];
+  suggestedTitle: string | null;
+  canCreateFollowUp: boolean;
+  canReopen: boolean;
+  lastActionSummary: string | null;
+  lastActionAt: Date | null;
+  lastCreatedIssueId: string | null;
+  lastCreatedIssueIdentifier: string | null;
+}
+
+export interface IssueMergeCandidateRecoveryResult {
+  actionType: "create_revert_followup" | "reopen_with_rollback_context";
+  sourceIssueId: string;
+  createdIssueId: string | null;
+  createdIssueIdentifier: string | null;
+  reopened: boolean;
+  commentId: string | null;
+  summary: string;
+}
+
 export interface IssueMergeCandidate {
   issueId: string;
   identifier: string | null;
@@ -261,6 +292,8 @@ export interface IssueMergeCandidate {
   gateStatus: IssueMergeCandidateGateStatus | null;
   conflictAssist: IssueMergeCandidateConflictAssist | null;
   failureAssist: IssueMergeCandidateFailureAssist | null;
+  templateTrace: IssueMergeCandidateTemplateTrace | null;
+  revertAssist: IssueMergeCandidateRevertAssist | null;
 }
 
 export interface IssueChangeSurface {
