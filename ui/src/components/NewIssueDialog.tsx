@@ -78,12 +78,15 @@ function getContrastTextColor(hexColor: string): string {
 }
 
 interface IssueDraft {
+  mode: "standard" | "intake";
   title: string;
   description: string;
   status: string;
   priority: string;
   assigneeId: string;
   projectId: string;
+  pmAgentId: string;
+  reviewerAgentId: string;
   assigneeModelOverride: string;
   assigneeThinkingEffort: string;
   assigneeChrome: boolean;
@@ -221,10 +224,13 @@ export function NewIssueDialog() {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [mode, setMode] = useState<"standard" | "intake">("standard");
   const [status, setStatus] = useState("todo");
   const [priority, setPriority] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [pmAgentId, setPmAgentId] = useState("");
+  const [reviewerAgentId, setReviewerAgentId] = useState("");
   const [assigneeOptionsOpen, setAssigneeOptionsOpen] = useState(false);
   const [assigneeModelOverride, setAssigneeModelOverride] = useState("");
   const [assigneeThinkingEffort, setAssigneeThinkingEffort] = useState("");
@@ -334,6 +340,43 @@ export function NewIssueDialog() {
     },
   });
 
+  const createIntakeIssue = useMutation({
+    mutationFn: ({
+      companyId,
+      ...data
+    }: {
+      companyId: string;
+      request: string;
+      title?: string;
+      projectId?: string;
+      priority: "critical" | "high" | "medium" | "low";
+      pmAgentId?: string;
+      reviewerAgentId?: string;
+    }) => issuesApi.createPmIntakeIssue(companyId, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.issues.list(effectiveCompanyId!),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboardProtocolQueue(effectiveCompanyId!, 20),
+      });
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+      clearDraft();
+      reset();
+      closeNewIssue();
+      pushToast({
+        dedupeKey: `activity:issue.intake.created:${result.issue.id}`,
+        title: `${result.issue.identifier ?? "Intake"} created`,
+        body: result.issue.title,
+        tone: "success",
+        action: {
+          label: `View ${result.issue.identifier ?? "intake"}`,
+          href: issueUrl(result.issue),
+        },
+      });
+    },
+  });
+
   const uploadDescriptionImage = useMutation({
     mutationFn: async (file: File) => {
       if (!effectiveCompanyId) throw new Error("No company selected");
@@ -345,7 +388,7 @@ export function NewIssueDialog() {
   const scheduleSave = useCallback((draft: IssueDraft) => {
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(() => {
-      if (draft.title.trim()) saveDraft(draft);
+      if (draft.title.trim() || draft.description.trim()) saveDraft(draft);
     }, DEBOUNCE_MS);
   }, []);
 
@@ -353,24 +396,30 @@ export function NewIssueDialog() {
   useEffect(() => {
     if (!newIssueOpen) return;
     scheduleSave({
+      mode,
       title,
       description,
       status,
       priority,
       assigneeId,
       projectId,
+      pmAgentId,
+      reviewerAgentId,
       assigneeModelOverride,
       assigneeThinkingEffort,
       assigneeChrome,
       assigneeUseProjectWorkspace,
     });
   }, [
+    mode,
     title,
     description,
     status,
     priority,
     assigneeId,
     projectId,
+    pmAgentId,
+    reviewerAgentId,
     assigneeModelOverride,
     assigneeThinkingEffort,
     assigneeChrome,
@@ -385,22 +434,28 @@ export function NewIssueDialog() {
     setDialogCompanyId(selectedCompanyId);
 
     const draft = loadDraft();
-    if (draft && draft.title.trim()) {
+    if (draft && (draft.title.trim() || draft.description.trim())) {
+      setMode(draft.mode ?? "standard");
       setTitle(draft.title);
       setDescription(draft.description);
       setStatus(draft.status || "todo");
       setPriority(draft.priority);
       setAssigneeId(newIssueDefaults.assigneeAgentId ?? draft.assigneeId);
       setProjectId(newIssueDefaults.projectId ?? draft.projectId);
+      setPmAgentId(draft.pmAgentId ?? "");
+      setReviewerAgentId(draft.reviewerAgentId ?? "");
       setAssigneeModelOverride(draft.assigneeModelOverride ?? "");
       setAssigneeThinkingEffort(draft.assigneeThinkingEffort ?? "");
       setAssigneeChrome(draft.assigneeChrome ?? false);
       setAssigneeUseProjectWorkspace(draft.assigneeUseProjectWorkspace ?? true);
     } else {
+      setMode("standard");
       setStatus(newIssueDefaults.status ?? "todo");
       setPriority(newIssueDefaults.priority ?? "");
       setProjectId(newIssueDefaults.projectId ?? "");
       setAssigneeId(newIssueDefaults.assigneeAgentId ?? "");
+      setPmAgentId("");
+      setReviewerAgentId("");
       setAssigneeModelOverride("");
       setAssigneeThinkingEffort("");
       setAssigneeChrome(false);
@@ -441,10 +496,13 @@ export function NewIssueDialog() {
   function reset() {
     setTitle("");
     setDescription("");
+    setMode("standard");
     setStatus("todo");
     setPriority("");
     setAssigneeId("");
     setProjectId("");
+    setPmAgentId("");
+    setReviewerAgentId("");
     setAssigneeOptionsOpen(false);
     setAssigneeModelOverride("");
     setAssigneeThinkingEffort("");
@@ -460,6 +518,8 @@ export function NewIssueDialog() {
     setDialogCompanyId(companyId);
     setAssigneeId("");
     setProjectId("");
+    setPmAgentId("");
+    setReviewerAgentId("");
     setAssigneeModelOverride("");
     setAssigneeThinkingEffort("");
     setAssigneeChrome(false);
@@ -473,7 +533,26 @@ export function NewIssueDialog() {
   }
 
   function handleSubmit() {
-    if (!effectiveCompanyId || !title.trim()) return;
+    if (!effectiveCompanyId) return;
+    if (mode === "intake") {
+      const request = description.trim() || title.trim();
+      if (!request) return;
+      createIntakeIssue.mutate({
+        companyId: effectiveCompanyId,
+        request,
+        ...(title.trim() ? { title: title.trim() } : {}),
+        priority: (priority || "medium") as
+          | "critical"
+          | "high"
+          | "medium"
+          | "low",
+        ...(projectId ? { projectId } : {}),
+        ...(pmAgentId ? { pmAgentId } : {}),
+        ...(reviewerAgentId ? { reviewerAgentId } : {}),
+      });
+      return;
+    }
+    if (!title.trim()) return;
     const assigneeAdapterOverrides = buildAssigneeAdapterOverrides({
       adapterType: assigneeAdapterType,
       modelOverride: assigneeModelOverride,
@@ -520,6 +599,10 @@ export function NewIssueDialog() {
     statuses.find((s) => s.value === status) ?? statuses[1]!;
   const currentPriority = priorities.find((p) => p.value === priority);
   const currentAssignee = (agents ?? []).find((a) => a.id === assigneeId);
+  const currentPm = (agents ?? []).find((a) => a.id === pmAgentId);
+  const currentReviewer = (agents ?? []).find(
+    (a) => a.id === reviewerAgentId
+  );
   const currentProject = orderedProjects.find(
     (project) => project.id === projectId
   );
@@ -537,6 +620,36 @@ export function NewIssueDialog() {
     () =>
       (agents ?? [])
         .filter((agent) => agent.status !== "terminated")
+        .map((agent) => ({
+          id: agent.id,
+          label: agent.name,
+          searchText: `${agent.name} ${agent.role} ${agent.title ?? ""}`,
+        })),
+    [agents]
+  );
+  const pmOptions = useMemo<InlineEntityOption[]>(
+    () =>
+      (agents ?? [])
+        .filter(
+          (agent) => agent.status !== "terminated" && agent.role === "pm"
+        )
+        .map((agent) => ({
+          id: agent.id,
+          label: agent.name,
+          searchText: `${agent.name} ${agent.role} ${agent.title ?? ""}`,
+        })),
+    [agents]
+  );
+  const intakeReviewerOptions = useMemo<InlineEntityOption[]>(
+    () =>
+      (agents ?? [])
+        .filter(
+          (agent) =>
+            agent.status !== "terminated" &&
+            (agent.role === "qa" ||
+              agent.role === "cto" ||
+              /tech lead/i.test(agent.title ?? ""))
+        )
         .map((agent) => ({
           id: agent.id,
           label: agent.name,
@@ -665,11 +778,36 @@ export function NewIssueDialog() {
           </div>
         </div>
 
+        <div className="px-4 pt-3 pb-1 shrink-0">
+          <div className="inline-flex rounded-md border border-border bg-muted/20 p-1 text-xs">
+            <button
+              type="button"
+              className={cn(
+                "rounded px-2.5 py-1 transition-colors",
+                mode === "standard" && "bg-background shadow-sm text-foreground"
+              )}
+              onClick={() => setMode("standard")}
+            >
+              Standard issue
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded px-2.5 py-1 transition-colors",
+                mode === "intake" && "bg-background shadow-sm text-foreground"
+              )}
+              onClick={() => setMode("intake")}
+            >
+              Human intake
+            </button>
+          </div>
+        </div>
+
         {/* Title */}
         <div className="px-4 pt-4 pb-2 shrink-0">
           <textarea
             className="w-full text-lg font-semibold bg-transparent outline-none resize-none overflow-hidden placeholder:text-muted-foreground/50"
-            placeholder="Issue title"
+            placeholder={mode === "intake" ? "Optional intake title" : "Issue title"}
             rows={1}
             value={title}
             onChange={(e) => {
@@ -694,99 +832,185 @@ export function NewIssueDialog() {
         <div className="px-4 pb-2 shrink-0">
           <div className="overflow-x-auto">
             <div className="inline-flex min-w-max items-center gap-2 text-sm text-muted-foreground">
-              <span>For</span>
-              <InlineEntitySelector
-                ref={assigneeSelectorRef}
-                value={assigneeId}
-                options={assigneeOptions}
-                placeholder="Assignee"
-                noneLabel="No assignee"
-                searchPlaceholder="Search assignees..."
-                emptyMessage="No assignees found."
-                onChange={setAssigneeId}
-                onConfirm={() => {
-                  projectSelectorRef.current?.focus();
-                }}
-                renderTriggerValue={(option) =>
-                  option && currentAssignee ? (
-                    <>
-                      <AgentIcon
-                        icon={currentAssignee.icon}
-                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">Assignee</span>
-                  )
-                }
-                renderOption={(option) => {
-                  if (!option.id)
-                    return <span className="truncate">{option.label}</span>;
-                  const assignee = (agents ?? []).find(
-                    (agent) => agent.id === option.id
-                  );
-                  return (
-                    <>
-                      <AgentIcon
-                        icon={assignee?.icon}
-                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  );
-                }}
-              />
-              <span>in</span>
-              <InlineEntitySelector
-                ref={projectSelectorRef}
-                value={projectId}
-                options={projectOptions}
-                placeholder="Project"
-                noneLabel="No project"
-                searchPlaceholder="Search projects..."
-                emptyMessage="No projects found."
-                onChange={setProjectId}
-                onConfirm={() => {
-                  descriptionEditorRef.current?.focus();
-                }}
-                renderTriggerValue={(option) =>
-                  option && currentProject ? (
-                    <>
-                      <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{
-                          backgroundColor: currentProject.color ?? "#6366f1",
-                        }}
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">Project</span>
-                  )
-                }
-                renderOption={(option) => {
-                  if (!option.id)
-                    return <span className="truncate">{option.label}</span>;
-                  const project = orderedProjects.find(
-                    (item) => item.id === option.id
-                  );
-                  return (
-                    <>
-                      <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: project?.color ?? "#6366f1" }}
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  );
-                }}
-              />
+              {mode === "intake" ? (
+                <>
+                  <span>Route via</span>
+                  <InlineEntitySelector
+                    ref={assigneeSelectorRef}
+                    value={pmAgentId}
+                    options={pmOptions}
+                    placeholder="Auto-select PM"
+                    noneLabel="Auto-select PM"
+                    searchPlaceholder="Search PMs..."
+                    emptyMessage="No PMs found."
+                    onChange={setPmAgentId}
+                    onConfirm={() => {
+                      projectSelectorRef.current?.focus();
+                    }}
+                    renderTriggerValue={(option) =>
+                      option && currentPm ? (
+                        <>
+                          <AgentIcon
+                            icon={currentPm.icon}
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Auto-select PM</span>
+                      )
+                    }
+                  />
+                  <span>reviewed by</span>
+                  <InlineEntitySelector
+                    ref={projectSelectorRef}
+                    value={reviewerAgentId}
+                    options={intakeReviewerOptions}
+                    placeholder="Auto-select reviewer"
+                    noneLabel="Auto-select reviewer"
+                    searchPlaceholder="Search reviewers..."
+                    emptyMessage="No reviewers found."
+                    onChange={setReviewerAgentId}
+                    onConfirm={() => {
+                      descriptionEditorRef.current?.focus();
+                    }}
+                    renderTriggerValue={(option) =>
+                      option && currentReviewer ? (
+                        <>
+                          <AgentIcon
+                            icon={currentReviewer.icon}
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Auto-select reviewer</span>
+                      )
+                    }
+                  />
+                  <span>in</span>
+                  <InlineEntitySelector
+                    value={projectId}
+                    options={projectOptions}
+                    placeholder="Project"
+                    noneLabel="No project"
+                    searchPlaceholder="Search projects..."
+                    emptyMessage="No projects found."
+                    onChange={setProjectId}
+                    renderTriggerValue={(option) =>
+                      option && currentProject ? (
+                        <>
+                          <span
+                            className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                            style={{
+                              backgroundColor: currentProject.color ?? "#6366f1",
+                            }}
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Project</span>
+                      )
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <span>For</span>
+                  <InlineEntitySelector
+                    ref={assigneeSelectorRef}
+                    value={assigneeId}
+                    options={assigneeOptions}
+                    placeholder="Assignee"
+                    noneLabel="No assignee"
+                    searchPlaceholder="Search assignees..."
+                    emptyMessage="No assignees found."
+                    onChange={setAssigneeId}
+                    onConfirm={() => {
+                      projectSelectorRef.current?.focus();
+                    }}
+                    renderTriggerValue={(option) =>
+                      option && currentAssignee ? (
+                        <>
+                          <AgentIcon
+                            icon={currentAssignee.icon}
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Assignee</span>
+                      )
+                    }
+                    renderOption={(option) => {
+                      if (!option.id)
+                        return <span className="truncate">{option.label}</span>;
+                      const assignee = (agents ?? []).find(
+                        (agent) => agent.id === option.id
+                      );
+                      return (
+                        <>
+                          <AgentIcon
+                            icon={assignee?.icon}
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      );
+                    }}
+                  />
+                  <span>in</span>
+                  <InlineEntitySelector
+                    ref={projectSelectorRef}
+                    value={projectId}
+                    options={projectOptions}
+                    placeholder="Project"
+                    noneLabel="No project"
+                    searchPlaceholder="Search projects..."
+                    emptyMessage="No projects found."
+                    onChange={setProjectId}
+                    onConfirm={() => {
+                      descriptionEditorRef.current?.focus();
+                    }}
+                    renderTriggerValue={(option) =>
+                      option && currentProject ? (
+                        <>
+                          <span
+                            className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                            style={{
+                              backgroundColor: currentProject.color ?? "#6366f1",
+                            }}
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Project</span>
+                      )
+                    }
+                    renderOption={(option) => {
+                      if (!option.id)
+                        return <span className="truncate">{option.label}</span>;
+                      const project = orderedProjects.find(
+                        (item) => item.id === option.id
+                      );
+                      return (
+                        <>
+                          <span
+                            className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                            style={{ backgroundColor: project?.color ?? "#6366f1" }}
+                          />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      );
+                    }}
+                  />
+                </>
+              )}
             </div>
           </div>
         </div>
 
-        {supportsAssigneeOverrides && (
+        {mode === "standard" && supportsAssigneeOverrides && (
           <div className="px-4 pb-2 shrink-0">
             <button
               className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -888,11 +1112,21 @@ export function NewIssueDialog() {
             expanded ? "flex-1" : ""
           )}
         >
+          {mode === "intake" && (
+            <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              Paste the human request here. Squadrail will create an intake issue, assign the PM lane, and route the
+              reviewer automatically unless you pin the owners above.
+            </div>
+          )}
           <MarkdownEditor
             ref={descriptionEditorRef}
             value={description}
             onChange={setDescription}
-            placeholder="Add description..."
+            placeholder={
+              mode === "intake"
+                ? "Describe the request, desired outcome, constraints, and relevant context..."
+                : "Add description..."
+            }
             bordered={false}
             mentions={mentionOptions}
             contentClassName={cn(
@@ -908,33 +1142,34 @@ export function NewIssueDialog() {
 
         {/* Property chips bar */}
         <div className="flex items-center gap-1.5 px-4 py-2 border-t border-border flex-wrap shrink-0">
-          {/* Status chip */}
-          <Popover open={statusOpen} onOpenChange={setStatusOpen}>
-            <PopoverTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
-                <CircleDot className={cn("h-3 w-3", currentStatus.color)} />
-                {currentStatus.label}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-36 p-1" align="start">
-              {statuses.map((s) => (
-                <button
-                  key={s.value}
-                  className={cn(
-                    "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
-                    s.value === status && "bg-accent"
-                  )}
-                  onClick={() => {
-                    setStatus(s.value);
-                    setStatusOpen(false);
-                  }}
-                >
-                  <CircleDot className={cn("h-3 w-3", s.color)} />
-                  {s.label}
+          {mode === "standard" && (
+            <Popover open={statusOpen} onOpenChange={setStatusOpen}>
+              <PopoverTrigger asChild>
+                <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
+                  <CircleDot className={cn("h-3 w-3", currentStatus.color)} />
+                  {currentStatus.label}
                 </button>
-              ))}
-            </PopoverContent>
-          </Popover>
+              </PopoverTrigger>
+              <PopoverContent className="w-36 p-1" align="start">
+                {statuses.map((s) => (
+                  <button
+                    key={s.value}
+                    className={cn(
+                      "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
+                      s.value === status && "bg-accent"
+                    )}
+                    onClick={() => {
+                      setStatus(s.value);
+                      setStatusOpen(false);
+                    }}
+                  >
+                    <CircleDot className={cn("h-3 w-3", s.color)} />
+                    {s.label}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          )}
 
           {/* Priority chip */}
           <Popover open={priorityOpen} onOpenChange={setPriorityOpen}>
@@ -978,7 +1213,7 @@ export function NewIssueDialog() {
           {/* Labels chip (placeholder) */}
           <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors text-muted-foreground">
             <Tag className="h-3 w-3" />
-            Labels
+            {mode === "intake" ? "PM intake lane" : "Labels"}
           </button>
 
           {/* Attach image chip */}
@@ -1031,10 +1266,21 @@ export function NewIssueDialog() {
           </Button>
           <Button
             size="sm"
-            disabled={!title.trim() || createIssue.isPending}
+            disabled={
+              mode === "intake"
+                ? !(title.trim() || description.trim()) ||
+                  createIntakeIssue.isPending
+                : !title.trim() || createIssue.isPending
+            }
             onClick={handleSubmit}
           >
-            {createIssue.isPending ? "Creating..." : "Create Issue"}
+            {mode === "intake"
+              ? createIntakeIssue.isPending
+                ? "Routing..."
+                : "Create Intake"
+              : createIssue.isPending
+              ? "Creating..."
+              : "Create Issue"}
           </Button>
         </div>
       </DialogContent>

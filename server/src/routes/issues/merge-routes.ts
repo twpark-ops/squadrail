@@ -180,6 +180,18 @@ export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
       res.status(409).json({ error: "Issue has no merge candidate" });
       return;
     }
+    if (
+      parsed.data.actionType === "mark_merged"
+      && surface.mergeCandidate.prBridge
+      && surface.mergeCandidate.gateStatus
+      && surface.mergeCandidate.gateStatus.mergeReady === false
+    ) {
+      res.status(409).json({
+        error: "Merge candidate is blocked by synced PR checks",
+        blockingReasons: surface.mergeCandidate.gateStatus.blockingReasons,
+      });
+      return;
+    }
 
     const actor = getActorInfo(req);
     const nextState = parsed.data.actionType === "mark_merged" ? "merged" : "rejected";
@@ -329,6 +341,9 @@ export function registerIssueMergeRoutes(ctx: IssueRouteContext) {
         patchPath: result.patchPath ?? null,
         prBundlePath: result.prBundlePath ?? null,
         mergeCommitSha: result.mergeCommitSha ?? null,
+        externalProvider: result.externalProvider ?? null,
+        externalNumber: result.externalNumber ?? null,
+        externalUrl: result.externalUrl ?? null,
       },
     });
 

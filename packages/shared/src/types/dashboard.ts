@@ -136,6 +136,46 @@ export interface DashboardProtocolQueue {
   buckets: DashboardProtocolBuckets;
 }
 
+export interface DashboardTeamSupervisionSummary {
+  total: number;
+  blocked: number;
+  review: number;
+  active: number;
+  queued: number;
+}
+
+export interface DashboardTeamSupervisionItem {
+  rootIssueId: string;
+  rootIdentifier: string | null;
+  rootTitle: string;
+  rootProjectId: string | null;
+  rootProjectName: string | null;
+  workItemIssueId: string;
+  workItemIdentifier: string | null;
+  workItemTitle: string;
+  kind: "plan" | "implementation" | "review" | "qa" | null;
+  priority: IssuePriority;
+  issueStatus: IssueStatus;
+  workflowState: IssueProtocolWorkflowState | null;
+  blockedCode: string | null;
+  watchReviewer: boolean;
+  watchLead: boolean;
+  lastTransitionAt: Date | null;
+  updatedAt: Date;
+  summaryKind: "blocked" | "review" | "active" | "queued";
+  summaryText: string;
+  assignee: DashboardProtocolActorSnapshot | null;
+  reviewer: DashboardProtocolActorSnapshot | null;
+  techLead: DashboardProtocolActorSnapshot | null;
+}
+
+export interface DashboardTeamSupervisionFeed {
+  companyId: string;
+  generatedAt: string;
+  summary: DashboardTeamSupervisionSummary;
+  items: DashboardTeamSupervisionItem[];
+}
+
 export interface DashboardRecoveryCase {
   issueId: string;
   identifier: string | null;

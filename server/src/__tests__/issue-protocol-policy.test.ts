@@ -686,4 +686,63 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     });
     expect(violation?.message).toContain("implementationSummary");
   });
+
+  it("rejects merged close handoff when synced CI gate is still blocked", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "close merged",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Merged externally after review.",
+          verificationSummary: "Verification evidence reviewed.",
+          rollbackPlan: "Revert the merge commit if needed.",
+          finalArtifacts: ["pr://42"],
+          finalTestStatus: "passed",
+          mergeStatus: "merged",
+        },
+        artifacts: [
+          {
+            kind: "diff",
+            uri: "diff://42",
+          },
+          {
+            kind: "approval",
+            uri: "approval://42",
+          },
+          {
+            kind: "test_run",
+            uri: "run://42",
+            metadata: {
+              autoCaptured: false,
+            },
+          },
+        ],
+      },
+      enforceMergeGate: true,
+      mergeGateStatus: {
+        mergeReady: false,
+        blockingReasons: ["Required checks still pending (1)."],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "close_without_verification",
+    });
+    expect(violation?.message).toContain("CI gate");
+  });
 });

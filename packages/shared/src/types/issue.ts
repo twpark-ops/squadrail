@@ -164,6 +164,57 @@ export interface IssueChangeSurfaceFeedbackSummary {
   feedbackTypeCounts: Record<string, number>;
 }
 
+export interface IssueMergeCandidateCheck {
+  name: string;
+  status: "queued" | "pending" | "running" | "success" | "failure" | "error" | "cancelled" | "skipped" | "neutral" | "unknown";
+  conclusion: string | null;
+  summary: string | null;
+  detailsUrl: string | null;
+  required: boolean;
+}
+
+export interface IssueMergeCandidateCheckSummary {
+  total: number;
+  passing: number;
+  failing: number;
+  pending: number;
+  requiredTotal: number;
+  requiredPassing: number;
+  requiredFailing: number;
+  requiredPending: number;
+}
+
+export interface IssueMergeCandidatePrBridge {
+  provider: "github" | "gitlab";
+  repoOwner: string;
+  repoName: string;
+  repoUrl: string | null;
+  remoteUrl: string | null;
+  number: number | null;
+  externalId: string | null;
+  url: string | null;
+  title: string | null;
+  state: "draft" | "open" | "merged" | "closed" | "unknown";
+  mergeability: "mergeable" | "conflicting" | "blocked" | "unknown";
+  headBranch: string | null;
+  baseBranch: string | null;
+  headSha: string | null;
+  reviewDecision: string | null;
+  commentCount: number;
+  reviewCommentCount: number;
+  lastSyncedAt: Date | null;
+  checks: IssueMergeCandidateCheck[];
+  checkSummary: IssueMergeCandidateCheckSummary;
+}
+
+export interface IssueMergeCandidateGateStatus {
+  ciReady: boolean;
+  mergeReady: boolean;
+  closeReady: boolean;
+  requiredChecksConfigured: boolean;
+  blockingReasons: string[];
+}
+
 export interface IssueMergeCandidate {
   issueId: string;
   identifier: string | null;
@@ -184,6 +235,8 @@ export interface IssueMergeCandidate {
   operatorNote: string | null;
   resolvedAt: Date | null;
   closeMessageId: string | null;
+  prBridge: IssueMergeCandidatePrBridge | null;
+  gateStatus: IssueMergeCandidateGateStatus | null;
 }
 
 export interface IssueChangeSurface {

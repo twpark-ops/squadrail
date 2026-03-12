@@ -6,6 +6,11 @@ import type {
   IssueChangeSurface,
 } from "@squadrail/shared";
 import type { StorageService } from "../../storage/types.js";
+import type {
+  MergeAutomationActionInput,
+  MergeAutomationActionResult,
+  MergeAutomationPlan,
+} from "../../services/issue-merge-automation.js";
 
 interface IssueRouteAgentRecord {
   id: string;
@@ -293,22 +298,29 @@ export interface IssueRouteContext {
         deadlineAt?: string | null;
       };
     };
-    buildMergeAutomationPlan(input: unknown): Promise<{
-      targetBaseBranch: string | null;
-      [key: string]: unknown;
-    }>;
-    runMergeAutomationAction(input: unknown): Promise<{
-      plan: {
-        targetBaseBranch: string | null;
-        [key: string]: unknown;
+    buildMergeAutomationPlan(input: {
+      issue: {
+        id: string;
+        identifier: string | null;
+        title: string;
+        projectId: string | null;
       };
-      targetBranch?: string | null;
-      pushed?: boolean;
-      patchPath?: string | null;
-      prBundlePath?: string | null;
-      mergeCommitSha?: string | null;
-      automationMetadataPatch?: Record<string, unknown> | null;
-    }>;
+      project: {
+        id: string;
+        name: string;
+        primaryWorkspace: {
+          id: string;
+          name: string;
+          cwd: string | null;
+          repoRef: string | null;
+        } | null;
+      } | null;
+      candidate: NonNullable<IssueChangeSurface["mergeCandidate"]>;
+      targetBaseBranch?: string | null;
+      integrationBranchName?: string | null;
+      remoteName?: string | null;
+    }): Promise<MergeAutomationPlan>;
+    runMergeAutomationAction(input: MergeAutomationActionInput): Promise<MergeAutomationActionResult>;
   };
   schemas: {
     mergeCandidateActionSchema: ZodTypeAny;

@@ -2697,6 +2697,121 @@ describe("issue routes wakeup handling", () => {
     );
   });
 
+  it("blocks mark_merged when synced PR checks are still pending", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-221",
+      title: "Merge candidate issue",
+      status: "done",
+      projectId: "project-1",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "approve-1",
+        messageType: "APPROVE_IMPLEMENTATION",
+        summary: "Approved",
+        createdAt: "2026-03-10T11:00:00.000Z",
+        payload: {
+          approvalSummary: "Approved for merge",
+        },
+        artifacts: [
+          {
+            kind: "approval",
+            uri: "approval://1",
+            label: "Approval artifact",
+            metadata: {},
+          },
+        ],
+      },
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for operator merge",
+          verificationSummary: "Focused tests passed",
+          rollbackPlan: "Revert the commit",
+          remainingRisks: [],
+        },
+        artifacts: [
+          {
+            kind: "diff",
+            uri: "run://diff",
+            label: "Diff artifact",
+            metadata: {
+              branchName: "squadrail/clo-221",
+              headSha: "def456",
+              changedFiles: ["src/merge.ts"],
+              statusEntries: ["M src/merge.ts"],
+              diffStat: "1 file changed, 12 insertions(+)",
+            },
+          },
+        ],
+      },
+    ]);
+    mockMergeCandidateGetByIssueId.mockResolvedValue({
+      state: "pending",
+      closeMessageId: "close-1",
+      sourceBranch: "squadrail/clo-221",
+      workspacePath: "/tmp/worktree",
+      headSha: "def456",
+      diffStat: "1 file changed, 12 insertions(+)",
+      targetBaseBranch: "main",
+      mergeCommitSha: null,
+      automationMetadata: {
+        prBridge: {
+          provider: "github",
+          repoOwner: "acme",
+          repoName: "swiftsight",
+          remoteUrl: "https://github.com/acme/swiftsight.git",
+          repoUrl: "https://github.com/acme/swiftsight",
+          number: 42,
+          externalId: "4200",
+          url: "https://github.com/acme/swiftsight/pull/42",
+          title: "CLO-221: Merge candidate issue",
+          state: "draft",
+          mergeability: "blocked",
+          headBranch: "squadrail/clo-221",
+          baseBranch: "main",
+          headSha: "def456",
+          lastSyncedAt: "2026-03-12T03:00:00.000Z",
+          checks: [
+            {
+              name: "pr-verify",
+              status: "pending",
+              required: true,
+            },
+          ],
+        },
+      },
+      operatorNote: null,
+      resolvedAt: null,
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/merge-candidate/actions",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        actionType: "mark_merged",
+        targetBaseBranch: "main",
+        mergeCommitSha: "fedcba",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        error: "Merge candidate is blocked by synced PR checks",
+        blockingReasons: expect.arrayContaining(["Required checks still pending (1)."]),
+      }),
+    );
+    expect(mockMergeCandidateUpsertDecision).not.toHaveBeenCalled();
+  });
+
   it("builds a merge automation plan for a pending candidate", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
@@ -2830,6 +2945,97 @@ describe("issue routes wakeup handling", () => {
         result: expect.objectContaining({
           actionType: "export_patch",
           patchPath: "/tmp/export.patch",
+        }),
+      }),
+    );
+  });
+
+  it("runs PR bridge sync automation and stores external review metadata", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-223",
+      title: "Merge automation issue",
+      status: "done",
+      projectId: "project-1",
+    });
+    mockProtocolListMessages.mockResolvedValue([
+      {
+        id: "close-1",
+        messageType: "CLOSE_TASK",
+        summary: "Closed",
+        createdAt: "2026-03-10T11:05:00.000Z",
+        payload: {
+          mergeStatus: "pending_external_merge",
+          closureSummary: "Ready for automation",
+          verificationSummary: "Tests passed",
+          rollbackPlan: "Revert",
+        },
+        artifacts: [],
+      },
+    ]);
+    mockProjectGetById.mockResolvedValue({
+      id: "project-1",
+      name: "Project One",
+      primaryWorkspace: {
+        id: "workspace-1",
+        name: "Base",
+        cwd: "/tmp/base",
+        repoRef: "main",
+      },
+    });
+    mockRunMergeAutomationAction.mockResolvedValue({
+      actionType: "sync_pr_bridge",
+      ok: true,
+      plan: {
+        issueId: "11111111-1111-4111-8111-111111111111",
+        targetBaseBranch: "main",
+      },
+      externalProvider: "github",
+      externalNumber: 42,
+      externalUrl: "https://github.com/acme/swiftsight/pull/42",
+      automationMetadataPatch: {
+        lastAutomationAction: "sync_pr_bridge",
+        prBridge: {
+          provider: "github",
+          number: 42,
+        },
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/merge-candidate/automation",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: {
+        actionType: "sync_pr_bridge",
+        targetBaseBranch: "main",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockRunMergeAutomationAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "sync_pr_bridge",
+      }),
+    );
+    expect(mockMergeCandidatePatchAutomationMetadata).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        lastAutomationAction: "sync_pr_bridge",
+        prBridge: expect.objectContaining({
+          provider: "github",
+          number: 42,
+        }),
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          actionType: "sync_pr_bridge",
+          externalProvider: "github",
+          externalNumber: 42,
+          externalUrl: "https://github.com/acme/swiftsight/pull/42",
         }),
       }),
     );

@@ -30,6 +30,8 @@ import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { StatusBadge } from "../components/StatusBadge";
 import { Identity } from "../components/Identity";
+import { InternalWorkItemDialog } from "../components/InternalWorkItemDialog";
+import { PmIntakeProjectionDialog } from "../components/PmIntakeProjectionDialog";
 import { Separator } from "@/components/ui/separator";
 import {
   Popover,
@@ -136,6 +138,50 @@ type BriefQualitySnapshot = {
   denseEnabled: boolean;
   degradedReasons: string[];
 };
+
+type DependencyGraphSnapshotItem = {
+  reference: string;
+  issueId: string | null;
+  identifier: string | null;
+  title: string | null;
+  status: string | null;
+  workflowState: string | null;
+  resolved: boolean;
+};
+
+function readDependencyGraphSnapshot(
+  protocolState: IssueProtocolState | null | undefined
+) {
+  const metadata = asRecord(protocolState?.metadata);
+  const dependencyGraph = asRecord(metadata?.dependencyGraph);
+  if (!dependencyGraph) return [];
+  const items = Array.isArray(dependencyGraph.items)
+    ? dependencyGraph.items
+        .map((value) => asRecord(value))
+        .filter((value): value is Record<string, unknown> => value !== null)
+        .flatMap((value) => {
+          const reference =
+            typeof value.reference === "string" ? value.reference : "";
+          if (!reference) return [];
+          return [
+            {
+              reference,
+              issueId: typeof value.issueId === "string" ? value.issueId : null,
+              identifier:
+                typeof value.identifier === "string" ? value.identifier : null,
+              title: typeof value.title === "string" ? value.title : null,
+              status: typeof value.status === "string" ? value.status : null,
+              workflowState:
+                typeof value.workflowState === "string"
+                  ? value.workflowState
+                  : null,
+              resolved: value.resolved === true,
+            } satisfies DependencyGraphSnapshotItem,
+          ];
+        })
+    : [];
+  return items;
+}
 
 function readBriefQuality(brief: IssueTaskBrief): BriefQualitySnapshot | null {
   const quality = asRecord(asRecord(brief.contentJson)?.quality);
@@ -695,6 +741,10 @@ export function IssueDetail() {
     cost: false,
   });
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [internalWorkItemDialogOpen, setInternalWorkItemDialogOpen] =
+    useState(false);
+  const [intakeProjectionDialogOpen, setIntakeProjectionDialogOpen] =
+    useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
@@ -915,6 +965,21 @@ export function IssueDetail() {
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
   }, [allIssues, issue]);
+
+  const dependencyGraphItems = useMemo(
+    () => readDependencyGraphSnapshot(protocolState ?? null),
+    [protocolState]
+  );
+  const unresolvedDependencyItems = useMemo(
+    () => dependencyGraphItems.filter((item) => item.resolved === false),
+    [dependencyGraphItems]
+  );
+  const isIntakeRootIssue = Boolean(
+    issue &&
+      !issue.parentId &&
+      !issue.hiddenAt &&
+      (issue.labels ?? []).some((label) => label.name === "workflow:intake")
+  );
 
   const commentReassignOptions = useMemo(() => {
     const options: Array<{ id: string; label: string; searchText?: string }> =
@@ -2035,6 +2100,32 @@ export function IssueDetail() {
               {formatProtocolValue(protocolState.blockedCode)}
             </div>
           )}
+          {unresolvedDependencyItems.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-300/60 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
+              <div className="font-medium">Dependencies</div>
+              <div className="mt-1 space-y-1">
+                {unresolvedDependencyItems.slice(0, 4).map((item) => (
+                  <div key={`${item.reference}:${item.issueId ?? "missing"}`}>
+                    {item.identifier ?? item.reference}
+                    {item.title ? ` · ${item.title}` : ""}
+                    {item.status ? ` (${formatProtocolValue(item.status)})` : " (unresolved)"}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {isIntakeRootIssue && (
+            <div className="mt-3">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setIntakeProjectionDialogOpen(true)}
+              >
+                Project intake to delivery
+              </Button>
+            </div>
+          )}
         </div>
         <div className="rounded-lg border border-border bg-card px-4 py-3">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -2897,9 +2988,35 @@ export function IssueDetail() {
 
         <TabsContent value="subissues">
           {childIssues.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No sub-issues.</p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">No sub-issues.</p>
+                {!issue.hiddenAt && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setInternalWorkItemDialogOpen(true)}
+                  >
+                    New internal work item
+                  </Button>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="space-y-3">
+              {!issue.hiddenAt && (
+                <div className="flex items-center justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setInternalWorkItemDialogOpen(true)}
+                  >
+                    New internal work item
+                  </Button>
+                </div>
+              )}
               {issue.internalWorkItemSummary &&
                 issue.internalWorkItemSummary.total > 0 && (
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -2947,6 +3064,21 @@ export function IssueDetail() {
                       {child.hiddenAt && (
                         <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                           Internal
+                        </span>
+                      )}
+                      {child.labels?.some((label) => label.name.startsWith("work:")) && (
+                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          {(child.labels.find((label) => label.name.startsWith("work:"))?.name ?? "work:item").replace("work:", "")}
+                        </span>
+                      )}
+                      {child.labels?.some((label) => label.name === "watch:reviewer") && (
+                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Reviewer watch
+                        </span>
+                      )}
+                      {child.labels?.some((label) => label.name === "watch:lead") && (
+                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Lead watch
                         </span>
                       )}
                     </div>
@@ -3111,6 +3243,28 @@ export function IssueDetail() {
           </ScrollArea>
         </SheetContent>
       </Sheet>
+
+      {issue && !issue.hiddenAt && (
+        <InternalWorkItemDialog
+          open={internalWorkItemDialogOpen}
+          onOpenChange={setInternalWorkItemDialogOpen}
+          issue={issue}
+          agents={agents ?? []}
+          projects={orderedProjects}
+          defaultReviewerAgentId={protocolState?.reviewerAgentId ?? null}
+          defaultQaAgentId={protocolState?.qaAgentId ?? null}
+        />
+      )}
+
+      {issue && isIntakeRootIssue && (
+        <PmIntakeProjectionDialog
+          open={intakeProjectionDialogOpen}
+          onOpenChange={setIntakeProjectionDialogOpen}
+          issue={issue}
+          agents={agents ?? []}
+          projects={orderedProjects}
+        />
+      )}
     </div>
   );
 }

@@ -134,6 +134,7 @@ const mergeCandidateAutomationSchema = z.object({
     "merge_local",
     "cherry_pick_local",
     "push_branch",
+    "sync_pr_bridge",
   ]),
   targetBaseBranch: z.string().trim().max(255).nullable().optional(),
   integrationBranchName: z.string().trim().max(255).nullable().optional(),

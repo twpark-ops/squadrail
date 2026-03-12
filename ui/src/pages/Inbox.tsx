@@ -42,7 +42,12 @@ import {
 } from "lucide-react";
 import { Identity } from "../components/Identity";
 import { PageTabBar } from "../components/PageTabBar";
-import type { HeartbeatRun, Issue, JoinRequest } from "@squadrail/shared";
+import type {
+  DashboardTeamSupervisionItem,
+  HeartbeatRun,
+  Issue,
+  JoinRequest,
+} from "@squadrail/shared";
 
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
@@ -52,6 +57,7 @@ type InboxTab = "new" | "all";
 type InboxCategoryFilter =
   | "everything"
   | "assigned_to_me"
+  | "team_supervision"
   | "join_requests"
   | "approvals"
   | "failed_runs"
@@ -60,6 +66,7 @@ type InboxCategoryFilter =
 type InboxApprovalFilter = "all" | "actionable" | "resolved";
 type SectionKey =
   | "assigned_to_me"
+  | "team_supervision"
   | "join_requests"
   | "approvals"
   | "failed_runs"
@@ -247,6 +254,90 @@ function FailedRunCard({
   );
 }
 
+function TeamSupervisionCard({
+  item,
+}: {
+  item: DashboardTeamSupervisionItem;
+}) {
+  const badgeTone =
+    item.summaryKind === "blocked"
+      ? "text-red-600 dark:text-red-400"
+      : item.summaryKind === "review"
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-blue-600 dark:text-blue-400";
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Link
+              to={`/issues/${item.rootIdentifier ?? item.rootIssueId}`}
+              className="font-mono no-underline text-inherit hover:text-foreground"
+            >
+              {item.rootIdentifier ?? item.rootIssueId.slice(0, 8)}
+            </Link>
+            <span>•</span>
+            <span>{item.rootTitle}</span>
+            {item.rootProjectName && (
+              <>
+                <span>•</span>
+                <span>{item.rootProjectName}</span>
+              </>
+            )}
+          </div>
+          <Link
+            to={`/issues/${item.workItemIdentifier ?? item.workItemIssueId}`}
+            className="block text-sm font-medium no-underline text-inherit hover:text-foreground"
+          >
+            <span className="font-mono text-muted-foreground mr-1.5">
+              {item.workItemIdentifier ?? item.workItemIssueId.slice(0, 8)}
+            </span>
+            {item.workItemTitle}
+          </Link>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <StatusBadge status={item.issueStatus} />
+            {item.kind && (
+              <span className="rounded-full border border-border px-1.5 py-0.5 uppercase tracking-wide">
+                {item.kind}
+              </span>
+            )}
+            {item.watchReviewer && (
+              <span className="rounded-full border border-border px-1.5 py-0.5 uppercase tracking-wide">
+                reviewer watch
+              </span>
+            )}
+            {item.watchLead && (
+              <span className="rounded-full border border-border px-1.5 py-0.5 uppercase tracking-wide">
+                lead watch
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">{item.summaryText}</p>
+        </div>
+
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <div className={badgeTone}>
+            {item.summaryKind === "blocked"
+              ? "Blocked"
+              : item.summaryKind === "review"
+              ? "Needs review"
+              : item.summaryKind === "active"
+              ? "Active"
+              : "Queued"}
+          </div>
+          {item.assignee && <Identity name={item.assignee.name} size="sm" />}
+          {item.reviewer && (
+            <div>Reviewer: {item.reviewer.name}</div>
+          )}
+          {item.techLead && <div>Lead: {item.techLead.name}</div>}
+          <div>Updated {timeAgo(item.updatedAt)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Inbox() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -304,6 +395,12 @@ export function Inbox() {
     queryFn: () => dashboardApi.summary(selectedCompanyId!),
     enabled: !!selectedCompanyId,
   });
+  const { data: teamSupervision, isLoading: isTeamSupervisionLoading } =
+    useQuery({
+      queryKey: queryKeys.dashboardTeamSupervision(selectedCompanyId!, 12),
+      queryFn: () => dashboardApi.teamSupervision(selectedCompanyId!, 12),
+      enabled: !!selectedCompanyId,
+    });
 
   const { data: issues, isLoading: isIssuesLoading } = useQuery({
     queryKey: queryKeys.issues.list(selectedCompanyId!),
@@ -330,6 +427,7 @@ export function Inbox() {
   });
 
   const staleIssues = issues ? getStaleIssues(issues) : [];
+  const teamSupervisionItems = teamSupervision?.items ?? [];
   const assignedToMeIssues = useMemo(
     () =>
       [...assignedToMeIssuesRaw].sort(
@@ -447,9 +545,11 @@ export function Inbox() {
   const hasStale = staleIssues.length > 0;
   const hasJoinRequests = joinRequests.length > 0;
   const hasAssignedToMe = assignedToMeIssues.length > 0;
+  const hasTeamSupervision = teamSupervisionItems.length > 0;
 
   const newItemCount =
     assignedToMeIssues.length +
+    teamSupervisionItems.length +
     joinRequests.length +
     actionableApprovals.length +
     failedRuns.length +
@@ -461,6 +561,8 @@ export function Inbox() {
     allCategoryFilter === "everything" || allCategoryFilter === "join_requests";
   const showAssignedCategory =
     allCategoryFilter === "everything" || allCategoryFilter === "assigned_to_me";
+  const showTeamSupervisionCategory =
+    allCategoryFilter === "everything" || allCategoryFilter === "team_supervision";
   const showApprovalsCategory = allCategoryFilter === "everything" || allCategoryFilter === "approvals";
   const showFailedRunsCategory =
     allCategoryFilter === "everything" || allCategoryFilter === "failed_runs";
@@ -471,6 +573,10 @@ export function Inbox() {
   const showAssignedSection = tab === "new" ? hasAssignedToMe : showAssignedCategory && hasAssignedToMe;
   const showJoinRequestsSection =
     tab === "new" ? hasJoinRequests : showJoinRequestsCategory && hasJoinRequests;
+  const showTeamSupervisionSection =
+    tab === "new"
+      ? hasTeamSupervision
+      : showTeamSupervisionCategory && hasTeamSupervision;
   const showApprovalsSection =
     tab === "new"
       ? actionableApprovals.length > 0
@@ -482,6 +588,7 @@ export function Inbox() {
 
   const visibleSections = [
     showAssignedSection ? "assigned_to_me" : null,
+    showTeamSupervisionSection ? "team_supervision" : null,
     showApprovalsSection ? "approvals" : null,
     showJoinRequestsSection ? "join_requests" : null,
     showFailedRunsSection ? "failed_runs" : null,
@@ -493,6 +600,7 @@ export function Inbox() {
     !isJoinRequestsLoading &&
     !isApprovalsLoading &&
     !isDashboardLoading &&
+    !isTeamSupervisionLoading &&
     !isIssuesLoading &&
     !isAssignedToMeLoading &&
     !isRunsLoading;
@@ -520,6 +628,13 @@ export function Inbox() {
           label="Assigned to me"
           value={assignedToMeIssues.length}
           detail="Open work directly assigned to your operator account."
+        />
+        <SupportMetricCard
+          icon={InboxIcon}
+          label="Team supervision"
+          value={teamSupervisionItems.length}
+          detail="Shared internal work items waiting on lead, reviewer, or operator attention."
+          tone={teamSupervisionItems.length > 0 ? "accent" : "default"}
         />
         <SupportMetricCard
           icon={AlertTriangle}
@@ -574,6 +689,7 @@ export function Inbox() {
                   <SelectContent>
                     <SelectItem value="everything">All categories</SelectItem>
                     <SelectItem value="assigned_to_me">Assigned to me</SelectItem>
+                    <SelectItem value="team_supervision">Team supervision</SelectItem>
                     <SelectItem value="join_requests">Join requests</SelectItem>
                     <SelectItem value="approvals">Approvals</SelectItem>
                     <SelectItem value="failed_runs">Failed runs</SelectItem>
@@ -642,6 +758,22 @@ export function Inbox() {
                     updated {timeAgo(issue.updatedAt)}
                   </span>
                 </Link>
+              ))}
+            </div>
+          </div>
+        </>
+        )}
+
+        {showTeamSupervisionSection && (
+        <>
+          {showSeparatorBefore("team_supervision") && <Separator />}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Team Supervision
+            </h3>
+            <div className="grid gap-3">
+              {teamSupervisionItems.map((item) => (
+                <TeamSupervisionCard key={item.workItemIssueId} item={item} />
               ))}
             </div>
           </div>

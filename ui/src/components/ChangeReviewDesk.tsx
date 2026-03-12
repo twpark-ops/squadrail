@@ -104,7 +104,12 @@ function actionResultSummary(result: MergeAutomationActionResult | null) {
     result.targetBranch,
     result.pushedBranch,
     result.mergeCommitSha,
+    result.externalUrl,
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
+}
+
+function countLabel(value: number, singular: string, plural = `${singular}s`) {
+  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 export function ChangeReviewDesk({
@@ -249,6 +254,9 @@ export function ChangeReviewDesk({
   }
 
   const mergeCandidate = surface.mergeCandidate;
+  const prBridge = mergeCandidate?.prBridge ?? null;
+  const gateStatus = mergeCandidate?.gateStatus ?? null;
+  const mergeBlocked = Boolean(prBridge && gateStatus && gateStatus.mergeReady === false);
   const busy = resolveMutation.isPending || automationMutation.isPending;
 
   return (
@@ -353,6 +361,133 @@ export function ChangeReviewDesk({
           </div>
         </div>
       </div>
+
+      {mergeCandidate && (
+        <div className="mt-4 grid gap-3 xl:grid-cols-4">
+          <div className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              PR bridge
+            </div>
+            {prBridge ? (
+              <>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={toneClass(prBridge.state)}>
+                    {titleCase(prBridge.provider)} · {titleCase(prBridge.state)}
+                  </Badge>
+                  {prBridge.number ? (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      #{prBridge.number}
+                    </span>
+                  ) : null}
+                </div>
+                {prBridge.url ? (
+                  <a
+                    href={prBridge.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-primary"
+                  >
+                    Open external review
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    External PR URL not synced yet.
+                  </div>
+                )}
+                <div className="mt-2 text-xs text-muted-foreground">
+                  {prBridge.repoOwner}/{prBridge.repoName}
+                </div>
+              </>
+            ) : (
+              <div className="mt-2 text-sm text-muted-foreground">
+                Draft PR has not been created or synced yet.
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Mergeability
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className={toneClass(prBridge?.mergeability ?? "unknown")}>
+                {titleCase(prBridge?.mergeability ?? "unknown")}
+              </Badge>
+              {prBridge?.reviewDecision ? (
+                <Badge variant="outline">
+                  Review {titleCase(prBridge.reviewDecision)}
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {prBridge
+                ? `${countLabel(prBridge.commentCount, "comment")} · ${countLabel(prBridge.reviewCommentCount, "review note")}`
+                : "Human final review remains outside Squadrail."}
+            </div>
+          </div>
+
+          <div className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              CI gate
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge
+                variant="outline"
+                className={toneClass(gateStatus?.mergeReady ? "merged" : prBridge ? "pending" : "unknown")}
+              >
+                {gateStatus
+                  ? gateStatus.mergeReady
+                    ? "Merge ready"
+                    : "Blocked"
+                  : "Not synced"}
+              </Badge>
+              {gateStatus?.requiredChecksConfigured ? (
+                <Badge variant="outline">Required checks</Badge>
+              ) : null}
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {prBridge
+                ? `${prBridge.checkSummary.passing}/${prBridge.checkSummary.total} passing · ${prBridge.checkSummary.pending} pending · ${prBridge.checkSummary.failing} failing`
+                : "Sync PR status to evaluate checks."}
+            </div>
+          </div>
+
+          <div className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Review branch
+            </div>
+            <div className="mt-2 text-sm font-semibold text-foreground">
+              {(prBridge?.headBranch ?? preparedBranchName) || "No branch"}
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              Base {(prBridge?.baseBranch ?? targetBaseBranch) || "unknown"}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {prBridge?.lastSyncedAt
+                ? `Last synced ${relativeTime(prBridge.lastSyncedAt)}`
+                : "Not synced yet"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gateStatus?.blockingReasons.length ? (
+        <div className="mt-4 rounded-[0.95rem] border border-amber-500/20 bg-amber-500/8 px-4 py-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Merge gate blockers
+          </div>
+          <ul className="mt-3 space-y-2 text-sm text-amber-50">
+            {gateStatus.blockingReasons.map((reason) => (
+              <li key={reason} className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-200" />
+                <span>{reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="rounded-[1rem] border border-border bg-background/72 p-4">
@@ -556,6 +691,12 @@ export function ChangeReviewDesk({
             placeholder="Operator note, rationale, or handoff context"
           />
 
+          {mergeBlocked ? (
+            <div className="mt-3 rounded-[0.95rem] border border-amber-500/20 bg-amber-500/8 px-3 py-3 text-sm text-amber-50">
+              Synced PR checks are still blocking merge completion. Refresh the PR bridge after checks finish or review changes.
+            </div>
+          ) : null}
+
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -567,7 +708,7 @@ export function ChangeReviewDesk({
                   mergeCommitSha: mergeCommitSha || null,
                 })
               }
-              disabled={busy}
+              disabled={busy || mergeBlocked}
               className="rounded-full"
             >
               {resolveMutation.isPending ? (
@@ -592,6 +733,25 @@ export function ChangeReviewDesk({
             >
               <XCircle className="h-3.5 w-3.5" />
               Mark rejected
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                automationMutation.mutate({
+                  actionType: "sync_pr_bridge",
+                  targetBaseBranch: targetBaseBranch || null,
+                  branchName: preparedBranchName || null,
+                  integrationBranchName: preparedBranchName || null,
+                  remoteName: remoteName || null,
+                  pushAfterAction: prBridge ? false : true,
+                })
+              }
+              disabled={busy}
+              className="rounded-full"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {prBridge ? "Sync PR status" : "Create draft PR"}
             </Button>
             <Button
               size="sm"
