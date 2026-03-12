@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCombinedGraphMetrics,
+  buildRetrievalBriefDraft,
+  buildRetrievalCompletionArtifacts,
   buildRecipientBriefEvidenceSummary,
   buildRecipientRetrievalHint,
   buildTaskBriefContentJson,
@@ -230,6 +232,52 @@ describe("issue retrieval finalization builders", () => {
     });
   });
 
+  it("builds a retrieval brief draft for the target recipient", () => {
+    const quality = makeQuality();
+
+    expect(
+      buildRetrievalBriefDraft({
+        eventType: "on_review",
+        triggeringMessageId: "message-1",
+        recipientRole: "reviewer",
+        issue: {
+          identifier: "SW-101",
+          title: "Retry worker stalls under backpressure",
+        },
+        message: {
+          id: "message-1",
+          issueId: "issue-1",
+          companyId: "company-1",
+          senderRole: "engineer",
+          senderId: "agent-1",
+          messageType: "SUBMIT_FOR_REVIEW",
+          summary: "Please review the retry patch.",
+          workflowStateBefore: "in_progress",
+          workflowStateAfter: "submitted_for_review",
+          payload: {},
+          mentionsJson: [],
+          metadata: {},
+          createdAt: new Date("2026-03-12T00:00:00Z"),
+        },
+        queryText: "review retry worker patch and evidence",
+        executionLane: "thorough",
+        dynamicSignals: {
+          exactPaths: ["src/retry.ts"],
+          symbolHints: ["retryWorker"],
+        },
+        quality,
+        hits: [makeHit()],
+        maxEvidenceItems: 3,
+      }),
+    ).toMatchObject({
+      briefScope: "reviewer",
+      contentJson: {
+        eventType: "on_review",
+        triggeringMessageId: "message-1",
+      },
+    });
+  });
+
   it("builds retrieval debug patches with reuse, graph, cache, and personalization metadata", () => {
     const quality = makeQuality();
     const hit = makeHit();
@@ -335,6 +383,123 @@ describe("issue retrieval finalization builders", () => {
         symbolKeyCount: 1,
         personalizedHitCount: 1,
         averagePersonalizationBoost: 0.4,
+      },
+    });
+  });
+
+  it("builds completion artifacts from the final brief and selected hits", () => {
+    const quality = makeQuality();
+
+    expect(
+      buildRetrievalCompletionArtifacts({
+        companyId: "company-1",
+        issueId: "issue-1",
+        retrievalRunId: "retrieval-1",
+        triggeringMessageId: "message-1",
+        recipientRole: "engineer",
+        recipientId: "agent-1",
+        executionLane: "fast",
+        brief: {
+          id: "brief-1",
+          briefScope: "engineer_assignment",
+          briefVersion: 4,
+          contentMarkdown: "# engineer brief",
+        },
+        finalHits: [makeHit()],
+        briefQuality: quality,
+        relatedIssueIds: ["issue-related-1"],
+        relatedIssueIdentifiers: ["SW-101"],
+        reuseSummary: {
+          requestedRelatedIssueCount: 1,
+          reuseHitCount: 1,
+          reusedIssueCount: 1,
+          reusedIssueIds: ["issue-related-1"],
+          reusedIssueIdentifiers: ["SW-101"],
+          reuseArtifactKinds: ["decision"],
+          reuseDecisionHitCount: 1,
+          reuseFixHitCount: 0,
+          reuseReviewHitCount: 0,
+          reuseCloseHitCount: 0,
+        },
+        graphSeeds: [{ entityType: "path" }],
+        symbolGraphSeeds: [{ entityType: "symbol" }],
+        briefGraphHits: [makeHit()],
+        symbolGraphHitCount: 1,
+        edgeTraversalCount: 4,
+        edgeTypeCounts: { calls: 1 },
+        graphMaxDepth: 2,
+        graphHopDepthCounts: { "1": 1, "2": 1 },
+        multiHopGraphHitCount: 1,
+        temporalContext: {
+          branchName: "main",
+        },
+        queryEmbeddingCacheHit: true,
+        candidateCacheHit: true,
+        finalCacheHit: false,
+        revisionSignature: "rev-1",
+        candidateCacheInspection: {
+          state: "hit",
+          reason: "exact",
+          provenance: "exact_key",
+          matchedRevision: 7,
+          latestKnownRevision: 7,
+          lastEntryUpdatedAt: "2026-03-12T00:00:00.000Z",
+          cacheKeyFingerprint: "candidate-cache",
+          requestedCacheKeyFingerprint: "candidate-requested",
+          matchedCacheKeyFingerprint: "candidate-matched",
+        },
+        finalCacheInspection: {
+          state: "miss_cold",
+          reason: "cold",
+          provenance: null,
+          matchedRevision: null,
+          latestKnownRevision: 7,
+          lastEntryUpdatedAt: null,
+          cacheKeyFingerprint: "final-cache",
+          requestedCacheKeyFingerprint: "final-requested",
+          matchedCacheKeyFingerprint: null,
+        },
+        exactPathSatisfied: true,
+        personalizationProfile: {
+          applied: true,
+          scopes: ["project"],
+          feedbackCount: 2,
+          positiveFeedbackCount: 2,
+          negativeFeedbackCount: 0,
+          sourceTypeBoosts: { code: 0.1 },
+          pathBoosts: { "src/retry.ts": 0.2 },
+          symbolBoosts: { retryWorker: 0.1 },
+        },
+        maxEvidenceItems: 2,
+      }),
+    ).toMatchObject({
+      activityDetails: {
+        retrievalRunId: "retrieval-1",
+        briefId: "brief-1",
+        briefScope: "engineer_assignment",
+      },
+      completionEvents: [
+        {
+          type: "retrieval.run.completed",
+          payload: {
+            issueId: "issue-1",
+          },
+        },
+        {
+          type: "issue.brief.updated",
+          payload: {
+            briefId: "brief-1",
+            briefVersion: 4,
+          },
+        },
+      ],
+      recipientHint: {
+        briefId: "brief-1",
+        briefScope: "engineer_assignment",
+      },
+      retrievalRunDebugPatch: {
+        relatedIssueIds: ["issue-related-1"],
+        relatedIssueIdentifiers: ["SW-101"],
       },
     });
   });
