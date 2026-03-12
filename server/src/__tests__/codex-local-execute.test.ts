@@ -1,11 +1,27 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { execute } from "@squadrail/adapter-codex-local/server";
 
-const SQUADRAIL_SKILL_PATH = fileURLToPath(new URL("../../../skills/squadrail", import.meta.url));
+const require = createRequire(import.meta.url);
+
+async function resolveAdapterSquadrailSkillPath(): Promise<string> {
+  const adapterServerEntry = require.resolve("@squadrail/adapter-codex-local/server");
+  const adapterModuleDir = path.dirname(adapterServerEntry);
+  const candidateRoots = [
+    path.resolve(adapterModuleDir, "../../skills"),
+    path.resolve(adapterModuleDir, "../../../../../skills"),
+  ];
+
+  for (const candidateRoot of candidateRoots) {
+    const isDirectory = await fs.stat(candidateRoot).then((stat) => stat.isDirectory()).catch(() => false);
+    if (isDirectory) return path.join(candidateRoot, "squadrail");
+  }
+
+  throw new Error("Failed to resolve Squadrail skill directory for Codex adapter");
+}
 
 async function writeFakeCodexCommand(commandPath: string): Promise<void> {
   const script = `#!/usr/bin/env node
@@ -94,7 +110,7 @@ describe("codex execute", () => {
       expect(result.exitCode).toBe(0);
       expect((await fs.lstat(brokenSkillTarget)).isSymbolicLink()).toBe(true);
       expect(await fs.realpath(brokenSkillTarget)).toBe(
-        await fs.realpath(SQUADRAIL_SKILL_PATH),
+        await fs.realpath(await resolveAdapterSquadrailSkillPath()),
       );
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
