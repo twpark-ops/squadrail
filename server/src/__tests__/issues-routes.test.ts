@@ -2444,6 +2444,109 @@ describe("issue routes wakeup handling", () => {
       title: "Change surface issue",
       status: "done",
     });
+    mockMergeCandidateGetByIssueId.mockResolvedValue({
+      state: "pending",
+      closeMessageId: "close-1",
+      sourceBranch: "squadrail/clo-220",
+      workspacePath: "/tmp/worktree",
+      headSha: "abc123",
+      diffStat: "1 file changed, 8 insertions(+)",
+      targetBaseBranch: "main",
+      mergeCommitSha: "deadbeef220",
+      operatorNote: "Wait for external repository checks before merge.",
+      resolvedAt: null,
+      automationMetadata: {
+        lastPlanWarnings: ["Manual merge preflight still sees overlapping edits."],
+        prBridge: {
+          provider: "github",
+          repoOwner: "acme",
+          repoName: "swiftsight",
+          repoUrl: "https://github.com/acme/swiftsight",
+          remoteUrl: "https://github.com/acme/swiftsight.git",
+          number: 42,
+          externalId: "1042",
+          url: "https://github.com/acme/swiftsight/pull/42",
+          title: "Draft: CLO-220",
+          state: "draft",
+          mergeability: "blocked",
+          headBranch: "squadrail/clo-220",
+          baseBranch: "main",
+          headSha: "abc123",
+          reviewDecision: "changes_requested",
+          commentCount: 2,
+          reviewCommentCount: 1,
+          lastSyncedAt: "2026-03-10T11:06:00.000Z",
+          checks: [
+            {
+              name: "pr-verify",
+              status: "failure",
+              conclusion: "failure",
+              summary: "PR verify failed",
+              detailsUrl: "https://github.com/acme/swiftsight/actions/runs/1",
+              required: true,
+            },
+          ],
+          checkSummary: {
+            total: 1,
+            passing: 0,
+            failing: 1,
+            pending: 0,
+            requiredTotal: 1,
+            requiredPassing: 0,
+            requiredFailing: 1,
+            requiredPending: 0,
+          },
+        },
+        revertAssist: {
+          lastActionSummary: "Created recovery follow-up CLO-221",
+          lastActionAt: "2026-03-10T11:10:00.000Z",
+          lastCreatedIssueId: "issue-221",
+          lastCreatedIssueIdentifier: "CLO-221",
+        },
+      },
+    });
+    mockKnowledgeListTaskBriefs.mockResolvedValue([
+      {
+        id: "brief-1",
+        briefScope: "reviewer",
+        retrievalRunId: "retrieval-1",
+        createdAt: "2026-03-10T10:59:00.000Z",
+        contentJson: {
+          quality: {
+            confidenceLevel: "high",
+            graphHitCount: 2,
+            multiHopGraphHitCount: 1,
+            personalizationApplied: true,
+            candidateCacheHit: true,
+            finalCacheHit: false,
+          },
+        },
+      },
+    ]);
+    mockRetrievalPersonalizationSummarizeIssueFeedback.mockResolvedValue({
+      positiveCount: 1,
+      negativeCount: 0,
+      pinnedPathCount: 1,
+      hiddenPathCount: 0,
+      lastFeedbackAt: "2026-03-10T10:58:00.000Z",
+      feedbackTypeCounts: {
+        operator_pin: 1,
+      },
+    });
+    mockSummarizeIssueFailureLearning.mockResolvedValue({
+      closeReady: false,
+      retryability: "operator_required",
+      failureFamily: "runtime_process",
+      blockingReasons: [
+        "Resolve repeated runtime failure before close.",
+      ],
+      summary: "Repeated runtime failures still require operator review.",
+      suggestedActions: [
+        "Inspect the latest failed run before closing.",
+      ],
+      repeatedFailureCount24h: 2,
+      lastSeenAt: "2026-03-10T10:57:00.000Z",
+    });
     mockProtocolListMessages.mockResolvedValue([
       {
         id: "approve-1",
@@ -2473,6 +2576,10 @@ describe("issue routes wakeup handling", () => {
           verificationSummary: "Focused tests passed",
           rollbackPlan: "Revert the commit",
           remainingRisks: ["Needs external merge"],
+          boardTemplateId: "company-close-template",
+          boardTemplateLabel: "Release close",
+          boardTemplateScope: "company",
+          followUpIssueIds: ["issue-221"],
         },
         artifacts: [
           {
@@ -2517,17 +2624,65 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(200);
-  expect(response.body).toEqual(
-      expect.objectContaining({
-        branchName: "squadrail/clo-220",
-        workspacePath: "/tmp/worktree",
-        changedFiles: ["src/change.ts"],
-        mergeCandidate: expect.objectContaining({
-          state: "pending",
-          sourceBranch: "squadrail/clo-220",
+    expect(response.body).toMatchObject({
+      branchName: "squadrail/clo-220",
+      workspacePath: "/tmp/worktree",
+      changedFiles: ["src/change.ts"],
+      retrievalContext: {
+        latestRuns: [
+          expect.objectContaining({
+            briefId: "brief-1",
+            retrievalRunId: "retrieval-1",
+            confidenceLevel: "high",
+            candidateCacheHit: true,
+          }),
+        ],
+        feedbackSummary: {
+          positiveCount: 1,
+          pinnedPathCount: 1,
+          feedbackTypeCounts: {
+            operator_pin: 1,
+          },
+        },
+      },
+      mergeCandidate: {
+        state: "pending",
+        sourceBranch: "squadrail/clo-220",
+        targetBaseBranch: "main",
+        mergeCommitSha: "deadbeef220",
+        templateTrace: {
+          id: "company-close-template",
+          label: "Release close",
+          scope: "company",
+        },
+        prBridge: expect.objectContaining({
+          provider: "github",
+          number: 42,
+          mergeability: "blocked",
         }),
-      }),
-    );
+        gateStatus: expect.objectContaining({
+          mergeReady: false,
+          closeReady: false,
+          blockingReasons: expect.arrayContaining([
+            "Required checks failing (1).",
+            "PR mergeability is blocked by repository policy.",
+            "PR still has requested changes.",
+          ]),
+        }),
+        failureAssist: expect.objectContaining({
+          status: "watch",
+          retryability: "operator_required",
+          failureFamily: "runtime_process",
+          repeatedFailureCount24h: 2,
+        }),
+        revertAssist: expect.objectContaining({
+          status: "ready",
+          mergeCommitSha: "deadbeef220",
+          followUpIssueIds: ["issue-221"],
+          lastCreatedIssueIdentifier: "CLO-221",
+        }),
+      },
+    });
   });
 
   it("records manual retrieval feedback for a retrieval run", async () => {

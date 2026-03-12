@@ -329,6 +329,72 @@ describe("knowledge service cache and revision flows", () => {
     });
   });
 
+  it("increments hit counters when an exact retrieval cache entry is reused", async () => {
+    const { db, updateSets } = createKnowledgeDbMock({
+      selectResults: [[createCacheEntry({
+        id: "entry-hit",
+        cacheKey: "cache-hit",
+        knowledgeRevision: 11,
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+        hitCount: 6,
+      })]],
+      updateResults: [[{
+        id: "entry-hit",
+        hitCount: 7,
+        cacheKey: "cache-hit",
+      }]],
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.getRetrievalCacheEntry({
+      companyId: "company-1",
+      stage: "candidate_hits",
+      cacheKey: "cache-hit",
+      knowledgeRevision: 11,
+    });
+
+    expect(result).toMatchObject({
+      id: "entry-hit",
+      hitCount: 7,
+    });
+    expect(updateSets[0]).toMatchObject({
+      hitCount: 7,
+      lastAccessedAt: expect.any(Date),
+      updatedAt: expect.any(Date),
+    });
+  });
+
+  it("returns null when compatible cache revision signatures diverge", async () => {
+    const { db, updateSets } = createKnowledgeDbMock({
+      selectResults: [[createCacheEntry({
+        id: "entry-sig",
+        cacheKey: "cache-sig",
+        knowledgeRevision: 7,
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+      })]],
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.getCompatibleRetrievalCacheEntry({
+      companyId: "company-1",
+      stage: "final_hits",
+      knowledgeRevision: 7,
+      identity: {
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+        revisionSignature: "rev-2",
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(updateSets).toEqual([]);
+  });
+
   it("updates existing cache entries in place when the stage key already exists", async () => {
     const { db, updateSets } = createKnowledgeDbMock({
       selectResults: [[{
