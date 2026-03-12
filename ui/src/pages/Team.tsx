@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
+import type { DashboardAgentPerformanceItem } from "@squadrail/shared";
 import {
   Bot,
   Building2,
@@ -12,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { agentsApi } from "../api/agents";
+import { dashboardApi } from "../api/dashboard";
 import { heartbeatsApi } from "../api/heartbeats";
 import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
@@ -113,6 +115,86 @@ function TeamRosterSection({
   );
 }
 
+function formatRunDuration(value: number | null) {
+  if (!value || value <= 0) return "n/a";
+  const minutes = value / 60000;
+  return minutes < 10 ? `${minutes.toFixed(1)}m` : `${Math.round(minutes)}m`;
+}
+
+function AgentPerformanceCard({
+  item,
+}: {
+  item: DashboardAgentPerformanceItem;
+}) {
+  const toneClass =
+    item.health === "risk"
+      ? "text-red-600 border-red-500/25 bg-red-500/8"
+      : item.health === "warning"
+      ? "text-amber-600 border-amber-500/25 bg-amber-500/8"
+      : "text-emerald-600 border-emerald-500/25 bg-emerald-500/8";
+
+  return (
+    <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-foreground">{item.name}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {item.title ?? item.role} · {item.adapterType.replace(/_/g, " ")}
+          </div>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium capitalize ${toneClass}`}>
+          {item.health}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            Success 7d
+          </div>
+          <div className="mt-1 text-xl font-semibold text-foreground">{item.successRate7d}%</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            Avg run
+          </div>
+          <div className="mt-1 text-xl font-semibold text-foreground">{formatRunDuration(item.averageRunDurationMs7d)}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            Open load
+          </div>
+          <div className="mt-1 text-lg font-semibold text-foreground">{item.openIssueCount}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            Review / QA bounce
+          </div>
+          <div className="mt-1 text-lg font-semibold text-foreground">
+            {item.reviewBounceCount30d} / {item.qaBounceCount30d}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+        <span className="rounded-full border border-border bg-card px-2.5 py-1">
+          {item.successfulRuns7d}/{item.totalRuns7d} succeeded
+        </span>
+        <span className="rounded-full border border-border bg-card px-2.5 py-1">
+          {item.runningCount} running · {item.queuedCount} queued
+        </span>
+        {item.priorityPreemptions7d > 0 && (
+          <span className="rounded-full border border-border bg-card px-2.5 py-1">
+            {item.priorityPreemptions7d} preemptions
+          </span>
+        )}
+      </div>
+
+      <p className="mt-4 text-sm leading-6 text-muted-foreground">{item.summaryText}</p>
+    </div>
+  );
+}
+
 export function Team() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -138,6 +220,11 @@ export function Team() {
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
     enabled: !!selectedCompanyId,
     refetchInterval: 10_000,
+  });
+  const performanceQuery = useQuery({
+    queryKey: queryKeys.dashboardAgentPerformance(selectedCompanyId!, 18),
+    queryFn: () => dashboardApi.agentPerformance(selectedCompanyId!, 18),
+    enabled: !!selectedCompanyId,
   });
 
   const leadershipTitlePattern = /(lead|head|chief|director|manager|cto|ceo|owner)/i;
@@ -203,13 +290,14 @@ export function Team() {
     return <EmptyState icon={Users} message="Select a company to inspect the squad." />;
   }
 
-  if (agentsQuery.isLoading || projectsQuery.isLoading || liveRunsQuery.isLoading) {
+  if (agentsQuery.isLoading || projectsQuery.isLoading || liveRunsQuery.isLoading || performanceQuery.isLoading) {
     return <PageSkeleton variant="list" />;
   }
 
   const projects = projectsQuery.data ?? [];
   const agents = agentsQuery.data ?? [];
   const liveAgentCount = new Set((liveRunsQuery.data ?? []).map((run) => run.agentId)).size;
+  const performance = performanceQuery.data;
 
   return (
     <div className="space-y-8">
@@ -360,6 +448,38 @@ export function Team() {
           </div>
         </section>
       </div>
+
+      <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
+        <div className="border-b border-border px-6 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Agent performance scorecard</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Runtime reliability, delivery throughput, and change-request pressure per agent.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                {performance?.summary.healthyAgents ?? 0} healthy
+              </span>
+              <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                {performance?.summary.warningAgents ?? 0} warning
+              </span>
+              <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                {performance?.summary.riskAgents ?? 0} risk
+              </span>
+              <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                {performance?.summary.priorityPreemptions7d ?? 0} priority preemptions
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-4 px-6 py-6 lg:grid-cols-2 xl:grid-cols-3">
+          {(performance?.items ?? []).map((item) => (
+            <AgentPerformanceCard key={item.agentId} item={item} />
+          ))}
+        </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-3">
         <TeamRosterSection

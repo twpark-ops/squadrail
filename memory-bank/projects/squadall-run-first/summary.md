@@ -2,6 +2,28 @@
 
 작성일: 2026-03-12
 
+## 2026-03-12 P2 운영 최적화 업데이트
+
+- `7. priority preemption`: **완료**
+  - heartbeat queued run selection에 priority-aware dispatch를 추가했다.
+  - `critical/high` work가 queued `medium/low`보다 먼저 선점되며, starvation guard와 dispatch trace를 함께 남긴다.
+  - review 중 발견한 queue scan cap 문제를 같이 정리해서, 긴 대기열 뒤쪽의 `critical` work도 실제 선점 대상에서 빠지지 않게 했다.
+- `8. per-agent performance scorecard`: **완료**
+  - dashboard에 agent별 성공률, 평균 run 시간, review/QA bounce, open load, priority preemption 집계를 추가했다.
+  - Team 화면에서 operator가 lane health를 즉시 읽을 수 있는 scorecard UI를 붙였다.
+- `9. merge conflict assist`: **완료**
+  - change surface에 merge preflight warning / external mergeability / gate blocker를 합친 conflict assist를 추가했다.
+  - Review Desk에서 conflict signal과 suggested action을 바로 볼 수 있게 올렸다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - focused vitest `24 tests` 통과
+  - 최신 server coverage: statements/lines `37.11%`, branches `64.64%`, functions `61.25%`
+
 ## 2026-03-12 P1 운영 레이어 업데이트
 
 - `4. Team supervision layer`: **완료**
@@ -47,7 +69,8 @@
 
 - P0 `1, 2, 3`은 이번 라운드에서 닫혔다.
 - P1 `4, 5, 6`도 이번 라운드에서 닫혔다.
-- 따라서 다음 순차 작업은 `7. priority preemption`부터 시작하면 된다.
+- P2 `7, 8, 9`도 이번 라운드에서 닫혔다.
+- 따라서 다음 순차 작업은 `10. execution-failure learning`부터 시작하면 된다.
 - 단, `1. 통합 경계 안정화`는 broad quality track이라 후속 기능 작업 때마다 계속 병행된다.
 
 ## 현재 기준
@@ -59,13 +82,10 @@
 
 ## 현재 우선순위
 
-1. priority preemption
-2. per-agent performance scorecard
-3. merge conflict assist
-4. execution-failure learning
-5. external operating alerts
-6. goal progress / sprint / capacity
-7. auto revert / custom role / templates / cost prediction
+1. execution-failure learning
+2. external operating alerts
+3. goal progress / sprint / capacity
+4. auto revert / custom role / templates / cost prediction
 
 ## 중요한 판단
 
@@ -235,10 +255,10 @@
 
 ## 현재 남은 우선순위
 
-1. priority preemption
-2. per-agent performance scorecard
-3. merge conflict assist
-4. execution-failure learning
+1. execution-failure learning
+2. external operating alerts
+3. goal progress / sprint / capacity
+4. auto revert / custom role / templates / cost prediction
 
 상세 실행 문서:
 
@@ -247,8 +267,8 @@
 ## 다음 세션 핸드오프
 
 - 다음 확인 순서는 `docs/next-session-handoff.md` -> `memory-bank/projects/squadall-run-first/summary.md`다.
-- 다음 시작 작업은 `priority preemption`이다.
-- 그 다음은 `per-agent performance scorecard`, 이후 `merge conflict assist` 순서다.
+- 다음 시작 작업은 `execution-failure learning`이다.
+- 그 다음은 `external operating alerts`, 이후 `goal progress / sprint / capacity` 순서다.
 - 기본 검증 순서는 `pnpm -r typecheck` -> `pnpm test:run` -> `pnpm build`다.
 - merge/review/protocol 경계를 건드릴 때는 먼저 `pnpm --filter @squadrail/server test`를 기준 검증으로 삼는다.
 - 건드리지 말아야 할 경로는 `memory-bank/README.md`와 `memory-bank/projects/squadall-ui-only-followup/`다.

@@ -10,7 +10,7 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then start immediately with `priority preemption`
+- open this handoff first, then start immediately with `execution-failure learning`
 
 ## Current Status
 
@@ -29,6 +29,13 @@ One-line startup rule:
   - New Issue Dialog `Human intake` 진입점과 intake root -> delivery projection UI 연결 완료
 - `6. issue dependency graph + blocked dispatch enforcement`: 완료
   - `dependsOn` graph metadata 정규화와 dependency-blocked dispatch gate 완료
+- `7. priority preemption`: 완료
+  - heartbeat queued run selection이 priority-aware dispatch와 starvation guard를 사용한다.
+  - preemption trace가 heartbeat event / activity log / dashboard reliability surface에 남는다.
+- `8. per-agent performance scorecard`: 완료
+  - dashboard route와 Team page에 agent health / success rate / run duration / bounce / priority preemption scorecard 추가
+- `9. merge conflict assist`: 완료
+  - change surface와 Review Desk에 mergeability warning / preflight blocker / suggested action surface 추가
 
 ## Current Product State
 
@@ -38,20 +45,20 @@ One-line startup rule:
 - `PR bridge + CI gate` 완료
 - `team supervision feed + internal work item operator flow` 완료
 - `dependency-blocked dispatch enforcement` 완료
+- `priority-aware dispatch + agent scorecard + merge conflict assist` 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm --filter @squadrail/server test` `592 tests` 통과
+  - `pnpm --filter @squadrail/server test` `598 tests` 통과
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - server coverage `37.27%`
-- 현재 다음 순차 작업은 `7. priority preemption`
+  - server coverage `37.11%`
+- 현재 다음 순차 작업은 `10. execution-failure learning`
 
 ## Next Priorities
 
-1. `priority preemption`
-2. `per-agent performance scorecard`
-3. `merge conflict assist`
-4. `execution-failure learning`
-5. `external operating alerts`
+1. `execution-failure learning`
+2. `external operating alerts`
+3. `goal progress / sprint / capacity`
+4. `auto revert / custom role / templates / cost prediction`
 
 Interpretation:
 
@@ -60,15 +67,14 @@ Interpretation:
 
 ## Recommended First Task Next Session
 
-Start with `priority preemption`.
+Start with `execution-failure learning`.
 
 Suggested slice:
 
-1. heartbeat queue / wakeup candidate에 priority class 모델 정리
-2. critical / hotfix issue가 queued medium work보다 먼저 선점되도록 dispatch rule 추가
-3. preemption trace를 dashboard / protocol metadata / audit 로그에 노출
-4. starvation guard와 regression tests 추가
-5. memory-bank summary 업데이트
+1. execution / review / QA / close failure를 재시도 가능한 taxonomy로 정규화
+2. failure code / retryability / operator next action을 protocol metadata와 dashboard에 surface
+3. repeated failure 패턴을 next dispatch / review gate에서 읽을 수 있는 학습 input으로 저장
+4. failure trend regression tests와 memory-bank summary 업데이트
 
 ## Important Files
 
@@ -80,10 +86,11 @@ Team supervision / intake:
 - [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
 - [internal-work-item-supervision.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/internal-work-item-supervision.test.ts)
 
-Next dispatch / scheduling:
+Next failure / runtime surfaces:
 
 - [heartbeat.ts](/home/taewoong/company-project/squadall/server/src/services/heartbeat.ts)
 - [issue-protocol-execution.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol-execution.ts)
+- [issue-protocol.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol.ts)
 - [dashboard.ts](/home/taewoong/company-project/squadall/server/src/services/dashboard.ts)
 
 Planning / memory:
@@ -101,10 +108,10 @@ pnpm test:run
 pnpm build
 ```
 
-For priority / dispatch work:
+For failure-learning work:
 
 ```bash
-pnpm vitest run server/src/__tests__/issue-protocol-execution.test.ts server/src/__tests__/dashboard.test.ts
+pnpm vitest run server/src/__tests__/issue-protocol-execution.test.ts server/src/__tests__/dashboard.test.ts server/src/__tests__/heartbeat-service-flow.test.ts
 ```
 
 ## Product Direction Reminder

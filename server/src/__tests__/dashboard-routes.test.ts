@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockSummary,
   mockProtocolQueue,
+  mockAgentPerformance,
   mockTeamSupervision,
   mockRecoveryQueue,
   mockApplyRecoveryAction,
 } = vi.hoisted(() => ({
   mockSummary: vi.fn(),
   mockProtocolQueue: vi.fn(),
+  mockAgentPerformance: vi.fn(),
   mockTeamSupervision: vi.fn(),
   mockRecoveryQueue: vi.fn(),
   mockApplyRecoveryAction: vi.fn(),
@@ -18,6 +20,7 @@ vi.mock("../services/dashboard.js", () => ({
   dashboardService: () => ({
     summary: mockSummary,
     protocolQueue: mockProtocolQueue,
+    agentPerformance: mockAgentPerformance,
     teamSupervision: mockTeamSupervision,
     recoveryQueue: mockRecoveryQueue,
     applyRecoveryAction: mockApplyRecoveryAction,
@@ -149,6 +152,7 @@ describe("dashboard routes", () => {
         dispatchTimeoutsLast24h: 1,
         processLostLast24h: 0,
         workspaceBlockedLast24h: 1,
+        priorityPreemptionsLast24h: 1,
       },
       attention: {
         urgentIssueCount: 5,
@@ -208,6 +212,73 @@ describe("dashboard routes", () => {
     expect(mockRecoveryQueue).toHaveBeenCalledWith({
       companyId: "company-1",
       limit: 12,
+    });
+  });
+
+  it("returns agent performance feed data", async () => {
+    mockAgentPerformance.mockResolvedValue({
+      companyId: "company-1",
+      generatedAt: new Date("2026-03-12T00:00:00.000Z").toISOString(),
+      summary: {
+        totalAgents: 2,
+        healthyAgents: 1,
+        warningAgents: 1,
+        riskAgents: 0,
+        priorityPreemptions7d: 3,
+      },
+      items: [
+        {
+          agentId: "agent-1",
+          name: "Engineer One",
+          title: "Senior Engineer",
+          role: "engineer",
+          status: "active",
+          adapterType: "codex_local",
+          lastHeartbeatAt: new Date("2026-03-12T00:00:00.000Z"),
+          openIssueCount: 2,
+          completedIssueCount30d: 6,
+          reviewBounceCount30d: 1,
+          qaBounceCount30d: 0,
+          runningCount: 1,
+          queuedCount: 0,
+          totalRuns7d: 12,
+          successfulRuns7d: 11,
+          failedRuns7d: 1,
+          timedOutRuns7d: 0,
+          cancelledRuns7d: 0,
+          successRate7d: 91.7,
+          averageRunDurationMs7d: 220000,
+          priorityPreemptions7d: 2,
+          health: "warning",
+          summaryText: "Recent change-request loops suggest review pressure is rising.",
+        },
+      ],
+    });
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/dashboard/agent-performance",
+      method: "get",
+      params: { companyId: "company-1" },
+      query: { limit: "10" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockAgentPerformance).toHaveBeenCalledWith({
+      companyId: "company-1",
+      limit: 10,
+    });
+    expect(response.body).toMatchObject({
+      summary: {
+        totalAgents: 2,
+        priorityPreemptions7d: 3,
+      },
+      items: [
+        {
+          agentId: "agent-1",
+          successRate7d: 91.7,
+          health: "warning",
+        },
+      ],
     });
   });
 

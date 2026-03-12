@@ -152,6 +152,32 @@ export interface DashboardTeamSupervisionItem {
   techLead: DashboardActorSnapshot | null;
 }
 
+export interface DashboardAgentPerformanceItem {
+  agentId: string;
+  name: string;
+  title: string | null;
+  role: string;
+  status: string;
+  adapterType: string;
+  lastHeartbeatAt: Date | null;
+  openIssueCount: number;
+  completedIssueCount30d: number;
+  reviewBounceCount30d: number;
+  qaBounceCount30d: number;
+  runningCount: number;
+  queuedCount: number;
+  totalRuns7d: number;
+  successfulRuns7d: number;
+  failedRuns7d: number;
+  timedOutRuns7d: number;
+  cancelledRuns7d: number;
+  successRate7d: number;
+  averageRunDurationMs7d: number | null;
+  priorityPreemptions7d: number;
+  health: "healthy" | "warning" | "risk";
+  summaryText: string;
+}
+
 function deriveTeamWorkItemKind(labelNames: string[]) {
   if (labelNames.includes("work:plan")) return "plan" as const;
   if (labelNames.includes("work:implementation")) return "implementation" as const;
@@ -228,6 +254,85 @@ export function buildTeamSupervisionSummary(input: {
       review: 0,
       active: 0,
       queued: 0,
+    },
+  );
+}
+
+function agentPerformanceHealth(input: {
+  successRate7d: number;
+  failedRuns7d: number;
+  timedOutRuns7d: number;
+  reviewBounceCount30d: number;
+  qaBounceCount30d: number;
+  openIssueCount: number;
+}) {
+  if (
+    input.successRate7d < 70
+    || input.timedOutRuns7d > 0
+    || input.failedRuns7d >= 3
+    || input.qaBounceCount30d >= 2
+  ) {
+    return "risk" as const;
+  }
+  if (
+    input.successRate7d < 90
+    || input.reviewBounceCount30d > 0
+    || input.qaBounceCount30d > 0
+    || input.openIssueCount >= 4
+  ) {
+    return "warning" as const;
+  }
+  return "healthy" as const;
+}
+
+function buildAgentPerformanceSummaryText(input: {
+  health: "healthy" | "warning" | "risk";
+  openIssueCount: number;
+  reviewBounceCount30d: number;
+  qaBounceCount30d: number;
+  timedOutRuns7d: number;
+  priorityPreemptions7d: number;
+}) {
+  if (input.health === "risk") {
+    if (input.timedOutRuns7d > 0) {
+      return "Timeout pressure is visible and this lane needs operator attention.";
+    }
+    if (input.qaBounceCount30d > 0) {
+      return "QA bounce is elevated and close quality is slipping.";
+    }
+    return "Execution reliability is under strain and should be reviewed before loading more work.";
+  }
+  if (input.health === "warning") {
+    if (input.reviewBounceCount30d > 0 || input.qaBounceCount30d > 0) {
+      return "Recent change-request loops suggest review pressure is rising.";
+    }
+    if (input.openIssueCount >= 4) {
+      return "Open issue load is high enough to create context-switching drag.";
+    }
+    return "Performance is acceptable but worth watching before assigning more queue depth.";
+  }
+  if (input.priorityPreemptions7d > 0) {
+    return "Healthy lane that has recently absorbed priority preemption without visible fallout.";
+  }
+  return "Healthy operating lane with stable runtime and review outcomes.";
+}
+
+export function buildAgentPerformanceSummary(input: {
+  items: DashboardAgentPerformanceItem[];
+}) {
+  return input.items.reduce(
+    (summary, item) => {
+      summary.totalAgents += 1;
+      summary.priorityPreemptions7d += item.priorityPreemptions7d;
+      summary[`${item.health}Agents`] += 1;
+      return summary;
+    },
+    {
+      totalAgents: 0,
+      healthyAgents: 0,
+      warningAgents: 0,
+      riskAgents: 0,
+      priorityPreemptions7d: 0,
     },
   );
 }
@@ -326,6 +431,7 @@ export function buildExecutionReliabilitySummary(input: {
   dispatchTimeoutsLast24h: number;
   processLostLast24h: number;
   workspaceBlockedLast24h: number;
+  priorityPreemptionsLast24h: number;
 }) {
   return {
     runningRuns: input.runningRuns,
@@ -334,6 +440,7 @@ export function buildExecutionReliabilitySummary(input: {
     dispatchTimeoutsLast24h: input.dispatchTimeoutsLast24h,
     processLostLast24h: input.processLostLast24h,
     workspaceBlockedLast24h: input.workspaceBlockedLast24h,
+    priorityPreemptionsLast24h: input.priorityPreemptionsLast24h,
   };
 }
 
@@ -620,7 +727,7 @@ export function dashboardService(db: Db) {
       }
 
       const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [runningRunsRow, queuedRunsRow, redispatchesRow] = await Promise.all([
+      const [runningRunsRow, queuedRunsRow, redispatchesRow, priorityPreemptionsRow] = await Promise.all([
         db
           .select({ count: sql<number>`count(*)` })
           .from(heartbeatRuns)
@@ -639,6 +746,17 @@ export function dashboardService(db: Db) {
               eq(heartbeatRunEvents.companyId, companyId),
               eq(heartbeatRunEvents.eventType, "dispatch.watchdog"),
               eq(heartbeatRunEvents.level, "warn"),
+              gte(heartbeatRunEvents.createdAt, last24h),
+            ),
+          )
+          .then((rows) => Number(rows[0]?.count ?? 0)),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(heartbeatRunEvents)
+          .where(
+            and(
+              eq(heartbeatRunEvents.companyId, companyId),
+              eq(heartbeatRunEvents.eventType, "dispatch.priority_preemption"),
               gte(heartbeatRunEvents.createdAt, last24h),
             ),
           )
@@ -733,6 +851,7 @@ export function dashboardService(db: Db) {
         dispatchTimeoutsLast24h: failureCounts.get("dispatch_timeout") ?? 0,
         processLostLast24h: failureCounts.get("process_lost") ?? 0,
         workspaceBlockedLast24h: failureCounts.get("workspace_required") ?? 0,
+        priorityPreemptionsLast24h: priorityPreemptionsRow,
       });
       const protocolSummary = {
         workflowCounts,
@@ -1230,6 +1349,290 @@ export function dashboardService(db: Db) {
         companyId: input.companyId,
         generatedAt: new Date().toISOString(),
         summary: buildTeamSupervisionSummary({ items }),
+        items,
+      };
+    },
+
+    agentPerformance: async (input: {
+      companyId: string;
+      limit?: number;
+    }) => {
+      await ensureCompany(input.companyId);
+      const limit = input.limit ?? 24;
+      const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const agentRows = await db
+        .select({
+          id: agents.id,
+          name: agents.name,
+          title: agents.title,
+          role: agents.role,
+          status: agents.status,
+          adapterType: agents.adapterType,
+          lastHeartbeatAt: agents.lastHeartbeatAt,
+        })
+        .from(agents)
+        .where(and(eq(agents.companyId, input.companyId), inArray(agents.status, ["active", "idle", "running", "paused", "error"])))
+        .orderBy(desc(agents.lastHeartbeatAt), agents.name);
+
+      if (agentRows.length === 0) {
+        return {
+          companyId: input.companyId,
+          generatedAt: new Date().toISOString(),
+          summary: buildAgentPerformanceSummary({ items: [] }),
+          items: [] as DashboardAgentPerformanceItem[],
+        };
+      }
+
+      const agentIds = agentRows.map((agent) => agent.id);
+
+      const [openIssueRows, completedIssueRows, reviewBounceRows, qaBounceRows, activeRunRows, runRows, priorityPreemptionRows] = await Promise.all([
+        db
+          .select({
+            agentId: issues.assigneeAgentId,
+            count: sql<number>`count(*)`,
+          })
+          .from(issues)
+          .where(
+            and(
+              eq(issues.companyId, input.companyId),
+              inArray(issues.assigneeAgentId, agentIds),
+              inArray(issues.status, ["backlog", "todo", "in_progress", "in_review", "blocked"]),
+            ),
+          )
+          .groupBy(issues.assigneeAgentId),
+        db
+          .select({
+            agentId: issues.assigneeAgentId,
+            count: sql<number>`count(*)`,
+          })
+          .from(issues)
+          .where(
+            and(
+              eq(issues.companyId, input.companyId),
+              inArray(issues.assigneeAgentId, agentIds),
+              eq(issues.status, "done"),
+              gte(issues.completedAt, since30d),
+            ),
+          )
+          .groupBy(issues.assigneeAgentId),
+        db
+          .select({
+            agentId: issues.assigneeAgentId,
+            count: sql<number>`count(*)`,
+          })
+          .from(issueProtocolMessages)
+          .innerJoin(issues, eq(issueProtocolMessages.issueId, issues.id))
+          .where(
+            and(
+              eq(issueProtocolMessages.companyId, input.companyId),
+              eq(issueProtocolMessages.messageType, "REQUEST_CHANGES"),
+              gte(issueProtocolMessages.createdAt, since30d),
+              inArray(issueProtocolMessages.senderRole, ["reviewer", "tech_lead"]),
+              inArray(issues.assigneeAgentId, agentIds),
+            ),
+          )
+          .groupBy(issues.assigneeAgentId),
+        db
+          .select({
+            agentId: issues.assigneeAgentId,
+            count: sql<number>`count(*)`,
+          })
+          .from(issueProtocolMessages)
+          .innerJoin(issues, eq(issueProtocolMessages.issueId, issues.id))
+          .where(
+            and(
+              eq(issueProtocolMessages.companyId, input.companyId),
+              eq(issueProtocolMessages.messageType, "REQUEST_CHANGES"),
+              gte(issueProtocolMessages.createdAt, since30d),
+              eq(issueProtocolMessages.senderRole, "qa"),
+              inArray(issues.assigneeAgentId, agentIds),
+            ),
+          )
+          .groupBy(issues.assigneeAgentId),
+        db
+          .select({
+            agentId: heartbeatRuns.agentId,
+            status: heartbeatRuns.status,
+            count: sql<number>`count(*)`,
+          })
+          .from(heartbeatRuns)
+          .where(
+            and(
+              eq(heartbeatRuns.companyId, input.companyId),
+              inArray(heartbeatRuns.agentId, agentIds),
+              inArray(heartbeatRuns.status, ["queued", "running"]),
+            ),
+          )
+          .groupBy(heartbeatRuns.agentId, heartbeatRuns.status),
+        db
+          .select({
+            agentId: heartbeatRuns.agentId,
+            status: heartbeatRuns.status,
+            startedAt: heartbeatRuns.startedAt,
+            finishedAt: heartbeatRuns.finishedAt,
+          })
+          .from(heartbeatRuns)
+          .where(
+            and(
+              eq(heartbeatRuns.companyId, input.companyId),
+              inArray(heartbeatRuns.agentId, agentIds),
+              gte(heartbeatRuns.createdAt, since7d),
+              inArray(heartbeatRuns.status, ["succeeded", "failed", "timed_out", "cancelled"]),
+            ),
+          ),
+        db
+          .select({
+            agentId: heartbeatRuns.agentId,
+            count: sql<number>`count(*)`,
+          })
+          .from(heartbeatRunEvents)
+          .innerJoin(heartbeatRuns, eq(heartbeatRunEvents.runId, heartbeatRuns.id))
+          .where(
+            and(
+              eq(heartbeatRunEvents.companyId, input.companyId),
+              eq(heartbeatRunEvents.eventType, "dispatch.priority_preemption"),
+              gte(heartbeatRunEvents.createdAt, since7d),
+              inArray(heartbeatRuns.agentId, agentIds),
+            ),
+          )
+          .groupBy(heartbeatRuns.agentId),
+      ]);
+
+      const openIssueMap = new Map(openIssueRows.map((row) => [row.agentId ?? "", Number(row.count ?? 0)]));
+      const completedIssueMap = new Map(completedIssueRows.map((row) => [row.agentId ?? "", Number(row.count ?? 0)]));
+      const reviewBounceMap = new Map(reviewBounceRows.map((row) => [row.agentId ?? "", Number(row.count ?? 0)]));
+      const qaBounceMap = new Map(qaBounceRows.map((row) => [row.agentId ?? "", Number(row.count ?? 0)]));
+      const priorityPreemptionMap = new Map(priorityPreemptionRows.map((row) => [row.agentId, Number(row.count ?? 0)]));
+
+      const activeRunMap = new Map<string, { queued: number; running: number }>();
+      for (const row of activeRunRows) {
+        const existing = activeRunMap.get(row.agentId) ?? { queued: 0, running: 0 };
+        if (row.status === "queued") existing.queued = Number(row.count ?? 0);
+        if (row.status === "running") existing.running = Number(row.count ?? 0);
+        activeRunMap.set(row.agentId, existing);
+      }
+
+      const runStatsMap = new Map<string, {
+        totalRuns7d: number;
+        successfulRuns7d: number;
+        failedRuns7d: number;
+        timedOutRuns7d: number;
+        cancelledRuns7d: number;
+        durationTotalMs: number;
+        durationSamples: number;
+      }>();
+      for (const row of runRows) {
+        const existing = runStatsMap.get(row.agentId) ?? {
+          totalRuns7d: 0,
+          successfulRuns7d: 0,
+          failedRuns7d: 0,
+          timedOutRuns7d: 0,
+          cancelledRuns7d: 0,
+          durationTotalMs: 0,
+          durationSamples: 0,
+        };
+        existing.totalRuns7d += 1;
+        if (row.status === "succeeded") existing.successfulRuns7d += 1;
+        if (row.status === "failed") existing.failedRuns7d += 1;
+        if (row.status === "timed_out") existing.timedOutRuns7d += 1;
+        if (row.status === "cancelled") existing.cancelledRuns7d += 1;
+        if (row.startedAt && row.finishedAt) {
+          existing.durationTotalMs += Math.max(0, row.finishedAt.getTime() - row.startedAt.getTime());
+          existing.durationSamples += 1;
+        }
+        runStatsMap.set(row.agentId, existing);
+      }
+
+      const computedItems = agentRows.map((agent) => {
+        const activeRunStats = activeRunMap.get(agent.id) ?? { queued: 0, running: 0 };
+        const runStats = runStatsMap.get(agent.id) ?? {
+          totalRuns7d: 0,
+          successfulRuns7d: 0,
+          failedRuns7d: 0,
+          timedOutRuns7d: 0,
+          cancelledRuns7d: 0,
+          durationTotalMs: 0,
+          durationSamples: 0,
+        };
+        const successRate =
+          runStats.totalRuns7d > 0
+            ? Number(((runStats.successfulRuns7d / runStats.totalRuns7d) * 100).toFixed(1))
+            : 0;
+        const averageRunDurationMs =
+          runStats.durationSamples > 0
+            ? Math.round(runStats.durationTotalMs / runStats.durationSamples)
+            : null;
+        const openIssueCount = openIssueMap.get(agent.id) ?? 0;
+        const completedIssueCount30d = completedIssueMap.get(agent.id) ?? 0;
+        const reviewBounceCount30d = reviewBounceMap.get(agent.id) ?? 0;
+        const qaBounceCount30d = qaBounceMap.get(agent.id) ?? 0;
+        const priorityPreemptions7d = priorityPreemptionMap.get(agent.id) ?? 0;
+        const health = agentPerformanceHealth({
+          successRate7d: successRate,
+          failedRuns7d: runStats.failedRuns7d,
+          timedOutRuns7d: runStats.timedOutRuns7d,
+          reviewBounceCount30d,
+          qaBounceCount30d,
+          openIssueCount,
+        });
+
+        return {
+          agentId: agent.id,
+          name: agent.name,
+          title: agent.title ?? null,
+          role: agent.role,
+          status: agent.status,
+          adapterType: agent.adapterType,
+          lastHeartbeatAt: agent.lastHeartbeatAt ?? null,
+          openIssueCount,
+          completedIssueCount30d,
+          reviewBounceCount30d,
+          qaBounceCount30d,
+          runningCount: activeRunStats.running,
+          queuedCount: activeRunStats.queued,
+          totalRuns7d: runStats.totalRuns7d,
+          successfulRuns7d: runStats.successfulRuns7d,
+          failedRuns7d: runStats.failedRuns7d,
+          timedOutRuns7d: runStats.timedOutRuns7d,
+          cancelledRuns7d: runStats.cancelledRuns7d,
+          successRate7d: successRate,
+          averageRunDurationMs7d: averageRunDurationMs,
+          priorityPreemptions7d,
+          health,
+          summaryText: buildAgentPerformanceSummaryText({
+            health,
+            openIssueCount,
+            reviewBounceCount30d,
+            qaBounceCount30d,
+            timedOutRuns7d: runStats.timedOutRuns7d,
+            priorityPreemptions7d,
+          }),
+        } satisfies DashboardAgentPerformanceItem;
+      });
+
+      const summary = buildAgentPerformanceSummary({ items: computedItems });
+      const items = [...computedItems]
+        .sort((left, right) => {
+          const healthRank = { risk: 0, warning: 1, healthy: 2 } as const;
+          if (healthRank[left.health] !== healthRank[right.health]) {
+            return healthRank[left.health] - healthRank[right.health];
+          }
+          if (left.openIssueCount !== right.openIssueCount) {
+            return right.openIssueCount - left.openIssueCount;
+          }
+          if (left.successRate7d !== right.successRate7d) {
+            return left.successRate7d - right.successRate7d;
+          }
+          return left.name.localeCompare(right.name);
+        })
+        .slice(0, limit);
+
+      return {
+        companyId: input.companyId,
+        generatedAt: new Date().toISOString(),
+        summary,
         items,
       };
     },

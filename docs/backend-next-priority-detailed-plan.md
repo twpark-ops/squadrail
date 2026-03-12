@@ -13,7 +13,10 @@
 > - `4. Team supervision layer` 완료
 > - `5. Human -> PM intake productization` 완료
 > - `6. issue dependency graph + blocked dispatch enforcement` 완료
-> 현재 다음 순차 작업은 `7. priority preemption`이고, 그 다음은 `8. per-agent performance scorecard`, `9. merge conflict assist` 순서다.
+> - `7. priority preemption` 완료
+> - `8. per-agent performance scorecard` 완료
+> - `9. merge conflict assist` 완료
+> 현재 다음 순차 작업은 `10. execution-failure learning`이고, 그 다음은 `11. external operating alerts`, `12. goal progress / sprint / capacity` 순서다.
 
 ## 목적
 
@@ -37,6 +40,19 @@
     - `pnpm --filter @squadrail/server test`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `37.27%`, branches `64.55%`, functions `61.17%`
+- `2026-03-12 P2 batch` 완료
+  - heartbeat dispatch에 priority-aware preemption, starvation guard, audit/event trace를 추가했다.
+  - dashboard / Team UI에 per-agent performance scorecard를 추가했다.
+  - change surface / Review Desk에 merge conflict assist를 추가했다.
+  - review 중 발견한 queued-run scan cap을 제거해서 긴 queue 뒤의 `critical` work도 실제 선점 대상에 포함되게 했다.
+  - 검증:
+    - `pnpm --filter @squadrail/shared typecheck`
+    - `pnpm --filter @squadrail/ui typecheck`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/server test`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `37.11%`, branches `64.64%`, functions `61.25%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -48,73 +64,75 @@
 
 ## 현재 남은 우선순위
 
-1. `priority preemption`
-2. `per-agent performance scorecard`
-3. `merge conflict assist`
-4. `execution-failure learning`
+1. `execution-failure learning`
+2. `external operating alerts`
+3. `goal progress / sprint / capacity`
+4. `auto revert / custom role / templates / cost prediction`
 
 한 줄 요약:
 
-- 다음 구현은 `priority-aware dispatch / agent-level operating visibility / human-reviewed merge assist를 운영 가능한 수준으로 닫는 것`이다.
+- 다음 구현은 `execution failure를 구조화된 학습 입력으로 승격하고, operator가 repeated failure를 더 빨리 감지/개입할 수 있게 만드는 것`이다.
 
-## Immediate Next: Priority Preemption
+## Immediate Next: Execution-Failure Learning
 
 ### 목표
 
-- `critical` / `high` urgency issue가 이미 queued인 `medium` / `low` work보다 먼저 dispatch되게 만든다.
-- 단순 정렬이 아니라, 실제 heartbeat wakeup / run assignment / retry queue에서 선점이 일어나게 한다.
-- starvation을 만들지 않고 preemption trace를 남긴다.
+- execution / review / QA / close 단계에서 발생하는 실패를 재시도 가능한 공통 taxonomy로 묶는다.
+- repeated failure와 operator intervention을 retrieval/dispatch 이전에 읽을 수 있는 학습 입력으로 저장한다.
+- 단순 audit log가 아니라, dashboard / protocol state / next-run context에서 바로 읽히는 신호로 승격한다.
 
 ### 구현 슬라이스
 
-#### Slice 7-A. Priority Class Model
+#### Slice 10-A. Failure Taxonomy
 
-1. 현재 issue priority / urgency / workflow status가 heartbeat에서 어떤 입력으로 읽히는지 정리한다.
-2. dispatch용 `priorityClass`를 `critical / high / normal / low`처럼 coarse bucket으로 정규화한다.
-3. retry / resume / wakeup queue와 공통 비교 함수 하나를 만든다.
+1. 현재 `heartbeat`, `issue-protocol-execution`, `issue-protocol`에서 쓰는 failure code를 inventory로 정리한다.
+2. retryable / non-retryable / operator-action-required / dependency-wait 같은 coarse bucket으로 정규화한다.
+3. protocol state metadata와 run event payload에서 공통으로 읽는 failure descriptor builder를 만든다.
 
-#### Slice 7-B. Dispatch Rule
+#### Slice 10-B. Learning Surface
 
-1. pending wakeup selection에서 higher class가 lower class를 앞지르도록 정렬 규칙을 추가한다.
-2. active slot이 꽉 찬 lane에서는 lower class queued work를 먼저 재정렬하고, 이미 running인 work는 강제 중단하지 않는다.
-3. blocked dependency / requested review / QA gate보다 priority가 우선하지 않도록 guard를 둔다.
+1. repeated failure count, last failure family, operator next action을 issue / run metadata에 올린다.
+2. dashboard 요약이나 recovery queue가 repeated failure case를 바로 읽을 수 있게 feed를 확장한다.
+3. 다음 dispatch/review gate에서 읽을 최소 learning snapshot을 context에 넣는다.
 
-#### Slice 7-C. Trace Surface
+#### Slice 10-C. Review / Close Gate Integration
 
-1. protocol metadata / audit log / dashboard summary에 preemption reason을 남긴다.
-2. operator가 "왜 이 일이 먼저 나갔는지"를 확인할 수 있게 queue snapshot 또는 recent event를 만든다.
-3. starvation guard hit도 같이 노출한다.
+1. 같은 failure family가 반복될 때 close-ready/merge-ready 판단이 더 보수적으로 되게 guard를 추가한다.
+2. operator가 recovery action을 고를 때 참고할 suggested next action을 surface에 붙인다.
+3. retry가 무의미한 상태는 auto-requeue보다 사람 개입을 먼저 유도한다.
 
-#### Slice 7-D. Tests
+#### Slice 10-D. Tests
 
-1. `critical` work가 queued `medium` work보다 먼저 dispatch되는지
-2. blocked dependency가 있는 `critical` work는 unblock 전까지 선점하지 않는지
-3. running work를 강제 중단하지 않고 next dispatch부터만 선점하는지
-4. same-priority round-robin 또는 age bias가 살아 있어 starvation이 줄어드는지
+1. 같은 failure family가 반복될 때 metadata와 dashboard feed가 누적되는지
+2. retryable / non-retryable / operator-required 분류가 일관되게 유지되는지
+3. recovery/close gate가 repeated failure 신호를 읽고 더 보수적으로 동작하는지
+4. operator suggestion이 route/service 경계에서 유지되는지
 
 우선 테스트 파일:
 
 - `server/src/__tests__/issue-protocol-execution.test.ts`
 - `server/src/__tests__/heartbeat-service-flow.test.ts`
-- 필요 시 `server/src/__tests__/dashboard.test.ts`
+- `server/src/__tests__/dashboard.test.ts`
+- 필요 시 `server/src/__tests__/issue-protocol-policy.test.ts`
 
 ### 우선 구현 파일
 
 - `server/src/services/heartbeat.ts`
 - `server/src/services/issue-protocol-execution.ts`
+- `server/src/services/issue-protocol.ts`
 - `server/src/services/dashboard.ts`
 
 ### 완료 기준
 
-1. high-priority queued work가 lower-priority queued work보다 먼저 dispatch된다.
-2. dependency/review/QA gate가 있는 issue는 priority만으로 bypass되지 않는다.
-3. operator surface에서 preemption reason을 읽을 수 있다.
+1. repeated execution failure가 taxonomy와 next action을 가진 구조화 신호로 저장된다.
+2. dashboard/operator surface에서 failure family와 operator next action을 읽을 수 있다.
+3. review/close gate가 repeated failure signal을 읽고 더 보수적으로 동작한다.
 4. `pnpm -r typecheck`, `pnpm test:run`, `pnpm build`가 모두 통과한다.
 
 ## Archive Note
 
 - 아래 본문은 이전 retrieval/rerank follow-up 계획을 보존한 archive다.
-- historical context는 유지하되, immediate next-start 기준은 위 `priority preemption` 섹션을 따른다.
+- historical context는 유지하되, immediate next-start 기준은 위 `execution-failure learning` 섹션을 따른다.
 
 ## Completed: Cross-Issue Memory Reuse
 
@@ -123,7 +141,7 @@
 - reusable prior issue artifact taxonomy를 `decision / fix / review / close` 계열로 retrieval scoring에 연결했다.
 - follow-up/related issue identifier 추출과 `knowledge_chunk_links` backlink를 합성해 reuse seed를 주입했다.
 - brief quality / knowledge quality summary에 `reuseRunCount`, `reuseHitRate`, `reuseIssueCount`, `reuseDecisionHitCount`, `reuseCloseHitCount` 등 trace를 추가했다.
-- 이 항목은 현재 완료된 archival worklog로 유지한다. immediate next-start 기준은 위 `priority preemption` 섹션을 따른다.
+- 이 항목은 현재 완료된 archival worklog로 유지한다. immediate next-start 기준은 위 `execution-failure learning` 섹션을 따른다.
 
 ### 목표
 

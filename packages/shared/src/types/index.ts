@@ -33,6 +33,7 @@ export type {
   IssueMergeCandidateCheckSummary,
   IssueMergeCandidatePrBridge,
   IssueMergeCandidateGateStatus,
+  IssueMergeCandidateConflictAssist,
   IssueMergeCandidate,
   IssueChangeSurface,
 } from "./issue.js";
@@ -68,6 +69,9 @@ export type {
   DashboardTeamSupervisionSummary,
   DashboardTeamSupervisionItem,
   DashboardTeamSupervisionFeed,
+  DashboardAgentPerformanceSummary,
+  DashboardAgentPerformanceItem,
+  DashboardAgentPerformanceFeed,
   DashboardRecoveryCase,
   DashboardRecoveryQueue,
   DashboardRecoveryActionType,

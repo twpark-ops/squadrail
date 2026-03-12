@@ -13,7 +13,7 @@ import {
   issueProtocolState,
   issues,
 } from "@squadrail/db";
-import { resolveProtocolRunRequirement, type ProtocolRunRequirement } from "@squadrail/shared";
+import { resolveProtocolRunRequirement, type IssuePriority, type ProtocolRunRequirement } from "@squadrail/shared";
 import { conflict, notFound } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import { publishLiveEvent } from "./live-events.js";
@@ -38,6 +38,7 @@ import {
   leadSupervisorRunFailureReason,
   loadInternalWorkItemSupervisorContext,
 } from "./internal-work-item-supervision.js";
+import { logActivity } from "./activity-log.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
@@ -47,6 +48,8 @@ const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
 const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
+const DISPATCH_PRIORITY_ESCALATION_STEP_MS = 20 * 60 * 1000;
+const DISPATCH_PRIORITY_ESCALATION_MAX_BOOST = 2;
 const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 const WORKSPACE_CONTEXT_KEY = "squadrailWorkspace";
 const WORKSPACES_CONTEXT_KEY = "squadrailWorkspaces";
@@ -191,6 +194,120 @@ function readNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function normalizeIssuePriorityValue(value: unknown): IssuePriority | null {
+  const normalized = readNonEmptyString(value)?.toLowerCase();
+  if (
+    normalized === "critical"
+    || normalized === "high"
+    || normalized === "medium"
+    || normalized === "low"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function priorityRank(priority: IssuePriority | null) {
+  switch (priority) {
+    case "critical":
+      return 3;
+    case "high":
+      return 2;
+    case "medium":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function priorityClassFromRank(rank: number) {
+  if (rank >= 3) return "critical" as const;
+  if (rank === 2) return "high" as const;
+  if (rank === 1) return "normal" as const;
+  return "low" as const;
+}
+
+export interface HeartbeatQueuedRunPrioritySelection<T extends {
+  id: string;
+  createdAt: Date | string;
+  contextSnapshot: Record<string, unknown> | null | undefined;
+}> {
+  run: T;
+  issueId: string | null;
+  issuePriority: IssuePriority | null;
+  priorityClass: "critical" | "high" | "normal" | "low";
+  ageBoost: number;
+  queuedForMs: number;
+  effectiveRank: number;
+  preemptedRunIds: string[];
+}
+
+export function prioritizeQueuedRunsForDispatch<T extends {
+  id: string;
+  createdAt: Date | string;
+  contextSnapshot: Record<string, unknown> | null | undefined;
+}>(input: {
+  runs: T[];
+  issuePriorityByIssueId?: Map<string, IssuePriority>;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  const decorated = input.runs.map((run) => {
+    const contextSnapshot = parseObject(run.contextSnapshot);
+    const issueId = readNonEmptyString(contextSnapshot.issueId);
+    const rawPriority =
+      normalizeIssuePriorityValue(contextSnapshot.issuePriority)
+      ?? (issueId ? input.issuePriorityByIssueId?.get(issueId) ?? null : null);
+    const queuedAt = run.createdAt instanceof Date ? run.createdAt : new Date(run.createdAt);
+    const queuedForMs = Math.max(0, now.getTime() - queuedAt.getTime());
+    const ageBoost = Math.min(
+      DISPATCH_PRIORITY_ESCALATION_MAX_BOOST,
+      Math.floor(queuedForMs / DISPATCH_PRIORITY_ESCALATION_STEP_MS),
+    );
+    const effectiveRank = Math.min(3, priorityRank(rawPriority) + ageBoost);
+
+    return {
+      run,
+      issueId,
+      issuePriority: rawPriority,
+      priorityClass: priorityClassFromRank(effectiveRank),
+      ageBoost,
+      queuedForMs,
+      effectiveRank,
+      createdAtMs: queuedAt.getTime(),
+    };
+  });
+
+  const fifoOrder = [...decorated].sort((left, right) => {
+    if (left.createdAtMs !== right.createdAtMs) return left.createdAtMs - right.createdAtMs;
+    return left.run.id.localeCompare(right.run.id);
+  });
+
+  const dispatchOrder = [...decorated].sort((left, right) => {
+    if (left.effectiveRank !== right.effectiveRank) return right.effectiveRank - left.effectiveRank;
+    if (left.createdAtMs !== right.createdAtMs) return left.createdAtMs - right.createdAtMs;
+    return left.run.id.localeCompare(right.run.id);
+  });
+
+  return dispatchOrder.map((entry) => {
+    const preemptedRunIds = fifoOrder
+      .filter((candidate) => candidate.createdAtMs < entry.createdAtMs && candidate.effectiveRank < entry.effectiveRank)
+      .map((candidate) => candidate.run.id)
+      .slice(0, 5);
+
+    return {
+      run: entry.run,
+      issueId: entry.issueId,
+      issuePriority: entry.issuePriority,
+      priorityClass: entry.priorityClass,
+      ageBoost: entry.ageBoost,
+      queuedForMs: entry.queuedForMs,
+      effectiveRank: entry.effectiveRank,
+      preemptedRunIds,
+    } satisfies HeartbeatQueuedRunPrioritySelection<T>;
+  });
+}
+
 function parseIssueAssigneeAdapterOverrides(
   raw: unknown,
 ): ParsedIssueAssigneeAdapterOverrides | null {
@@ -329,6 +446,10 @@ export function enrichWakeContextSnapshot(input: {
   }
   if (!readNonEmptyString(contextSnapshot["wakeTriggerDetail"]) && triggerDetail) {
     contextSnapshot.wakeTriggerDetail = triggerDetail;
+  }
+  if (!readNonEmptyString(contextSnapshot["issuePriority"])) {
+    const priority = normalizeIssuePriorityValue(payload?.["priority"]);
+    if (priority) contextSnapshot.issuePriority = priority;
   }
 
   return {
@@ -1151,6 +1272,79 @@ export function heartbeatService(db: Db) {
     return claimed;
   }
 
+  async function applyDispatchPrioritySelection(input: {
+    run: typeof heartbeatRuns.$inferSelect;
+    selection: HeartbeatQueuedRunPrioritySelection<typeof heartbeatRuns.$inferSelect>;
+  }) {
+    const now = new Date();
+    const existingContext = parseObject(input.run.contextSnapshot);
+    const nextContext = {
+      ...existingContext,
+      ...(input.selection.issuePriority ? { issuePriority: input.selection.issuePriority } : {}),
+      dispatchPriorityClass: input.selection.priorityClass,
+      dispatchPriorityAgeBoost: input.selection.ageBoost,
+      dispatchPriorityQueuedForMs: input.selection.queuedForMs,
+      dispatchPrioritySelectedAt: now.toISOString(),
+      ...(input.selection.preemptedRunIds.length > 0
+        ? {
+            dispatchPreemption: {
+              preempted: true,
+              selectedAt: now.toISOString(),
+              priorityClass: input.selection.priorityClass,
+              issuePriority: input.selection.issuePriority,
+              preemptedRunIds: input.selection.preemptedRunIds,
+            },
+          }
+        : {}),
+    } satisfies Record<string, unknown>;
+
+    const updatedRun = await db
+      .update(heartbeatRuns)
+      .set({
+        contextSnapshot: nextContext,
+        updatedAt: now,
+      })
+      .where(eq(heartbeatRuns.id, input.run.id))
+      .returning()
+      .then((rows) => rows[0] ?? input.run);
+
+    if (input.selection.preemptedRunIds.length > 0) {
+      await appendRunEvent(updatedRun, await nextRunEventSeq(updatedRun.id), {
+        eventType: "dispatch.priority_preemption",
+        stream: "system",
+        level: "info",
+        message: "dispatch selected higher-priority work ahead of older queued runs",
+        payload: {
+          priorityClass: input.selection.priorityClass,
+          issuePriority: input.selection.issuePriority,
+          ageBoost: input.selection.ageBoost,
+          preemptedRunIds: input.selection.preemptedRunIds,
+        },
+      });
+
+      if (input.selection.issueId) {
+        await logActivity(db, {
+          companyId: updatedRun.companyId,
+          actorType: "system",
+          actorId: "heartbeat",
+          agentId: updatedRun.agentId,
+          runId: updatedRun.id,
+          action: "heartbeat.dispatch.priority_preempted",
+          entityType: "issue",
+          entityId: input.selection.issueId,
+          details: {
+            priorityClass: input.selection.priorityClass,
+            issuePriority: input.selection.issuePriority,
+            ageBoost: input.selection.ageBoost,
+            preemptedRunIds: input.selection.preemptedRunIds,
+          },
+        });
+      }
+    }
+
+    return updatedRun;
+  }
+
   async function handleDispatchWatchdog(runId: string) {
     dispatchWatchdogTimers.delete(runId);
 
@@ -1503,14 +1697,50 @@ export function heartbeatService(db: Db) {
         .select()
         .from(heartbeatRuns)
         .where(and(eq(heartbeatRuns.agentId, agentId), eq(heartbeatRuns.status, "queued")))
-        .orderBy(asc(heartbeatRuns.createdAt))
-        .limit(availableSlots);
+        .orderBy(asc(heartbeatRuns.createdAt));
       if (queuedRuns.length === 0) return [];
 
+      const missingPriorityIssueIds = Array.from(new Set(
+        queuedRuns.flatMap((run) => {
+          const contextSnapshot = parseObject(run.contextSnapshot);
+          const issueId = readNonEmptyString(contextSnapshot.issueId);
+          const issuePriority = normalizeIssuePriorityValue(contextSnapshot.issuePriority);
+          return issueId && !issuePriority ? [issueId] : [];
+        }),
+      ));
+      const issuePriorityByIssueId = new Map<string, IssuePriority>();
+      if (missingPriorityIssueIds.length > 0) {
+        const issuePriorityRows = await db
+          .select({
+            id: issues.id,
+            priority: issues.priority,
+          })
+          .from(issues)
+          .where(
+            and(
+              eq(issues.companyId, agent.companyId),
+              inArray(issues.id, missingPriorityIssueIds),
+            ),
+          );
+        for (const row of issuePriorityRows) {
+          const priority = normalizeIssuePriorityValue(row.priority);
+          if (priority) issuePriorityByIssueId.set(row.id, priority);
+        }
+      }
+
+      const prioritizedRuns = prioritizeQueuedRunsForDispatch({
+        runs: queuedRuns,
+        issuePriorityByIssueId,
+      }).slice(0, availableSlots);
+
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
-      for (const queuedRun of queuedRuns) {
-        const claimed = await claimQueuedRun(queuedRun);
-        if (claimed) claimedRuns.push(claimed);
+      for (const queuedRun of prioritizedRuns) {
+        const claimed = await claimQueuedRun(queuedRun.run);
+        if (!claimed) continue;
+        claimedRuns.push(await applyDispatchPrioritySelection({
+          run: claimed,
+          selection: queuedRun,
+        }));
       }
       if (claimedRuns.length === 0) return [];
 
@@ -2733,6 +2963,7 @@ export function heartbeatService(db: Db) {
           .select({
             id: issues.id,
             companyId: issues.companyId,
+            priority: issues.priority,
             executionRunId: issues.executionRunId,
             executionAgentNameKey: issues.executionAgentNameKey,
           })
@@ -2755,6 +2986,10 @@ export function heartbeatService(db: Db) {
             finishedAt: new Date(),
           }));
           return { kind: "skipped" as const };
+        }
+
+        if (!readNonEmptyString(enrichedContextSnapshot.issuePriority)) {
+          enrichedContextSnapshot.issuePriority = issue.priority;
         }
 
         let activeExecutionRun = issue.executionRunId

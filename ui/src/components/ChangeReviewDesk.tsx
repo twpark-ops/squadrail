@@ -256,6 +256,7 @@ export function ChangeReviewDesk({
   const mergeCandidate = surface.mergeCandidate;
   const prBridge = mergeCandidate?.prBridge ?? null;
   const gateStatus = mergeCandidate?.gateStatus ?? null;
+  const conflictAssist = mergeCandidate?.conflictAssist ?? null;
   const mergeBlocked = Boolean(prBridge && gateStatus && gateStatus.mergeReady === false);
   const busy = resolveMutation.isPending || automationMutation.isPending;
 
@@ -486,6 +487,33 @@ export function ChangeReviewDesk({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {conflictAssist && conflictAssist.status !== "clean" ? (
+        <div className="mt-4 rounded-[0.95rem] border border-red-500/20 bg-red-500/8 px-4 py-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-red-100">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Merge conflict assist
+          </div>
+          <div className="mt-3 text-sm text-red-50">{conflictAssist.summary}</div>
+          {conflictAssist.blockers.length > 0 ? (
+            <ul className="mt-3 space-y-2 text-sm text-red-50">
+              {conflictAssist.blockers.map((reason) => (
+                <li key={reason} className="flex gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-red-200" />
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {conflictAssist.suggestedActions.length > 0 ? (
+            <div className="mt-3 space-y-1 text-xs text-red-100/90">
+              {conflictAssist.suggestedActions.map((action) => (
+                <div key={action}>{action}</div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

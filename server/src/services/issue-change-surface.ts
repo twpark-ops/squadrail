@@ -72,6 +72,57 @@ function readStringArray(value: unknown) {
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
 }
 
+function buildMergeConflictAssist(input: {
+  automationMetadata: Record<string, unknown> | null | undefined;
+  prBridge: NonNullable<IssueChangeSurface["mergeCandidate"]>["prBridge"];
+  gateStatus: NonNullable<IssueChangeSurface["mergeCandidate"]>["gateStatus"];
+}) {
+  const automationMetadata = asRecord(input.automationMetadata);
+  const blockers = [
+    ...readStringArray(automationMetadata.lastPlanWarnings),
+    ...(input.prBridge?.mergeability === "conflicting"
+      ? ["External PR mergeability reports conflicts against the base branch."]
+      : []),
+  ];
+
+  const uniqueBlockers = Array.from(new Set(blockers));
+  const conflicting =
+    input.prBridge?.mergeability === "conflicting"
+    || uniqueBlockers.some((warning) => /conflict|diverge|merge/i.test(warning));
+
+  if (uniqueBlockers.length === 0 && input.prBridge?.mergeability !== "blocked") {
+    return {
+      status: "clean" as const,
+      summary: "Latest merge preflight does not report a conflict signal.",
+      blockers: [],
+      suggestedActions: [
+        "Keep PR status synced before marking the change merged.",
+      ],
+    };
+  }
+
+  const suggestedActions = conflicting
+    ? [
+        "Sync the base branch and rerun merge preflight before pushing another review round.",
+        "Resolve overlapping file edits in the source workspace, then refresh the PR bridge status.",
+      ]
+    : [
+        "Review the latest preflight warnings before marking the change merged.",
+        "Refresh PR status after external checks or repository policies clear.",
+      ];
+
+  return {
+    status: conflicting ? "conflicting" as const : "warning" as const,
+    summary: conflicting
+      ? "Merge conflict signals are present in the latest local or external preflight."
+      : "Merge preflight still has warnings that should be reviewed before close.",
+    blockers: uniqueBlockers.length > 0
+      ? uniqueBlockers
+      : input.gateStatus?.blockingReasons ?? [],
+    suggestedActions,
+  };
+}
+
 function normalizeDate(value: Date | string | null | undefined) {
   if (!value) return new Date(0);
   return value instanceof Date ? value : new Date(value);
@@ -260,6 +311,11 @@ export function buildIssueChangeSurface(input: {
     const automationMetadata = input.mergeCandidateRecord?.automationMetadata ?? null;
     const prBridge = buildMergeCandidatePrBridge({ automationMetadata });
     const gateStatus = buildMergeCandidateGateStatus({ prBridge });
+    const conflictAssist = buildMergeConflictAssist({
+      automationMetadata,
+      prBridge,
+      gateStatus,
+    });
     mergeCandidate = {
       issueId: input.issue.id,
       identifier: input.issue.identifier,
@@ -284,6 +340,7 @@ export function buildIssueChangeSurface(input: {
       closeMessageId: input.mergeCandidateRecord?.closeMessageId ?? mergeCandidateClose?.id ?? null,
       prBridge,
       gateStatus,
+      conflictAssist,
     };
   }
 

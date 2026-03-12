@@ -311,5 +311,10 @@ describe("issue change surface", () => {
       }),
     );
     expect(surface.mergeCandidate?.gateStatus?.blockingReasons).toContain("Required checks still pending (1).");
+    expect(surface.mergeCandidate?.conflictAssist).toEqual(
+      expect.objectContaining({
+        status: "warning",
+      }),
+    );
   });
 });
