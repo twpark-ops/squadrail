@@ -1,4 +1,5 @@
 import {
+  knowledgeChunks,
   knowledgeDocumentVersions,
   knowledgeDocuments,
   projectKnowledgeRevisions,
@@ -41,6 +42,7 @@ function createKnowledgeDbMock(input: {
   const updateRows = input.updateRows ?? new Map();
   const insertValues: Array<{ table: unknown; value: unknown }> = [];
   const updateSets: Array<{ table: unknown; value: unknown }> = [];
+  const deletedTables: unknown[] = [];
 
   const db = {
     select: () => createResolvedChain(selectRows),
@@ -69,12 +71,20 @@ function createKnowledgeDbMock(input: {
         return chain;
       },
     }),
+    delete: (table: unknown) => ({
+      where: async () => {
+        deletedTables.push(table);
+        return [];
+      },
+    }),
+    transaction: async <T>(callback: (tx: typeof db) => Promise<T>) => callback(db),
   };
 
   return {
     db,
     insertValues,
     updateSets,
+    deletedTables,
   };
 }
 
@@ -325,6 +335,30 @@ describe("knowledge service operations", () => {
         actor: "test",
       },
     });
+  });
+
+  it("returns early when replaceDocumentChunks receives no chunks", async () => {
+    const { db, deletedTables, insertValues } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [knowledgeDocuments, [[{
+          id: "doc-1",
+          projectId: "project-1",
+          path: "src/retry.ts",
+          language: "typescript",
+        }]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.replaceDocumentChunks({
+      companyId: "company-1",
+      documentId: "doc-1",
+      chunks: [],
+    });
+
+    expect(result).toEqual([]);
+    expect(deletedTables).toEqual([knowledgeChunks]);
+    expect(insertValues).toEqual([]);
   });
 
   it("deprecates matching documents by path and merges metadata for each update", async () => {

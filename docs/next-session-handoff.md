@@ -61,6 +61,10 @@ One-line startup rule:
   - `heartbeat.ts`에서 dispatch preemption context/detail builder seam을 추출하고 direct test를 추가했다.
   - `issue-retrieval.ts`에서 finalization graph/exact-path metric builder seam을 추출하고 direct test를 추가했다.
   - `knowledge.ts`에서 project revision / document deprecation builder seam을 추출하고 service test를 추가했다.
+- `13-F. runtime coverage/decomposition batch 2`: 진행 중
+  - `heartbeat.ts`에서 outcome/cancel persistence helper를 추출해 execute/cancel lifecycle 중복을 줄였다.
+  - `issue-retrieval.ts`에서 completion persistence/live-event plan seam을 추출해 finalization tail을 더 압축했다.
+  - `knowledge.ts`에서 chunk insert/link builder seam을 추출하고 `replaceDocumentChunks` no-op service test를 추가했다.
 
 ## Current Product State
 
@@ -85,9 +89,9 @@ One-line startup rule:
   - `pnpm --filter @squadrail/ui typecheck`
   - `pnpm --filter @squadrail/server build`
   - `pnpm --filter @squadrail/ui build`
-  - `pnpm --filter @squadrail/server test` `637 tests` 통과
+  - `pnpm --filter @squadrail/server test` `642 tests` 통과
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - server coverage `38.49%`
+  - server coverage `38.74%`
 - 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge coverage + decomposition`
 
 ## Next Priorities
@@ -107,9 +111,9 @@ Start with `heartbeat / issue-retrieval / knowledge coverage + decomposition`.
 
 Suggested slice:
 
-1. `heartbeat.ts` dispatch/session/follow-up 본체 service test를 직접 추가해 queued/preempted/retry 경계를 더 닫기
-2. `issue-retrieval.ts` finalization/persistence/live-event 블록을 추가 seam으로 분리하고 direct test를 더 붙이기
-3. `knowledge.ts` `createDocument` / `replaceDocumentChunks` / cache state inspection 쪽 service test를 확장해 route coverage에 가려진 본체 공백을 메우기
+1. `heartbeat.ts` executeRun / cancelIssueScope / promoted deferred wake 흐름을 direct service test로 더 닫기
+2. `issue-retrieval.ts` brief persist -> debug patch -> live event publish 순서의 service seam을 한 단계 더 분리하고 direct test를 붙이기
+3. `knowledge.ts` `replaceDocumentChunks` populated path / compatible cache inspection / cache upsert 쪽 service test를 확장해 route coverage에 가려진 본체 공백을 메우기
 4. `ProtocolActionConsole -> issues route -> change surface -> ChangeReviewDesk` 통합 시나리오를 한 번 더 강화해 새 operator surface 회귀를 고정하기
 
 ## Important Files

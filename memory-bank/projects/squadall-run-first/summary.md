@@ -2,6 +2,21 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 heartbeat / issue-retrieval / knowledge coverage+decomposition 2차 업데이트
+
+- `13-F runtime coverage/decomposition batch 2`: **진행 중**
+  - `heartbeat.ts`에서 outcome/cancel persistence helper를 추출해 execute/cancel lifecycle 중복을 줄였다.
+  - `issue-retrieval.ts`에서 completion persistence/live-event plan seam을 추출해 finalization tail을 더 압축했다.
+  - `knowledge.ts`에서 chunk insert/link builder seam을 추출하고 `replaceDocumentChunks` no-op service test를 추가했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-dispatch-watchdog.test.ts src/__tests__/heartbeat-priority.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-retrieval-finalization.test.ts src/__tests__/knowledge-service-builders.test.ts src/__tests__/knowledge-service-operations.test.ts`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `38.74%`, branches `65.07%`, functions `62.69%`
+  - 최신 server tests: `95 files / 642 tests` 통과
+  - immediate next는 그대로 `heartbeat / issue-retrieval / knowledge` coverage + decomposition이며, 다음 slice는 execute/cancel/promoted wake service path와 retrieval persistence ordering, knowledge populated replace/cache inspection 보강이다.
+
 ## 2026-03-13 heartbeat / issue-retrieval / knowledge coverage+decomposition 업데이트
 
 - `13-E runtime coverage/decomposition batch 1`: **진행 중**

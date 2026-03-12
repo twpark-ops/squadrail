@@ -1,11 +1,14 @@
 import { enqueueAfterDbCommit, runWithDbContext } from "@squadrail/db";
 import { describe, expect, it } from "vitest";
 import {
+  buildHeartbeatCancellationArtifacts,
+  buildHeartbeatOutcomePersistence,
   buildProcessLostError,
   buildRequiredProtocolProgressError,
   decideDispatchWatchdogAction,
   hasRequiredProtocolProgress,
   isSupersededProtocolWakeReason,
+  resolveHeartbeatRunOutcome,
   isWorkflowStateEligibleForProtocolRetry,
   runDispatchWatchdogOutsideDbContext,
   scheduleDeferredRunDispatch,
@@ -147,6 +150,100 @@ describe("heartbeat failure and protocol retry helpers", () => {
       }),
     ).toBe("Process lost during adapter.execute_start -- server may have restarted");
     expect(buildProcessLostError(null)).toBe("Process lost -- server may have restarted");
+  });
+
+  it("resolves heartbeat run outcomes from cancel, timeout, and protocol failure signals", () => {
+    expect(resolveHeartbeatRunOutcome({
+      latestRunStatus: "cancelled",
+      timedOut: false,
+      exitCode: 0,
+      errorMessage: null,
+      protocolProgressFailure: null,
+    })).toBe("cancelled");
+    expect(resolveHeartbeatRunOutcome({
+      latestRunStatus: "running",
+      timedOut: true,
+      exitCode: 0,
+      errorMessage: null,
+      protocolProgressFailure: null,
+    })).toBe("timed_out");
+    expect(resolveHeartbeatRunOutcome({
+      latestRunStatus: "running",
+      timedOut: false,
+      exitCode: 0,
+      errorMessage: null,
+      protocolProgressFailure: null,
+    })).toBe("succeeded");
+    expect(resolveHeartbeatRunOutcome({
+      latestRunStatus: "running",
+      timedOut: false,
+      exitCode: 0,
+      errorMessage: null,
+      protocolProgressFailure: {
+        error: "Missing review response",
+        errorCode: "protocol_required",
+      },
+    })).toBe("failed");
+  });
+
+  it("builds persistence patches for run outcomes and cancellations", () => {
+    expect(buildHeartbeatOutcomePersistence({
+      outcome: "failed",
+      protocolProgressFailure: {
+        error: "Missing review response",
+        errorCode: "protocol_required",
+      },
+      adapterResult: {
+        exitCode: 1,
+        signal: null,
+        errorMessage: null,
+        errorCode: "adapter_failed",
+      },
+      usageJson: { costUsd: 0.12 },
+      resultJson: { ok: false },
+      nextSessionDisplayId: "session-2",
+      nextSessionLegacyId: null,
+      stdoutExcerpt: "stdout",
+      stderrExcerpt: "stderr",
+      logSummary: {
+        bytes: 128,
+        sha256: "abc123",
+        compressed: true,
+      },
+      finishedAt: new Date("2026-03-13T01:00:00Z"),
+    })).toMatchObject({
+      status: "failed",
+      wakeupStatus: "failed",
+      runPatch: {
+        error: "Missing review response",
+        errorCode: "protocol_required",
+        sessionIdAfter: "session-2",
+        logBytes: 128,
+        logCompressed: true,
+      },
+      wakeupPatch: {
+        error: "Missing review response",
+      },
+    });
+
+    expect(buildHeartbeatCancellationArtifacts({
+      message: "Cancelled by control plane",
+      checkpointMessage: "run cancelled by control plane",
+      finishedAt: new Date("2026-03-13T01:00:00Z"),
+    })).toMatchObject({
+      runPatch: {
+        error: "Cancelled by control plane",
+        errorCode: "cancelled",
+      },
+      wakeupPatch: {
+        error: "Cancelled by control plane",
+      },
+      leasePatch: {
+        phase: "finalize.cancelled",
+        message: "run cancelled by control plane",
+      },
+      eventMessage: "run cancelled",
+    });
   });
 
   it("detects required protocol progress only when an eligible message was observed", () => {

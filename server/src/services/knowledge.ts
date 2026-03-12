@@ -567,6 +567,62 @@ export function buildMinimalCodeGraphFromChunks(input: {
   } satisfies ReplaceDocumentChunksCodeGraph;
 }
 
+export function buildKnowledgeChunkInsertValues(input: {
+  companyId: string;
+  documentId: string;
+  chunks: Array<{
+    chunkIndex: number;
+    headingPath?: string | null;
+    symbolName?: string | null;
+    tokenCount: number;
+    textContent: string;
+    searchText?: string;
+    embedding: number[];
+    metadata?: Record<string, unknown>;
+  }>;
+}) {
+  return input.chunks.map((chunk) => ({
+    companyId: input.companyId,
+    documentId: input.documentId,
+    chunkIndex: chunk.chunkIndex,
+    headingPath: chunk.headingPath ?? null,
+    symbolName: chunk.symbolName ?? null,
+    tokenCount: chunk.tokenCount,
+    textContent: chunk.textContent,
+    searchTsv: sql`to_tsvector('simple', ${chunk.searchText ?? [
+      chunk.headingPath ?? "",
+      chunk.symbolName ?? "",
+      chunk.textContent,
+    ].filter(Boolean).join("\n")})`,
+    embedding: chunk.embedding,
+    metadata: chunk.metadata ?? {},
+  }));
+}
+
+export function buildKnowledgeChunkLinkValues(input: {
+  companyId: string;
+  insertedChunks: Array<{ id: string }>;
+  chunks: Array<{
+    links?: Array<{
+      entityType: string;
+      entityId: string;
+      linkReason: string;
+      weight?: number;
+    }>;
+  }>;
+}) {
+  return input.insertedChunks.flatMap((chunk, idx) =>
+    (input.chunks[idx]?.links ?? []).map((link) => ({
+      companyId: input.companyId,
+      chunkId: chunk.id,
+      entityType: link.entityType,
+      entityId: link.entityId,
+      linkReason: link.linkReason,
+      weight: link.weight ?? 1,
+    })),
+  ) satisfies Array<typeof knowledgeChunkLinks.$inferInsert>;
+}
+
 export function knowledgeService(db: Db) {
   function eqNullable<TColumn>(column: TColumn, value: string | null | undefined) {
     return value == null ? isNull(column as never) : eq(column as never, value);
@@ -1226,38 +1282,21 @@ export function knowledgeService(db: Db) {
 
       if (input.chunks.length === 0) return [];
 
+      const chunkValues = buildKnowledgeChunkInsertValues({
+        companyId: input.companyId,
+        documentId: input.documentId,
+        chunks: input.chunks,
+      });
       const insertedChunks = await tx
         .insert(knowledgeChunks)
-        .values(
-          input.chunks.map((chunk) => ({
-            companyId: input.companyId,
-            documentId: input.documentId,
-            chunkIndex: chunk.chunkIndex,
-            headingPath: chunk.headingPath ?? null,
-            symbolName: chunk.symbolName ?? null,
-            tokenCount: chunk.tokenCount,
-            textContent: chunk.textContent,
-            searchTsv: sql`to_tsvector('simple', ${chunk.searchText ?? [
-              chunk.headingPath ?? "",
-              chunk.symbolName ?? "",
-              chunk.textContent,
-            ].filter(Boolean).join("\n")})`,
-            embedding: chunk.embedding,
-            metadata: chunk.metadata ?? {},
-          })),
-        )
+        .values(chunkValues)
         .returning();
 
-      const links = insertedChunks.flatMap((chunk, idx) =>
-        (input.chunks[idx]?.links ?? []).map((link) => ({
-          companyId: input.companyId,
-          chunkId: chunk.id,
-          entityType: link.entityType,
-          entityId: link.entityId,
-          linkReason: link.linkReason,
-          weight: link.weight ?? 1,
-        })),
-      );
+      const links = buildKnowledgeChunkLinkValues({
+        companyId: input.companyId,
+        insertedChunks,
+        chunks: input.chunks,
+      });
 
       if (links.length > 0) {
         await tx.insert(knowledgeChunkLinks).values(links);
