@@ -372,4 +372,48 @@ describe("knowledge service cache and revision flows", () => {
     });
     expect(updateSets[0]).toHaveProperty("expiresAt");
   });
+
+  it("creates cache entries when no prior stage key exists", async () => {
+    const { db, insertValues } = createKnowledgeDbMock({
+      selectResults: [[]],
+      insertResults: [[{
+        id: "entry-new",
+        cacheKey: "cache-b",
+        knowledgeRevision: 11,
+      }]],
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.upsertRetrievalCacheEntry({
+      companyId: "company-1",
+      projectId: "project-1",
+      stage: "final_hits",
+      cacheKey: "cache-b",
+      knowledgeRevision: 11,
+      valueJson: {
+        metadata: {
+          cacheIdentity: {
+            queryFingerprint: "query-2",
+            policyFingerprint: "policy-2",
+            feedbackFingerprint: "feedback-2",
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      id: "entry-new",
+      cacheKey: "cache-b",
+      knowledgeRevision: 11,
+    });
+    expect(insertValues[0]).toMatchObject({
+      companyId: "company-1",
+      projectId: "project-1",
+      stage: "final_hits",
+      cacheKey: "cache-b",
+      knowledgeRevision: 11,
+    });
+    expect(insertValues[0]).toHaveProperty("createdAt");
+    expect(insertValues[0]).toHaveProperty("lastAccessedAt");
+  });
 });

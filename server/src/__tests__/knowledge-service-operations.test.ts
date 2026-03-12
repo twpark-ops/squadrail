@@ -1,5 +1,6 @@
 import {
   knowledgeChunks,
+  knowledgeChunkLinks,
   knowledgeDocumentVersions,
   knowledgeDocuments,
   projectKnowledgeRevisions,
@@ -36,13 +37,16 @@ function createKnowledgeDbMock(input: {
   selectRows?: Map<unknown, unknown[][]>;
   insertRows?: Map<unknown, unknown[][]>;
   updateRows?: Map<unknown, unknown[][]>;
+  executeResults?: unknown[][];
 }) {
   const selectRows = input.selectRows ?? new Map();
   const insertRows = input.insertRows ?? new Map();
   const updateRows = input.updateRows ?? new Map();
+  const executeResults = [...(input.executeResults ?? [])];
   const insertValues: Array<{ table: unknown; value: unknown }> = [];
   const updateSets: Array<{ table: unknown; value: unknown }> = [];
   const deletedTables: unknown[] = [];
+  const executeCalls: unknown[] = [];
 
   const db = {
     select: () => createResolvedChain(selectRows),
@@ -78,6 +82,10 @@ function createKnowledgeDbMock(input: {
       },
     }),
     transaction: async <T>(callback: (tx: typeof db) => Promise<T>) => callback(db),
+    execute: async (value: unknown) => {
+      executeCalls.push(value);
+      return executeResults.shift() ?? [];
+    },
   };
 
   return {
@@ -85,6 +93,7 @@ function createKnowledgeDbMock(input: {
     insertValues,
     updateSets,
     deletedTables,
+    executeCalls,
   };
 }
 
@@ -359,6 +368,69 @@ describe("knowledge service operations", () => {
     expect(result).toEqual([]);
     expect(deletedTables).toEqual([knowledgeChunks]);
     expect(insertValues).toEqual([]);
+  });
+
+  it("replaces populated document chunks, writes links, and skips vector sync when pgvector is unavailable", async () => {
+    const { db, deletedTables, insertValues, executeCalls } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [knowledgeDocuments, [[{
+          id: "doc-1",
+          projectId: "project-1",
+          path: "src/retry.ts",
+          language: "typescript",
+        }]]],
+      ]),
+      insertRows: new Map([
+        [knowledgeChunks, [[{
+          id: "chunk-1",
+          documentId: "doc-1",
+          chunkIndex: 0,
+        }]]],
+      ]),
+      executeResults: [[{ installed: false }]],
+    });
+    const service = knowledgeService(db as never);
+
+    const inserted = await service.replaceDocumentChunks({
+      companyId: "company-1",
+      documentId: "doc-1",
+      codeGraph: null,
+      chunks: [{
+        chunkIndex: 0,
+        tokenCount: 42,
+        textContent: "retry worker handles backoff",
+        embedding: [0.1, 0.2],
+        links: [{
+          entityType: "issue",
+          entityId: "issue-1",
+          linkReason: "related_issue",
+        }],
+      }],
+    });
+
+    expect(inserted).toEqual([{
+      id: "chunk-1",
+      documentId: "doc-1",
+      chunkIndex: 0,
+    }]);
+    expect(deletedTables).toEqual([knowledgeChunks]);
+    expect(insertValues.find((entry) => entry.table === knowledgeChunks)?.value).toMatchObject([{
+      companyId: "company-1",
+      documentId: "doc-1",
+      chunkIndex: 0,
+      tokenCount: 42,
+      textContent: "retry worker handles backoff",
+      embedding: [0.1, 0.2],
+    }]);
+    expect(insertValues.find((entry) => entry.table === knowledgeChunkLinks)?.value).toEqual([{
+      companyId: "company-1",
+      chunkId: "chunk-1",
+      entityType: "issue",
+      entityId: "issue-1",
+      linkReason: "related_issue",
+      weight: 1,
+    }]);
+    expect(executeCalls).toHaveLength(1);
   });
 
   it("deprecates matching documents by path and merges metadata for each update", async () => {

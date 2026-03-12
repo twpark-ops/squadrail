@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyRetrievalCompletionPersistencePlan,
   buildCombinedGraphMetrics,
   buildRetrievalCompletionPersistencePlan,
   buildRecipientFinalizationMetrics,
@@ -721,6 +722,104 @@ describe("issue retrieval finalization builders", () => {
         }),
       ],
     });
+  });
+
+  it("applies retrieval completion persistence plans in stable order", async () => {
+    const artifacts = buildRetrievalCompletionArtifacts({
+      companyId: "company-1",
+      issueId: "issue-1",
+      retrievalRunId: "retrieval-1",
+      triggeringMessageId: "message-1",
+      recipientRole: "reviewer",
+      recipientId: "agent-2",
+      executionLane: "review",
+      brief: {
+        id: "brief-1",
+        briefScope: "reviewer",
+        briefVersion: 4,
+        contentMarkdown: "# brief",
+      },
+      finalHits: [makeHit()],
+      briefQuality: makeQuality(),
+      relatedIssueIds: ["issue-related-1"],
+      relatedIssueIdentifiers: ["SW-101"],
+      reuseSummary: null,
+      graphSeeds: [{ entityType: "path" }],
+      symbolGraphSeeds: [],
+      briefGraphHits: [makeHit()],
+      symbolGraphHitCount: 1,
+      edgeTraversalCount: 4,
+      edgeTypeCounts: { calls: 1 },
+      graphMaxDepth: 2,
+      graphHopDepthCounts: { "1": 1, "2": 1 },
+      multiHopGraphHitCount: 1,
+      temporalContext: { branchName: "main" },
+      queryEmbeddingCacheHit: true,
+      candidateCacheHit: true,
+      finalCacheHit: false,
+      revisionSignature: "rev-1",
+      candidateCacheInspection: { reason: "hit", provenance: "exact_key" },
+      finalCacheInspection: { reason: "miss_cold", provenance: null },
+      exactPathSatisfied: true,
+      personalizationProfile: {
+        matchedSourceTypes: ["code"],
+        matchedPaths: ["src/retry.ts"],
+        matchedSymbols: ["retryWorker"],
+        scopes: ["project"],
+        sourceTypeBoosts: { code: 0.1 },
+        pathBoosts: { "src/retry.ts": 0.2 },
+        symbolBoosts: { retryWorker: 0.1 },
+        totalBoost: 0.4,
+      },
+      maxEvidenceItems: 3,
+    });
+    const plan = buildRetrievalCompletionPersistencePlan({
+      retrievalRunId: "retrieval-1",
+      briefId: "brief-1",
+      recipientRole: "reviewer",
+      recipientId: "agent-2",
+      artifacts,
+    });
+    const orderedSteps: string[] = [];
+    const recipientHints: Array<Record<string, unknown>> = [];
+    const retrievalRuns: Array<Record<string, unknown>> = [];
+
+    await applyRetrievalCompletionPersistencePlan({
+      db: {} as never,
+      companyId: "company-1",
+      issueId: "issue-1",
+      actor: {
+        actorType: "system",
+        actorId: "system",
+      },
+      plan,
+      knowledge: {
+        linkRetrievalRunToBrief: async () => {
+          orderedSteps.push("link");
+        },
+        updateRetrievalRunDebug: async () => {
+          orderedSteps.push("debug");
+        },
+      },
+      recipientHints: recipientHints as never,
+      retrievalRuns: retrievalRuns as never,
+      logActivityFn: async () => {
+        orderedSteps.push("activity");
+      },
+      publishEvent: (event) => {
+        orderedSteps.push(`event:${event.type}`);
+      },
+    });
+
+    expect(orderedSteps).toEqual([
+      "link",
+      "debug",
+      "activity",
+      "event:retrieval.run.completed",
+      "event:issue.brief.updated",
+    ]);
+    expect(recipientHints).toEqual([plan.recipientHint]);
+    expect(retrievalRuns).toEqual([plan.retrievalRunRecord]);
   });
 
   it("resolves brief quality from retrieval stage inputs when no prior quality exists", () => {

@@ -2,6 +2,35 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 support service coverage uplift 업데이트
+
+- `13-H support service coverage uplift batch 1`: **진행 중**
+  - `activity-log.ts` direct test를 추가해 sanitize + live event publish 경로를 직접 고정했다.
+  - `live-events.ts` direct test를 추가해 company subscription / sink fan-out / sink failure warning 경로를 직접 고정했다.
+  - `costs.test.ts`에 unbounded forecast 케이스를 추가했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/activity-log.test.ts src/__tests__/live-events.test.ts src/__tests__/costs.test.ts`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `39.53%`, branches `65.19%`, functions `64.10%`
+  - 최신 server tests: `97 files / 651 tests` 통과
+  - immediate next는 `PR bridge / merge recovery / workflow template integration scenario 강화`다.
+
+## 2026-03-13 heartbeat / issue-retrieval / knowledge coverage+decomposition 3차 업데이트
+
+- `13-G runtime coverage/decomposition batch 3`: **진행 중**
+  - `heartbeat.ts`에서 deferred wake promotion helper를 추출하고 `cancelIssueScope` direct service test를 추가했다.
+  - `issue-retrieval.ts`에서 completion persistence apply helper를 추출해 brief link -> debug patch -> activity/live-event 순서를 direct test로 고정했다.
+  - `knowledge.ts` `replaceDocumentChunks` populated path와 retrieval cache insert path service test를 추가했다.
+- 이번 라운드 검증:
+  - `pnpm -r typecheck`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-wakeup.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/heartbeat-dispatch-watchdog.test.ts src/__tests__/issue-retrieval-finalization.test.ts src/__tests__/knowledge-service-builders.test.ts src/__tests__/knowledge-service-cache.test.ts src/__tests__/knowledge-service-operations.test.ts`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `39.38%`, branches `65.11%`, functions `63.69%`
+  - 최신 server tests: `95 files / 647 tests` 통과
+  - immediate next는 `PR bridge / merge recovery / workflow template integration scenario + global coverage uplift`이다.
+
 ## 2026-03-13 heartbeat / issue-retrieval / knowledge coverage+decomposition 2차 업데이트
 
 - `13-F runtime coverage/decomposition batch 2`: **진행 중**

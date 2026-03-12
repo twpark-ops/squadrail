@@ -1,4 +1,4 @@
-import { agentRuntimeState, agents, agentTaskSessions, agentWakeupRequests, heartbeatRunLeases, heartbeatRuns } from "@squadrail/db";
+import { agentRuntimeState, agents, agentTaskSessions, agentWakeupRequests, heartbeatRunEvents, heartbeatRunLeases, heartbeatRuns, issues } from "@squadrail/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -89,6 +89,8 @@ function createHeartbeatDbMock(input: {
         return chain;
       },
     }),
+    transaction: async <T>(callback: (tx: typeof db) => Promise<T>) => callback(db),
+    execute: async () => [],
   };
 
   return {
@@ -338,6 +340,80 @@ describe("heartbeat service flow coverage", () => {
       cancelledWakeupCount: 0,
       cancelledRunCount: 0,
     });
+  });
+
+  it("cancels active issue-scoped wakeups and queued runs, then idles the agent", async () => {
+    const activeRun = makeRun({
+      id: "run-cancel-1",
+      wakeupRequestId: "wake-cancel-1",
+      status: "queued",
+      contextSnapshot: {
+        issueId: "issue-1",
+      },
+    });
+    const cancelledRun = {
+      ...activeRun,
+      status: "cancelled",
+      finishedAt: new Date("2026-03-13T05:00:00Z"),
+      error: "Cancelled by control plane",
+      errorCode: "cancelled",
+    };
+    const updatedAgent = {
+      ...makeAgent(),
+      status: "idle",
+      lastHeartbeatAt: new Date("2026-03-13T05:00:00Z"),
+    };
+    const { db, updateSets, insertValues, conflictSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agentWakeupRequests, [[{ id: "wake-cancel-1" }]]],
+        [heartbeatRuns, [[activeRun], [activeRun], [activeRun], [{ count: 0 }]]],
+        [issues, [[]]],
+        [agents, [[makeAgent()]]],
+      ]),
+      updateRows: new Map([
+        [heartbeatRuns, [[cancelledRun]]],
+        [agents, [[updatedAgent]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    await expect(
+      service.cancelIssueScope({
+        companyId: "company-1",
+        issueId: "issue-1",
+      }),
+    ).resolves.toEqual({
+      cancelledWakeupCount: 1,
+      cancelledRunCount: 1,
+    });
+
+    expect(updateSets.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      status: "cancelled",
+      error: "Cancelled by control plane",
+    });
+    expect(conflictSets.find((entry) => entry.table === heartbeatRunLeases)?.value).toMatchObject({
+      status: "cancelled",
+      checkpointJson: {
+        phase: "finalize.cancelled",
+      },
+      lastError: "Cancelled by control plane",
+    });
+    expect(insertValues.find((entry) => entry.table === heartbeatRunEvents)?.value).toMatchObject({
+      runId: "run-cancel-1",
+      eventType: "lifecycle",
+      message: "run cancelled",
+    });
+    expect(updateSets.find((entry) => entry.table === agents)?.value).toMatchObject({
+      status: "idle",
+    });
+    expect(mockPublishLiveEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: "agent.status",
+      payload: expect.objectContaining({
+        agentId: "agent-1",
+        status: "idle",
+        outcome: "cancelled",
+      }),
+    }));
   });
 
   it("ensures runtime state and prefers the latest task session display id", async () => {
