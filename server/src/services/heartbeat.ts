@@ -679,6 +679,120 @@ export function buildProcessLostError(lease?: RunLeaseLike | null) {
   return "Process lost -- server may have restarted";
 }
 
+export function resolveHeartbeatRunOutcome(input: {
+  latestRunStatus?: string | null;
+  timedOut: boolean;
+  exitCode?: number | null;
+  errorMessage?: string | null;
+  protocolProgressFailure?: {
+    error: string;
+    errorCode: string;
+  } | null;
+}) {
+  if (input.latestRunStatus === "cancelled") return "cancelled" as const;
+  if (input.timedOut) return "timed_out" as const;
+  if ((input.exitCode ?? 0) === 0 && !input.errorMessage && !input.protocolProgressFailure) {
+    return "succeeded" as const;
+  }
+  return "failed" as const;
+}
+
+export function buildHeartbeatOutcomePersistence(input: {
+  outcome: "succeeded" | "failed" | "cancelled" | "timed_out";
+  protocolProgressFailure?: {
+    error: string;
+    errorCode: string;
+  } | null;
+  adapterResult: {
+    exitCode?: number | null;
+    signal?: string | null;
+    errorMessage?: string | null;
+    errorCode?: string | null;
+  };
+  usageJson: Record<string, unknown> | null;
+  resultJson: Record<string, unknown> | null;
+  nextSessionDisplayId: string | null;
+  nextSessionLegacyId: string | null;
+  stdoutExcerpt: string;
+  stderrExcerpt: string;
+  logSummary?: { bytes: number; sha256?: string; compressed: boolean } | null;
+  finishedAt?: Date;
+}) {
+  const finishedAt = input.finishedAt ?? new Date();
+  const status =
+    input.outcome === "succeeded"
+      ? "succeeded"
+      : input.outcome === "cancelled"
+        ? "cancelled"
+        : input.outcome === "timed_out"
+          ? "timed_out"
+          : "failed";
+  const error =
+    input.outcome === "succeeded"
+      ? null
+      : input.protocolProgressFailure?.error ??
+        input.adapterResult.errorMessage ??
+        (input.outcome === "timed_out" ? "Timed out" : "Adapter failed");
+  const errorCode =
+    input.outcome === "timed_out"
+      ? "timeout"
+      : input.outcome === "cancelled"
+        ? "cancelled"
+        : input.outcome === "failed"
+          ? (input.protocolProgressFailure?.errorCode ?? input.adapterResult.errorCode ?? "adapter_failed")
+          : null;
+
+  return {
+    status,
+    runPatch: {
+      finishedAt,
+      error,
+      errorCode,
+      exitCode: input.adapterResult.exitCode ?? null,
+      signal: input.adapterResult.signal ?? null,
+      usageJson: input.usageJson,
+      resultJson: input.resultJson,
+      sessionIdAfter: input.nextSessionDisplayId ?? input.nextSessionLegacyId,
+      stdoutExcerpt: input.stdoutExcerpt,
+      stderrExcerpt: input.stderrExcerpt,
+      logBytes: input.logSummary?.bytes,
+      logSha256: input.logSummary?.sha256,
+      logCompressed: input.logSummary?.compressed ?? false,
+    },
+    wakeupStatus: input.outcome === "succeeded" ? "completed" : status,
+    wakeupPatch: {
+      finishedAt,
+      error: input.protocolProgressFailure?.error ?? input.adapterResult.errorMessage ?? null,
+    },
+  };
+}
+
+export function buildHeartbeatCancellationArtifacts(input: {
+  message: string;
+  checkpointMessage: string;
+  finishedAt?: Date;
+}) {
+  const finishedAt = input.finishedAt ?? new Date();
+  return {
+    runPatch: {
+      finishedAt,
+      error: input.message,
+      errorCode: "cancelled",
+    },
+    wakeupPatch: {
+      finishedAt,
+      error: input.message,
+    },
+    leasePatch: {
+      phase: "finalize.cancelled",
+      message: input.checkpointMessage,
+    },
+    releasedAt: finishedAt,
+    lastError: input.message,
+    eventMessage: "run cancelled",
+  };
+}
+
 type ObservedProtocolProgressMessage = {
   messageType: string;
 };
@@ -2349,35 +2463,19 @@ export function heartbeatService(db: Db) {
         }
       }
 
-      let outcome: "succeeded" | "failed" | "cancelled" | "timed_out";
       const latestRun = await getRun(run.id);
-      if (latestRun?.status === "cancelled") {
-        outcome = "cancelled";
-      } else if (adapterResult.timedOut) {
-        outcome = "timed_out";
-      } else if ((adapterResult.exitCode ?? 0) === 0 && !adapterResult.errorMessage && !protocolProgressFailure) {
-        outcome = "succeeded";
-      } else {
-        outcome = "failed";
-      }
+      const outcome = resolveHeartbeatRunOutcome({
+        latestRunStatus: latestRun?.status ?? null,
+        timedOut: adapterResult.timedOut,
+        exitCode: adapterResult.exitCode,
+        errorMessage: adapterResult.errorMessage,
+        protocolProgressFailure,
+      });
 
       let logSummary: { bytes: number; sha256?: string; compressed: boolean } | null = null;
       if (handle) {
         logSummary = await runLogStore.finalize(handle);
       }
-
-      const status =
-        outcome === "succeeded"
-          ? "succeeded"
-          : outcome === "cancelled"
-            ? "cancelled"
-            : outcome === "timed_out"
-              ? "timed_out"
-              : "failed";
-      await appendCheckpoint("finalize.persist_outcome", "persisting adapter outcome", {
-        outcome,
-        status,
-      });
 
       const usageJson =
         adapterResult.usage || adapterResult.costUsd != null
@@ -2466,38 +2564,27 @@ export function heartbeatService(db: Db) {
         });
       }
 
-      await setRunStatus(run.id, status, {
-        finishedAt: new Date(),
-        error:
-          outcome === "succeeded"
-            ? null
-            : protocolProgressFailure?.error ??
-              adapterResult.errorMessage ??
-              (outcome === "timed_out" ? "Timed out" : "Adapter failed"),
-        errorCode:
-          outcome === "timed_out"
-            ? "timeout"
-            : outcome === "cancelled"
-              ? "cancelled"
-              : outcome === "failed"
-                ? (protocolProgressFailure?.errorCode ?? adapterResult.errorCode ?? "adapter_failed")
-                : null,
-        exitCode: adapterResult.exitCode,
-        signal: adapterResult.signal,
+      const persistence = buildHeartbeatOutcomePersistence({
+        outcome,
+        protocolProgressFailure,
+        adapterResult,
         usageJson,
         resultJson: enrichedResultJson,
-        sessionIdAfter: nextSessionState.displayId ?? nextSessionState.legacySessionId,
+        nextSessionDisplayId: nextSessionState.displayId,
+        nextSessionLegacyId: nextSessionState.legacySessionId,
         stdoutExcerpt,
         stderrExcerpt,
-        logBytes: logSummary?.bytes,
-        logSha256: logSummary?.sha256,
-        logCompressed: logSummary?.compressed ?? false,
+        logSummary,
+      });
+      const status = persistence.status;
+      await appendCheckpoint("finalize.persist_outcome", "persisting adapter outcome", {
+        outcome,
+        status,
       });
 
-      await setWakeupStatus(run.wakeupRequestId, outcome === "succeeded" ? "completed" : status, {
-        finishedAt: new Date(),
-        error: protocolProgressFailure?.error ?? adapterResult.errorMessage ?? null,
-      });
+      await setRunStatus(run.id, status, persistence.runPatch);
+
+      await setWakeupStatus(run.wakeupRequestId, persistence.wakeupStatus, persistence.wakeupPatch);
 
       const finalizedRun = await getRun(run.id);
       if (finalizedRun) {
@@ -3388,7 +3475,10 @@ export function heartbeatService(db: Db) {
     const run = await getRun(runId);
     if (!run) throw notFound("Heartbeat run not found");
     if (run.status !== "running" && run.status !== "queued") return run;
-    const cancelledAt = new Date();
+    const cancellation = buildHeartbeatCancellationArtifacts({
+      message: "Cancelled by control plane",
+      checkpointMessage: "run cancelled by control plane",
+    });
 
     const running = runningProcesses.get(run.id);
     if (running) {
@@ -3401,28 +3491,18 @@ export function heartbeatService(db: Db) {
       }, graceMs);
     }
 
-    const cancelled = await setRunStatus(run.id, "cancelled", {
-      finishedAt: cancelledAt,
-      error: "Cancelled by control plane",
-      errorCode: "cancelled",
-    });
+    const cancelled = await setRunStatus(run.id, "cancelled", cancellation.runPatch);
 
-    await setWakeupStatus(run.wakeupRequestId, "cancelled", {
-      finishedAt: cancelledAt,
-      error: "Cancelled by control plane",
-    });
+    await setWakeupStatus(run.wakeupRequestId, "cancelled", cancellation.wakeupPatch);
 
     await upsertRunLease({
       run: cancelled ?? run,
       status: "cancelled",
-      checkpointJson: {
-        phase: "finalize.cancelled",
-        message: "run cancelled by control plane",
-      },
-      heartbeatAt: cancelledAt,
-      leaseExpiresAt: cancelledAt,
-      releasedAt: cancelledAt,
-      lastError: "Cancelled by control plane",
+      checkpointJson: cancellation.leasePatch,
+      heartbeatAt: cancellation.releasedAt,
+      leaseExpiresAt: cancellation.releasedAt,
+      releasedAt: cancellation.releasedAt,
+      lastError: cancellation.lastError,
     });
 
     if (cancelled) {
@@ -3430,7 +3510,7 @@ export function heartbeatService(db: Db) {
         eventType: "lifecycle",
         stream: "system",
         level: "warn",
-        message: "run cancelled",
+        message: cancellation.eventMessage,
       });
       await releaseIssueExecutionAndPromote(cancelled);
     }
@@ -3744,28 +3824,21 @@ export function heartbeatService(db: Db) {
         .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, ["queued", "running"])));
 
       for (const run of runs) {
-        const cancelledAt = new Date();
-        const cancelled = await setRunStatus(run.id, "cancelled", {
-          finishedAt: cancelledAt,
-          error: "Cancelled due to agent pause",
-          errorCode: "cancelled",
+        const cancellation = buildHeartbeatCancellationArtifacts({
+          message: "Cancelled due to agent pause",
+          checkpointMessage: "run cancelled due to agent pause",
         });
+        const cancelled = await setRunStatus(run.id, "cancelled", cancellation.runPatch);
 
-        await setWakeupStatus(run.wakeupRequestId, "cancelled", {
-          finishedAt: cancelledAt,
-          error: "Cancelled due to agent pause",
-        });
+        await setWakeupStatus(run.wakeupRequestId, "cancelled", cancellation.wakeupPatch);
         await upsertRunLease({
           run: cancelled ?? run,
           status: "cancelled",
-          checkpointJson: {
-            phase: "finalize.cancelled",
-            message: "run cancelled due to agent pause",
-          },
-          heartbeatAt: cancelledAt,
-          leaseExpiresAt: cancelledAt,
-          releasedAt: cancelledAt,
-          lastError: "Cancelled due to agent pause",
+          checkpointJson: cancellation.leasePatch,
+          heartbeatAt: cancellation.releasedAt,
+          leaseExpiresAt: cancellation.releasedAt,
+          releasedAt: cancellation.releasedAt,
+          lastError: cancellation.lastError,
         });
 
         const running = runningProcesses.get(run.id);

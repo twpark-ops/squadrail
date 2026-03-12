@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDeprecatedDocumentMetadata,
+  buildKnowledgeChunkInsertValues,
+  buildKnowledgeChunkLinkValues,
   buildMinimalCodeGraphFromChunks,
   buildKnowledgeDocumentVersionValues,
   buildProjectKnowledgeRevisionValues,
@@ -198,6 +200,54 @@ describe("knowledge service builders", () => {
       deprecatedAt: "2026-03-13T08:00:00.000Z",
       isLatestForScope: false,
     });
+  });
+
+  it("builds chunk insert and link values with normalized defaults", () => {
+    const chunkValues = buildKnowledgeChunkInsertValues({
+      companyId: "company-1",
+      documentId: "doc-1",
+      chunks: [{
+        chunkIndex: 0,
+        headingPath: "Retry > Worker",
+        symbolName: "retryWorker",
+        tokenCount: 42,
+        textContent: "retry worker handles backoff",
+        embedding: [0.1, 0.2],
+        metadata: { source: "sync" },
+      }],
+    });
+    expect(chunkValues).toHaveLength(1);
+    expect(chunkValues[0]).toMatchObject({
+      companyId: "company-1",
+      documentId: "doc-1",
+      chunkIndex: 0,
+      headingPath: "Retry > Worker",
+      symbolName: "retryWorker",
+      tokenCount: 42,
+      textContent: "retry worker handles backoff",
+      embedding: [0.1, 0.2],
+      metadata: { source: "sync" },
+    });
+    expect(chunkValues[0]?.searchTsv).toBeTruthy();
+
+    expect(buildKnowledgeChunkLinkValues({
+      companyId: "company-1",
+      insertedChunks: [{ id: "chunk-1" }],
+      chunks: [{
+        links: [{
+          entityType: "issue",
+          entityId: "issue-1",
+          linkReason: "related_issue",
+        }],
+      }],
+    })).toEqual([{
+      companyId: "company-1",
+      chunkId: "chunk-1",
+      entityType: "issue",
+      entityId: "issue-1",
+      linkReason: "related_issue",
+      weight: 1,
+    }]);
   });
 
   it("merges retrieval debug patches without dropping prior keys", () => {

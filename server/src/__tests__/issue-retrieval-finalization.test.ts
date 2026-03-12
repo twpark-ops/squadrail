@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCombinedGraphMetrics,
+  buildRetrievalCompletionPersistencePlan,
   buildRecipientFinalizationMetrics,
   buildRetrievalBriefDraft,
   buildRetrievalCompletionArtifacts,
@@ -637,6 +638,88 @@ describe("issue retrieval finalization builders", () => {
       graphHopDepthCounts: { "1": 2, "2": 1, "3": 1 },
       multiHopGraphHitCount: 1,
       exactPathSatisfied: true,
+    });
+  });
+
+  it("builds retrieval completion persistence plans from completion artifacts", () => {
+    const artifacts = buildRetrievalCompletionArtifacts({
+      companyId: "company-1",
+      issueId: "issue-1",
+      retrievalRunId: "retrieval-1",
+      triggeringMessageId: "message-1",
+      recipientRole: "reviewer",
+      recipientId: "agent-2",
+      executionLane: "review",
+      brief: {
+        id: "brief-1",
+        briefScope: "reviewer",
+        briefVersion: 4,
+        contentMarkdown: "# brief",
+      },
+      finalHits: [makeHit()],
+      briefQuality: makeQuality(),
+      relatedIssueIds: ["issue-related-1"],
+      relatedIssueIdentifiers: ["SW-101"],
+      reuseSummary: null,
+      graphSeeds: [{ entityType: "path" }],
+      symbolGraphSeeds: [],
+      briefGraphHits: [makeHit()],
+      symbolGraphHitCount: 1,
+      edgeTraversalCount: 4,
+      edgeTypeCounts: { calls: 1 },
+      graphMaxDepth: 2,
+      graphHopDepthCounts: { "1": 1, "2": 1 },
+      multiHopGraphHitCount: 1,
+      temporalContext: { branchName: "main" },
+      queryEmbeddingCacheHit: true,
+      candidateCacheHit: true,
+      finalCacheHit: false,
+      revisionSignature: "rev-1",
+      candidateCacheInspection: { reason: "hit", provenance: "exact_key" },
+      finalCacheInspection: { reason: "miss_cold", provenance: null },
+      exactPathSatisfied: true,
+      personalizationProfile: {
+        matchedSourceTypes: ["code"],
+        matchedPaths: ["src/retry.ts"],
+        matchedSymbols: ["retryWorker"],
+        scopes: ["project"],
+        sourceTypeBoosts: { code: 0.1 },
+        pathBoosts: { "src/retry.ts": 0.2 },
+        symbolBoosts: { retryWorker: 0.1 },
+        totalBoost: 0.4,
+      },
+      maxEvidenceItems: 3,
+    });
+
+    expect(buildRetrievalCompletionPersistencePlan({
+      retrievalRunId: "retrieval-1",
+      briefId: "brief-1",
+      recipientRole: "reviewer",
+      recipientId: "agent-2",
+      artifacts,
+    })).toMatchObject({
+      retrievalRunLink: {
+        retrievalRunId: "retrieval-1",
+        briefId: "brief-1",
+      },
+      retrievalRunRecord: {
+        retrievalRunId: "retrieval-1",
+        briefId: "brief-1",
+        recipientRole: "reviewer",
+        recipientId: "agent-2",
+      },
+      activityDetails: {
+        retrievalRunId: "retrieval-1",
+        briefId: "brief-1",
+      },
+      completionEvents: [
+        expect.objectContaining({
+          type: "retrieval.run.completed",
+        }),
+        expect.objectContaining({
+          type: "issue.brief.updated",
+        }),
+      ],
     });
   });
 

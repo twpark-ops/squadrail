@@ -1371,6 +1371,31 @@ export function buildRetrievalCompletionArtifacts(input: {
   };
 }
 
+export function buildRetrievalCompletionPersistencePlan(input: {
+  retrievalRunId: string;
+  briefId: string;
+  recipientRole: string;
+  recipientId: string;
+  artifacts: ReturnType<typeof buildRetrievalCompletionArtifacts>;
+}) {
+  return {
+    retrievalRunLink: {
+      retrievalRunId: input.retrievalRunId,
+      briefId: input.briefId,
+    },
+    retrievalRunDebugPatch: input.artifacts.retrievalRunDebugPatch,
+    activityDetails: input.artifacts.activityDetails,
+    completionEvents: input.artifacts.completionEvents,
+    recipientHint: input.artifacts.recipientHint,
+    retrievalRunRecord: {
+      retrievalRunId: input.retrievalRunId,
+      briefId: input.briefId,
+      recipientRole: input.recipientRole,
+      recipientId: input.recipientId,
+    },
+  };
+}
+
 export function buildCombinedGraphMetrics(
   chunkGraphResult: ChunkGraphExpansionResult,
   symbolGraphResult: {
@@ -4145,8 +4170,6 @@ export function issueRetrievalService(db: Db) {
           hitCount: finalHits.length,
           retrievalRunId: retrievalRun.id,
         });
-
-        await knowledge.linkRetrievalRunToBrief(retrievalRun.id, brief.id);
         const completionArtifacts = buildRetrievalCompletionArtifacts({
           companyId: input.companyId,
           issueId: input.issueId,
@@ -4186,7 +4209,21 @@ export function issueRetrievalService(db: Db) {
           personalizationProfile,
           maxEvidenceItems: lanePolicy.maxEvidenceItems,
         });
-        await knowledge.updateRetrievalRunDebug(retrievalRun.id, completionArtifacts.retrievalRunDebugPatch);
+        const persistencePlan = buildRetrievalCompletionPersistencePlan({
+          retrievalRunId: retrievalRun.id,
+          briefId: brief.id,
+          recipientRole: recipient.role,
+          recipientId: recipient.recipientId,
+          artifacts: completionArtifacts,
+        });
+        await knowledge.linkRetrievalRunToBrief(
+          persistencePlan.retrievalRunLink.retrievalRunId,
+          persistencePlan.retrievalRunLink.briefId,
+        );
+        await knowledge.updateRetrievalRunDebug(
+          persistencePlan.retrievalRunLink.retrievalRunId,
+          persistencePlan.retrievalRunDebugPatch,
+        );
 
         await logActivity(db, {
           companyId: input.companyId,
@@ -4195,18 +4232,13 @@ export function issueRetrievalService(db: Db) {
           action: "retrieval.run.completed",
           entityType: "issue",
           entityId: input.issueId,
-          details: completionArtifacts.activityDetails,
+          details: persistencePlan.activityDetails,
         });
 
-        for (const event of completionArtifacts.completionEvents) publishLiveEvent(event);
+        for (const event of persistencePlan.completionEvents) publishLiveEvent(event);
 
-        recipientHints.push(completionArtifacts.recipientHint);
-        retrievalRuns.push({
-          retrievalRunId: retrievalRun.id,
-          briefId: brief.id,
-          recipientRole: recipient.role,
-          recipientId: recipient.recipientId,
-        });
+        recipientHints.push(persistencePlan.recipientHint);
+        retrievalRuns.push(persistencePlan.retrievalRunRecord);
       }
 
       return {
