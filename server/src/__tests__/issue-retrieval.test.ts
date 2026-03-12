@@ -1772,7 +1772,7 @@ describe("issue retrieval helpers", () => {
     expect(signals.preferredSourceTypes).toContain("adr");
   });
 
-  it("collects related issue reuse hints from protocol payload aliases", () => {
+  it("collects related issue reuse hints from canonical protocol payload fields", () => {
     const signals = deriveDynamicRetrievalSignals({
       recipientRole: "reviewer",
       eventType: "on_change_request",
@@ -1803,14 +1803,13 @@ describe("issue retrieval helpers", () => {
         payload: {
           reviewSummary: "Reuse prior retry decisions",
           relatedIssueIds: ["issue-a", "issue-b"],
-          linkedIssueIds: ["issue-b", "issue-c"],
           followUpIssueIds: ["issue-d"],
         },
         artifacts: [],
       },
     });
 
-    expect(signals.relatedIssueIds).toEqual(["issue-a", "issue-b", "issue-c", "issue-d"]);
+    expect(signals.relatedIssueIds).toEqual(["issue-a", "issue-b", "issue-d"]);
   });
 
   it("collects related issue identifier hints from issue text, labels, and payload", () => {

@@ -47,7 +47,12 @@ export interface IssueProtocolArtifact {
   metadata?: Record<string, unknown> | null;
 }
 
-export interface IssueProtocolAssignTaskPayload {
+interface IssueProtocolRelatedIssueRefs {
+  relatedIssueIds?: string[];
+  relatedIssueIdentifiers?: string[];
+}
+
+export interface IssueProtocolAssignTaskPayload extends IssueProtocolRelatedIssueRefs {
   goal: string;
   acceptanceCriteria: string[];
   definitionOfDone: string[];
@@ -56,7 +61,6 @@ export interface IssueProtocolAssignTaskPayload {
   reviewerAgentId: string;
   qaAgentId?: string | null;
   deadlineAt?: string | null;
-  relatedIssueIds?: string[];
   requiredKnowledgeTags?: string[];
 }
 
@@ -81,7 +85,7 @@ export interface IssueProtocolPlanStep {
   dependsOn?: string[];
 }
 
-export interface IssueProtocolProposePlanPayload {
+export interface IssueProtocolProposePlanPayload extends IssueProtocolRelatedIssueRefs {
   planSummary: string;
   steps: IssueProtocolPlanStep[];
   risks: string[];
@@ -93,7 +97,7 @@ export interface IssueProtocolStartImplementationPayload {
   activeHypotheses?: string[];
 }
 
-export interface IssueProtocolProgressPayload {
+export interface IssueProtocolProgressPayload extends IssueProtocolRelatedIssueRefs {
   progressPercent: number;
   completedItems: string[];
   nextSteps: string[];
@@ -102,14 +106,14 @@ export interface IssueProtocolProgressPayload {
   testSummary?: string | null;
 }
 
-export interface IssueProtocolEscalateBlockerPayload {
+export interface IssueProtocolEscalateBlockerPayload extends IssueProtocolRelatedIssueRefs {
   blockerCode: IssueProtocolBlockerCode;
   blockingReason: string;
   requestedAction: string;
   requestedFrom?: IssueProtocolRequestTargetRole;
 }
 
-export interface IssueProtocolSubmitForReviewPayload {
+export interface IssueProtocolSubmitForReviewPayload extends IssueProtocolRelatedIssueRefs {
   implementationSummary: string;
   evidence: string[];
   reviewChecklist: string[];
@@ -132,7 +136,7 @@ export interface IssueProtocolChangeRequestItem {
   suggestedAction?: string | null;
 }
 
-export interface IssueProtocolRequestChangesPayload {
+export interface IssueProtocolRequestChangesPayload extends IssueProtocolRelatedIssueRefs {
   reviewSummary: string;
   changeRequests: IssueProtocolChangeRequestItem[];
   severity: IssueProtocolReviewSeverity;
@@ -153,7 +157,7 @@ export interface IssueProtocolRequestHumanDecisionPayload {
   recommendedOption?: string | null;
 }
 
-export interface IssueProtocolApproveImplementationPayload {
+export interface IssueProtocolApproveImplementationPayload extends IssueProtocolRelatedIssueRefs {
   approvalSummary: string;
   approvalMode: IssueProtocolApprovalMode;
   approvalChecklist: string[];
@@ -162,7 +166,7 @@ export interface IssueProtocolApproveImplementationPayload {
   followUpActions?: string[];
 }
 
-export interface IssueProtocolCloseTaskPayload {
+export interface IssueProtocolCloseTaskPayload extends IssueProtocolRelatedIssueRefs {
   closeReason: IssueProtocolCloseReason;
   closureSummary: string;
   verificationSummary: string;
