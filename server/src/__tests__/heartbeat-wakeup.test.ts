@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDeferredIssueWakePayload,
+  buildDeferredWakePromotionPlan,
   buildHeartbeatRunQueuedEvent,
   buildWakeupRequestValues,
   describeSessionResetReason,
@@ -197,5 +198,44 @@ describe("heartbeat wakeup helpers", () => {
         wakeupRequestId: "wake-1",
       },
     });
+  });
+
+  it("promotes deferred wake payloads without mutating stored context seeds", () => {
+    const deferredPayload = buildDeferredIssueWakePayload({
+      payload: {
+        issueId: "issue-9",
+        commentId: "comment-9",
+      },
+      issueId: "issue-9",
+      contextSnapshot: {
+        issueId: "issue-9",
+        wakeReason: "issue_comment_mentioned",
+      },
+    });
+
+    const promotion = buildDeferredWakePromotionPlan({
+      deferredPayload,
+      deferredReason: "issue_comment_mentioned",
+      deferredSource: "automation",
+      deferredTriggerDetail: "system",
+    });
+
+    expect(promotion).toMatchObject({
+      promotedReason: "issue_comment_mentioned",
+      promotedSource: "automation",
+      promotedTriggerDetail: "system",
+      promotedPayload: {
+        issueId: "issue-9",
+        commentId: "comment-9",
+      },
+      promotedContextSnapshot: {
+        issueId: "issue-9",
+        taskKey: "issue-9",
+        wakeReason: "issue_comment_mentioned",
+      },
+      promotedTaskKey: "issue-9",
+    });
+    expect(promotion.promotedPayload).not.toHaveProperty("_squadrailWakeContext");
+    expect(deferredPayload).toHaveProperty("_squadrailWakeContext");
   });
 });

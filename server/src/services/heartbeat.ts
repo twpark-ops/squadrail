@@ -594,6 +594,42 @@ export function buildDeferredIssueWakePayload(input: {
   };
 }
 
+export function buildDeferredWakePromotionPlan(input: {
+  deferredPayload: Record<string, unknown>;
+  deferredReason?: string | null;
+  deferredSource?: string | null;
+  deferredTriggerDetail?: string | null;
+}) {
+  const deferredContextSeed = parseObject(input.deferredPayload[DEFERRED_WAKE_CONTEXT_KEY]);
+  const promotedReason = readNonEmptyString(input.deferredReason) ?? "issue_execution_promoted";
+  const promotedSource =
+    (readNonEmptyString(input.deferredSource) as WakeupOptions["source"]) ?? "automation";
+  const promotedTriggerDetail =
+    (readNonEmptyString(input.deferredTriggerDetail) as WakeupOptions["triggerDetail"]) ?? null;
+  const promotedPayload = { ...input.deferredPayload };
+  delete promotedPayload[DEFERRED_WAKE_CONTEXT_KEY];
+
+  const {
+    contextSnapshot: promotedContextSnapshot,
+    taskKey: promotedTaskKey,
+  } = enrichWakeContextSnapshot({
+    contextSnapshot: { ...deferredContextSeed },
+    reason: promotedReason,
+    source: promotedSource,
+    triggerDetail: promotedTriggerDetail,
+    payload: promotedPayload,
+  });
+
+  return {
+    promotedReason,
+    promotedSource,
+    promotedTriggerDetail,
+    promotedPayload,
+    promotedContextSnapshot,
+    promotedTaskKey,
+  };
+}
+
 export function buildWakeupRequestValues(input: {
   companyId: string;
   agentId: string;
@@ -2900,10 +2936,6 @@ export function heartbeatService(db: Db) {
         }
 
         const deferredPayload = parseObject(deferred.payload);
-        const deferredContextSeed = parseObject(
-          deferredPayload[DEFERRED_WAKE_CONTEXT_KEY],
-        );
-        const promotedContextSeed: Record<string, unknown> = { ...deferredContextSeed };
         const promotedReason = readNonEmptyString(deferred.reason) ?? "issue_execution_promoted";
         if (
           (issue.status === "done" || issue.status === "cancelled")
@@ -2920,36 +2952,25 @@ export function heartbeatService(db: Db) {
             .where(eq(agentWakeupRequests.id, deferred.id));
           continue;
         }
-        const promotedSource =
-          (readNonEmptyString(deferred.source) as WakeupOptions["source"]) ?? "automation";
-        const promotedTriggerDetail =
-          (readNonEmptyString(deferred.triggerDetail) as WakeupOptions["triggerDetail"]) ?? null;
-        const promotedPayload = deferredPayload;
-        delete promotedPayload[DEFERRED_WAKE_CONTEXT_KEY];
-
-        const {
-          contextSnapshot: promotedContextSnapshot,
-          taskKey: promotedTaskKey,
-        } = enrichWakeContextSnapshot({
-          contextSnapshot: promotedContextSeed,
-          reason: promotedReason,
-          source: promotedSource,
-          triggerDetail: promotedTriggerDetail,
-          payload: promotedPayload,
+        const promotion = buildDeferredWakePromotionPlan({
+          deferredPayload,
+          deferredReason: deferred.reason,
+          deferredSource: deferred.source,
+          deferredTriggerDetail: deferred.triggerDetail,
         });
 
-        const sessionBefore = await resolveSessionBeforeForWakeup(deferredAgent, promotedTaskKey);
+        const sessionBefore = await resolveSessionBeforeForWakeup(deferredAgent, promotion.promotedTaskKey);
         const now = new Date();
         const newRun = await tx
           .insert(heartbeatRuns)
           .values({
             companyId: deferredAgent.companyId,
             agentId: deferredAgent.id,
-            invocationSource: promotedSource,
-            triggerDetail: promotedTriggerDetail,
+            invocationSource: promotion.promotedSource,
+            triggerDetail: promotion.promotedTriggerDetail,
             status: "queued",
             wakeupRequestId: deferred.id,
-            contextSnapshot: promotedContextSnapshot,
+            contextSnapshot: promotion.promotedContextSnapshot,
             sessionIdBefore: sessionBefore,
           })
           .returning()

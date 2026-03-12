@@ -10,7 +10,7 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `heartbeat / issue-retrieval / knowledge coverage + decomposition`
+- open this handoff first, then continue immediately with `PR bridge / merge recovery / workflow template integration scenario + global coverage uplift`
 
 ## Current Status
 
@@ -65,6 +65,14 @@ One-line startup rule:
   - `heartbeat.ts`에서 outcome/cancel persistence helper를 추출해 execute/cancel lifecycle 중복을 줄였다.
   - `issue-retrieval.ts`에서 completion persistence/live-event plan seam을 추출해 finalization tail을 더 압축했다.
   - `knowledge.ts`에서 chunk insert/link builder seam을 추출하고 `replaceDocumentChunks` no-op service test를 추가했다.
+- `13-G. runtime coverage/decomposition batch 3`: 진행 중
+  - `heartbeat.ts`에서 deferred wake promotion helper를 추출하고 `cancelIssueScope` direct service test를 추가했다.
+  - `issue-retrieval.ts`에서 completion persistence apply helper를 추출해 brief persist -> debug patch -> activity/live-event 순서를 direct test로 고정했다.
+  - `knowledge.ts`의 `replaceDocumentChunks` populated path와 retrieval cache insert path service test를 추가했다.
+- `13-H. support service coverage uplift batch 1`: 진행 중
+  - `activity-log.ts` direct test를 추가해 sanitize + live event publish 경로를 고정했다.
+  - `live-events.ts` direct test를 추가해 company subscription / sink fan-out / sink failure warning 경로를 고정했다.
+  - `costs.test.ts`에 unbounded forecast 케이스를 추가했다.
 
 ## Current Product State
 
@@ -84,37 +92,34 @@ One-line startup rule:
 - `custom role creation` 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm --filter @squadrail/shared typecheck`
-  - `pnpm --filter @squadrail/server typecheck`
-  - `pnpm --filter @squadrail/ui typecheck`
+  - `pnpm -r typecheck`
   - `pnpm --filter @squadrail/server build`
-  - `pnpm --filter @squadrail/ui build`
-  - `pnpm --filter @squadrail/server test` `642 tests` 통과
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - server coverage `38.74%`
-- 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge coverage + decomposition`
+  - `97 files / 651 tests` 통과
+  - server coverage `39.53%`
+- 현재 다음 순차 작업은 `PR bridge / merge recovery / workflow template integration scenario + global coverage uplift`
 
 ## Next Priorities
 
-1. `heartbeat / issue-retrieval / knowledge` coverage + decomposition
-2. PR bridge / merge recovery / workflow template integration scenario 강화
-3. global coverage uplift toward `60%` across runtime/operator services
+1. `PR bridge / merge recovery / workflow template integration scenario` 강화
+2. global coverage uplift toward `60%` across runtime/operator services
+3. low-coverage operator/support services (`merge-pr-bridge`, `operating-alerts`, `costs`) 직접 테스트 확대
 
 Interpretation:
 
-- next focus is reducing structural risk in the three largest runtime services while preserving the newly hardened operator surfaces
-- 새 기능 backlog보다 구조 분해와 runtime/service test 확대가 immediate next다
+- next focus is preserving the newly hardened operator surfaces with explicit route/change-surface integration scenarios
+- 새 기능 backlog보다 integration regression 고정과 low-coverage support service 확장이 immediate next다
 
 ## Recommended First Task Next Session
 
-Start with `heartbeat / issue-retrieval / knowledge coverage + decomposition`.
+Start with `PR bridge / merge recovery / workflow template integration scenario + coverage uplift`.
 
 Suggested slice:
 
-1. `heartbeat.ts` executeRun / cancelIssueScope / promoted deferred wake 흐름을 direct service test로 더 닫기
-2. `issue-retrieval.ts` brief persist -> debug patch -> live event publish 순서의 service seam을 한 단계 더 분리하고 direct test를 붙이기
-3. `knowledge.ts` `replaceDocumentChunks` populated path / compatible cache inspection / cache upsert 쪽 service test를 확장해 route coverage에 가려진 본체 공백을 메우기
-4. `ProtocolActionConsole -> issues route -> change surface -> ChangeReviewDesk` 통합 시나리오를 한 번 더 강화해 새 operator surface 회귀를 고정하기
+1. `ProtocolActionConsole -> issues route -> change surface -> ChangeReviewDesk` 통합 시나리오를 한 번 더 강화해 workflow template / revert assist / PR gate trace 회귀를 고정하기
+2. `merge-pr-bridge.ts` / `operating-alerts.ts` / `costs.ts` 같은 남은 low-coverage support service direct test를 늘리기
+3. 필요하면 `heartbeat.ts` / `issue-retrieval.ts` / `knowledge.ts`의 다음 seam batch를 이어서 global coverage를 `40%+`로 올리기
+4. 마지막에 `pnpm -r typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
 
 ## Important Files
 
@@ -153,6 +158,12 @@ For heartbeat / issue-retrieval / knowledge hardening:
 
 ```bash
 pnpm vitest run server/src/__tests__/heartbeat-service-flow.test.ts server/src/__tests__/issue-retrieval-finalization.test.ts server/src/__tests__/knowledge-service-operations.test.ts server/src/__tests__/issues-routes.test.ts server/src/__tests__/issue-change-surface.test.ts
+```
+
+For operator integration + coverage uplift:
+
+```bash
+pnpm vitest run server/src/__tests__/issues-routes.test.ts server/src/__tests__/issue-change-surface.test.ts server/src/__tests__/companies-routes.test.ts server/src/__tests__/merge-pr-bridge.test.ts server/src/__tests__/operating-alerts.test.ts server/src/__tests__/costs.test.ts server/src/__tests__/activity-log.test.ts server/src/__tests__/live-events.test.ts
 ```
 
 ## Product Direction Reminder

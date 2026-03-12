@@ -26,4 +26,15 @@ describe("cost forecast", () => {
     expect(forecast.projectedSpendCents).toBeGreaterThan(50_000);
     expect(forecast.status).toBe("over_budget");
   });
+
+  it("returns unbounded when no monthly budget is configured", () => {
+    const forecast = buildMonthlyCostForecast({
+      spendCentsToDate: 12_000,
+      budgetCents: 0,
+      now: new Date("2026-03-10T12:00:00.000Z"),
+    });
+
+    expect(forecast.projectedUtilizationPercent).toBe(0);
+    expect(forecast.status).toBe("unbounded");
+  });
 });

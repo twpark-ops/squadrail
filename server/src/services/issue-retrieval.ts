@@ -1396,6 +1396,52 @@ export function buildRetrievalCompletionPersistencePlan(input: {
   };
 }
 
+export async function applyRetrievalCompletionPersistencePlan(input: {
+  db: Db;
+  companyId: string;
+  issueId: string;
+  actor: {
+    actorType: "user" | "agent" | "system";
+    actorId: string;
+  };
+  plan: ReturnType<typeof buildRetrievalCompletionPersistencePlan>;
+  knowledge: Pick<ReturnType<typeof knowledgeService>, "linkRetrievalRunToBrief" | "updateRetrievalRunDebug">;
+  recipientHints: RecipientRetrievalHint[];
+  retrievalRuns: Array<{
+    retrievalRunId: string;
+    briefId: string;
+    recipientRole: string;
+    recipientId: string;
+  }>;
+  logActivityFn?: typeof logActivity;
+  publishEvent?: typeof publishLiveEvent;
+}) {
+  const logActivityFn = input.logActivityFn ?? logActivity;
+  const publishEvent = input.publishEvent ?? publishLiveEvent;
+
+  await input.knowledge.linkRetrievalRunToBrief(
+    input.plan.retrievalRunLink.retrievalRunId,
+    input.plan.retrievalRunLink.briefId,
+  );
+  await input.knowledge.updateRetrievalRunDebug(
+    input.plan.retrievalRunLink.retrievalRunId,
+    input.plan.retrievalRunDebugPatch,
+  );
+  await logActivityFn(input.db, {
+    companyId: input.companyId,
+    actorType: input.actor.actorType,
+    actorId: input.actor.actorId,
+    action: "retrieval.run.completed",
+    entityType: "issue",
+    entityId: input.issueId,
+    details: input.plan.activityDetails,
+  });
+
+  for (const event of input.plan.completionEvents) publishEvent(event);
+  input.recipientHints.push(input.plan.recipientHint);
+  input.retrievalRuns.push(input.plan.retrievalRunRecord);
+}
+
 export function buildCombinedGraphMetrics(
   chunkGraphResult: ChunkGraphExpansionResult,
   symbolGraphResult: {
@@ -4216,29 +4262,16 @@ export function issueRetrievalService(db: Db) {
           recipientId: recipient.recipientId,
           artifacts: completionArtifacts,
         });
-        await knowledge.linkRetrievalRunToBrief(
-          persistencePlan.retrievalRunLink.retrievalRunId,
-          persistencePlan.retrievalRunLink.briefId,
-        );
-        await knowledge.updateRetrievalRunDebug(
-          persistencePlan.retrievalRunLink.retrievalRunId,
-          persistencePlan.retrievalRunDebugPatch,
-        );
-
-        await logActivity(db, {
+        await applyRetrievalCompletionPersistencePlan({
+          db,
           companyId: input.companyId,
-          actorType: input.actor.actorType,
-          actorId: input.actor.actorId,
-          action: "retrieval.run.completed",
-          entityType: "issue",
-          entityId: input.issueId,
-          details: persistencePlan.activityDetails,
+          issueId: input.issueId,
+          actor: input.actor,
+          plan: persistencePlan,
+          knowledge,
+          recipientHints,
+          retrievalRuns,
         });
-
-        for (const event of persistencePlan.completionEvents) publishLiveEvent(event);
-
-        recipientHints.push(persistencePlan.recipientHint);
-        retrievalRuns.push(persistencePlan.retrievalRunRecord);
       }
 
       return {
