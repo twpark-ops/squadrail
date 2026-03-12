@@ -50,7 +50,7 @@ export type {
   CompanySecret,
   SecretProviderDescriptor,
 } from "./secrets.js";
-export type { CostEvent, CostSummary, CostByAgent } from "./cost.js";
+export type { CostEvent, CostSummary, CostMonthlyForecast, CostByAgent } from "./cost.js";
 export type {
   HeartbeatRun,
   HeartbeatRunEvent,
@@ -59,6 +59,19 @@ export type {
   AgentWakeupRequest,
 } from "./heartbeat.js";
 export type { LiveEvent } from "./live.js";
+export type {
+  OperatingAlertSeverity,
+  OperatingAlertDestinationType,
+  OperatingAlertDeliveryStatus,
+  OperatingAlertIntent,
+  OperatingAlertReason,
+  OperatingAlertDestinationConfig,
+  OperatingAlertsConfig,
+  OperatingAlertIssueRef,
+  OperatingAlertDeliveryRecord,
+  OperatingAlertsView,
+  SendOperatingAlertTestResult,
+} from "./operating-alerts.js";
 export type { DashboardSummary } from "./dashboard.js";
 export type {
   DashboardProtocolActorSnapshot,

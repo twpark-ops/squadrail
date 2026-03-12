@@ -281,6 +281,13 @@
       "when": 1773205200000,
       "tag": "0039_calm_pm_projection_and_qa_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1773295200000,
+      "tag": "0040_brisk_goal_planning_fields",
+      "breakpoints": true
     }
   ]
 }

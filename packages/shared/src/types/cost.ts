@@ -20,6 +20,17 @@ export interface CostSummary {
   spendCents: number;
   budgetCents: number;
   utilizationPercent: number;
+  monthlyForecast: CostMonthlyForecast | null;
+}
+
+export interface CostMonthlyForecast {
+  monthStart: Date;
+  monthEnd: Date;
+  elapsedDays: number;
+  totalDays: number;
+  projectedSpendCents: number;
+  projectedUtilizationPercent: number;
+  status: "on_track" | "watch" | "over_budget" | "unbounded";
 }
 
 export interface CostByAgent {

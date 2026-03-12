@@ -10,7 +10,7 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `external operating alerts`
+- open this handoff first, then continue immediately with `workflow templates + auto revert assist`
 
 ## Current Status
 
@@ -40,6 +40,12 @@ One-line startup rule:
   - recovery queue가 `failureFamily / retryability / repeated / occurrenceCount24h / operatorActionLabel`를 가진 structured feed가 됐다.
   - repeated runtime failure signal이 review/close gate에서 실제로 close-ready 판단을 보수화한다.
   - Change Review Desk가 failure learning gate, blocker, suggested action, repeated hit count를 직접 surface 한다.
+- `11. external operating alerts`: 완료
+  - company-level webhook/slack config, live-event sink fan-out, severity/dedupe/cooldown rule, test alert, recent delivery history를 추가했다.
+- `12. goal progress / sprint / capacity`: 완료
+  - goal schema에 `progressPercent`, `targetDate`, `sprintName`, `capacityTargetPoints`, `capacityCommittedPoints`를 추가하고 Goal detail/properties에서 편집 가능하게 올렸다.
+- `13-A. cost prediction`: 완료
+  - Costs surface에 month-end projected spend와 budget risk 상태를 추가했다.
 
 ## Current Product State
 
@@ -51,34 +57,37 @@ One-line startup rule:
 - `dependency-blocked dispatch enforcement` 완료
 - `priority-aware dispatch + agent scorecard + merge conflict assist` 완료
 - `execution-failure learning feed + gate integration` 완료
+- `external operating alerts` 완료
+- `goal progress / sprint / capacity` 완료
+- `monthly cost prediction` 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm --filter @squadrail/server test` `603 tests` 통과
+  - `pnpm --filter @squadrail/server test` `614 tests` 통과
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - server coverage `37.28%`
-- 현재 다음 순차 작업은 `11. external operating alerts`
+  - server coverage `37.34%`
+- 현재 다음 순차 작업은 `workflow templates + auto revert assist`
 
 ## Next Priorities
 
-1. `external operating alerts`
-2. `goal progress / sprint / capacity`
-3. `auto revert / custom role / templates / cost prediction`
+1. `workflow templates`
+2. `auto revert assist`
+3. `custom role creation`
 
 Interpretation:
 
-- next focus is operator signal fan-out and operating visibility
+- next focus is operator action acceleration and safer post-merge recovery
 - rerank/provider work는 지금 immediate next가 아니다
 
 ## Recommended First Task Next Session
 
-Start with `external operating alerts`.
+Start with `workflow templates + auto revert assist`.
 
 Suggested slice:
 
-1. recovery queue / review desk / ready-to-close / merge conflict signal에서 outbound alert 후보 taxonomy를 정리
-2. configurable webhook/slack payload builder와 severity filter를 추가
-3. operator가 test alert와 최근 alert delivery 상태를 확인할 최소 surface를 붙이기
-4. route/service tests와 memory-bank summary 업데이트
+1. Protocol Action Console의 hardcoded board templates를 company-configurable template set으로 올리기
+2. merge candidate / close snapshot 기준 `revert follow-up issue` 또는 `reopen with rollback plan` assist를 붙이기
+3. Change Review Desk와 issue activity에 template usage / revert assist trace를 남기기
+4. route/service/UI tests와 memory-bank summary 업데이트
 
 ## Important Files
 
@@ -90,15 +99,13 @@ Team supervision / intake:
 - [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
 - [internal-work-item-supervision.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/internal-work-item-supervision.test.ts)
 
-Next alert / runtime surfaces:
+Next operator / recovery surfaces:
 
-- [live-events.ts](/home/taewoong/company-project/squadall/server/src/services/live-events.ts)
-- [activity-log.ts](/home/taewoong/company-project/squadall/server/src/services/activity-log.ts)
-- [heartbeat.ts](/home/taewoong/company-project/squadall/server/src/services/heartbeat.ts)
-- [issue-protocol.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol.ts)
-- [issue-protocol-policy.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol-policy.ts)
-- [dashboard.ts](/home/taewoong/company-project/squadall/server/src/services/dashboard.ts)
+- [ProtocolActionConsole.tsx](/home/taewoong/company-project/squadall/ui/src/components/ProtocolActionConsole.tsx)
 - [ChangeReviewDesk.tsx](/home/taewoong/company-project/squadall/ui/src/components/ChangeReviewDesk.tsx)
+- [merge-routes.ts](/home/taewoong/company-project/squadall/server/src/routes/issues/merge-routes.ts)
+- [issue-merge-automation.ts](/home/taewoong/company-project/squadall/server/src/services/issue-merge-automation.ts)
+- [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
 
 Planning / memory:
 
@@ -115,10 +122,10 @@ pnpm test:run
 pnpm build
 ```
 
-For external-alert work:
+For workflow-template / revert-assist work:
 
 ```bash
-pnpm vitest run server/src/__tests__/dashboard.test.ts server/src/__tests__/dashboard-routes.test.ts server/src/__tests__/issue-protocol-policy.test.ts server/src/__tests__/issues-routes.test.ts
+pnpm vitest run server/src/__tests__/issues-routes.test.ts server/src/__tests__/issue-change-surface.test.ts server/src/__tests__/issue-merge-automation.test.ts server/src/__tests__/companies-routes.test.ts
 ```
 
 ## Product Direction Reminder

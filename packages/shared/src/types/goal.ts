@@ -7,6 +7,11 @@ export interface Goal {
   description: string | null;
   level: GoalLevel;
   status: GoalStatus;
+  progressPercent: number;
+  targetDate: Date | null;
+  sprintName: string | null;
+  capacityTargetPoints: number | null;
+  capacityCommittedPoints: number | null;
   parentId: string | null;
   ownerAgentId: string | null;
   createdAt: Date;

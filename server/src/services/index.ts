@@ -53,5 +53,6 @@ export { setupProgressService, buildSetupProgressSteps, deriveSetupProgressState
 export { rolePackService, buildDefaultRolePackFiles } from "./role-packs.js";
 export { doctorService } from "./doctor.js";
 export { logActivity, type LogActivityInput } from "./activity-log.js";
-export { publishLiveEvent, subscribeCompanyLiveEvents } from "./live-events.js";
+export { operatingAlertService } from "./operating-alerts.js";
+export { publishLiveEvent, subscribeCompanyLiveEvents, registerLiveEventSink } from "./live-events.js";
 export { createStorageServiceFromConfig, getStorageService } from "../storage/index.js";

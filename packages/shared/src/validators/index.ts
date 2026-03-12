@@ -135,6 +135,15 @@ export {
   type UpdateSetupProgress,
 } from "./setup.js";
 export {
+  operatingAlertSeveritySchema,
+  operatingAlertDestinationTypeSchema,
+  operatingAlertDestinationConfigSchema,
+  updateOperatingAlertsConfigSchema,
+  sendOperatingAlertTestSchema,
+  type UpdateOperatingAlertsConfig,
+  type SendOperatingAlertTest,
+} from "./operating-alerts.js";
+export {
   repairOrgSyncSchema,
   createKnowledgeSyncJobSchema,
   knowledgeSyncJobStatusSchema,

@@ -11,6 +11,7 @@ import type {
   DoctorReport,
   KnowledgeSetupView,
   KnowledgeSyncJobView,
+  OperatingAlertsView,
   OrgSyncRepairResult,
   OrgSyncView,
   RepairOrgSync,
@@ -21,8 +22,11 @@ import type {
   RolePackPresetKey,
   RolePackRevisionStatus,
   RolePackWithLatestRevision,
+  SendOperatingAlertTest,
+  SendOperatingAlertTestResult,
   SeedRolePackResult,
   SetupProgressView,
+  UpdateOperatingAlertsConfig,
   UpdateSetupProgress,
 } from "@squadrail/shared";
 import { api } from "./client";
@@ -56,6 +60,12 @@ export const companiesApi = {
     api.get<SetupProgressView>(`/companies/${companyId}/setup-progress`),
   updateSetupProgress: (companyId: string, data: UpdateSetupProgress) =>
     api.patch<SetupProgressView>(`/companies/${companyId}/setup-progress`, data),
+  getOperatingAlerts: (companyId: string) =>
+    api.get<OperatingAlertsView>(`/companies/${companyId}/operating-alerts`),
+  updateOperatingAlerts: (companyId: string, data: UpdateOperatingAlertsConfig) =>
+    api.patch<OperatingAlertsView>(`/companies/${companyId}/operating-alerts`, data),
+  sendOperatingAlertTest: (companyId: string, data: SendOperatingAlertTest = { severity: "high" }) =>
+    api.post<SendOperatingAlertTestResult>(`/companies/${companyId}/operating-alerts/test`, data),
   getOrgSync: (companyId: string) =>
     api.get<OrgSyncView>(`/companies/${companyId}/org-sync`),
   repairOrgSync: (

@@ -7,11 +7,13 @@ import {
   createRolePackDraftSchema,
   createKnowledgeSyncJobSchema,
   createCompanySchema,
+  sendOperatingAlertTestSchema,
   rolePackSimulationRequestSchema,
   repairOrgSyncSchema,
   listRolePacksQuerySchema,
   restoreRolePackRevisionSchema,
   seedDefaultRolePacksSchema,
+  updateOperatingAlertsConfigSchema,
   updateSetupProgressSchema,
   updateCompanySchema,
 } from "@squadrail/shared";
@@ -26,6 +28,7 @@ import {
   organizationalMemoryService,
   logActivity,
   knowledgeSetupService,
+  operatingAlertService,
   rolePackService,
   setupProgressService,
 } from "../services/index.js";
@@ -58,6 +61,7 @@ export function companyRoutes(
   const portability = companyPortabilityService(db);
   const access = accessService(db);
   const setup = setupProgressService(db);
+  const operatingAlerts = operatingAlertService(db);
   const rolePacks = rolePackService(db);
   const knowledgeSetup = knowledgeSetupService(db);
   const organizationalMemory = organizationalMemoryService(db);
@@ -110,6 +114,57 @@ export function companyRoutes(
     assertCompanyAccess(req, companyId);
     const progress = await setup.getView(companyId);
     res.json(progress);
+  });
+
+  router.get("/:companyId/operating-alerts", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const view = await operatingAlerts.getView(companyId);
+    res.json(view);
+  });
+
+  router.patch("/:companyId/operating-alerts", validate(updateOperatingAlertsConfigSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const view = await operatingAlerts.updateConfig(companyId, req.body);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.operating_alerts.updated",
+      entityType: "company",
+      entityId: companyId,
+      details: req.body,
+    });
+    res.json(view);
+  });
+
+  router.post("/:companyId/operating-alerts/test", validate(sendOperatingAlertTestSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await operatingAlerts.sendTestAlert(companyId, req.body);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.operating_alerts.test_requested",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        attemptedCount: result.attemptedCount,
+        deliveredCount: result.deliveredCount,
+        failedCount: result.failedCount,
+      },
+    });
+    res.status(202).json(result);
   });
 
   router.get("/:companyId/org-sync", async (req, res) => {

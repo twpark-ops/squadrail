@@ -6,6 +6,11 @@ export const createGoalSchema = z.object({
   description: z.string().optional().nullable(),
   level: z.enum(GOAL_LEVELS).optional().default("task"),
   status: z.enum(GOAL_STATUSES).optional().default("planned"),
+  progressPercent: z.number().int().min(0).max(100).optional().default(0),
+  targetDate: z.coerce.date().optional().nullable(),
+  sprintName: z.string().trim().max(120).optional().nullable(),
+  capacityTargetPoints: z.number().int().min(0).optional().nullable(),
+  capacityCommittedPoints: z.number().int().min(0).optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   ownerAgentId: z.string().uuid().optional().nullable(),
 });

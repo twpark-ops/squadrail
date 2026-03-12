@@ -134,6 +134,27 @@ export function Costs() {
           tone={data?.summary.utilizationPercent && data.summary.utilizationPercent > 85 ? "warning" : "default"}
         />
         <SupportMetricCard
+          icon={Wallet}
+          label="Month-end forecast"
+          value={
+            data?.summary.monthlyForecast
+              ? formatCents(data.summary.monthlyForecast.projectedSpendCents)
+              : "N/A"
+          }
+          detail={
+            data?.summary.monthlyForecast
+              ? `${data.summary.monthlyForecast.projectedUtilizationPercent}% of monthly budget · ${data.summary.monthlyForecast.status.replace(/_/g, " ")}`
+              : "Forecast not available"
+          }
+          tone={
+            data?.summary.monthlyForecast?.status === "over_budget"
+              ? "warning"
+              : data?.summary.monthlyForecast?.status === "watch"
+                ? "warning"
+                : "default"
+          }
+        />
+        <SupportMetricCard
           icon={Workflow}
           label="API runs"
           value={apiRunCount}

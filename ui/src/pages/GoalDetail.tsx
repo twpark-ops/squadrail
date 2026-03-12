@@ -21,8 +21,15 @@ import { SupportPanel } from "../components/SupportPanel";
 import { projectUrl } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Compass, Flag, Network, Plus } from "lucide-react";
+import { CalendarClock, Compass, Flag, Gauge, Network, Plus } from "lucide-react";
 import type { Goal, Project } from "@squadrail/shared";
+
+function formatTargetDate(value: Date | string | null | undefined) {
+  if (!value) return "No target";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "No target";
+  return date.toLocaleDateString();
+}
 
 export function GoalDetail() {
   const { goalId } = useParams<{ goalId: string }>();
@@ -133,7 +140,7 @@ export function GoalDetail() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <SupportMetricCard
           icon={Flag}
           label="Status"
@@ -142,10 +149,26 @@ export function GoalDetail() {
           tone="accent"
         />
         <SupportMetricCard
+          icon={Gauge}
+          label="Progress"
+          value={`${goal.progressPercent}%`}
+          detail="Manual progress signal used to reflect whether intent is actually landing."
+        />
+        <SupportMetricCard
+          icon={CalendarClock}
+          label="Target"
+          value={formatTargetDate(goal.targetDate)}
+          detail={goal.sprintName ? `Current sprint: ${goal.sprintName}` : "No sprint window is attached yet."}
+        />
+        <SupportMetricCard
           icon={Compass}
-          label="Level"
-          value={goal.level}
-          detail="Hierarchy level used to position this goal in the planning tree."
+          label="Capacity"
+          value={
+            goal.capacityTargetPoints == null
+              ? "Open"
+              : `${goal.capacityCommittedPoints ?? 0}/${goal.capacityTargetPoints}`
+          }
+          detail="Committed vs planned capacity points for the active goal window."
         />
         <SupportMetricCard
           icon={Network}
