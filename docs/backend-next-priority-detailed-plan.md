@@ -16,8 +16,8 @@
 > - `7. priority preemption` 완료
 > - `8. per-agent performance scorecard` 완료
 > - `9. merge conflict assist` 완료
-> - `10. execution-failure learning` 1차 부분 완료
-> 현재 다음 순차 작업은 `10-C review/close gate integration`이고, 그 다음은 `11. external operating alerts`, `12. goal progress / sprint / capacity` 순서다.
+> - `10. execution-failure learning` 완료
+> 현재 다음 순차 작업은 `11. external operating alerts`이고, 그 다음은 `12. goal progress / sprint / capacity`, `13. auto revert / custom role / templates / cost prediction` 순서다.
 
 ## 목적
 
@@ -67,6 +67,20 @@
     - `pnpm --filter @squadrail/server test`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `37.07%`, branches `64.68%`, functions `61.21%`
+- `2026-03-12 failure-learning gate integration` 완료
+  - repeated runtime failure signal을 issue close gate가 실제로 읽도록 `failure-learning` service를 추가했다.
+  - `issue-protocol-policy`는 unresolved repeated failure가 남아 있으면 merged/completed close를 차단한다.
+  - `issue change surface`와 Review Desk에 `failureAssist` panel을 추가해 retryability, failure family, repeated hit count, suggested action을 함께 보여준다.
+  - route test 경계도 갱신해서 `issues-routes`가 새 failure-learning dependency를 포함해 정상 동작하도록 맞췄다.
+  - 검증:
+    - `pnpm --filter @squadrail/shared typecheck`
+    - `pnpm --filter @squadrail/ui typecheck`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/ui build`
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issues-routes.test.ts src/__tests__/failure-learning.test.ts src/__tests__/issue-protocol-policy.test.ts src/__tests__/issue-change-surface.test.ts`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `37.28%`, branches `64.81%`, functions `61.34%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -78,69 +92,69 @@
 
 ## 현재 남은 우선순위
 
-1. `execution-failure learning` (`10-C gate integration` remaining)
-2. `external operating alerts`
-3. `goal progress / sprint / capacity`
-4. `auto revert / custom role / templates / cost prediction`
+1. `external operating alerts`
+2. `goal progress / sprint / capacity`
+3. `auto revert / custom role / templates / cost prediction`
 
 한 줄 요약:
 
-- 다음 구현은 `execution failure를 구조화된 학습 입력으로 승격하고, operator가 repeated failure를 더 빨리 감지/개입할 수 있게 만드는 것`이다.
+- 다음 구현은 `내부 operator signal을 실제 외부 운영 채널로 fan-out하고, 중요한 상태 변화를 UI 밖으로 밀어내는 것`이다.
 
-## Immediate Next: Execution-Failure Learning Gate Integration
+## Immediate Next: External Operating Alerts
 
 ### 목표
 
-- execution / review / QA / close 단계에서 발생하는 실패를 재시도 가능한 공통 taxonomy로 묶는다.
-- repeated failure와 operator intervention을 retrieval/dispatch 이전에 읽을 수 있는 학습 입력으로 저장한다.
-- 단순 audit log가 아니라, dashboard / protocol state / next-run context에서 바로 읽히는 신호로 승격한다.
+- review / merge / runtime recovery / blocked dispatch 같은 high-signal operator 상태를 외부 운영 채널로 보낸다.
+- UI를 보고 있지 않아도 operator가 critical state 변화를 즉시 받을 수 있게 한다.
+- live event와 dashboard signal을 재사용하되, alert storm를 막는 최소 severity / dedupe / cooldown 규칙을 함께 둔다.
 
 ### 구현 슬라이스
 
-#### Slice 10-A. Failure Taxonomy
+#### Slice 11-A. Alert Taxonomy
 
-1. 현재 `heartbeat`, `issue-protocol-execution`, `issue-protocol`에서 쓰는 failure code를 inventory로 정리한다.
-2. retryable / non-retryable / operator-action-required / dependency-wait 같은 coarse bucket으로 정규화한다.
-3. protocol state metadata와 run event payload에서 공통으로 읽는 failure descriptor builder를 만든다.
+1. `runtime recovery`, `merge gate blocked`, `review requested changes`, `blocked dependency`, `ready-to-close` 가운데 외부 운영 알림으로 나갈 사건을 정리한다.
+2. `critical / high / medium` severity와 `operator_required / informative` intent로 정규화한다.
+3. 같은 issue/failure family가 짧은 간격으로 반복될 때 dedupe할 alert key를 정의한다.
 
-#### Slice 10-B. Learning Surface
+#### Slice 11-B. Outbound Transport
 
-1. repeated failure count, last failure family, operator next action을 issue / run metadata에 올린다.
-2. dashboard 요약이나 recovery queue가 repeated failure case를 바로 읽을 수 있게 feed를 확장한다.
-3. 다음 dispatch/review gate에서 읽을 최소 learning snapshot을 context에 넣는다.
+1. configurable webhook/slack payload builder를 만든다.
+2. company/global config에서 최소한 endpoint, auth header, severity threshold를 읽게 한다.
+3. live event publish 지점에서 outbound alert sink를 같이 태우되, core request path는 block하지 않게 비동기/실패 격리한다.
 
-#### Slice 10-C. Review / Close Gate Integration
+#### Slice 11-C. Operator Surface
 
-1. 같은 failure family가 반복될 때 close-ready/merge-ready 판단이 더 보수적으로 되게 guard를 추가한다.
-2. operator가 recovery action을 고를 때 참고할 suggested next action을 surface에 붙인다.
-3. retry가 무의미한 상태는 auto-requeue보다 사람 개입을 먼저 유도한다.
+1. Company Settings 또는 operator surface에서 alert 설정과 최근 delivery 상태를 확인할 최소 read model을 붙인다.
+2. test alert trigger와 최근 실패 원인을 보여주는 surface를 둔다.
+3. Review Desk / Runs / Inbox가 이미 가진 severity와 wording을 outbound payload와 맞춘다.
 
-#### Slice 10-D. Tests
+#### Slice 11-D. Tests
 
-1. 같은 failure family가 반복될 때 metadata와 dashboard feed가 누적되는지
-2. retryable / non-retryable / operator-required 분류가 일관되게 유지되는지
-3. recovery/close gate가 repeated failure 신호를 읽고 더 보수적으로 동작하는지
-4. operator suggestion이 route/service 경계에서 유지되는지
+1. severity filter와 dedupe key가 일관되게 동작하는지
+2. webhook/slack payload가 issue/review/runtime metadata를 잃지 않는지
+3. outbound failure가 core write path를 깨지 않는지
+4. operator test/send preview surface가 route/service 경계에서 유지되는지
 
 우선 테스트 파일:
 
-- `server/src/__tests__/issue-protocol-execution.test.ts`
-- `server/src/__tests__/heartbeat-service-flow.test.ts`
 - `server/src/__tests__/dashboard.test.ts`
-- 필요 시 `server/src/__tests__/issue-protocol-policy.test.ts`
+- `server/src/__tests__/dashboard-routes.test.ts`
+- `server/src/__tests__/issue-protocol-policy.test.ts`
+- `server/src/__tests__/issues-routes.test.ts`
 
 ### 우선 구현 파일
 
-- `server/src/services/heartbeat.ts`
-- `server/src/services/issue-protocol-execution.ts`
-- `server/src/services/issue-protocol.ts`
+- `server/src/services/live-events.ts`
+- `server/src/services/activity-log.ts`
 - `server/src/services/dashboard.ts`
+- `server/src/routes/companies.ts`
+- `ui/src/pages/CompanySettings.tsx`
 
 ### 완료 기준
 
-1. repeated execution failure가 taxonomy와 next action을 가진 구조화 신호로 저장된다.
-2. dashboard/operator surface에서 failure family와 operator next action을 읽을 수 있다.
-3. review/close gate가 repeated failure signal을 읽고 더 보수적으로 동작한다.
+1. 중요한 operator signal이 severity/dedupe 규칙을 가진 outbound alert event로 생성된다.
+2. webhook/slack delivery 실패가 core workflow를 깨지 않는다.
+3. operator가 설정과 최근 delivery 상태를 최소한 확인/테스트할 수 있다.
 4. `pnpm -r typecheck`, `pnpm test:run`, `pnpm build`가 모두 통과한다.
 
 ## Archive Note

@@ -257,6 +257,7 @@ export function ChangeReviewDesk({
   const prBridge = mergeCandidate?.prBridge ?? null;
   const gateStatus = mergeCandidate?.gateStatus ?? null;
   const conflictAssist = mergeCandidate?.conflictAssist ?? null;
+  const failureAssist = mergeCandidate?.failureAssist ?? null;
   const mergeBlocked = Boolean(prBridge && gateStatus && gateStatus.mergeReady === false);
   const busy = resolveMutation.isPending || automationMutation.isPending;
 
@@ -510,6 +511,51 @@ export function ChangeReviewDesk({
           {conflictAssist.suggestedActions.length > 0 ? (
             <div className="mt-3 space-y-1 text-xs text-red-100/90">
               {conflictAssist.suggestedActions.map((action) => (
+                <div key={action}>{action}</div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {failureAssist && failureAssist.status !== "clean" ? (
+        <div className="mt-4 rounded-[0.95rem] border border-blue-500/20 bg-blue-500/8 px-4 py-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-100">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Failure learning gate
+          </div>
+          <div className="mt-3 text-sm text-blue-50">{failureAssist.summary}</div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-blue-100/90">
+            <span className="rounded-full border border-blue-300/30 px-2.5 py-1">
+              {failureAssist.retryability.replace(/_/g, " ")}
+            </span>
+            {failureAssist.failureFamily ? (
+              <span className="rounded-full border border-blue-300/30 px-2.5 py-1">
+                {failureAssist.failureFamily.replace(/_/g, " ")}
+              </span>
+            ) : null}
+            <span className="rounded-full border border-blue-300/30 px-2.5 py-1">
+              {failureAssist.repeatedFailureCount24h} repeated hits / 24h
+            </span>
+            {failureAssist.lastSeenAt ? (
+              <span className="rounded-full border border-blue-300/30 px-2.5 py-1">
+                Last seen {relativeTime(failureAssist.lastSeenAt)}
+              </span>
+            ) : null}
+          </div>
+          {failureAssist.blockers.length > 0 ? (
+            <ul className="mt-3 space-y-2 text-sm text-blue-50">
+              {failureAssist.blockers.map((reason) => (
+                <li key={reason} className="flex gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-200" />
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {failureAssist.suggestedActions.length > 0 ? (
+            <div className="mt-3 space-y-1 text-xs text-blue-100/90">
+              {failureAssist.suggestedActions.map((action) => (
                 <div key={action}>{action}</div>
               ))}
             </div>

@@ -745,4 +745,64 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     });
     expect(violation?.message).toContain("CI gate");
   });
+
+  it("rejects close when repeated runtime failures still require operator review", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "close merged",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Merged externally after review.",
+          verificationSummary: "Verification evidence reviewed.",
+          rollbackPlan: "Revert the merge commit if needed.",
+          finalArtifacts: ["pr://42"],
+          finalTestStatus: "passed",
+          mergeStatus: "merged",
+        },
+        artifacts: [
+          {
+            kind: "diff",
+            uri: "diff://42",
+          },
+          {
+            kind: "approval",
+            uri: "approval://42",
+          },
+          {
+            kind: "test_run",
+            uri: "run://42",
+            metadata: {
+              autoCaptured: false,
+            },
+          },
+        ],
+      },
+      failureLearningGate: {
+        closeReady: false,
+        blockingReasons: [
+          "Dispatch timeout repeated 2 times after the last successful run and should be reviewed before close.",
+        ],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "close_without_verification",
+    });
+    expect(violation?.message).toContain("repeated failure signals");
+  });
 });

@@ -10,7 +10,7 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `execution-failure learning` gate integration
+- open this handoff first, then continue immediately with `external operating alerts`
 
 ## Current Status
 
@@ -36,9 +36,10 @@ One-line startup rule:
   - dashboard route와 Team page에 agent health / success rate / run duration / bounce / priority preemption scorecard 추가
 - `9. merge conflict assist`: 완료
   - change surface와 Review Desk에 mergeability warning / preflight blocker / suggested action surface 추가
-- `10. execution-failure learning`: 1차 부분 완료
+- `10. execution-failure learning`: 완료
   - recovery queue가 `failureFamily / retryability / repeated / occurrenceCount24h / operatorActionLabel`를 가진 structured feed가 됐다.
-  - Runs 화면에서 repeated case와 operator-required case를 바로 읽을 수 있게 summary/grouped surface를 보강했다.
+  - repeated runtime failure signal이 review/close gate에서 실제로 close-ready 판단을 보수화한다.
+  - Change Review Desk가 failure learning gate, blocker, suggested action, repeated hit count를 직접 surface 한다.
 
 ## Current Product State
 
@@ -49,36 +50,35 @@ One-line startup rule:
 - `team supervision feed + internal work item operator flow` 완료
 - `dependency-blocked dispatch enforcement` 완료
 - `priority-aware dispatch + agent scorecard + merge conflict assist` 완료
-- `execution-failure learning feed` 1차 완료
+- `execution-failure learning feed + gate integration` 완료
 - `18-agent real-org burn-in` 완료
 - 최신 검증:
-  - `pnpm --filter @squadrail/server test` `599 tests` 통과
+  - `pnpm --filter @squadrail/server test` `603 tests` 통과
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 통과
-  - server coverage `37.07%`
-- 현재 다음 순차 작업은 `10-C execution-failure learning gate integration`
+  - server coverage `37.28%`
+- 현재 다음 순차 작업은 `11. external operating alerts`
 
 ## Next Priorities
 
-1. `execution-failure learning`
-2. `external operating alerts`
-3. `goal progress / sprint / capacity`
-4. `auto revert / custom role / templates / cost prediction`
+1. `external operating alerts`
+2. `goal progress / sprint / capacity`
+3. `auto revert / custom role / templates / cost prediction`
 
 Interpretation:
 
-- next focus is operator-facing coordination layer and dispatch quality
+- next focus is operator signal fan-out and operating visibility
 - rerank/provider work는 지금 immediate next가 아니다
 
 ## Recommended First Task Next Session
 
-Start with `execution-failure learning` gate integration.
+Start with `external operating alerts`.
 
 Suggested slice:
 
-1. repeated failure learning feed를 review/close gate가 실제로 읽도록 연결
-2. retryable이 아닌 repeated runtime case는 blind close/merge path에서 더 보수적으로 차단
-3. operator가 recovery note와 gate blocker를 한 화면에서 이해할 수 있게 surface 정리
-4. failure trend regression tests와 memory-bank summary 업데이트
+1. recovery queue / review desk / ready-to-close / merge conflict signal에서 outbound alert 후보 taxonomy를 정리
+2. configurable webhook/slack payload builder와 severity filter를 추가
+3. operator가 test alert와 최근 alert delivery 상태를 확인할 최소 surface를 붙이기
+4. route/service tests와 memory-bank summary 업데이트
 
 ## Important Files
 
@@ -90,13 +90,15 @@ Team supervision / intake:
 - [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
 - [internal-work-item-supervision.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/internal-work-item-supervision.test.ts)
 
-Next failure / runtime surfaces:
+Next alert / runtime surfaces:
 
+- [live-events.ts](/home/taewoong/company-project/squadall/server/src/services/live-events.ts)
+- [activity-log.ts](/home/taewoong/company-project/squadall/server/src/services/activity-log.ts)
 - [heartbeat.ts](/home/taewoong/company-project/squadall/server/src/services/heartbeat.ts)
-- [issue-protocol-execution.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol-execution.ts)
 - [issue-protocol.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol.ts)
 - [issue-protocol-policy.ts](/home/taewoong/company-project/squadall/server/src/services/issue-protocol-policy.ts)
 - [dashboard.ts](/home/taewoong/company-project/squadall/server/src/services/dashboard.ts)
+- [ChangeReviewDesk.tsx](/home/taewoong/company-project/squadall/ui/src/components/ChangeReviewDesk.tsx)
 
 Planning / memory:
 
@@ -113,10 +115,10 @@ pnpm test:run
 pnpm build
 ```
 
-For failure-learning work:
+For external-alert work:
 
 ```bash
-pnpm vitest run server/src/__tests__/issue-protocol-execution.test.ts server/src/__tests__/issue-protocol-policy.test.ts server/src/__tests__/dashboard.test.ts server/src/__tests__/heartbeat-service-flow.test.ts
+pnpm vitest run server/src/__tests__/dashboard.test.ts server/src/__tests__/dashboard-routes.test.ts server/src/__tests__/issue-protocol-policy.test.ts server/src/__tests__/issues-routes.test.ts
 ```
 
 ## Product Direction Reminder
