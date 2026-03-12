@@ -24,6 +24,7 @@
 > - `13-C. custom role creation` 완료
 > - `13-K. large operator/service direct coverage uplift` 진행 중
 > - `13-L. runtime coverage/decomposition batch 5` 진행 중
+> - `13-M. runtime/protocol coverage uplift batch 6` 진행 중
 > 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`이다.
 
 ## 목적
@@ -208,6 +209,19 @@
     - `pnpm --filter @squadrail/server build`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `45.78%`, branches `63.75%`, functions `68.64%`
+- `2026-03-13 runtime/protocol coverage uplift` 6차 진행
+  - `projects-routes.test.ts`, `secrets-routes.test.ts`, `access-admin-routes.test.ts`를 추가해 `projects.ts`, `secrets.ts`, `access.ts` route shell의 ROI 높은 표면을 보강했다.
+  - `issue-protocol-service.test.ts`에 empty timeline / missing issue violation branch를 추가했다.
+  - `heartbeat-service-flow.test.ts`에 `listTaskSessions`, `getActiveRunForAgent` direct service test를 추가했다.
+  - `knowledge-service-operations.test.ts`에 `getOverview`, `getGraph`, `listDocumentChunksWithLinks` direct service test를 추가했다.
+  - `issue-retrieval-finalization.test.ts`에 zero-evidence hint cap branch를 추가했다.
+  - 검증:
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/projects-routes.test.ts src/__tests__/secrets-routes.test.ts src/__tests__/access-admin-routes.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/knowledge-service-operations.test.ts src/__tests__/issue-retrieval-finalization.test.ts`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `46.75%`, branches `63.56%`, functions `69.56%`
+  - 최신 server tests: `105 files / 717 tests` 통과
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -221,11 +235,11 @@
 
 1. remaining global coverage uplift toward `60%` across large runtime/operator services
 2. `issue-protocol.ts / heartbeat.ts / knowledge.ts / issue-retrieval.ts` direct test와 tail branch coverage 확대
-3. low-coverage route/service shell (`access.ts`, `projects.ts`, `secrets.ts`, `companies.ts` route shell) 중 ROI 높은 표면만 선택 보강
+3. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface) 중 ROI 높은 표면만 선택 보강
 
 한 줄 요약:
 
-- 다음 구현은 `issue-protocol / heartbeat / knowledge / issue-retrieval` bottleneck coverage를 더 올리고, 그 다음 low-coverage route/service shell을 ROI 기준으로 고르는 것이다.
+- 다음 구현은 `issue-protocol / heartbeat / knowledge / issue-retrieval` bottleneck coverage를 더 올리고, shell 쪽은 `board-claim / dashboard / companies / secrets` ROI 순으로 좁혀서 고르는 것이다.
 
 ## Immediate Next: Runtime/Protocol Coverage Uplift
 
@@ -246,8 +260,9 @@
 
 #### Slice F2. Low-Coverage Shell ROI Pass
 
-1. `access.ts`, `projects.ts`, `secrets.ts`, `companies.ts` route shell 중 ROI 높은 표면만 선택적으로 추가
-2. 전역 coverage를 `45%+`에서 더 끌어올리는 데 가장 효율적인 표면만 고른다
+1. `access.ts`, `projects.ts`, `secrets.ts` route shell 1차는 완료했다
+2. 다음은 `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface 중 ROI 높은 표면만 추가한다
+3. 전역 coverage를 `46%+`에서 더 끌어올리는 데 가장 효율적인 표면만 고른다
 
 우선 테스트 파일:
 
@@ -262,6 +277,9 @@
 - `server/src/__tests__/issues-routes.test.ts`
 - `server/src/__tests__/issue-change-surface.test.ts`
 - `server/src/__tests__/companies-routes.test.ts`
+- `server/src/__tests__/projects-routes.test.ts`
+- `server/src/__tests__/secrets-routes.test.ts`
+- `server/src/__tests__/access-admin-routes.test.ts`
 - `server/src/__tests__/merge-pr-bridge.test.ts`
 - `server/src/__tests__/operating-alerts.test.ts`
 - `server/src/__tests__/operating-alerts-service.test.ts`
@@ -284,9 +302,9 @@
 
 ### 완료 기준
 
-1. large operator/service direct test가 추가돼 global coverage가 `41%+`를 유지하면서 추가 상승한다.
+1. large operator/service direct test가 추가돼 global coverage가 `46%+`를 유지하면서 추가 상승한다.
 2. 필요한 경우 runtime service optional batch가 이어지더라도 변경 범위는 focused하게 유지된다.
-4. `pnpm -r typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default`가 통과한다.
+3. `pnpm -r typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default`가 통과한다.
 
 ## Archive Note
 

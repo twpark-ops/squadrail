@@ -291,6 +291,179 @@ describe("knowledge service operations", () => {
     });
   });
 
+  it("builds the knowledge overview with active project counts and distributions", async () => {
+    const { db, executeCalls } = createKnowledgeDbMock({
+      executeResults: [
+        [{
+          totalDocuments: 2,
+          totalChunks: 5,
+          totalLinks: 4,
+          linkedChunks: 3,
+          connectedDocuments: 2,
+          totalSymbols: 1,
+          totalSymbolEdges: 1,
+          totalDocumentVersions: 2,
+        }],
+        [
+          {
+            projectId: "project-1",
+            projectName: "Runtime",
+            documentCount: 2,
+            chunkCount: 5,
+            linkCount: 4,
+            lastUpdatedAt: "2026-03-13T00:00:00.000Z",
+          },
+          {
+            projectId: "project-2",
+            projectName: "Idle",
+            documentCount: 0,
+            chunkCount: 0,
+            linkCount: 0,
+            lastUpdatedAt: null,
+          },
+        ],
+        [{ key: "code", count: 2 }],
+        [{ key: "canonical", count: 2 }],
+        [{ key: "ts", count: 2 }],
+        [{ key: "issue", count: 4 }],
+      ],
+    });
+    const service = knowledgeService(db as never);
+
+    const overview = await service.getOverview({
+      companyId: "company-1",
+    });
+
+    expect(overview).toMatchObject({
+      totalDocuments: 2,
+      totalChunks: 5,
+      totalLinks: 4,
+      activeProjects: 1,
+      sourceTypeDistribution: [{ key: "code", count: 2 }],
+      authorityDistribution: [{ key: "canonical", count: 2 }],
+      languageDistribution: [{ key: "ts", count: 2 }],
+      linkEntityDistribution: [{ key: "issue", count: 4 }],
+    });
+    expect(overview.projectCoverage).toEqual([
+      expect.objectContaining({
+        projectId: "project-1",
+        documentCount: 2,
+      }),
+      expect.objectContaining({
+        projectId: "project-2",
+        documentCount: 0,
+      }),
+    ]);
+    expect(executeCalls).toHaveLength(6);
+  });
+
+  it("builds a graph slice from document and entity edge rows", async () => {
+    const { db } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [knowledgeChunkLinks, [[
+          {
+            documentId: "doc-1",
+            entityType: "symbol",
+            entityId: "retryWorker",
+            weight: 3,
+          },
+        ]]],
+      ]),
+      executeResults: [[
+        {
+          documentId: "doc-1",
+          projectId: "project-1",
+          projectName: "Runtime",
+          title: "retry.ts",
+          path: "src/retry.ts",
+          sourceType: "code",
+          authorityLevel: "canonical",
+          language: "ts",
+          chunkCount: 2,
+          linkCount: 3,
+        },
+      ]],
+    });
+    const service = knowledgeService(db as never);
+
+    const graph = await service.getGraph({
+      companyId: "company-1",
+      projectId: "project-1",
+    });
+
+    expect(graph.summary).toEqual({
+      projectNodeCount: 1,
+      documentNodeCount: 1,
+      entityNodeCount: 1,
+      edgeCount: 2,
+    });
+    expect(graph.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "project:project-1",
+        label: "Runtime",
+      }),
+      expect.objectContaining({
+        id: "document:doc-1",
+        label: "retry.ts",
+      }),
+      expect.objectContaining({
+        id: "entity:symbol:retryWorker",
+        label: "retryWorker",
+      }),
+    ]));
+  });
+
+  it("hydrates chunk links alongside the chunk list for a document", async () => {
+    const { db } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [knowledgeChunks, [[
+          {
+            id: "chunk-1",
+            documentId: "doc-1",
+            chunkIndex: 0,
+            textContent: "retry worker",
+          },
+          {
+            id: "chunk-2",
+            documentId: "doc-1",
+            chunkIndex: 1,
+            textContent: "backoff logic",
+          },
+        ]]],
+        [knowledgeChunkLinks, [[
+          {
+            chunkId: "chunk-1",
+            entityType: "issue",
+            entityId: "issue-1",
+            linkReason: "related_context",
+            weight: 2,
+          },
+        ]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const chunks = await service.listDocumentChunksWithLinks("doc-1");
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        id: "chunk-1",
+        links: [
+          {
+            entityType: "issue",
+            entityId: "issue-1",
+            linkReason: "related_context",
+            weight: 2,
+          },
+        ],
+      }),
+      expect.objectContaining({
+        id: "chunk-2",
+        links: [],
+      }),
+    ]);
+  });
+
   it("bumps project knowledge revisions while merging prior metadata", async () => {
     const { db, updateSets } = createKnowledgeDbMock({
       selectRows: new Map([

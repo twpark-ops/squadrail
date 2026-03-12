@@ -1117,4 +1117,29 @@ describe("issue retrieval finalization builders", () => {
       ]),
     );
   });
+
+  it("builds recipient hints with an empty evidence summary when the evidence cap is zero", () => {
+    const hint = buildRecipientRetrievalHint({
+      recipientId: "agent-4",
+      recipientRole: "qa",
+      executionLane: "qa",
+      retrievalRunId: "retrieval-qa-1",
+      briefId: "brief-qa-1",
+      briefScope: "qa",
+      briefContentMarkdown: "# qa brief",
+      hits: [makeHit()],
+      maxEvidenceItems: 0,
+    });
+
+    expect(hint).toEqual({
+      recipientId: "agent-4",
+      recipientRole: "qa",
+      executionLane: "qa",
+      retrievalRunId: "retrieval-qa-1",
+      briefId: "brief-qa-1",
+      briefScope: "qa",
+      briefContentMarkdown: "# qa brief",
+      briefEvidenceSummary: [],
+    });
+  });
 });
