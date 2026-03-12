@@ -94,6 +94,51 @@ describe("operating alerts", () => {
     });
   });
 
+  it("classifies ready-to-close approvals and close-without-verification violations", () => {
+    const readyToClose = buildOperatingAlertCandidate({
+      id: 3,
+      companyId: "company-1",
+      type: "activity.logged",
+      createdAt: "2026-03-13T00:00:00.000Z",
+      payload: {
+        action: "issue.protocol_message.created",
+        entityType: "issue",
+        entityId: "issue-1",
+        details: {
+          messageType: "APPROVE_IMPLEMENTATION",
+          workflowStateAfter: "done",
+          summary: "Ready for final close review",
+        },
+      },
+    });
+    const protocolViolation = buildOperatingAlertCandidate({
+      id: 4,
+      companyId: "company-1",
+      type: "activity.logged",
+      createdAt: "2026-03-13T00:00:00.000Z",
+      payload: {
+        action: "issue.protocol_violation.recorded",
+        entityType: "issue",
+        entityId: "issue-2",
+        details: {
+          violationCode: "close_without_verification",
+        },
+      },
+    });
+
+    expect(readyToClose).toMatchObject({
+      severity: "medium",
+      reason: "ready_to_close",
+      issueId: "issue-1",
+      summary: "Ready for final close review",
+    });
+    expect(protocolViolation).toMatchObject({
+      severity: "critical",
+      reason: "protocol_violation",
+      issueId: "issue-2",
+    });
+  });
+
   it("builds webhook payloads without dropping issue metadata", () => {
     const candidate = {
       companyId: "company-1",

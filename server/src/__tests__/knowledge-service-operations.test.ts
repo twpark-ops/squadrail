@@ -4,6 +4,8 @@ import {
   knowledgeDocumentVersions,
   knowledgeDocuments,
   projectKnowledgeRevisions,
+  retrievalPolicies,
+  retrievalRuns,
   retrievalCacheEntries,
 } from "@squadrail/db";
 import { describe, expect, it } from "vitest";
@@ -45,6 +47,7 @@ function createKnowledgeDbMock(input: {
   const executeResults = [...(input.executeResults ?? [])];
   const insertValues: Array<{ table: unknown; value: unknown }> = [];
   const updateSets: Array<{ table: unknown; value: unknown }> = [];
+  const conflictSets: Array<{ table: unknown; value: unknown }> = [];
   const deletedTables: unknown[] = [];
   const executeCalls: unknown[] = [];
 
@@ -54,7 +57,10 @@ function createKnowledgeDbMock(input: {
       values: (value: unknown) => {
         insertValues.push({ table, value });
         const chain = {
-          onConflictDoUpdate: () => chain,
+          onConflictDoUpdate: (config: { set: unknown }) => {
+            conflictSets.push({ table, value: config.set });
+            return chain;
+          },
           onConflictDoNothing: () => chain,
           returning: async () => shiftTableRows(insertRows, table),
           then: <T>(resolve: (value: unknown[]) => T | PromiseLike<T>) =>
@@ -92,6 +98,7 @@ function createKnowledgeDbMock(input: {
     db,
     insertValues,
     updateSets,
+    conflictSets,
     deletedTables,
     executeCalls,
   };
@@ -548,5 +555,131 @@ describe("knowledge service operations", () => {
         revision: 3,
       },
     ]);
+  });
+
+  it("upserts retrieval policies with normalized defaults and update sets", async () => {
+    const { db, insertValues, conflictSets } = createKnowledgeDbMock({
+      insertRows: new Map([
+        [retrievalPolicies, [[{
+          id: "policy-1",
+          companyId: "company-1",
+          role: "engineer",
+          eventType: "on_assignment",
+          workflowState: "assigned",
+        }]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const policy = await service.upsertRetrievalPolicy({
+      companyId: "company-1",
+      role: "engineer",
+      eventType: "on_assignment",
+      workflowState: "assigned",
+      allowedSourceTypes: ["code", "review"],
+      allowedAuthorityLevels: ["canonical", "working"],
+      metadata: {
+        rationale: "favor implementation evidence",
+      },
+    });
+
+    expect(policy).toMatchObject({
+      id: "policy-1",
+      companyId: "company-1",
+      role: "engineer",
+      eventType: "on_assignment",
+      workflowState: "assigned",
+    });
+    expect(insertValues.find((entry) => entry.table === retrievalPolicies)?.value).toMatchObject({
+      topKDense: 20,
+      topKSparse: 20,
+      rerankK: 20,
+      finalK: 8,
+      allowedSourceTypes: ["code", "review"],
+      allowedAuthorityLevels: ["canonical", "working"],
+    });
+    expect(conflictSets.find((entry) => entry.table === retrievalPolicies)?.value).toMatchObject({
+      topKDense: 20,
+      topKSparse: 20,
+      rerankK: 20,
+      finalK: 8,
+      updatedAt: expect.any(Date),
+    });
+  });
+
+  it("links retrieval runs to briefs and merges debug patches", async () => {
+    const { db, updateSets } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [retrievalRuns, [[{
+          queryDebug: {
+            quality: {
+              confidenceLevel: "medium",
+            },
+            cache: {
+              candidateHit: false,
+            },
+          },
+        }]]],
+      ]),
+      updateRows: new Map([
+        [retrievalRuns, [[{
+          id: "retrieval-1",
+          finalBriefId: "brief-1",
+        }], [{
+          id: "retrieval-1",
+          queryDebug: {
+            quality: {
+              confidenceLevel: "medium",
+            },
+            cache: {
+              candidateHit: true,
+            },
+          },
+        }]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const linked = await service.linkRetrievalRunToBrief("retrieval-1", "brief-1");
+    const patched = await service.updateRetrievalRunDebug("retrieval-1", {
+      cache: {
+        candidateHit: true,
+      },
+    });
+
+    expect(linked).toMatchObject({
+      id: "retrieval-1",
+      finalBriefId: "brief-1",
+    });
+    expect(patched).toMatchObject({
+      id: "retrieval-1",
+      queryDebug: {
+        quality: {
+          confidenceLevel: "medium",
+        },
+        cache: {
+          candidateHit: true,
+        },
+      },
+    });
+    expect(updateSets[0]).toEqual({
+      table: retrievalRuns,
+      value: {
+        finalBriefId: "brief-1",
+      },
+    });
+    expect(updateSets[1]).toEqual({
+      table: retrievalRuns,
+      value: {
+        queryDebug: {
+          quality: {
+            confidenceLevel: "medium",
+          },
+          cache: {
+            candidateHit: true,
+          },
+        },
+      },
+    });
   });
 });

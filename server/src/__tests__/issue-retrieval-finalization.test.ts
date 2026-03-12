@@ -508,6 +508,83 @@ describe("issue retrieval finalization builders", () => {
     });
   });
 
+  it("caps recipient hint evidence to zero when the operator requests no evidence items", () => {
+    const artifacts = buildRetrievalCompletionArtifacts({
+      companyId: "company-1",
+      issueId: "issue-1",
+      retrievalRunId: "retrieval-2",
+      triggeringMessageId: "message-2",
+      recipientRole: "qa",
+      recipientId: "agent-qa",
+      executionLane: "thorough",
+      brief: {
+        id: "brief-2",
+        briefScope: "qa",
+        briefVersion: 2,
+        contentMarkdown: "# qa brief",
+      },
+      finalHits: [makeHit()],
+      briefQuality: makeQuality(),
+      relatedIssueIds: [],
+      relatedIssueIdentifiers: [],
+      reuseSummary: null,
+      graphSeeds: [],
+      symbolGraphSeeds: [],
+      briefGraphHits: [],
+      symbolGraphHitCount: 0,
+      edgeTraversalCount: 0,
+      edgeTypeCounts: {},
+      graphMaxDepth: 0,
+      graphHopDepthCounts: {},
+      multiHopGraphHitCount: 0,
+      temporalContext: null,
+      queryEmbeddingCacheHit: false,
+      candidateCacheHit: false,
+      finalCacheHit: false,
+      revisionSignature: null,
+      candidateCacheInspection: {
+        state: "miss_cold",
+        reason: "cold",
+        provenance: null,
+        matchedRevision: null,
+        latestKnownRevision: null,
+        lastEntryUpdatedAt: null,
+        cacheKeyFingerprint: null,
+        requestedCacheKeyFingerprint: null,
+        matchedCacheKeyFingerprint: null,
+      },
+      finalCacheInspection: {
+        state: "miss_cold",
+        reason: "cold",
+        provenance: null,
+        matchedRevision: null,
+        latestKnownRevision: null,
+        lastEntryUpdatedAt: null,
+        cacheKeyFingerprint: null,
+        requestedCacheKeyFingerprint: null,
+        matchedCacheKeyFingerprint: null,
+      },
+      exactPathSatisfied: false,
+      personalizationProfile: {
+        applied: false,
+        scopes: [],
+        feedbackCount: 0,
+        positiveFeedbackCount: 0,
+        negativeFeedbackCount: 0,
+        sourceTypeBoosts: {},
+        pathBoosts: {},
+        symbolBoosts: {},
+      },
+      maxEvidenceItems: 0,
+    });
+
+    expect(artifacts.recipientHint).toMatchObject({
+      recipientRole: "qa",
+      briefId: "brief-2",
+      briefEvidenceSummary: [],
+    });
+  });
+
   it("builds activity details and paired completion events", () => {
     const quality = makeQuality();
 
@@ -949,5 +1026,95 @@ describe("issue retrieval finalization builders", () => {
       reuseHitCount: 1,
       reusedIssueIdentifiers: ["SW-101"],
     });
+  });
+
+  it("keeps finalization artifacts coherent even when retrieval returns zero evidence", () => {
+    const artifacts = buildRetrievalCompletionArtifacts({
+      companyId: "company-1",
+      issueId: "issue-1",
+      retrievalRunId: "retrieval-empty-1",
+      triggeringMessageId: "message-2",
+      recipientRole: "engineer",
+      recipientId: "agent-3",
+      executionLane: "fast",
+      brief: {
+        id: "brief-empty-1",
+        briefScope: "engineer",
+        briefVersion: 1,
+        contentMarkdown: "# empty brief",
+      },
+      finalHits: [],
+      briefQuality: {
+        ...makeQuality(),
+        confidenceLevel: "low",
+        evidenceCount: 0,
+        denseHitCount: 0,
+        sparseHitCount: 0,
+        pathHitCount: 0,
+        symbolHitCount: 0,
+        codeHitCount: 0,
+        sourceDiversity: 0,
+      },
+      relatedIssueIds: [],
+      relatedIssueIdentifiers: [],
+      reuseSummary: null,
+      graphSeeds: [],
+      symbolGraphSeeds: [],
+      briefGraphHits: [],
+      symbolGraphHitCount: 0,
+      edgeTraversalCount: 0,
+      edgeTypeCounts: {},
+      graphMaxDepth: 0,
+      graphHopDepthCounts: {},
+      multiHopGraphHitCount: 0,
+      temporalContext: null,
+      queryEmbeddingCacheHit: false,
+      candidateCacheHit: false,
+      finalCacheHit: false,
+      revisionSignature: null,
+      candidateCacheInspection: {
+        reason: "miss_cold",
+        provenance: null,
+      },
+      finalCacheInspection: {
+        reason: "miss_cold",
+        provenance: null,
+      },
+      exactPathSatisfied: false,
+      personalizationProfile: {
+        applied: false,
+        scopes: [],
+        feedbackCount: 0,
+        positiveFeedbackCount: 0,
+        negativeFeedbackCount: 0,
+        sourceTypeBoosts: {},
+        pathBoosts: {},
+        symbolBoosts: {},
+        totalBoost: 0,
+      },
+      maxEvidenceItems: 3,
+    });
+
+    expect(artifacts.recipientHint).toMatchObject({
+      recipientId: "agent-3",
+      retrievalRunId: "retrieval-empty-1",
+      briefEvidenceSummary: [],
+    });
+    expect(artifacts.activityDetails).toMatchObject({
+      retrievalRunId: "retrieval-empty-1",
+      hitCount: 0,
+      briefId: "brief-empty-1",
+    });
+    expect(artifacts.completionEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "retrieval.run.completed",
+          payload: expect.objectContaining({
+            hitCount: 0,
+            briefQuality: "low",
+          }),
+        }),
+      ]),
+    );
   });
 });

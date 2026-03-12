@@ -51,13 +51,16 @@ function createHeartbeatDbMock(input: {
   selectRows?: Map<unknown, unknown[][]>;
   insertRows?: Map<unknown, unknown[][]>;
   updateRows?: Map<unknown, unknown[][]>;
+  deleteRows?: Map<unknown, unknown[][]>;
 }) {
   const selectRows = input.selectRows ?? new Map();
   const insertRows = input.insertRows ?? new Map();
   const updateRows = input.updateRows ?? new Map();
+  const deleteRows = input.deleteRows ?? new Map();
   const insertValues: Array<{ table: unknown; value: unknown }> = [];
   const updateSets: Array<{ table: unknown; value: unknown }> = [];
   const conflictSets: Array<{ table: unknown; value: unknown }> = [];
+  const deletedTables: unknown[] = [];
 
   const db = {
     select: () => createResolvedSelectChain(selectRows),
@@ -89,6 +92,14 @@ function createHeartbeatDbMock(input: {
         return chain;
       },
     }),
+    delete: (table: unknown) => ({
+      where: () => {
+        deletedTables.push(table);
+        return {
+          returning: async () => shiftTableRows(deleteRows, table),
+        };
+      },
+    }),
     transaction: async <T>(callback: (tx: typeof db) => Promise<T>) => callback(db),
     execute: async () => [],
   };
@@ -98,6 +109,7 @@ function createHeartbeatDbMock(input: {
     insertValues,
     updateSets,
     conflictSets,
+    deletedTables,
   };
 }
 
@@ -416,6 +428,55 @@ describe("heartbeat service flow coverage", () => {
     }));
   });
 
+  it("still cancels the targeted issue scope even when other active work remains queued", async () => {
+    const activeRun = makeRun({
+      id: "run-cancel-2",
+      wakeupRequestId: "wake-cancel-2",
+      status: "queued",
+      contextSnapshot: {
+        issueId: "issue-2",
+      },
+    });
+    const cancelledRun = {
+      ...activeRun,
+      status: "cancelled",
+      finishedAt: new Date("2026-03-13T05:05:00Z"),
+      error: "Cancelled by control plane",
+      errorCode: "cancelled",
+    };
+    const { db, updateSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agentWakeupRequests, [[{ id: "wake-cancel-2" }]]],
+        [heartbeatRuns, [[activeRun], [activeRun], [activeRun], [{ count: 1 }]]],
+        [issues, [[]]],
+        [agents, [[makeAgent()]]],
+      ]),
+      updateRows: new Map([
+        [heartbeatRuns, [[cancelledRun]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    await expect(
+      service.cancelIssueScope({
+        companyId: "company-1",
+        issueId: "issue-2",
+      }),
+    ).resolves.toEqual({
+      cancelledWakeupCount: 1,
+      cancelledRunCount: 1,
+    });
+
+    expect(updateSets.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      status: "cancelled",
+      error: "Cancelled by control plane",
+    });
+    expect(updateSets.find((entry) => entry.table === heartbeatRuns)?.value).toMatchObject({
+      status: "cancelled",
+      errorCode: "cancelled",
+    });
+  });
+
   it("ensures runtime state and prefers the latest task session display id", async () => {
     const ensuredState = {
       agentId: "agent-1",
@@ -463,6 +524,111 @@ describe("heartbeat service flow coverage", () => {
       companyId: "company-1",
       adapterType: "codex_local",
       stateJson: {},
+    });
+  });
+
+  it("resets runtime session globally and clears task sessions when no task key is provided", async () => {
+    const existingState = {
+      agentId: "agent-1",
+      companyId: "company-1",
+      adapterType: "codex_local",
+      sessionId: "runtime-session-1",
+      lastError: "previous error",
+      stateJson: {
+        session: "active",
+      },
+      updatedAt: new Date("2026-03-13T05:10:00Z"),
+    };
+    const updatedState = {
+      ...existingState,
+      sessionId: null,
+      lastError: null,
+      stateJson: {},
+      updatedAt: new Date("2026-03-13T05:15:00Z"),
+    };
+    const { db, updateSets, deletedTables } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agents, [[makeAgent()]]],
+        [agentRuntimeState, [[existingState]]],
+      ]),
+      updateRows: new Map([
+        [agentRuntimeState, [[updatedState]]],
+      ]),
+      deleteRows: new Map([
+        [agentTaskSessions, [[{ id: "task-session-1" }]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.resetRuntimeSession("agent-1");
+
+    expect(result).toMatchObject({
+      agentId: "agent-1",
+      sessionDisplayId: null,
+      sessionParamsJson: null,
+      clearedTaskSessions: 1,
+    });
+    expect(deletedTables).toEqual([agentTaskSessions]);
+    expect(updateSets.find((entry) => entry.table === agentRuntimeState)?.value).toMatchObject({
+      sessionId: null,
+      lastError: null,
+      stateJson: {},
+    });
+  });
+
+  it("cancels superseded follow-up wakeups while excluding the active run that should remain", async () => {
+    const supersededRun = makeRun({
+      id: "run-superseded-1",
+      wakeupRequestId: "wake-superseded-1",
+      status: "queued",
+      contextSnapshot: {
+        issueId: "issue-3",
+        wakeReason: "protocol_required_retry",
+      },
+    });
+    const cancelledRun = {
+      ...supersededRun,
+      status: "cancelled",
+      finishedAt: new Date("2026-03-13T05:20:00Z"),
+      error: "Cancelled stale protocol follow-up",
+      errorCode: "cancelled",
+    };
+    const updatedAgent = {
+      ...makeAgent(),
+      status: "idle",
+      lastHeartbeatAt: new Date("2026-03-13T05:20:00Z"),
+    };
+    const { db, updateSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agentWakeupRequests, [[{ id: "wake-superseded-1" }]]],
+        [heartbeatRuns, [[supersededRun], [supersededRun], [supersededRun], [{ count: 0 }]]],
+        [issues, [[]]],
+        [agents, [[makeAgent()]]],
+      ]),
+      updateRows: new Map([
+        [heartbeatRuns, [[cancelledRun]]],
+        [agents, [[updatedAgent]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.cancelSupersededIssueFollowups({
+      companyId: "company-1",
+      issueId: "issue-3",
+      excludeRunId: "run-keep",
+    });
+
+    expect(result).toEqual({
+      cancelledWakeupCount: 1,
+      cancelledRunCount: 1,
+    });
+    expect(updateSets.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      status: "cancelled",
+      error: "Cancelled stale protocol follow-up",
+    });
+    expect(updateSets.find((entry) => entry.table === heartbeatRuns)?.value).toMatchObject({
+      status: "cancelled",
+      errorCode: "cancelled",
     });
   });
 });

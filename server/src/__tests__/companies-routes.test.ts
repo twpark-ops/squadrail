@@ -316,6 +316,17 @@ describe("company routes", () => {
           },
           scope: "company",
         },
+        {
+          id: "company-follow-up",
+          actionType: "CREATE_FOLLOW_UP",
+          label: "Recovery follow-up",
+          description: "Escalate recovery path",
+          summary: "Create a recovery follow-up for {issueIdentifier}",
+          fields: {
+            title: "Recovery follow-up",
+          },
+          scope: "company",
+        },
       ],
       companyTemplates: [
         {
@@ -327,6 +338,17 @@ describe("company routes", () => {
           fields: {
             closureSummary: "Human-reviewed close",
             rollbackPlan: "Reopen or revert if rollout regresses",
+          },
+          scope: "company",
+        },
+        {
+          id: "company-follow-up",
+          actionType: "CREATE_FOLLOW_UP",
+          label: "Recovery follow-up",
+          description: "Escalate recovery path",
+          summary: "Create a recovery follow-up for {issueIdentifier}",
+          fields: {
+            title: "Recovery follow-up",
           },
           scope: "company",
         },
@@ -376,6 +398,10 @@ describe("company routes", () => {
       expect.objectContaining({
         action: "company.workflow_templates.updated",
         companyId: "company-1",
+        details: {
+          templateCount: 2,
+          actionTypes: ["CLOSE_TASK", "CREATE_FOLLOW_UP"],
+        },
       }),
     );
   });
@@ -389,7 +415,27 @@ describe("company routes", () => {
         cooldownMinutes: 15,
         destinations: [],
       },
-      recentDeliveries: [],
+      recentDeliveries: [
+        {
+          id: "delivery-1",
+          status: "delivered",
+          severity: "high",
+          reason: "dependency_blocked",
+          intent: "operator_required",
+          summary: "Dispatch is blocked by unresolved dependency work.",
+          detail: "Waiting on CLO-99",
+          dedupeKey: "dependency_blocked:issue-1",
+          destinationLabel: "Ops Slack",
+          destinationType: "slack_webhook",
+          responseStatus: 200,
+          deliveredAt: "2026-03-13T00:10:00.000Z",
+          issue: {
+            id: "issue-1",
+            identifier: "CLO-220",
+            title: "Change surface issue",
+          },
+        },
+      ],
     });
 
     const response = await invokeRoute({
@@ -405,6 +451,16 @@ describe("company routes", () => {
         enabled: true,
         minSeverity: "high",
       },
+      recentDeliveries: [
+        expect.objectContaining({
+          dedupeKey: "dependency_blocked:issue-1",
+          issue: {
+            id: "issue-1",
+            identifier: "CLO-220",
+            title: "Change surface issue",
+          },
+        }),
+      ],
     });
     expect(mockOperatingAlertsGetView).toHaveBeenCalledWith("company-1");
   });

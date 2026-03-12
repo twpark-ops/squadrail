@@ -371,4 +371,131 @@ describe("issue change surface", () => {
       }),
     );
   });
+
+  it("preserves template, PR gate, revert assist, and failure assist together on the same change surface", () => {
+    const surface = buildIssueChangeSurface({
+      issue: {
+        id: "issue-10",
+        identifier: "CLO-10",
+        title: "Composite operator surface",
+        status: "done",
+      },
+      messages: [
+        {
+          id: "close-10",
+          messageType: "CLOSE_TASK",
+          summary: "Closed with template",
+          createdAt: "2026-03-13T06:00:00.000Z",
+          payload: {
+            mergeStatus: "pending_external_merge",
+            closureSummary: "Ready for final operator review",
+            verificationSummary: "Focused tests passed",
+            rollbackPlan: "Reopen and revert if post-merge smoke fails",
+            boardTemplateId: "company-release-template",
+            boardTemplateLabel: "Release close",
+            boardTemplateScope: "company",
+          },
+          artifacts: [],
+        },
+      ],
+      mergeCandidateRecord: {
+        state: "pending",
+        closeMessageId: "close-10",
+        sourceBranch: "squadrail/clo-10",
+        workspacePath: "/tmp/worktree-10",
+        headSha: "abc1010",
+        diffStat: "3 files changed",
+        targetBaseBranch: "main",
+        mergeCommitSha: "merge1010",
+        automationMetadata: {
+          prBridge: {
+            provider: "github",
+            repoOwner: "acme",
+            repoName: "swiftsight",
+            remoteUrl: "https://github.com/acme/swiftsight.git",
+            repoUrl: "https://github.com/acme/swiftsight",
+            number: 110,
+            externalId: "10110",
+            url: "https://github.com/acme/swiftsight/pull/110",
+            title: "Draft: CLO-10 composite operator surface",
+            state: "draft",
+            mergeability: "blocked",
+            headBranch: "squadrail/clo-10",
+            baseBranch: "main",
+            headSha: "abc1010",
+            reviewDecision: "changes_requested",
+            commentCount: 4,
+            reviewCommentCount: 2,
+            lastSyncedAt: "2026-03-13T06:10:00.000Z",
+            checks: [
+              {
+                name: "pr-verify",
+                status: "failure",
+                conclusion: "failure",
+                summary: "Regression suite failed",
+                required: true,
+                detailsUrl: "https://github.com/acme/swiftsight/actions/runs/10",
+              },
+            ],
+          },
+          revertAssist: {
+            lastActionType: "create_revert_followup",
+            lastActionSummary: "Created follow-up CLO-11",
+            lastCreatedIssueId: "issue-11",
+            lastCreatedIssueIdentifier: "CLO-11",
+          },
+        },
+        operatorNote: "Escalate after manual review",
+        resolvedAt: null,
+      },
+      failureLearningGate: {
+        closeReady: false,
+        retryability: "operator_required",
+        failureFamily: "review",
+        blockingReasons: [
+          "Requested changes remain unresolved.",
+        ],
+        summary: "Keep this merge candidate open until the requested changes are addressed.",
+        suggestedActions: [
+          "Resolve requested changes before retrying merged close.",
+        ],
+        repeatedFailureCount24h: 1,
+        lastSeenAt: "2026-03-13T06:15:00.000Z",
+      },
+    });
+
+    expect(surface.mergeCandidate?.templateTrace).toEqual({
+      id: "company-release-template",
+      label: "Release close",
+      scope: "company",
+    });
+    expect(surface.mergeCandidate?.prBridge).toEqual(
+      expect.objectContaining({
+        provider: "github",
+        number: 110,
+        reviewDecision: "changes_requested",
+      }),
+    );
+    expect(surface.mergeCandidate?.gateStatus).toEqual(
+      expect.objectContaining({
+        mergeReady: false,
+      }),
+    );
+    expect(surface.mergeCandidate?.gateStatus?.blockingReasons).toEqual(expect.arrayContaining([
+      "Required checks failing (1).",
+      "PR mergeability is blocked by repository policy.",
+      "PR still has requested changes.",
+    ]));
+    expect(surface.mergeCandidate?.revertAssist).toMatchObject({
+      mergeCommitSha: "merge1010",
+      lastActionSummary: "Created follow-up CLO-11",
+      lastCreatedIssueIdentifier: "CLO-11",
+    });
+    expect(surface.mergeCandidate?.failureAssist).toEqual(
+      expect.objectContaining({
+        status: "watch",
+        failureFamily: "review",
+      }),
+    );
+  });
 });
