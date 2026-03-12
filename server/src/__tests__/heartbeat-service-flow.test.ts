@@ -1,4 +1,4 @@
-import { agentRuntimeState, agents, agentWakeupRequests, heartbeatRunLeases, heartbeatRuns } from "@squadrail/db";
+import { agentRuntimeState, agents, agentTaskSessions, agentWakeupRequests, heartbeatRunLeases, heartbeatRuns } from "@squadrail/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -337,6 +337,56 @@ describe("heartbeat service flow coverage", () => {
     ).resolves.toEqual({
       cancelledWakeupCount: 0,
       cancelledRunCount: 0,
+    });
+  });
+
+  it("ensures runtime state and prefers the latest task session display id", async () => {
+    const ensuredState = {
+      agentId: "agent-1",
+      companyId: "company-1",
+      adapterType: "codex_local",
+      sessionId: "runtime-session-1",
+      stateJson: {},
+      updatedAt: new Date("2026-03-12T12:00:00Z"),
+    };
+    const latestTaskSession = {
+      id: "task-session-1",
+      companyId: "company-1",
+      agentId: "agent-1",
+      adapterType: "codex_local",
+      taskKey: "issue:1",
+      sessionDisplayId: "task-session-display",
+      sessionParamsJson: { sessionId: "task-session-1" },
+      updatedAt: new Date("2026-03-12T12:05:00Z"),
+      createdAt: new Date("2026-03-12T12:00:00Z"),
+    };
+    const { db, insertValues } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agentRuntimeState, [[], []]],
+        [agents, [[makeAgent()]]],
+        [agentTaskSessions, [[latestTaskSession]]],
+      ]),
+      insertRows: new Map([
+        [agentRuntimeState, [[ensuredState]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const state = await service.getRuntimeState("agent-1");
+
+    expect(state).toMatchObject({
+      agentId: "agent-1",
+      sessionId: "runtime-session-1",
+      sessionDisplayId: "task-session-display",
+      sessionParamsJson: {
+        sessionId: "task-session-1",
+      },
+    });
+    expect(insertValues.find((entry) => entry.table === agentRuntimeState)?.value).toMatchObject({
+      agentId: "agent-1",
+      companyId: "company-1",
+      adapterType: "codex_local",
+      stateJson: {},
     });
   });
 });

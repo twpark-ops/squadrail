@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCombinedGraphMetrics,
+  buildRecipientFinalizationMetrics,
   buildRetrievalBriefDraft,
   buildRetrievalCompletionArtifacts,
   buildRecipientBriefEvidenceSummary,
@@ -597,6 +598,45 @@ describe("issue retrieval finalization builders", () => {
         "3": 1,
       },
       combinedGraphMaxDepth: 4,
+    });
+  });
+
+  it("builds recipient finalization metrics from graph and exact-path inputs", () => {
+    expect(
+      buildRecipientFinalizationMetrics({
+        finalHits: [
+          makeHit(),
+          makeHit({
+            chunkId: "chunk-2",
+            path: "src/retry_test.ts",
+            graphMetadata: null,
+          }),
+        ],
+        chunkGraphResult: {
+          hits: [],
+          edgeTraversalCount: 3,
+          graphMaxDepth: 2,
+          graphHopDepthCounts: { "1": 1, "2": 1 },
+          graphEntityTypeCounts: {},
+        },
+        symbolGraphResult: {
+          hits: [makeHit({ chunkId: "chunk-3" })],
+          edgeTraversalCount: 2,
+          edgeTypeCounts: { calls: 2 },
+          graphMaxDepth: 3,
+          graphHopDepthCounts: { "1": 1, "3": 1 },
+        },
+        exactPaths: ["src/retry.ts"],
+      }),
+    ).toMatchObject({
+      briefGraphHits: [expect.objectContaining({ chunkId: "chunk-1" })],
+      symbolGraphHitCount: 1,
+      edgeTraversalCount: 5,
+      edgeTypeCounts: { calls: 2 },
+      graphMaxDepth: 3,
+      graphHopDepthCounts: { "1": 2, "2": 1, "3": 1 },
+      multiHopGraphHitCount: 1,
+      exactPathSatisfied: true,
     });
   });
 

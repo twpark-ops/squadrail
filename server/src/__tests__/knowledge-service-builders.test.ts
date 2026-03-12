@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDeprecatedDocumentMetadata,
   buildMinimalCodeGraphFromChunks,
   buildKnowledgeDocumentVersionValues,
+  buildProjectKnowledgeRevisionValues,
   buildRetrievalPolicyUpdateSet,
   buildRetrievalPolicyValues,
   buildRetrievalRunValues,
@@ -139,6 +141,62 @@ describe("knowledge service builders", () => {
       allowedAuthorityLevels: ["canonical", "working"],
       metadata: { source: "custom" },
       updatedAt,
+    });
+  });
+
+  it("builds project knowledge revision values with merged metadata and bump semantics", () => {
+    const now = new Date("2026-03-13T08:00:00Z");
+    expect(buildProjectKnowledgeRevisionValues({
+      companyId: "company-1",
+      projectId: "project-1",
+      existing: {
+        revision: 4,
+        lastHeadSha: "old-head",
+        lastTreeSignature: "old-tree",
+        lastImportMode: "bootstrap",
+        metadata: {
+          source: "previous",
+        },
+      },
+      bump: true,
+      headSha: "new-head",
+      metadata: {
+        source: "sync",
+        actor: "test",
+      },
+      now,
+    })).toMatchObject({
+      companyId: "company-1",
+      projectId: "project-1",
+      revision: 5,
+      lastHeadSha: "new-head",
+      lastTreeSignature: "old-tree",
+      lastImportMode: "bootstrap",
+      metadata: {
+        source: "sync",
+        actor: "test",
+      },
+      updatedAt: now,
+      lastImportedAt: now,
+    });
+  });
+
+  it("builds deprecated metadata patches without dropping prior flags", () => {
+    expect(buildDeprecatedDocumentMetadata({
+      existingMetadata: {
+        existing: true,
+      },
+      metadata: {
+        source: "sync",
+      },
+      reason: "bootstrap_removed",
+      deprecatedAt: "2026-03-13T08:00:00.000Z",
+    })).toEqual({
+      existing: true,
+      source: "sync",
+      deprecatedReason: "bootstrap_removed",
+      deprecatedAt: "2026-03-13T08:00:00.000Z",
+      isLatestForScope: false,
     });
   });
 

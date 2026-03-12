@@ -242,6 +242,52 @@ export interface HeartbeatQueuedRunPrioritySelection<T extends {
   preemptedRunIds: string[];
 }
 
+export function buildDispatchPrioritySelectionDetails(input: {
+  priorityClass: "critical" | "high" | "normal" | "low";
+  issuePriority: IssuePriority | null;
+  ageBoost: number;
+  preemptedRunIds: string[];
+}) {
+  return {
+    priorityClass: input.priorityClass,
+    issuePriority: input.issuePriority,
+    ageBoost: input.ageBoost,
+    preemptedRunIds: input.preemptedRunIds,
+  };
+}
+
+export function buildDispatchPriorityContextSnapshot(input: {
+  existingContext: Record<string, unknown>;
+  selection: Pick<
+    HeartbeatQueuedRunPrioritySelection<{
+      id: string;
+      createdAt: Date | string;
+      contextSnapshot: Record<string, unknown> | null | undefined;
+    }>,
+    "issuePriority" | "priorityClass" | "ageBoost" | "queuedForMs" | "preemptedRunIds"
+  >;
+  selectedAt?: Date;
+}) {
+  const selectedAt = input.selectedAt ?? new Date();
+  return {
+    ...input.existingContext,
+    ...(input.selection.issuePriority ? { issuePriority: input.selection.issuePriority } : {}),
+    dispatchPriorityClass: input.selection.priorityClass,
+    dispatchPriorityAgeBoost: input.selection.ageBoost,
+    dispatchPriorityQueuedForMs: input.selection.queuedForMs,
+    dispatchPrioritySelectedAt: selectedAt.toISOString(),
+    ...(input.selection.preemptedRunIds.length > 0
+      ? {
+          dispatchPreemption: {
+            preempted: true,
+            selectedAt: selectedAt.toISOString(),
+            ...buildDispatchPrioritySelectionDetails(input.selection),
+          },
+        }
+      : {}),
+  } satisfies Record<string, unknown>;
+}
+
 export function prioritizeQueuedRunsForDispatch<T extends {
   id: string;
   createdAt: Date | string;
@@ -1277,26 +1323,11 @@ export function heartbeatService(db: Db) {
     selection: HeartbeatQueuedRunPrioritySelection<typeof heartbeatRuns.$inferSelect>;
   }) {
     const now = new Date();
-    const existingContext = parseObject(input.run.contextSnapshot);
-    const nextContext = {
-      ...existingContext,
-      ...(input.selection.issuePriority ? { issuePriority: input.selection.issuePriority } : {}),
-      dispatchPriorityClass: input.selection.priorityClass,
-      dispatchPriorityAgeBoost: input.selection.ageBoost,
-      dispatchPriorityQueuedForMs: input.selection.queuedForMs,
-      dispatchPrioritySelectedAt: now.toISOString(),
-      ...(input.selection.preemptedRunIds.length > 0
-        ? {
-            dispatchPreemption: {
-              preempted: true,
-              selectedAt: now.toISOString(),
-              priorityClass: input.selection.priorityClass,
-              issuePriority: input.selection.issuePriority,
-              preemptedRunIds: input.selection.preemptedRunIds,
-            },
-          }
-        : {}),
-    } satisfies Record<string, unknown>;
+    const nextContext = buildDispatchPriorityContextSnapshot({
+      existingContext: parseObject(input.run.contextSnapshot),
+      selection: input.selection,
+      selectedAt: now,
+    });
 
     const updatedRun = await db
       .update(heartbeatRuns)
@@ -1314,12 +1345,7 @@ export function heartbeatService(db: Db) {
         stream: "system",
         level: "info",
         message: "dispatch selected higher-priority work ahead of older queued runs",
-        payload: {
-          priorityClass: input.selection.priorityClass,
-          issuePriority: input.selection.issuePriority,
-          ageBoost: input.selection.ageBoost,
-          preemptedRunIds: input.selection.preemptedRunIds,
-        },
+        payload: buildDispatchPrioritySelectionDetails(input.selection),
       });
 
       if (input.selection.issueId) {
@@ -1332,12 +1358,7 @@ export function heartbeatService(db: Db) {
           action: "heartbeat.dispatch.priority_preempted",
           entityType: "issue",
           entityId: input.selection.issueId,
-          details: {
-            priorityClass: input.selection.priorityClass,
-            issuePriority: input.selection.issuePriority,
-            ageBoost: input.selection.ageBoost,
-            preemptedRunIds: input.selection.preemptedRunIds,
-          },
+          details: buildDispatchPrioritySelectionDetails(input.selection),
         });
       }
     }

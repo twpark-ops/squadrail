@@ -125,6 +125,16 @@
     - `pnpm --filter @squadrail/server test`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `38.20%`, branches `65.03%`, functions `62.04%`
+- `2026-03-13 heartbeat / issue-retrieval / knowledge coverage + decomposition` 1차 진행
+  - `heartbeat.ts`에서 dispatch preemption context/detail builder seam을 추출하고 runtime state service test를 추가했다.
+  - `issue-retrieval.ts`에서 finalization graph/exact-path metric builder seam을 추출하고 direct test를 추가했다.
+  - `knowledge.ts`에서 project revision / document deprecation builder seam을 추출하고 `createDocument`, `touchProjectKnowledgeRevision` service test를 추가했다.
+  - 검증:
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-priority.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-retrieval-finalization.test.ts src/__tests__/knowledge-service-builders.test.ts src/__tests__/knowledge-service-operations.test.ts`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `38.49%`, branches `65.14%`, functions `62.42%`
 - `cross-issue memory reuse`는 2026-03-12 세션에서 완료됐다.
   - related issue identifier 추출, prior issue artifact boost, reuse trace surface, reuse quality metric을 retrieval/knowledge 표면에 연결했다.
   - `server/src/services/retrieval/query.ts`, `server/src/services/retrieval/quality.ts`를 추가했고 `issue-retrieval`, `shared`, `scoring`, `knowledge`를 같이 갱신했다.
@@ -157,7 +167,7 @@
 #### Slice D1. Heartbeat Service Hardening
 
 1. `heartbeat.ts` queued selection / dispatch / session resume / follow-up wakeup 경계를 pure helper 또는 smaller service seam으로 더 분리
-2. queued/preempted/retry/operator-required 흐름을 direct service test로 추가
+2. queued/preempted/retry/operator-required 흐름을 direct service test로 더 추가
 3. event trace / activity log / starvation guard regression을 test로 고정
 
 #### Slice D2. Issue Retrieval Finalization Hardening
@@ -169,7 +179,7 @@
 #### Slice D3. Knowledge Service Path Hardening
 
 1. `knowledge.ts`의 document version / retrieval policy / run summary / debug merge 경로를 더 작은 builder seam으로 분리
-2. DB-backed service path 테스트를 추가해 route test가 못 막는 drift를 줄이기
+2. `createDocument` / `replaceDocumentChunks` / cache state inspection 중심 DB-backed service path 테스트를 더 추가해 route test가 못 막는 drift를 줄이기
 3. quality trend / policy / retrieval run aggregation의 edge case를 직접 고정
 
 #### Slice D4. Operator Integration Scenario
