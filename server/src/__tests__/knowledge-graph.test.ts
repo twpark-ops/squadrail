@@ -73,4 +73,66 @@ describe("knowledge graph view helper", () => {
       ]),
     );
   });
+
+  it("aggregates duplicate entity weights and omits project edges for unscoped documents", () => {
+    const graph = buildKnowledgeGraphView({
+      companyId: "company-1",
+      projectId: "project-1",
+      projects: [],
+      documents: [
+        {
+          documentId: "doc-1",
+          projectId: null,
+          projectName: null,
+          title: null,
+          path: "docs/runbook.md",
+          sourceType: "note",
+          authorityLevel: "human",
+          language: "md",
+          chunkCount: 2,
+          linkCount: 1,
+        },
+      ],
+      entityEdges: [
+        {
+          documentId: "doc-1",
+          entityType: "symbol_reference",
+          entityId: "resumeSession",
+          weight: 1,
+        },
+        {
+          documentId: "doc-1",
+          entityType: "symbol_reference",
+          entityId: "resumeSession",
+          weight: 4,
+        },
+      ],
+      generatedAt: "2026-03-12T01:00:00.000Z",
+    });
+
+    expect(graph.projectId).toBe("project-1");
+    expect(graph.summary).toEqual({
+      projectNodeCount: 0,
+      documentNodeCount: 1,
+      entityNodeCount: 1,
+      edgeCount: 2,
+    });
+    expect(graph.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "document:doc-1",
+        label: "docs/runbook.md",
+        secondaryLabel: "note · md · human",
+      }),
+      expect.objectContaining({
+        id: "entity:symbol_reference:resumeSession",
+        secondaryLabel: "symbol reference",
+        metric: 5,
+      }),
+    ]));
+    expect(graph.edges).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "project_document",
+      }),
+    ]));
+  });
 });

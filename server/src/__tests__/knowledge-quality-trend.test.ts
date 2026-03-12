@@ -126,4 +126,64 @@ describe("knowledge quality daily trend", () => {
       },
     });
   });
+
+  it("ignores out-of-window samples and empty dimensions while preserving empty buckets", () => {
+    const trend = buildKnowledgeQualityDailyTrend({
+      days: 2,
+      now: new Date("2026-03-11T00:00:00Z"),
+      samples: [
+        {
+          createdAt: new Date("2026-03-11T03:00:00Z"),
+          lowConfidence: false,
+          graphExpanded: false,
+          multiHopGraphExpanded: false,
+          candidateCacheHit: false,
+          finalCacheHit: false,
+          personalized: false,
+          reused: false,
+          actorRole: null,
+          issueProjectId: null,
+          topHitSourceType: null,
+          candidateCacheReason: null,
+          finalCacheReason: null,
+          candidateCacheProvenance: null,
+          finalCacheProvenance: null,
+        },
+        {
+          createdAt: new Date("2026-03-08T23:59:59Z"),
+          lowConfidence: true,
+          graphExpanded: true,
+          multiHopGraphExpanded: true,
+          candidateCacheHit: true,
+          finalCacheHit: true,
+          personalized: true,
+          reused: true,
+          actorRole: "reviewer",
+          issueProjectId: "project-old",
+          topHitSourceType: "review",
+          candidateCacheReason: "hit",
+          finalCacheReason: "hit",
+          candidateCacheProvenance: "exact_key",
+          finalCacheProvenance: "exact_key",
+        },
+      ],
+    });
+
+    expect(trend).toHaveLength(2);
+    expect(trend[0]).toMatchObject({
+      date: "2026-03-10",
+      totalRuns: 0,
+      roleCounts: {},
+      projectCounts: {},
+    });
+    expect(trend[1]).toMatchObject({
+      date: "2026-03-11",
+      totalRuns: 1,
+      roleCounts: {},
+      projectCounts: {},
+      topHitSourceTypeCounts: {},
+      candidateCacheReasonCounts: {},
+      finalCacheReasonCounts: {},
+    });
+  });
 });
