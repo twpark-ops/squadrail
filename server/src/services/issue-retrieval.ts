@@ -1225,6 +1225,152 @@ export function buildTaskBriefContentJson(input: {
   };
 }
 
+export function buildRetrievalBriefDraft(input: {
+  eventType: RetrievalEventType;
+  triggeringMessageId: string;
+  recipientRole: string;
+  issue: {
+    identifier: string | null;
+    title: string;
+  };
+  message: CreateIssueProtocolMessage;
+  queryText: string;
+  executionLane: ExecutionLane;
+  dynamicSignals: RetrievalSignals;
+  quality: BriefQualitySummary;
+  hits: RetrievalHitView[];
+  maxEvidenceItems: number;
+}) {
+  const briefScope = deriveBriefScope({
+    eventType: input.eventType,
+    recipientRole: input.recipientRole,
+  });
+
+  return {
+    briefScope,
+    contentMarkdown: renderRetrievedBriefMarkdown({
+      briefScope,
+      issue: input.issue,
+      message: input.message,
+      queryText: input.queryText,
+      hits: input.hits,
+      maxEvidenceItems: input.maxEvidenceItems,
+    }),
+    contentJson: buildTaskBriefContentJson({
+      eventType: input.eventType,
+      triggeringMessageId: input.triggeringMessageId,
+      executionLane: input.executionLane,
+      queryText: input.queryText,
+      dynamicSignals: input.dynamicSignals,
+      quality: input.quality,
+      hits: input.hits,
+    }),
+  };
+}
+
+export function buildRetrievalCompletionArtifacts(input: {
+  companyId: string;
+  issueId: string;
+  retrievalRunId: string;
+  triggeringMessageId: string;
+  recipientRole: string;
+  recipientId: string;
+  executionLane: ExecutionLane;
+  brief: {
+    id: string;
+    briefScope: string;
+    briefVersion: number;
+    contentMarkdown: string;
+  };
+  finalHits: RetrievalHitView[];
+  briefQuality: BriefQualitySummary;
+  relatedIssueIds: string[];
+  relatedIssueIdentifiers: string[];
+  reuseSummary: RetrievalReuseSummary | null;
+  graphSeeds: Array<{ entityType: string }>;
+  symbolGraphSeeds: Array<unknown>;
+  briefGraphHits: RetrievalHitView[];
+  symbolGraphHitCount: number;
+  edgeTraversalCount: number;
+  edgeTypeCounts: Record<string, number>;
+  graphMaxDepth: number;
+  graphHopDepthCounts: Record<string, number>;
+  multiHopGraphHitCount: number;
+  temporalContext: Record<string, unknown> | null;
+  queryEmbeddingCacheHit: boolean;
+  candidateCacheHit: boolean;
+  finalCacheHit: boolean;
+  revisionSignature: string | null;
+  candidateCacheInspection: RetrievalCacheInspectionSummary;
+  finalCacheInspection: RetrievalCacheInspectionSummary;
+  exactPathSatisfied: boolean;
+  personalizationProfile: RetrievalPersonalizationProfile;
+  maxEvidenceItems: number;
+}) {
+  const retrievalRunDebugPatch = buildRetrievalRunDebugPatch({
+    quality: input.briefQuality,
+    finalHits: input.finalHits,
+    relatedIssueIds: input.relatedIssueIds,
+    relatedIssueIdentifiers: input.relatedIssueIdentifiers,
+    reuseSummary: input.reuseSummary,
+    graphSeeds: input.graphSeeds,
+    symbolGraphSeeds: input.symbolGraphSeeds,
+    briefGraphHits: input.briefGraphHits,
+    symbolGraphHitCount: input.symbolGraphHitCount,
+    edgeTraversalCount: input.edgeTraversalCount,
+    edgeTypeCounts: input.edgeTypeCounts,
+    graphMaxDepth: input.graphMaxDepth,
+    graphHopDepthCounts: input.graphHopDepthCounts,
+    multiHopGraphHitCount: input.multiHopGraphHitCount,
+    temporalContext: input.temporalContext,
+    queryEmbeddingCacheHit: input.queryEmbeddingCacheHit,
+    candidateCacheHit: input.candidateCacheHit,
+    finalCacheHit: input.finalCacheHit,
+    revisionSignature: input.revisionSignature,
+    candidateCacheInspection: input.candidateCacheInspection,
+    finalCacheInspection: input.finalCacheInspection,
+    exactPathSatisfied: input.exactPathSatisfied,
+    personalizationProfile: input.personalizationProfile,
+  });
+
+  return {
+    retrievalRunDebugPatch,
+    activityDetails: buildRetrievalRunCompletionActivityDetails({
+      retrievalRunId: input.retrievalRunId,
+      triggeringMessageId: input.triggeringMessageId,
+      recipientRole: input.recipientRole,
+      recipientId: input.recipientId,
+      hitCount: input.finalHits.length,
+      briefQuality: input.briefQuality,
+      briefId: input.brief.id,
+      briefScope: input.brief.briefScope,
+    }),
+    completionEvents: buildRetrievalRunCompletionEvents({
+      companyId: input.companyId,
+      issueId: input.issueId,
+      retrievalRunId: input.retrievalRunId,
+      recipientRole: input.recipientRole,
+      recipientId: input.recipientId,
+      hitCount: input.finalHits.length,
+      briefQuality: input.briefQuality,
+      briefId: input.brief.id,
+      briefScope: input.brief.briefScope,
+      briefVersion: input.brief.briefVersion,
+    }),
+    recipientHint: buildRecipientRetrievalHint({
+      recipientId: input.recipientId,
+      recipientRole: input.recipientRole,
+      executionLane: input.executionLane,
+      retrievalRunId: input.retrievalRunId,
+      briefId: input.brief.id,
+      briefScope: input.brief.briefScope,
+      briefContentMarkdown: input.brief.contentMarkdown,
+      hits: input.finalHits,
+      maxEvidenceItems: input.maxEvidenceItems,
+    }),
+  };
+}
+
 export function buildCombinedGraphMetrics(
   chunkGraphResult: ChunkGraphExpansionResult,
   symbolGraphResult: {
@@ -3904,56 +4050,62 @@ export function issueRetrievalService(db: Db) {
           });
         }
 
-        const briefScope = deriveBriefScope({
-          eventType,
-          recipientRole: recipient.role,
-        });
-        console.log("[RETRIEVAL] Brief scope:", briefScope);
         const resolvedBriefQuality = briefQuality;
         const briefGraphHits = finalHits.filter((hit) => hit.graphMetadata != null);
         const briefGraphMetrics = buildCombinedGraphMetrics(chunkGraphResult, symbolGraphResult);
         const briefMultiHopGraphHitCount = finalHits.filter((hit) => (hit.graphMetadata?.hopDepth ?? 1) > 1).length;
+        const briefDraft = buildRetrievalBriefDraft({
+          eventType,
+          triggeringMessageId: input.triggeringMessageId,
+          recipientRole: recipient.role,
+          issue: input.issue,
+          message: input.message,
+          queryText,
+          executionLane,
+          dynamicSignals,
+          quality: briefQuality,
+          hits: finalHits,
+          maxEvidenceItems: lanePolicy.maxEvidenceItems,
+        });
 
-        const latestBrief = await knowledge.getLatestTaskBrief(input.issueId, briefScope);
+        const latestBrief = await knowledge.getLatestTaskBrief(input.issueId, briefDraft.briefScope);
         const brief = await knowledge.createTaskBrief({
           companyId: input.companyId,
           issueId: input.issueId,
-          briefScope,
+          briefScope: briefDraft.briefScope,
           briefVersion: (latestBrief?.briefVersion ?? 0) + 1,
           generatedFromMessageSeq: input.triggeringMessageSeq,
           workflowState: input.message.workflowStateAfter,
-          contentMarkdown: renderRetrievedBriefMarkdown({
-            briefScope,
-            issue: input.issue,
-            message: input.message,
-            queryText,
-            hits: finalHits,
-            maxEvidenceItems: lanePolicy.maxEvidenceItems,
-          }),
-          contentJson: buildTaskBriefContentJson({
-            eventType,
-            triggeringMessageId: input.triggeringMessageId,
-            executionLane,
-            queryText,
-            dynamicSignals,
-            quality: briefQuality,
-            hits: finalHits,
-          }),
+          contentMarkdown: briefDraft.contentMarkdown,
+          contentJson: briefDraft.contentJson,
           retrievalRunId: retrievalRun.id,
         });
 
         console.log("[RETRIEVAL] Brief created:", {
           briefId: brief.id,
-          briefScope,
+          briefScope: briefDraft.briefScope,
           briefVersion: brief.briefVersion,
           hitCount: finalHits.length,
           retrievalRunId: retrievalRun.id,
         });
 
         await knowledge.linkRetrievalRunToBrief(retrievalRun.id, brief.id);
-        const retrievalRunDebugPatch = buildRetrievalRunDebugPatch({
-          quality: resolvedBriefQuality,
+        const completionArtifacts = buildRetrievalCompletionArtifacts({
+          companyId: input.companyId,
+          issueId: input.issueId,
+          retrievalRunId: retrievalRun.id,
+          triggeringMessageId: input.triggeringMessageId,
+          recipientRole: recipient.role,
+          recipientId: recipient.recipientId,
+          executionLane,
+          brief: {
+            id: brief.id,
+            briefScope: briefDraft.briefScope,
+            briefVersion: brief.briefVersion,
+            contentMarkdown: brief.contentMarkdown,
+          },
           finalHits,
+          briefQuality: resolvedBriefQuality,
           relatedIssueIds,
           relatedIssueIdentifiers,
           reuseSummary,
@@ -3978,19 +4130,10 @@ export function issueRetrievalService(db: Db) {
             exactPaths: dynamicSignals.exactPaths,
           }),
           personalizationProfile,
+          maxEvidenceItems: lanePolicy.maxEvidenceItems,
         });
-        await knowledge.updateRetrievalRunDebug(retrievalRun.id, retrievalRunDebugPatch);
+        await knowledge.updateRetrievalRunDebug(retrievalRun.id, completionArtifacts.retrievalRunDebugPatch);
 
-        const activityDetails = buildRetrievalRunCompletionActivityDetails({
-          retrievalRunId: retrievalRun.id,
-          triggeringMessageId: input.triggeringMessageId,
-          recipientRole: recipient.role,
-          recipientId: recipient.recipientId,
-          hitCount: finalHits.length,
-          briefQuality: resolvedBriefQuality,
-          briefId: brief.id,
-          briefScope,
-        });
         await logActivity(db, {
           companyId: input.companyId,
           actorType: input.actor.actorType,
@@ -3998,34 +4141,12 @@ export function issueRetrievalService(db: Db) {
           action: "retrieval.run.completed",
           entityType: "issue",
           entityId: input.issueId,
-          details: activityDetails,
+          details: completionArtifacts.activityDetails,
         });
 
-        const completionEvents = buildRetrievalRunCompletionEvents({
-          companyId: input.companyId,
-          issueId: input.issueId,
-          retrievalRunId: retrievalRun.id,
-          recipientRole: recipient.role,
-          recipientId: recipient.recipientId,
-          hitCount: finalHits.length,
-          briefQuality: resolvedBriefQuality,
-          briefId: brief.id,
-          briefScope,
-          briefVersion: brief.briefVersion,
-        });
-        for (const event of completionEvents) publishLiveEvent(event);
+        for (const event of completionArtifacts.completionEvents) publishLiveEvent(event);
 
-        recipientHints.push(buildRecipientRetrievalHint({
-          recipientId: recipient.recipientId,
-          recipientRole: recipient.role,
-          executionLane,
-          retrievalRunId: retrievalRun.id,
-          briefId: brief.id,
-          briefScope,
-          briefContentMarkdown: brief.contentMarkdown,
-          hits: finalHits,
-          maxEvidenceItems: lanePolicy.maxEvidenceItems,
-        }));
+        recipientHints.push(completionArtifacts.recipientHint);
         retrievalRuns.push({
           retrievalRunId: retrievalRun.id,
           briefId: brief.id,

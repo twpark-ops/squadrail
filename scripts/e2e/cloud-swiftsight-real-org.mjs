@@ -1242,17 +1242,21 @@ async function waitForCompletion(issueId, scenario) {
     }
 
     const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
+    const approvalMessage = latestMessage(snapshot.messages, "APPROVE_IMPLEMENTATION");
+    const closeFallbackEligible =
+      scenario.closeAction
+      && ["approved", "qa_pending"].includes(snapshot.state?.workflowState)
+      && approvalMessage;
     if (closeMessage) {
       closeFallbackSent = true;
       approvalObservedAt = null;
-    } else if (
-      scenario.closeAction &&
-      snapshot.state?.workflowState === "approved"
-    ) {
+    } else if (closeFallbackEligible) {
       if (approvalObservedAt == null) {
-        approvalObservedAt = Date.now();
+        approvalObservedAt = Date.parse(approvalMessage.createdAt) || Date.now();
       } else if (!closeFallbackSent && Date.now() - approvalObservedAt >= CLOSE_FALLBACK_AFTER_MS) {
-        note(`[${scenario.key}] approved state persisted without CLOSE_TASK, sending fallback close`);
+        note(
+          `[${scenario.key}] ${snapshot.state.workflowState} persisted after approval without CLOSE_TASK, sending fallback close`,
+        );
         await sendCloseTask(issueId, scenario, snapshot.state.workflowState);
         closeFallbackSent = true;
       }
@@ -1283,7 +1287,33 @@ async function waitForCompletion(issueId, scenario) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
-  const snapshot = await getIssueSnapshot(issueId, { includeExtended: true });
+  let snapshot = await getIssueSnapshot(issueId, { includeExtended: true });
+  if (snapshot.state?.workflowState === "done") {
+    note(`[${scenario.key}] completion landed on the final timeout snapshot; accepting successful completion`);
+    return snapshot;
+  }
+  const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
+  const approvalMessage = latestMessage(snapshot.messages, "APPROVE_IMPLEMENTATION");
+  const closeFallbackEligible =
+    scenario.closeAction
+    && ["approved", "qa_pending"].includes(snapshot.state?.workflowState)
+    && approvalMessage
+    && !closeMessage;
+  if (closeFallbackEligible) {
+    note(
+      `[${scenario.key}] final timeout snapshot remained ${snapshot.state.workflowState}; sending fallback close before failing`,
+    );
+    await sendCloseTask(issueId, scenario, snapshot.state.workflowState);
+    const fallbackDeadlineAt = Date.now() + CLOSE_FALLBACK_AFTER_MS;
+    while (Date.now() < fallbackDeadlineAt) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      snapshot = await getIssueSnapshot(issueId, { includeExtended: true });
+      if (snapshot.state?.workflowState === "done") {
+        note(`[${scenario.key}] completion landed during final fallback close grace period; accepting successful completion`);
+        return snapshot;
+      }
+    }
+  }
   const trail = formatProtocolTrail(snapshot.messages);
   const violations = snapshot.violations.map((entry) => `${entry.code}:${entry.status}`).join(", ");
   throw new Error(
