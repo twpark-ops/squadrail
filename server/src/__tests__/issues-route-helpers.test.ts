@@ -118,4 +118,33 @@ describe("issue route helpers", () => {
       contentPath: "/api/attachments/attachment-1/content",
     });
   });
+
+  it("keeps reviewer/qa mention states and tech-lead titles consistent", () => {
+    expect(getAllowedProtocolRoles({ role: "manager", title: "Tech Lead / Reviewer" })).toEqual(
+      new Set(["manager", "tech_lead", "reviewer"]),
+    );
+
+    expect(buildMentionProtocolContext({
+      issue: { assigneeAgentId: "eng-1" },
+      mentionedAgentId: "eng-1",
+      protocolState: {
+        workflowState: "changes_requested",
+      },
+    })).toEqual({
+      protocolRecipientRole: "engineer",
+      protocolWorkflowStateAfter: "changes_requested",
+    });
+
+    expect(buildMentionProtocolContext({
+      issue: { assigneeAgentId: "eng-1" },
+      mentionedAgentId: "qa-1",
+      protocolState: {
+        workflowState: "under_qa_review",
+        qaAgentId: "qa-1",
+      },
+    })).toEqual({
+      protocolRecipientRole: "qa",
+      protocolWorkflowStateAfter: "under_qa_review",
+    });
+  });
 });

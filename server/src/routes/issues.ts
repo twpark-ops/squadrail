@@ -302,6 +302,244 @@ export function canManageTaskAssignmentsLegacy(agent: {
   return Boolean(permissions.canCreateAgents || permissions.canAssignTasks);
 }
 
+const PM_PROJECTION_SECTION_START = "<!-- squadrail:intake-projection:start -->";
+const PM_PROJECTION_SECTION_END = "<!-- squadrail:intake-projection:end -->";
+
+type IssueRouteAgentLookup = {
+  getById(agentId: string): Promise<{
+    id: string;
+    companyId: string;
+    name: string;
+    role: string;
+    status: string;
+    reportsTo: string | null;
+    title?: string | null;
+    permissions?: Record<string, unknown> | null | undefined;
+  } | null>;
+};
+
+export async function assertActiveCompanyAgentHelper(input: {
+  agentsSvc: IssueRouteAgentLookup;
+  companyId: string;
+  agentId: string;
+  label: "Assignee" | "Reviewer" | "Tech Lead" | "QA";
+}) {
+  const agent = await input.agentsSvc.getById(input.agentId);
+  if (!agent || agent.companyId !== input.companyId) {
+    throw notFound(`${input.label} agent not found`);
+  }
+  if (agent.status === "pending_approval") {
+    throw conflict(`Cannot assign ${input.label.toLowerCase()} to pending approval agents`);
+  }
+  if (agent.status === "terminated") {
+    throw conflict(`Cannot assign ${input.label.toLowerCase()} to terminated agents`);
+  }
+  return agent;
+}
+
+export async function assertInternalWorkItemAssigneeHelper(input: {
+  agentsSvc: IssueRouteAgentLookup;
+  companyId: string;
+  assigneeAgentId: string;
+}) {
+  const assignee = await assertActiveCompanyAgentHelper({
+    agentsSvc: input.agentsSvc,
+    companyId: input.companyId,
+    agentId: input.assigneeAgentId,
+    label: "Assignee",
+  });
+  const allowedRoles = getAllowedProtocolRoles(assignee);
+  if (allowedRoles.has("tech_lead")) {
+    return { agent: assignee, protocolRole: "tech_lead" as const };
+  }
+  if (allowedRoles.has("engineer")) {
+    return { agent: assignee, protocolRole: "engineer" as const };
+  }
+  throw unprocessable("Assignee agent must support engineer or tech_lead protocol role");
+}
+
+export async function assertInternalWorkItemReviewerHelper(input: {
+  agentsSvc: IssueRouteAgentLookup;
+  companyId: string;
+  reviewerAgentId: string;
+}) {
+  const reviewer = await assertActiveCompanyAgentHelper({
+    agentsSvc: input.agentsSvc,
+    companyId: input.companyId,
+    agentId: input.reviewerAgentId,
+    label: "Reviewer",
+  });
+  const allowedRoles = getAllowedProtocolRoles(reviewer);
+  if (!allowedRoles.has("reviewer")) {
+    throw unprocessable("Reviewer agent must support reviewer protocol role");
+  }
+  return reviewer;
+}
+
+export async function assertInternalWorkItemQaHelper(input: {
+  agentsSvc: IssueRouteAgentLookup;
+  companyId: string;
+  qaAgentId: string;
+}) {
+  const qaAgent = await assertActiveCompanyAgentHelper({
+    agentsSvc: input.agentsSvc,
+    companyId: input.companyId,
+    agentId: input.qaAgentId,
+    label: "QA",
+  });
+  const allowedRoles = getAllowedProtocolRoles(qaAgent);
+  if (!allowedRoles.has("qa")) {
+    throw unprocessable("QA agent must support qa protocol role");
+  }
+  return qaAgent;
+}
+
+export async function assertInternalWorkItemLeadSupervisorHelper(input: {
+  agentsSvc: IssueRouteAgentLookup;
+  companyId: string;
+  techLeadAgentId: string;
+}) {
+  const techLead = await assertActiveCompanyAgentHelper({
+    agentsSvc: input.agentsSvc,
+    companyId: input.companyId,
+    agentId: input.techLeadAgentId,
+    label: "Tech Lead",
+  });
+  const allowedRoles = getAllowedProtocolRoles(techLead);
+  if (!allowedRoles.has("tech_lead")) {
+    throw unprocessable("Lead supervisor agent must support tech_lead protocol role");
+  }
+  return techLead;
+}
+
+export async function buildTaskAssignmentSenderHelper(input: {
+  actor: Request["actor"];
+  actorInfo: ReturnType<typeof getActorInfo>;
+  companyId: string;
+  agentsSvc: IssueRouteAgentLookup;
+}) {
+  if (input.actor.type === "board") {
+    return {
+      actorType: "user" as const,
+      actorId: input.actorInfo.actorId,
+      role: "human_board" as const,
+    };
+  }
+
+  if (!input.actor.agentId) {
+    throw forbidden("Agent authentication required");
+  }
+
+  const agent = await input.agentsSvc.getById(input.actor.agentId);
+  if (!agent || agent.companyId !== input.companyId) {
+    throw forbidden("Agent not found");
+  }
+
+  if (agent.role === "cto") {
+    return { actorType: "agent" as const, actorId: agent.id, role: "cto" as const };
+  }
+  if (agent.role === "pm") {
+    return { actorType: "agent" as const, actorId: agent.id, role: "pm" as const };
+  }
+  if (agent.role === "tech_lead" || agent.role === "manager" || /tech lead/i.test(agent.title ?? "")) {
+    return { actorType: "agent" as const, actorId: agent.id, role: "tech_lead" as const };
+  }
+
+  throw forbidden("Agent cannot create internal work items through protocol assignment");
+}
+
+export function buildInternalWorkItemLabelNames(input: {
+  kind: "plan" | "implementation" | "review" | "qa";
+  watchReviewer?: boolean;
+  watchLead?: boolean;
+}) {
+  return [
+    "team:internal",
+    input.kind === "plan"
+      ? "work:plan"
+      : input.kind === "implementation"
+        ? "work:implementation"
+        : input.kind === "review"
+          ? "work:review"
+          : "work:qa",
+    ...(input.watchReviewer === false ? [] : ["watch:reviewer"]),
+    ...(input.watchLead === false ? [] : ["watch:lead"]),
+  ];
+}
+
+export function replaceMarkedSection(input: {
+  description: string | null | undefined;
+  content: string;
+}) {
+  const existing = (input.description ?? "").trim();
+  const nextSection = [
+    PM_PROJECTION_SECTION_START,
+    input.content.trim(),
+    PM_PROJECTION_SECTION_END,
+  ].join("\n");
+
+  if (!existing) return nextSection;
+
+  const pattern = new RegExp(
+    `${PM_PROJECTION_SECTION_START}[\\s\\S]*?${PM_PROJECTION_SECTION_END}\\n*`,
+    "g",
+  );
+  const withoutOld = existing.replace(pattern, "").trim();
+  return [withoutOld, nextSection].filter(Boolean).join("\n\n");
+}
+
+export function buildPmProjectionRootDescription(input: {
+  requestDescription: string | null | undefined;
+  projectName: string | null;
+  techLeadName: string;
+  reviewerName: string;
+  qaName: string | null;
+  root: {
+    executionSummary: string;
+    acceptanceCriteria: string[];
+    definitionOfDone: string[];
+    risks?: string[];
+    openQuestions?: string[];
+    documentationDebt?: string[];
+  };
+}) {
+  const lines = [
+    "## Intake Structuring Snapshot",
+    "",
+    `- Routed to TL: ${input.techLeadName}`,
+    `- Reviewer: ${input.reviewerName}`,
+    `- QA gate: ${input.qaName ?? "not required"}`,
+    input.projectName ? `- Project: ${input.projectName}` : null,
+    "",
+    "### Execution Summary",
+    "",
+    input.root.executionSummary,
+    "",
+    "### Acceptance Criteria",
+    "",
+    ...input.root.acceptanceCriteria.map((item) => `- ${item}`),
+    "",
+    "### Definition of Done",
+    "",
+    ...input.root.definitionOfDone.map((item) => `- ${item}`),
+  ].filter((line): line is string => line !== null);
+
+  if (input.root.risks && input.root.risks.length > 0) {
+    lines.push("", "### Risks", "", ...input.root.risks.map((item) => `- ${item}`));
+  }
+  if (input.root.openQuestions && input.root.openQuestions.length > 0) {
+    lines.push("", "### Open Questions", "", ...input.root.openQuestions.map((item) => `- ${item}`));
+  }
+  if (input.root.documentationDebt && input.root.documentationDebt.length > 0) {
+    lines.push("", "### Documentation Debt", "", ...input.root.documentationDebt.map((item) => `- ${item}`));
+  }
+
+  return replaceMarkedSection({
+    description: input.requestDescription,
+    content: lines.join("\n"),
+  });
+}
+
 export function issueRoutes(db: Db, storage: StorageService) {
   const router = Router();
   const svc = issueService(db);
@@ -491,182 +729,52 @@ export function issueRoutes(db: Db, storage: StorageService) {
     agentId: string,
     label: "Assignee" | "Reviewer" | "Tech Lead" | "QA",
   ) {
-    const agent = await agentsSvc.getById(agentId);
-    if (!agent || agent.companyId !== companyId) {
-      throw notFound(`${label} agent not found`);
-    }
-    if (agent.status === "pending_approval") {
-      throw conflict(`Cannot assign ${label.toLowerCase()} to pending approval agents`);
-    }
-    if (agent.status === "terminated") {
-      throw conflict(`Cannot assign ${label.toLowerCase()} to terminated agents`);
-    }
-    return agent;
+    return assertActiveCompanyAgentHelper({
+      agentsSvc,
+      companyId,
+      agentId,
+      label,
+    });
   }
 
   async function assertInternalWorkItemAssignee(companyId: string, assigneeAgentId: string) {
-    const assignee = await assertActiveCompanyAgent(companyId, assigneeAgentId, "Assignee");
-    const allowedRoles = getAllowedProtocolRoles(assignee);
-    if (allowedRoles.has("tech_lead")) {
-      return { agent: assignee, protocolRole: "tech_lead" as const };
-    }
-    if (allowedRoles.has("engineer")) {
-      return { agent: assignee, protocolRole: "engineer" as const };
-    }
-    throw unprocessable("Assignee agent must support engineer or tech_lead protocol role");
+    return assertInternalWorkItemAssigneeHelper({
+      agentsSvc,
+      companyId,
+      assigneeAgentId,
+    });
   }
 
   async function assertInternalWorkItemReviewer(companyId: string, reviewerAgentId: string) {
-    const reviewer = await assertActiveCompanyAgent(companyId, reviewerAgentId, "Reviewer");
-    const allowedRoles = getAllowedProtocolRoles(reviewer);
-    if (!allowedRoles.has("reviewer")) {
-      throw unprocessable("Reviewer agent must support reviewer protocol role");
-    }
-    return reviewer;
+    return assertInternalWorkItemReviewerHelper({
+      agentsSvc,
+      companyId,
+      reviewerAgentId,
+    });
   }
 
   async function assertInternalWorkItemQa(companyId: string, qaAgentId: string) {
-    const qaAgent = await assertActiveCompanyAgent(companyId, qaAgentId, "QA");
-    const allowedRoles = getAllowedProtocolRoles(qaAgent);
-    if (!allowedRoles.has("qa")) {
-      throw unprocessable("QA agent must support qa protocol role");
-    }
-    return qaAgent;
+    return assertInternalWorkItemQaHelper({
+      agentsSvc,
+      companyId,
+      qaAgentId,
+    });
   }
 
   async function assertInternalWorkItemLeadSupervisor(companyId: string, techLeadAgentId: string) {
-    const techLead = await assertActiveCompanyAgent(companyId, techLeadAgentId, "Tech Lead");
-    const allowedRoles = getAllowedProtocolRoles(techLead);
-    if (!allowedRoles.has("tech_lead")) {
-      throw unprocessable("Lead supervisor agent must support tech_lead protocol role");
-    }
-    return techLead;
+    return assertInternalWorkItemLeadSupervisorHelper({
+      agentsSvc,
+      companyId,
+      techLeadAgentId,
+    });
   }
 
   async function buildTaskAssignmentSender(req: Request, companyId: string): Promise<CreateIssueProtocolMessage["sender"]> {
-    const actor = getActorInfo(req);
-    if (req.actor.type === "board") {
-      return {
-        actorType: "user",
-        actorId: actor.actorId,
-        role: "human_board",
-      };
-    }
-
-    if (!req.actor.agentId) {
-      throw forbidden("Agent authentication required");
-    }
-
-    const agent = await agentsSvc.getById(req.actor.agentId);
-    if (!agent || agent.companyId !== companyId) {
-      throw forbidden("Agent not found");
-    }
-
-    if (agent.role === "cto") {
-      return { actorType: "agent", actorId: agent.id, role: "cto" };
-    }
-    if (agent.role === "pm") {
-      return { actorType: "agent", actorId: agent.id, role: "pm" };
-    }
-    if (agent.role === "tech_lead" || agent.role === "manager" || /tech lead/i.test(agent.title ?? "")) {
-      return { actorType: "agent", actorId: agent.id, role: "tech_lead" };
-    }
-
-    throw forbidden("Agent cannot create internal work items through protocol assignment");
-  }
-
-  const PM_PROJECTION_SECTION_START = "<!-- squadrail:intake-projection:start -->";
-  const PM_PROJECTION_SECTION_END = "<!-- squadrail:intake-projection:end -->";
-
-  function buildInternalWorkItemLabelNames(input: {
-    kind: "plan" | "implementation" | "review" | "qa";
-    watchReviewer?: boolean;
-    watchLead?: boolean;
-  }) {
-    return [
-      "team:internal",
-      input.kind === "plan"
-        ? "work:plan"
-        : input.kind === "implementation"
-          ? "work:implementation"
-          : input.kind === "review"
-            ? "work:review"
-            : "work:qa",
-      ...(input.watchReviewer === false ? [] : ["watch:reviewer"]),
-      ...(input.watchLead === false ? [] : ["watch:lead"]),
-    ];
-  }
-
-  function replaceMarkedSection(input: {
-    description: string | null | undefined;
-    content: string;
-  }) {
-    const existing = (input.description ?? "").trim();
-    const nextSection = [
-      PM_PROJECTION_SECTION_START,
-      input.content.trim(),
-      PM_PROJECTION_SECTION_END,
-    ].join("\n");
-
-    if (!existing) return nextSection;
-
-    const pattern = new RegExp(
-      `${PM_PROJECTION_SECTION_START}[\\s\\S]*?${PM_PROJECTION_SECTION_END}\\n*`,
-      "g",
-    );
-    const withoutOld = existing.replace(pattern, "").trim();
-    return [withoutOld, nextSection].filter(Boolean).join("\n\n");
-  }
-
-  function buildPmProjectionRootDescription(input: {
-    requestDescription: string | null | undefined;
-    projectName: string | null;
-    techLeadName: string;
-    reviewerName: string;
-    qaName: string | null;
-    root: {
-      executionSummary: string;
-      acceptanceCriteria: string[];
-      definitionOfDone: string[];
-      risks?: string[];
-      openQuestions?: string[];
-      documentationDebt?: string[];
-    };
-  }) {
-    const lines = [
-      "## Intake Structuring Snapshot",
-      "",
-      `- Routed to TL: ${input.techLeadName}`,
-      `- Reviewer: ${input.reviewerName}`,
-      `- QA gate: ${input.qaName ?? "not required"}`,
-      input.projectName ? `- Project: ${input.projectName}` : null,
-      "",
-      "### Execution Summary",
-      "",
-      input.root.executionSummary,
-      "",
-      "### Acceptance Criteria",
-      "",
-      ...input.root.acceptanceCriteria.map((item) => `- ${item}`),
-      "",
-      "### Definition of Done",
-      "",
-      ...input.root.definitionOfDone.map((item) => `- ${item}`),
-    ].filter((line): line is string => line !== null);
-
-    if (input.root.risks && input.root.risks.length > 0) {
-      lines.push("", "### Risks", "", ...input.root.risks.map((item) => `- ${item}`));
-    }
-    if (input.root.openQuestions && input.root.openQuestions.length > 0) {
-      lines.push("", "### Open Questions", "", ...input.root.openQuestions.map((item) => `- ${item}`));
-    }
-    if (input.root.documentationDebt && input.root.documentationDebt.length > 0) {
-      lines.push("", "### Documentation Debt", "", ...input.root.documentationDebt.map((item) => `- ${item}`));
-    }
-
-    return replaceMarkedSection({
-      description: input.requestDescription,
-      content: lines.join("\n"),
+    return buildTaskAssignmentSenderHelper({
+      actor: req.actor,
+      actorInfo: getActorInfo(req),
+      companyId,
+      agentsSvc,
     });
   }
 

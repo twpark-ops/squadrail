@@ -3,8 +3,10 @@ import {
   buildDeprecatedDocumentMetadata,
   buildKnowledgeChunkInsertValues,
   buildKnowledgeChunkLinkValues,
+  buildKnowledgeGraphView,
   buildMinimalCodeGraphFromChunks,
   buildKnowledgeDocumentVersionValues,
+  buildKnowledgeQualityDailyTrend,
   buildProjectKnowledgeRevisionValues,
   buildRetrievalPolicyUpdateSet,
   buildRetrievalPolicyValues,
@@ -327,5 +329,88 @@ describe("knowledge service builders", () => {
         mode: "minimal",
       },
     });
+  });
+
+  it("builds graph views and daily quality trend buckets", () => {
+    expect(buildKnowledgeGraphView({
+      companyId: "company-1",
+      projectId: "project-1",
+      projects: [{
+        projectId: "project-1",
+        projectName: "Retry API",
+        documentCount: 2,
+        linkCount: 3,
+      }],
+      documents: [{
+        documentId: "doc-1",
+        projectId: "project-1",
+        projectName: "Retry API",
+        title: "Retry design",
+        path: "docs/retry.md",
+        sourceType: "adr",
+        authorityLevel: "canonical",
+        language: "markdown",
+        chunkCount: 3,
+        linkCount: 2,
+      }],
+      entityEdges: [{
+        documentId: "doc-1",
+        entityType: "issue",
+        entityId: "CLO-1",
+        weight: 2,
+      }],
+      generatedAt: "2026-03-13T00:00:00.000Z",
+    })).toMatchObject({
+      summary: {
+        projectNodeCount: 1,
+        documentNodeCount: 1,
+        entityNodeCount: 1,
+        edgeCount: 2,
+      },
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ id: "project:project-1", kind: "project" }),
+        expect.objectContaining({ id: "document:doc-1", kind: "document" }),
+        expect.objectContaining({ id: "entity:issue:CLO-1", kind: "entity" }),
+      ]),
+    });
+
+    expect(buildKnowledgeQualityDailyTrend({
+      now: new Date("2026-03-13T00:00:00.000Z"),
+      days: 2,
+      samples: [{
+        createdAt: new Date("2026-03-13T10:00:00.000Z"),
+        lowConfidence: true,
+        graphExpanded: true,
+        multiHopGraphExpanded: false,
+        candidateCacheHit: true,
+        finalCacheHit: false,
+        personalized: true,
+        reused: true,
+        actorRole: "engineer",
+        issueProjectId: "project-1",
+        topHitSourceType: "code",
+        candidateCacheReason: "fresh",
+        finalCacheReason: "miss",
+        candidateCacheProvenance: "candidate_cache",
+        finalCacheProvenance: "recompute",
+      }],
+    } as never)).toEqual([
+      expect.objectContaining({
+        date: "2026-03-12",
+        totalRuns: 0,
+      }),
+      expect.objectContaining({
+        date: "2026-03-13",
+        totalRuns: 1,
+        lowConfidenceRuns: 1,
+        graphExpandedRuns: 1,
+        candidateCacheHits: 1,
+        personalizedRuns: 1,
+        reuseRuns: 1,
+        roleCounts: { engineer: 1 },
+        projectCounts: { "project-1": 1 },
+        topHitSourceTypeCounts: { code: 1 },
+      }),
+    ]);
   });
 });

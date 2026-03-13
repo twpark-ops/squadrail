@@ -10,8 +10,8 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`
-  - superseded on 2026-03-13 after `77.34%` coverage checkpoint; see latest status below.
+- open this handoff first, then continue immediately with `heartbeat / issue-retrieval / knowledge runtime service-body coverage uplift toward 80%`
+  - superseded on 2026-03-13 after `77.41%` coverage checkpoint; see latest status below.
 
 ## Current Status
 
@@ -27,7 +27,19 @@ One-line startup rule:
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 server tests: `170 files / 1058 tests` 통과
   - 최신 server coverage: statements/lines `77.34%`, branches `63.41%`, functions `91.34%`
-  - immediate next는 `heartbeat / issue-retrieval / knowledge / issues route` service-body direct path를 더 안쪽까지 끌어올려 `80%`를 넘기는 것이다.
+
+- `13-R. runtime bottleneck helper/service-body uplift`: 진행 중
+  - `issues.ts` internal work item / PM projection helper를 exported seam으로 분리하고 direct helper regression을 추가했다.
+  - `heartbeat-service-flow.test.ts`에 task-key scoped runtime reset과 `tickTimers` overdue agent dispatch path를 추가했다.
+  - `heartbeat-internal-helpers.test.ts`, `issue-retrieval-internal-helpers.test.ts`, `knowledge-service-builders.test.ts`를 확장해 heartbeat/retrieval/knowledge helper branch를 더 촘촘히 고정했다.
+  - 검증:
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-internal-helpers.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts src/__tests__/knowledge-service-builders.test.ts src/__tests__/issues-route-helpers.test.ts src/__tests__/issues-route-internal-ops.test.ts src/__tests__/issues-route-work-item-helpers.test.ts`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server tests: `171 files / 1073 tests` 통과
+  - 최신 server coverage: statements/lines `77.41%`, branches `63.87%`, functions `91.31%`
+  - helper seam 확대만으로는 총량이 거의 움직이지 않는 것이 확인됐고, immediate next는 `heartbeat / issue-retrieval / knowledge` service-body 통합 경로를 직접 목업하는 쪽으로 바뀌었다.
 
 - `13-P. coverage threshold push`: 완료
   - server coverage가 `60.11%`까지 올라가서 목표 기준 `60%`를 넘겼다.
@@ -149,14 +161,14 @@ One-line startup rule:
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - `130 files / 855 tests` 통과
   - server coverage `60.11%`
-- 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`
+- 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge runtime service-body coverage uplift toward 80%`
 
 ## Next Priorities
 
-1. `heartbeat.ts`의 `reapOrphanedRuns`, watchdog tail, runtime session/state path를 direct service test로 더 끌어올리기
-2. `issue-retrieval.ts`의 cache/revision/provenance/query orchestration path를 helper 안쪽 service-body 기준으로 확대하기
-3. `knowledge.ts`의 retrieval run/listRecentRetrievalRuns/task brief read path와 populated replace path를 더 메우기
-4. `issues.ts` operator/upload/approval helper와 mention/context branch를 route helper 회귀로 추가 고정하기
+1. `heartbeat.ts`의 `reapOrphanedRuns`, watchdog tail, cancel/finalize lifecycle을 service-body direct test로 추가하기
+2. `issue-retrieval.ts`의 `runForProtocolMessage` 성격 경로를 dependency-mocked integration test로 올리기
+3. `knowledge.ts`의 retrieval run / task brief / cache inspection tail을 service-body read/write test로 확대하기
+4. helper seam은 더 이상 1순위가 아니고, branch를 실제 public service method 기준으로 태우는 쪽을 우선하기
 5. 그 다음 `pnpm --filter @squadrail/server typecheck`, `build`, `test:coverage`를 다시 돌려 `80%` 달성 여부를 확인하기
 
 Interpretation:
@@ -166,15 +178,14 @@ Interpretation:
 
 ## Recommended First Task Next Session
 
-Start with `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`.
+Start with `heartbeat / issue-retrieval / knowledge runtime service-body coverage uplift toward 80%`.
 
 Suggested slice:
 
-1. `heartbeat.ts`는 `reapOrphanedRuns`, watchdog/reap finalization, runtime session normalization branch를 direct test로 늘리기
-2. `issue-retrieval.ts`는 related issue reuse + cache/revision/provenance path를 service-body에서 직접 고정하기
-3. `knowledge.ts`는 `listRecentRetrievalRuns`, `listTaskBriefs`, `replaceDocumentChunks` populated graph rebuild read/write path를 우선 메우기
-4. `issues.ts`는 mention/attachment/memory ingest/label ensure helper를 route 경계 없이 direct regression으로 추가 확장하기
-5. 마지막에 `pnpm --filter @squadrail/server typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
+1. `heartbeat.ts`는 `reapOrphanedRuns`, `tickTimers`, `cancelIssueScope`, `cancelActiveForAgent` 후속 finalization을 service-body에서 직접 고정하기
+2. `issue-retrieval.ts`는 recipient 준비 -> candidate stage -> final stage 최소 happy-path/zero-hit path를 dependency mock으로 직접 통과시키기
+3. `knowledge.ts`는 retrieval run / task brief / cache inspection read path와 populated write path를 service-level mock으로 더 넓히기
+4. 마지막에 `pnpm --filter @squadrail/server typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
 
 ## Important Files
 
