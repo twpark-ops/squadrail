@@ -65,7 +65,7 @@ const ALLOWED_ATTACHMENT_CONTENT_TYPES = new Set([
 /**
  * Map agent role to protocol role for validation
  */
-function getProtocolRole(agentRole: string): string {
+export function getProtocolRole(agentRole: string): string {
   if (agentRole === "cto") return "cto";
   if (agentRole === "pm") return "pm";
   if (agentRole === "qa") return "qa";
@@ -74,7 +74,7 @@ function getProtocolRole(agentRole: string): string {
   return "reviewer";
 }
 
-function getAllowedProtocolRoles(agent: {
+export function getAllowedProtocolRoles(agent: {
   role: string;
   title?: string | null;
 }) {
@@ -89,7 +89,7 @@ function getAllowedProtocolRoles(agent: {
   return allowed;
 }
 
-function canBypassAssignPermissionForProtocolMessage(message: {
+export function canBypassAssignPermissionForProtocolMessage(message: {
   messageType: string;
   sender: { actorType: string; role: string };
 }) {
@@ -152,7 +152,7 @@ const retrievalFeedbackSchema = z.object({
   noteBody: z.string().trim().max(4_000).nullable().optional(),
 }).strict();
 
-function shouldGenerateProtocolRetrievalContext(
+export function shouldGenerateProtocolRetrievalContext(
   messageType: CreateIssueProtocolMessage["messageType"],
 ) {
   return PROTOCOL_RETRIEVAL_MESSAGE_TYPES.has(messageType);
@@ -164,11 +164,11 @@ const PM_INTAKE_LABEL_SPECS = [
   { name: "source:human_request", color: "#7C3AED" },
 ] as const;
 
-function readString(value: unknown) {
+export function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-function buildMentionProtocolContext(input: {
+export function buildMentionProtocolContext(input: {
   issue: { assigneeAgentId?: string | null };
   mentionedAgentId: string;
   protocolState: Record<string, unknown> | null;
@@ -209,6 +209,99 @@ function buildMentionProtocolContext(input: {
   return {};
 }
 
+export function withIssueAttachmentContentPath<T extends { id: string }>(attachment: T) {
+  return {
+    ...attachment,
+    contentPath: `/api/attachments/${attachment.id}/content`,
+  };
+}
+
+export function scheduleIssueMemoryIngestHelper(input: {
+  organizationalMemory: {
+    ingestIssueSnapshot(args: { issueId: string; mutation: "create" | "update" | "internal_work_item" }): Promise<unknown>;
+  };
+  issueId: string;
+  mutation: "create" | "update" | "internal_work_item";
+}) {
+  const schedule = () => {
+    runWithoutDbContext(() => {
+      void input.organizationalMemory
+        .ingestIssueSnapshot({ issueId: input.issueId, mutation: input.mutation })
+        .catch((err) => logger.error(
+          { err, issueId: input.issueId, mutation: input.mutation },
+          "issue organizational memory ingest failed",
+        ));
+    });
+  };
+  if (!enqueueAfterDbCommit(schedule)) {
+    schedule();
+  }
+}
+
+export function scheduleProtocolMemoryIngestHelper(input: {
+  organizationalMemory: {
+    ingestProtocolMessage(args: { messageId: string }): Promise<unknown>;
+  };
+  messageId: string;
+  issueId: string;
+  messageType: string;
+}) {
+  const schedule = () => {
+    runWithoutDbContext(() => {
+      void input.organizationalMemory
+        .ingestProtocolMessage({ messageId: input.messageId })
+        .catch((err) => logger.error(
+          { err, issueId: input.issueId, messageId: input.messageId, messageType: input.messageType },
+          "protocol organizational memory ingest failed",
+        ));
+    });
+  };
+  if (!enqueueAfterDbCommit(schedule)) {
+    schedule();
+  }
+}
+
+export async function ensureIssueLabelsByNameHelper<TLabel extends { id: string; name: string; color: string }>(input: {
+  svc: {
+    listLabels(companyId: string): Promise<TLabel[]>;
+    createLabel(companyId: string, spec: { name: string; color: string }): Promise<TLabel>;
+  };
+  companyId: string;
+  specs: ReadonlyArray<{ name: string; color: string }>;
+}) {
+  const existing = await input.svc.listLabels(input.companyId);
+  const labelByName = new Map(existing.map((label) => [label.name, label] as const));
+  const resolved = [];
+  for (const spec of input.specs) {
+    let label = labelByName.get(spec.name);
+    if (!label) {
+      try {
+        label = await input.svc.createLabel(input.companyId, spec);
+      } catch {
+        label = (await input.svc.listLabels(input.companyId)).find((entry) => entry.name === spec.name);
+      }
+      if (!label) {
+        throw conflict(`Failed to create reserved label ${spec.name}`);
+      }
+      labelByName.set(spec.name, label);
+    }
+    resolved.push(label);
+  }
+  return resolved;
+}
+
+export function canManageTaskAssignmentsLegacy(agent: {
+  permissions: Record<string, unknown> | null | undefined;
+  role: string;
+  title?: string | null;
+}) {
+  if (agent.role === "ceo" || agent.role === "cto") return true;
+  if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return true;
+  if (!agent.permissions || typeof agent.permissions !== "object") return false;
+  const permissions = agent.permissions as Record<string, unknown>;
+  return Boolean(permissions.canCreateAgents || permissions.canAssignTasks);
+}
+
 export function issueRoutes(db: Db, storage: StorageService) {
   const router = Router();
   const svc = issueService(db);
@@ -230,62 +323,16 @@ export function issueRoutes(db: Db, storage: StorageService) {
     limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
   });
 
-  function withContentPath<T extends { id: string }>(attachment: T) {
-    return {
-      ...attachment,
-      contentPath: `/api/attachments/${attachment.id}/content`,
-    };
-  }
-
   function scheduleIssueMemoryIngest(issueId: string, mutation: "create" | "update" | "internal_work_item") {
-    const schedule = () => {
-      runWithoutDbContext(() => {
-        void organizationalMemory
-          .ingestIssueSnapshot({ issueId, mutation })
-          .catch((err) => logger.error({ err, issueId, mutation }, "issue organizational memory ingest failed"));
-      });
-    };
-    if (!enqueueAfterDbCommit(schedule)) {
-      schedule();
-    }
+    scheduleIssueMemoryIngestHelper({ organizationalMemory, issueId, mutation });
   }
 
   function scheduleProtocolMemoryIngest(messageId: string, issueId: string, messageType: string) {
-    const schedule = () => {
-      runWithoutDbContext(() => {
-        void organizationalMemory
-          .ingestProtocolMessage({ messageId })
-          .catch((err) => logger.error(
-            { err, issueId, messageId, messageType },
-            "protocol organizational memory ingest failed",
-          ));
-      });
-    };
-    if (!enqueueAfterDbCommit(schedule)) {
-      schedule();
-    }
+    scheduleProtocolMemoryIngestHelper({ organizationalMemory, messageId, issueId, messageType });
   }
 
   async function ensureIssueLabelsByName(companyId: string, specs: ReadonlyArray<{ name: string; color: string }>) {
-    const existing = await svc.listLabels(companyId);
-    const labelByName = new Map(existing.map((label) => [label.name, label] as const));
-    const resolved = [];
-    for (const spec of specs) {
-      let label = labelByName.get(spec.name);
-      if (!label) {
-        try {
-          label = await svc.createLabel(companyId, spec);
-        } catch {
-          label = (await svc.listLabels(companyId)).find((entry) => entry.name === spec.name);
-        }
-        if (!label) {
-          throw conflict(`Failed to create reserved label ${spec.name}`);
-        }
-        labelByName.set(spec.name, label);
-      }
-      resolved.push(label);
-    }
-    return resolved;
+    return ensureIssueLabelsByNameHelper({ svc, companyId, specs });
   }
 
   async function loadIssueChangeSurface(issue: {
@@ -404,18 +451,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
     if (actorAgent.role === "ceo" || Boolean(actorAgent.permissions?.canCreateAgents)) return true;
     res.status(403).json({ error: "Missing permission to link approvals" });
     return false;
-  }
-
-  function canManageTaskAssignmentsLegacy(agent: {
-    permissions: Record<string, unknown> | null | undefined;
-    role: string;
-    title?: string | null;
-  }) {
-    if (agent.role === "ceo" || agent.role === "cto") return true;
-    if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return true;
-    if (!agent.permissions || typeof agent.permissions !== "object") return false;
-    const permissions = agent.permissions as Record<string, unknown>;
-    return Boolean(permissions.canCreateAgents || permissions.canAssignTasks);
   }
 
   async function assertCanAssignTasks(req: Request, companyId: string) {
@@ -1490,7 +1525,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       mergeCandidatesSvc,
     },
     helpers: {
-      withContentPath,
+      withContentPath: withIssueAttachmentContentPath,
       scheduleIssueMemoryIngest,
       scheduleProtocolMemoryIngest,
       ensureIssueLabelsByName,

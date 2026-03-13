@@ -2,6 +2,22 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 server coverage 77.34% checkpoint
+
+- `13-Q runtime bottleneck helper coverage uplift`: **진행 중**
+  - `heartbeat.ts` internal normalization/session/policy helper를 exported seam으로 정리하고 helper direct test를 추가했다.
+  - `issue-retrieval.ts` related issue signal / temporal context / document version lookup helper를 exported seam으로 승격하고 DB mock direct test를 추가했다.
+  - `issues.ts` protocol role / mention context / attachment path / memory ingest / label ensure helper를 route 바깥 direct test 가능한 형태로 추출했다.
+  - `knowledge-service-operations.test.ts`에 populated `replaceDocumentChunks` code-graph rebuild path와 empty `listRecentRetrievalRuns` read path를 추가했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-internal-helpers.test.ts src/__tests__/issues-route-helpers.test.ts src/__tests__/issues-route-internal-ops.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts src/__tests__/knowledge-service-operations.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `77.34%`, branches `63.41%`, functions `91.34%`
+  - 최신 server tests: `170 files / 1058 tests` 통과
+  - immediate next는 `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`다.
+
 ## 2026-03-13 server coverage 60% threshold 달성
 
 - `13-P coverage threshold push`: **완료**

@@ -28,11 +28,12 @@
 > - `13-N. recovery/template/role integrity hardening` 완료
 > - `13-O. runtime/protocol coverage uplift batch 7` 완료
 > - `13-P. coverage threshold push` 완료
-> 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge runtime bottleneck hardening`이다.
+> - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
+> 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`이다.
 
 ## 목적
 
-현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다.
+현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 새 기능 추가가 아니라 `80%` coverage 달성을 위한 runtime bottleneck hardening이다.
 
 현재 제품 방향은 계속 `standardized software delivery org kernel`이다.
 즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
@@ -50,6 +51,21 @@
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `60.11%`, branches `61.09%`, functions `80.63%`
   - 최신 server tests: `130 files / 855 tests` 통과
+
+## 2026-03-13 runtime bottleneck helper coverage uplift
+
+- `13-Q runtime bottleneck helper coverage uplift` 진행 중
+  - `heartbeat.ts` internal normalization/session/policy helpers를 exported seam으로 정리하고 helper direct test를 추가했다.
+  - `issue-retrieval.ts`에서 related issue signal / temporal context / document version lookup helper를 exported seam으로 올리고 direct DB-mock test를 추가했다.
+  - `issues.ts`에서 protocol role / mention context / attachment path / memory ingest / label ensure helper를 route 바깥 direct test 가능한 형태로 추출했다.
+  - `knowledge-service-operations.test.ts`에 populated `replaceDocumentChunks` code-graph rebuild path와 empty `listRecentRetrievalRuns` read path를 추가했다.
+- 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-internal-helpers.test.ts src/__tests__/issues-route-helpers.test.ts src/__tests__/issues-route-internal-ops.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts src/__tests__/knowledge-service-operations.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `77.34%`, branches `63.41%`, functions `91.34%`
+  - 최신 server tests: `170 files / 1058 tests` 통과
 
 ## 상태 업데이트
 

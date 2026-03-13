@@ -1,4 +1,6 @@
 import {
+  codeSymbolEdges,
+  codeSymbols,
   issueTaskBriefs,
   knowledgeChunks,
   knowledgeChunkLinks,
@@ -616,6 +618,150 @@ describe("knowledge service operations", () => {
     expect(executeCalls).toHaveLength(1);
   });
 
+  it("replaces populated document chunks, rebuilds code graph, and syncs vectors when pgvector is available", async () => {
+    const { db, deletedTables, insertValues, executeCalls } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [knowledgeDocuments, [[{
+          id: "doc-1",
+          projectId: "project-1",
+          path: "src/retry.ts",
+          language: "typescript",
+        }]]],
+        [codeSymbols, [[{
+          id: "symbol-shared",
+          path: "src/shared.ts",
+          symbolKey: "shared:retryShared",
+          symbolName: "retryShared",
+          metadata: { exported: true },
+        }]]],
+      ]),
+      insertRows: new Map([
+        [knowledgeChunks, [[
+          { id: "chunk-1", documentId: "doc-1", chunkIndex: 0 },
+          { id: "chunk-2", documentId: "doc-1", chunkIndex: 1 },
+        ]]],
+        [codeSymbols, [[
+          {
+            id: "symbol-local-1",
+            path: "src/retry.ts",
+            symbolKey: "local:retryWorker",
+            symbolName: "retryWorker",
+            metadata: { exported: true },
+          },
+          {
+            id: "symbol-local-2",
+            path: "src/retry.ts",
+            symbolKey: "local:retryShared",
+            symbolName: "retryShared",
+            metadata: {},
+          },
+        ]]],
+      ]),
+      executeResults: [
+        [{ installed: true }],
+        [],
+        [],
+      ],
+    });
+    const service = knowledgeService(db as never);
+
+    const inserted = await service.replaceDocumentChunks({
+      companyId: "company-1",
+      documentId: "doc-1",
+      codeGraph: {
+        symbols: [
+          {
+            chunkIndex: 0,
+            symbolKey: "local:retryWorker",
+            symbolName: "retryWorker",
+            symbolKind: "function",
+            endLine: 10,
+            metadata: {},
+          },
+          {
+            chunkIndex: 0,
+            symbolKey: "local:retryWorker",
+            symbolName: "retryWorker",
+            symbolKind: "function",
+            endLine: 20,
+            metadata: { exported: true },
+          },
+          {
+            chunkIndex: 1,
+            symbolKey: "local:retryShared",
+            symbolName: "retryShared",
+            symbolKind: "function",
+            metadata: {},
+          },
+        ],
+        edges: [
+          {
+            fromSymbolKey: "local:retryWorker",
+            targetSymbolName: "retryShared",
+            targetPath: "src/shared.ts",
+            edgeType: "calls",
+            weight: 2,
+          },
+          {
+            fromSymbolKey: "local:retryShared",
+            targetSymbolKey: "local:retryWorker",
+            edgeType: "calls",
+            weight: 1,
+          },
+        ],
+      },
+      chunks: [
+        {
+          chunkIndex: 0,
+          tokenCount: 42,
+          textContent: "retry worker handles backoff",
+          embedding: [0.1, 0.2],
+        },
+        {
+          chunkIndex: 1,
+          tokenCount: 18,
+          textContent: "retry shared helper",
+          embedding: [0.4, 0.8],
+        },
+      ],
+    });
+
+    expect(inserted).toHaveLength(2);
+    expect(deletedTables).toEqual([knowledgeChunks, codeSymbols]);
+    expect(insertValues.find((entry) => entry.table === codeSymbols)?.value).toEqual([
+      expect.objectContaining({
+        chunkId: "chunk-1",
+        symbolKey: "local:retryWorker",
+        metadata: { exported: true },
+      }),
+      expect.objectContaining({
+        chunkId: "chunk-2",
+        symbolKey: "local:retryShared",
+      }),
+    ]);
+    expect(insertValues.find((entry) => entry.table === codeSymbolEdges)?.value).toEqual([
+      {
+        companyId: "company-1",
+        projectId: "project-1",
+        fromSymbolId: "symbol-local-1",
+        toSymbolId: "symbol-shared",
+        edgeType: "calls",
+        weight: 2,
+        metadata: {},
+      },
+      {
+        companyId: "company-1",
+        projectId: "project-1",
+        fromSymbolId: "symbol-local-2",
+        toSymbolId: "symbol-local-1",
+        edgeType: "calls",
+        weight: 1,
+        metadata: {},
+      },
+    ]);
+    expect(executeCalls).toHaveLength(3);
+  });
+
   it("deprecates matching documents by path and merges metadata for each update", async () => {
     const { db, updateSets } = createKnowledgeDbMock({
       selectRows: new Map([
@@ -1121,5 +1267,19 @@ describe("knowledge service operations", () => {
       workflowState: "submitted_for_review",
       limit: 10,
     })).resolves.toEqual([policy]);
+  });
+
+  it("returns an empty recent retrieval run list when there are no runs", async () => {
+    const { db } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [retrievalRuns, [[]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    await expect(service.listRecentRetrievalRuns({
+      companyId: "company-1",
+      limit: 50,
+    })).resolves.toEqual([]);
   });
 });
