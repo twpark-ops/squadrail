@@ -29,11 +29,12 @@
 > - `13-O. runtime/protocol coverage uplift batch 7` 완료
 > - `13-P. coverage threshold push` 완료
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
-> 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`이다.
+> - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
+> 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge runtime service-body coverage uplift toward 80%`이다.
 
 ## 목적
 
-현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 새 기능 추가가 아니라 `80%` coverage 달성을 위한 runtime bottleneck hardening이다.
+현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 새 기능 추가가 아니라 `80%` coverage 달성을 위한 runtime bottleneck hardening이며, helper seam 확대만으로는 총량 상승이 작다는 점이 확인됐다.
 
 현재 제품 방향은 계속 `standardized software delivery org kernel`이다.
 즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
@@ -66,6 +67,21 @@
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - 최신 coverage: statements/lines `77.34%`, branches `63.41%`, functions `91.34%`
   - 최신 server tests: `170 files / 1058 tests` 통과
+
+## 2026-03-13 runtime bottleneck helper/service-body uplift
+
+- `13-R runtime bottleneck helper/service-body uplift` 진행 중
+  - `issues.ts` internal work item / PM projection helper를 exported seam으로 분리하고 direct helper regression을 추가했다.
+  - `heartbeat-service-flow.test.ts`에 task-key scoped runtime reset과 `tickTimers` overdue agent dispatch path를 추가했다.
+  - `heartbeat-internal-helpers.test.ts`, `issue-retrieval-internal-helpers.test.ts`, `knowledge-service-builders.test.ts`를 확장해 heartbeat/retrieval/knowledge helper branch를 더 촘촘히 고정했다.
+- 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-internal-helpers.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts src/__tests__/knowledge-service-builders.test.ts src/__tests__/issues-route-helpers.test.ts src/__tests__/issues-route-internal-ops.test.ts src/__tests__/issues-route-work-item-helpers.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `77.41%`, branches `63.87%`, functions `91.31%`
+  - 최신 server tests: `171 files / 1073 tests` 통과
+  - 해석: helper seam 확대만으로는 총량이 거의 움직이지 않으므로, 다음 슬라이스는 `heartbeat / issue-retrieval / knowledge` service-body public method를 dependency-mocked integration test로 직접 태우는 쪽이 맞다.
 
 ## 상태 업데이트
 

@@ -13,9 +13,18 @@ import {
   asNumberRecord,
   asRecord,
   asStringArray,
+  buildCombinedGraphMetrics,
+  buildRecipientBriefEvidenceSummary,
+  buildRecipientFinalizationMetrics,
+  buildRecipientRetrievalHint,
+  buildRetrievalBriefDraft,
+  buildRetrievalRunCompletionActivityDetails,
+  buildRetrievalRunCompletionEvents,
+  buildTaskBriefContentJson,
   computeGraphConnectivityBoost,
   computeLinkBoost,
   computeTemporalBoost,
+  computeCosineSimilarity,
   dbVectorLiteral,
   deriveRetrievalTemporalContext,
   defaultPolicyTemplate,
@@ -26,6 +35,7 @@ import {
   normalizeEmbeddingVector,
   readConfiguredNumber,
   readMetadataString,
+  renderRetrievedBriefMarkdown,
   resolveRelatedIssueSignals,
   resolveLaneAwareRetrievalPolicy,
   resolveRetrievalPolicyRerankConfig,
@@ -620,6 +630,267 @@ describe("issue retrieval internal helpers", () => {
       preferredSourceTypes: ["review", "protocol_message", "issue", "code"],
       relatedIssueIds: ["issue-2", "issue-4", "issue-3"],
       relatedIssueIdentifiers: ["CLO-4"],
+    });
+  });
+
+  it("computes cosine similarity and renders markdown retrieval briefs", () => {
+    expect(computeCosineSimilarity([1, 0], [1, 0])).toBe(1);
+    expect(computeCosineSimilarity([1, 0], [0, 1])).toBe(0);
+    expect(computeCosineSimilarity([1, 0], [1])).toBe(0);
+
+    expect(renderRetrievedBriefMarkdown({
+      briefScope: "engineer",
+      issue: {
+        identifier: "CLO-9",
+        title: "Fix retry worker",
+      },
+      message: {
+        messageType: "ASSIGN_TASK",
+        workflowStateBefore: "todo",
+        workflowStateAfter: "assigned",
+        summary: "Implement retry worker",
+      } as never,
+      queryText: "retry worker implementation",
+      hits: [],
+    })).toContain("_No knowledge hits were selected for this brief yet._");
+
+    const markdown = renderRetrievedBriefMarkdown({
+      briefScope: "reviewer",
+      issue: {
+        identifier: "CLO-10",
+        title: "Review retry patch",
+      },
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Ready for review",
+      } as never,
+      queryText: "review retry patch",
+      hits: [makeHit({
+        graphMetadata: {
+          entityTypes: ["symbol"],
+          entityIds: ["retryWorker"],
+          seedReasons: ["signal_symbol_hint"],
+          edgeTypes: ["calls"],
+          graphScore: 1,
+          hopDepth: 2,
+        },
+        temporalMetadata: {
+          branchName: "feature/retry",
+          defaultBranchName: "main",
+          commitSha: "sha-1",
+          matchType: "same_branch_head",
+          score: 1,
+          stale: false,
+        },
+        personalizationMetadata: {
+          totalBoost: 0.5,
+          sourceTypeBoost: 0.5,
+          pathBoost: 0,
+          symbolBoost: 0,
+          scopes: ["source_type"],
+          matchedSourceType: "code",
+          matchedPath: null,
+          matchedSymbol: null,
+        },
+      })],
+    });
+
+    expect(markdown).toContain("[code/canonical] Retry");
+    expect(markdown).toContain("graph edges: calls");
+    expect(markdown).toContain("version: same_branch_head");
+    expect(markdown).toContain("personalization: 0.500");
+  });
+
+  it("builds retrieval completion helper payloads and finalization metrics", () => {
+    const hit = makeHit({
+      graphMetadata: {
+        entityTypes: ["path"],
+        entityIds: ["src/retry.ts"],
+        seedReasons: ["signal_exact_path"],
+        graphScore: 1,
+        hopDepth: 2,
+      },
+    });
+
+    expect(buildRecipientBriefEvidenceSummary({
+      hits: [hit],
+      maxEvidenceItems: 3,
+    })).toEqual([{
+      rank: 1,
+      sourceType: "code",
+      authorityLevel: "canonical",
+      path: "src/retry.ts",
+      title: "Retry",
+      symbolName: "retryWorker",
+      fusedScore: 1.2,
+    }]);
+
+    expect(buildRetrievalRunCompletionActivityDetails({
+      retrievalRunId: "run-1",
+      triggeringMessageId: "message-1",
+      recipientRole: "engineer",
+      recipientId: "agent-1",
+      hitCount: 1,
+      briefQuality: {
+        confidenceLevel: "high",
+        denseEnabled: true,
+      },
+      briefId: "brief-1",
+      briefScope: "engineer",
+    } as never)).toMatchObject({
+      retrievalRunId: "run-1",
+      briefQuality: "high",
+      briefDenseEnabled: true,
+    });
+
+    expect(buildRetrievalRunCompletionEvents({
+      companyId: "company-1",
+      issueId: "issue-1",
+      retrievalRunId: "run-1",
+      recipientRole: "engineer",
+      recipientId: "agent-1",
+      hitCount: 1,
+      briefQuality: {
+        confidenceLevel: "medium",
+        denseEnabled: false,
+      },
+      briefId: "brief-1",
+      briefScope: "engineer",
+      briefVersion: 2,
+    } as never)).toHaveLength(2);
+
+    expect(buildRecipientRetrievalHint({
+      recipientId: "agent-1",
+      recipientRole: "engineer",
+      executionLane: "fast",
+      retrievalRunId: "run-1",
+      briefId: "brief-1",
+      briefScope: "engineer",
+      briefContentMarkdown: "# brief",
+      hits: [hit],
+      maxEvidenceItems: 1,
+    })).toMatchObject({
+      recipientId: "agent-1",
+      briefEvidenceSummary: [{ rank: 1, path: "src/retry.ts" }],
+    });
+
+    expect(buildTaskBriefContentJson({
+      eventType: "on_assignment",
+      triggeringMessageId: "message-1",
+      executionLane: "fast",
+      queryText: "retry worker",
+      dynamicSignals: {
+        preferredSourceTypes: ["code"],
+        exactPaths: ["src/retry.ts"],
+        symbolHints: ["retryWorker"],
+        tagHints: [],
+        relatedIssueIds: [],
+        relatedIssueIdentifiers: [],
+        linkedIssueIds: [],
+        linkedProjectIds: [],
+        projectAffinityIds: ["project-1"],
+        changedPaths: ["src/retry.ts"],
+        issueIdentifier: "CLO-1",
+      },
+      quality: {
+        confidenceLevel: "high",
+      },
+      hits: [hit],
+    } as never)).toMatchObject({
+      eventType: "on_assignment",
+      hits: [{
+        rank: 1,
+        chunkId: "chunk-1",
+        path: "src/retry.ts",
+      }],
+    });
+
+    expect(buildRetrievalBriefDraft({
+      eventType: "on_assignment",
+      triggeringMessageId: "message-1",
+      recipientRole: "engineer",
+      issue: {
+        identifier: "CLO-1",
+        title: "Fix retry worker",
+      },
+      message: {
+        messageType: "ASSIGN_TASK",
+        workflowStateBefore: "todo",
+        workflowStateAfter: "assigned",
+        summary: "Implement retry worker",
+      } as never,
+      queryText: "retry worker",
+      executionLane: "fast",
+      dynamicSignals: {
+        preferredSourceTypes: ["code"],
+        exactPaths: ["src/retry.ts"],
+        symbolHints: ["retryWorker"],
+        tagHints: [],
+        relatedIssueIds: [],
+        relatedIssueIdentifiers: [],
+        linkedIssueIds: [],
+        linkedProjectIds: [],
+        projectAffinityIds: ["project-1"],
+        changedPaths: ["src/retry.ts"],
+        issueIdentifier: "CLO-1",
+      },
+      quality: {
+        confidenceLevel: "high",
+      },
+      hits: [hit],
+      maxEvidenceItems: 1,
+    } as never)).toMatchObject({
+      briefScope: "engineer",
+      contentMarkdown: expect.stringContaining("# engineer brief"),
+      contentJson: expect.objectContaining({
+        queryText: "retry worker",
+      }),
+    });
+
+    expect(buildCombinedGraphMetrics({
+      hits: [],
+      edgeTraversalCount: 2,
+      edgeTypeCounts: { calls: 2 },
+      graphMaxDepth: 2,
+      graphHopDepthCounts: { "2": 1 },
+    }, {
+      hits: [hit],
+      edgeTraversalCount: 1,
+      edgeTypeCounts: { imports: 1 },
+      graphMaxDepth: 3,
+      graphHopDepthCounts: { "3": 1 },
+    })).toEqual({
+      combinedGraphHopDepthCounts: {
+        "2": 1,
+        "3": 1,
+      },
+      combinedGraphMaxDepth: 3,
+    });
+
+    expect(buildRecipientFinalizationMetrics({
+      finalHits: [hit],
+      chunkGraphResult: {
+        hits: [],
+        edgeTraversalCount: 2,
+        edgeTypeCounts: { calls: 2 },
+        graphMaxDepth: 2,
+        graphHopDepthCounts: { "2": 1 },
+      },
+      symbolGraphResult: {
+        hits: [hit],
+        edgeTraversalCount: 1,
+        edgeTypeCounts: { imports: 1 },
+        graphMaxDepth: 3,
+        graphHopDepthCounts: { "3": 1 },
+      },
+      exactPaths: ["src/retry.ts"],
+    })).toMatchObject({
+      symbolGraphHitCount: 1,
+      edgeTraversalCount: 3,
+      graphMaxDepth: 3,
+      exactPathSatisfied: true,
     });
   });
 });

@@ -18,6 +18,21 @@
   - 최신 server tests: `170 files / 1058 tests` 통과
   - immediate next는 `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`다.
 
+## 2026-03-13 server coverage 77.41% checkpoint
+
+- `13-R runtime bottleneck helper/service-body uplift`: **진행 중**
+  - `issues.ts` internal work item / PM projection helper를 exported seam으로 분리하고 direct helper regression을 추가했다.
+  - `heartbeat-service-flow.test.ts`에 task-key scoped runtime reset과 `tickTimers` overdue agent dispatch path를 추가했다.
+  - `heartbeat-internal-helpers.test.ts`, `issue-retrieval-internal-helpers.test.ts`, `knowledge-service-builders.test.ts`를 확장해 heartbeat/retrieval/knowledge helper branch를 더 촘촘히 고정했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-internal-helpers.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts src/__tests__/knowledge-service-builders.test.ts src/__tests__/issues-route-helpers.test.ts src/__tests__/issues-route-internal-ops.test.ts src/__tests__/issues-route-work-item-helpers.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `77.41%`, branches `63.87%`, functions `91.31%`
+  - 최신 server tests: `171 files / 1073 tests` 통과
+  - immediate next는 `heartbeat / issue-retrieval / knowledge runtime service-body coverage uplift toward 80%`다.
+
 ## 2026-03-13 server coverage 60% threshold 달성
 
 - `13-P coverage threshold push`: **완료**

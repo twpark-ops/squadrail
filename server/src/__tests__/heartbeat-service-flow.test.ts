@@ -633,6 +633,54 @@ describe("heartbeat service flow coverage", () => {
     });
   });
 
+  it("resets only task-scoped sessions without wiping runtime state when a task key is provided", async () => {
+    const existingState = {
+      agentId: "agent-1",
+      companyId: "company-1",
+      adapterType: "codex_local",
+      sessionId: "runtime-session-1",
+      lastError: "previous error",
+      stateJson: {
+        session: "active",
+      },
+      updatedAt: new Date("2026-03-13T05:10:00Z"),
+    };
+    const updatedState = {
+      ...existingState,
+      sessionId: null,
+      lastError: null,
+      updatedAt: new Date("2026-03-13T05:15:00Z"),
+    };
+    const { db, updateSets, deletedTables } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agents, [[makeAgent()]]],
+        [agentRuntimeState, [[existingState]]],
+      ]),
+      updateRows: new Map([
+        [agentRuntimeState, [[updatedState]]],
+      ]),
+      deleteRows: new Map([
+        [agentTaskSessions, [[{ id: "task-session-1" }]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.resetRuntimeSession("agent-1", { taskKey: "issue:1" });
+
+    expect(result).toMatchObject({
+      agentId: "agent-1",
+      sessionDisplayId: null,
+      sessionParamsJson: null,
+      clearedTaskSessions: 1,
+    });
+    expect(deletedTables).toEqual([agentTaskSessions]);
+    expect(updateSets.find((entry) => entry.table === agentRuntimeState)?.value).toMatchObject({
+      sessionId: null,
+      lastError: null,
+    });
+    expect(updateSets.find((entry) => entry.table === agentRuntimeState)?.value).not.toHaveProperty("stateJson");
+  });
+
   it("cancels superseded follow-up wakeups while excluding the active run that should remain", async () => {
     const supersededRun = makeRun({
       id: "run-superseded-1",
@@ -726,6 +774,70 @@ describe("heartbeat service flow coverage", () => {
       triggerDetail: "manual",
       requestedByActorType: "user",
       requestedByActorId: "board-1",
+    });
+  });
+
+  it("ticks timers for overdue active agents and skips recent, disabled, or paused agents", async () => {
+    const overdueAgent = makeAgent({
+      id: "agent-overdue",
+      lastHeartbeatAt: new Date("2026-03-13T04:00:00Z"),
+      runtimeConfig: {
+        heartbeat: {
+          enabled: true,
+          intervalSec: 60,
+          wakeOnDemand: true,
+          maxConcurrentRuns: 1,
+        },
+      },
+    });
+    const recentAgent = makeAgent({
+      id: "agent-recent",
+      lastHeartbeatAt: new Date("2026-03-13T05:59:30Z"),
+    });
+    const pausedAgent = makeAgent({
+      id: "agent-paused",
+      status: "paused",
+    });
+    const disabledAgent = makeAgent({
+      id: "agent-disabled",
+      runtimeConfig: {
+        heartbeat: {
+          enabled: false,
+          intervalSec: 60,
+        },
+      },
+    });
+    const { db, insertValues } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agents, [[overdueAgent, recentAgent, pausedAgent, disabledAgent], [overdueAgent]]],
+        [heartbeatRuns, [[]]],
+        [agentRuntimeState, [[]]],
+      ]),
+      insertRows: new Map([
+        [agentWakeupRequests, [[{ id: "wake-timer-1" }]]],
+        [heartbeatRuns, [[makeRun({
+          id: "run-timer-1",
+          agentId: "agent-overdue",
+          invocationSource: "timer",
+          triggerDetail: "system",
+          wakeupRequestId: "wake-timer-1",
+        })]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.tickTimers(new Date("2026-03-13T06:00:00Z"));
+
+    expect(result).toEqual({
+      checked: 2,
+      enqueued: 1,
+      skipped: 0,
+    });
+    expect(insertValues.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      agentId: "agent-overdue",
+      source: "timer",
+      triggerDetail: "system",
+      reason: "heartbeat_timer",
     });
   });
 
