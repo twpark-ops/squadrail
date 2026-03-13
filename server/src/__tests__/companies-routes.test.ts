@@ -17,6 +17,7 @@ const {
   mockWorkflowTemplatesGetView,
   mockTeamBlueprintsGetCatalog,
   mockTeamBlueprintsPreview,
+  mockTeamBlueprintsApply,
   mockWorkflowTemplatesUpdateConfig,
   mockOperatingAlertsGetView,
   mockOperatingAlertsUpdateConfig,
@@ -55,6 +56,7 @@ const {
   mockWorkflowTemplatesGetView: vi.fn(),
   mockTeamBlueprintsGetCatalog: vi.fn(),
   mockTeamBlueprintsPreview: vi.fn(),
+  mockTeamBlueprintsApply: vi.fn(),
   mockWorkflowTemplatesUpdateConfig: vi.fn(),
   mockOperatingAlertsGetView: vi.fn(),
   mockOperatingAlertsUpdateConfig: vi.fn(),
@@ -122,6 +124,7 @@ vi.mock("../services/index.js", () => ({
   teamBlueprintService: () => ({
     getCatalog: mockTeamBlueprintsGetCatalog,
     preview: mockTeamBlueprintsPreview,
+    apply: mockTeamBlueprintsApply,
   }),
   rolePackService: () => ({
     listPresets: mockListPresets,
@@ -402,6 +405,7 @@ describe("company routes", () => {
   it("returns a team blueprint preview diff for the requested company", async () => {
     mockTeamBlueprintsPreview.mockResolvedValue({
       companyId: "company-1",
+      previewHash: "preview-hash-1234567890",
       blueprint: {
         key: "standard_product_squad",
         label: "Standard Product Squad",
@@ -493,7 +497,7 @@ describe("company routes", () => {
           key: "workspace_count",
           label: "Workspace coverage",
           status: "ready",
-          detail: "1/1 required workspace slot(s) are connected.",
+          detail: "1/1 required project slot(s) already have at least one workspace.",
         },
       ],
       warnings: [],
@@ -512,6 +516,7 @@ describe("company routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toMatchObject({
       companyId: "company-1",
+      previewHash: "preview-hash-1234567890",
       blueprint: expect.objectContaining({
         key: "standard_product_squad",
       }),
@@ -523,6 +528,131 @@ describe("company routes", () => {
       projectCount: 1,
       includePm: true,
     });
+  });
+
+  it("applies a team blueprint preview with confirmation hash and records activity", async () => {
+    mockTeamBlueprintsApply.mockResolvedValue({
+      companyId: "company-1",
+      blueprintKey: "standard_product_squad",
+      previewHash: "preview-hash-1234567890",
+      parameters: {
+        projectCount: 2,
+        engineerPairsPerProject: 1,
+        includePm: true,
+        includeQa: false,
+        includeCto: false,
+      },
+      summary: {
+        adoptedProjectCount: 1,
+        createdProjectCount: 1,
+        adoptedAgentCount: 1,
+        createdAgentCount: 3,
+        updatedAgentCount: 1,
+        seededRolePackCount: 4,
+        existingRolePackCount: 0,
+      },
+      projectResults: [
+        {
+          slotKey: "product_app",
+          templateKey: "product_app",
+          label: "Product App",
+          action: "adopt_existing",
+          projectId: "project-1",
+          projectName: "Product App",
+        },
+      ],
+      roleResults: [
+        {
+          slotKey: "pm",
+          templateKey: "pm",
+          label: "PM",
+          action: "adopt_existing",
+          agentId: "agent-1",
+          agentName: "Product PM",
+          reportsToAgentId: null,
+          updated: false,
+        },
+      ],
+      setupProgress: {
+        companyId: "company-1",
+        status: "squad_ready",
+        selectedEngine: "claude_local",
+        selectedWorkspaceId: null,
+        metadata: {
+          rolePacksSeeded: true,
+          rolePackPresetKey: "example_product_squad_v1",
+        },
+        steps: {
+          companyReady: true,
+          squadReady: true,
+          engineReady: true,
+          workspaceConnected: false,
+          knowledgeSeeded: false,
+          firstIssueReady: false,
+        },
+        createdAt: new Date("2026-03-14T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-14T00:00:00.000Z"),
+      },
+      warnings: ["Select a primary workspace so quick requests and doctor checks have a default target."],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/:blueprintKey/apply",
+      method: "post",
+      params: { companyId: "company-1", blueprintKey: "standard_product_squad" },
+      body: {
+        previewHash: "preview-hash-1234567890",
+        projectCount: 2,
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toMatchObject({
+      companyId: "company-1",
+      blueprintKey: "standard_product_squad",
+      previewHash: "preview-hash-1234567890",
+      summary: expect.objectContaining({
+        createdProjectCount: 1,
+        createdAgentCount: 3,
+      }),
+    });
+    expect(mockTeamBlueprintsApply).toHaveBeenCalledWith(
+      "company-1",
+      "standard_product_squad",
+      {
+        previewHash: "preview-hash-1234567890",
+        projectCount: 2,
+      },
+      {
+        userId: "user-1",
+        agentId: null,
+      },
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.team_blueprint_applied",
+        companyId: "company-1",
+        details: expect.objectContaining({
+          blueprintKey: "standard_product_squad",
+          previewHash: "preview-hash-1234567890",
+        }),
+      }),
+    );
+  });
+
+  it("validates preview hash before blueprint apply", async () => {
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/:blueprintKey/apply",
+      method: "post",
+      params: { companyId: "company-1", blueprintKey: "standard_product_squad" },
+      body: {
+        projectCount: 2,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockTeamBlueprintsApply).not.toHaveBeenCalled();
   });
 
   it("updates workflow templates and records activity", async () => {

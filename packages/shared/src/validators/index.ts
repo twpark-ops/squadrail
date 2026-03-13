@@ -148,6 +148,7 @@ export {
   teamBlueprintSchema,
   teamBlueprintCatalogViewSchema,
   teamBlueprintPreviewRequestSchema,
+  teamBlueprintApplyRequestSchema,
 } from "./team-blueprint.js";
 export {
   operatingAlertSeveritySchema,

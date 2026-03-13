@@ -71,3 +71,7 @@ export const teamBlueprintPreviewRequestSchema = z.object({
   includeQa: z.boolean().nullable().optional(),
   includeCto: z.boolean().nullable().optional(),
 }).strict();
+
+export const teamBlueprintApplyRequestSchema = teamBlueprintPreviewRequestSchema.extend({
+  previewHash: z.string().trim().min(16).max(256),
+}).strict();
