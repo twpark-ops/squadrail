@@ -10,8 +10,8 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `Phase 5 Company Settings apply flow + swiftsight canonical absorption prep`
-  - server `apply contract -> confirmation gate -> semantics test`는 이미 닫혔다.
+- open this handoff first, then continue immediately with `Phase 6 onboarding / Company Settings reframe + swiftsight canonical absorption follow-through`
+  - Phase 5 `apply contract -> confirmation gate -> semantics test -> Company Settings apply flow`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
 
@@ -44,9 +44,9 @@ One-line startup rule:
     18. `standard_product_squad`에서 per-project TL slot expansion과 project lead wiring을 실제 apply test로 고정
     19. project create / agent update 중간 실패 시 role-pack seed까지 rollback되는 failure injection test를 추가
   - immediate next:
-    1. `Company Settings`에서 preview -> apply flow를 잇기
-    2. apply 후 setup/doctor/agent/project invalidate와 success trace를 연결
-    3. `swiftsight canonical`을 generic registry에 흡수할 parameter map 초안 작성
+    1. `OnboardingWizard`를 `회사 생성 -> blueprint 선택 -> workspace 연결 -> 첫 quick request` 기준으로 재편
+    2. `CompanySettings`에서 role-pack studio보다 team builder가 먼저 보이는 hierarchy로 재정렬
+    3. `swiftsight canonical` absorption prep metadata를 실제 generic blueprint apply/onboarding 흐름과 연결
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` 전용 canonical은 이후 phase에서 generic team blueprint registry로 일반화해야 한다.

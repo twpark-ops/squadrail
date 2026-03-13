@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `Phase 5 Company Settings apply flow + swiftsight canonical absorption prep`다.
+> 현재 다음 순차 작업은 `Phase 6 onboarding / Company Settings 재편 + swiftsight canonical absorption follow-through`다.
 
 ## 목적
 
@@ -76,20 +76,30 @@
    - stale preview apply reject / first apply create / same preview retry reject 고정
    - apply를 outer transaction으로 감싸 partial org/team residue를 막음
    - `standard_product_squad` per-project TL expansion / lead wiring / rollback failure injection test를 추가
-2. `Company Settings preview -> apply flow`
+2. `Company Settings preview -> apply flow`: 완료
    - preview 결과를 기반으로 apply CTA 추가
-   - apply 후 setup/doctor/agent/project invalidate와 success trace 연결
-3. `swiftsight canonical absorption prep`
+   - confirmation gate와 preview hash 기반 apply submit을 연결
+   - apply 후 setup/doctor/agent/project/orgSync/knowledgeSetup/activity/sidebar invalidation과 success trace를 연결
+3. `swiftsight canonical absorption prep`: 완료
    - 기존 canonical org metadata를 generic blueprint parameter map으로 정리
-   - canonical-only fields와 generic blueprint field 매핑 표를 작성
-4. `Focused validation`
-   - Company Settings preview/apply smoke
+   - canonical template가 generic blueprint 흡수 준비 메타를 함께 노출한다
+4. `Focused validation`: 완료
+   - Company Settings preview/apply smoke 수준의 typed build/typecheck와 service/route regression을 통과했다
+
+### New Immediate Next Slice
+
+1. `Phase 6 onboarding / Company Settings reframe kickoff`
+   - onboarding flow를 `회사 생성 -> blueprint 선택 -> workspace 연결 -> 첫 quick request` 기준으로 재배치
+   - Company Settings에서 role-pack studio보다 team builder가 먼저 보이게 hierarchy 재정렬
+2. `swiftsight canonical absorption follow-through`
+   - absorption prep metadata를 실제 generic blueprint apply onboarding 흐름과 연결
+   - canonical-only specialization gap을 company guidance/warning으로 정리
+3. `Focused validation`
+   - onboarding/company settings UI build + route/service regression
 
 ### Follow-up Slices
 
-4. `Bulk provisioning with preview/diff`
-5. `Onboarding / Company Settings 재편`
-6. `Bounded autonomy E2E`
+4. `Bounded autonomy E2E`
 
 ## 2026-03-13 coverage threshold push
 

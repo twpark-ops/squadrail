@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToast } from "../context/ToastContext";
 import { companiesApi } from "../api/companies";
 import { accessApi } from "../api/access";
 import { knowledgeApi, type RetrievalPolicyRecord } from "../api/knowledge";
@@ -27,6 +28,7 @@ import {
   type RolePackPresetDescriptor,
   type RolePackPresetKey,
   type TeamBlueprint,
+  type TeamBlueprintApplyResult,
   type TeamBlueprintKey,
   type TeamBlueprintPreviewResult,
   type RolePackWithLatestRevision,
@@ -151,6 +153,7 @@ function stringifyWorkflowTemplateFields(fields: Record<string, string>) {
 export function CompanySettings() {
   const { companies, selectedCompany, selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const { pushToast } = useToast();
   const queryClient = useQueryClient();
 
   // General settings local state
@@ -195,6 +198,8 @@ export function CompanySettings() {
   const [alertDestinations, setAlertDestinations] = useState<OperatingAlertDestinationConfig[]>([]);
   const [selectedTeamBlueprintKey, setSelectedTeamBlueprintKey] = useState<TeamBlueprintKey | null>(null);
   const [teamBlueprintPreview, setTeamBlueprintPreview] = useState<TeamBlueprintPreviewResult | null>(null);
+  const [teamBlueprintApplyResult, setTeamBlueprintApplyResult] = useState<TeamBlueprintApplyResult | null>(null);
+  const [confirmTeamBlueprintApply, setConfirmTeamBlueprintApply] = useState(false);
 
   // Sync local state from selected company
   useEffect(() => {
@@ -253,6 +258,8 @@ export function CompanySettings() {
 
   useEffect(() => {
     setTeamBlueprintPreview(null);
+    setTeamBlueprintApplyResult(null);
+    setConfirmTeamBlueprintApply(false);
   }, [selectedCompanyId]);
 
   useEffect(() => {
@@ -268,6 +275,12 @@ export function CompanySettings() {
       setSelectedTeamBlueprintKey(firstBlueprint);
     }
   }, [selectedTeamBlueprintKey, teamBlueprintCatalog?.blueprints]);
+
+  useEffect(() => {
+    setConfirmTeamBlueprintApply(false);
+    setTeamBlueprintApplyResult((current) =>
+      current && current.blueprintKey === selectedTeamBlueprintKey ? current : null);
+  }, [selectedTeamBlueprintKey]);
   const { data: rolePackPresets = [] } = useQuery({
     queryKey: queryKeys.companies.rolePackPresets,
     queryFn: () => companiesApi.listRolePackPresets(),
@@ -555,11 +568,58 @@ export function CompanySettings() {
   });
 
   const teamBlueprintPreviewMutation = useMutation({
-    mutationFn: async (blueprintKey: TeamBlueprintKey) =>
-      companiesApi.previewTeamBlueprint(selectedCompanyId!, blueprintKey),
+    mutationFn: async ({ companyId, blueprintKey }: { companyId: string; blueprintKey: TeamBlueprintKey }) =>
+      companiesApi.previewTeamBlueprint(companyId, blueprintKey),
     onSuccess: (preview) => {
       setSelectedTeamBlueprintKey(preview.blueprint.key);
       setTeamBlueprintPreview(preview);
+      setTeamBlueprintApplyResult(null);
+      setConfirmTeamBlueprintApply(false);
+    },
+  });
+
+  const teamBlueprintApplyMutation = useMutation({
+    mutationFn: async (input: { companyId: string; preview: TeamBlueprintPreviewResult }) =>
+      companiesApi.applyTeamBlueprint(input.companyId, input.preview.blueprint.key, {
+        previewHash: input.preview.previewHash,
+        projectCount: input.preview.parameters.projectCount,
+        engineerPairsPerProject: input.preview.parameters.engineerPairsPerProject,
+        includePm: input.preview.parameters.includePm,
+        includeQa: input.preview.parameters.includeQa,
+        includeCto: input.preview.parameters.includeCto,
+      }),
+    onSuccess: async (result, variables) => {
+      if (variables.companyId === selectedCompanyId) {
+        setTeamBlueprintApplyResult(result);
+        setTeamBlueprintPreview(null);
+        setConfirmTeamBlueprintApply(false);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.setupProgress(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: ["companies", variables.companyId, "doctor"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.org(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.orgSync(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.knowledgeSetup(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.rolePacks(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.activity(variables.companyId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(variables.companyId) }),
+      ]);
+      pushToast({
+        tone: "success",
+        title: `Applied ${result.blueprintKey}`,
+        body: `${result.summary.createdProjectCount} project(s), ${result.summary.createdAgentCount} agent(s), ${result.summary.updatedAgentCount} agent update(s).`,
+        dedupeKey: `team-blueprint-apply:${variables.companyId}:${result.previewHash}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Blueprint apply failed",
+        body: error instanceof Error ? error.message : "Failed to apply team blueprint",
+        dedupeKey: `team-blueprint-apply-error:${variables.companyId}:${variables.preview.blueprint.key}`,
+      });
     },
   });
 
@@ -857,6 +917,21 @@ export function CompanySettings() {
     setNewWorkflowTemplateAction(template.actionType);
   }
 
+  function handleApplyTeamBlueprint() {
+    if (!selectedTeamBlueprintPreview || teamBlueprintApplyMutation.isPending) return;
+    const confirmed = window.confirm(
+      `Apply ${selectedTeamBlueprintPreview.blueprint.label}?\n\n` +
+        `Projects: ${selectedTeamBlueprintPreview.summary.adoptedProjectCount} adopt / ${selectedTeamBlueprintPreview.summary.createProjectCount} create\n` +
+        `Roles: ${selectedTeamBlueprintPreview.summary.matchedRoleCount} matched / ${selectedTeamBlueprintPreview.summary.missingRoleCount} missing\n\n` +
+        "This will provision projects, agents, reporting lines, and setup metadata for the current company.",
+    );
+    if (!confirmed) return;
+    teamBlueprintApplyMutation.mutate({
+      companyId: selectedCompanyId!,
+      preview: selectedTeamBlueprintPreview,
+    });
+  }
+
   function handleCreateWorkflowTemplate() {
     const template = createWorkflowTemplateDraft(newWorkflowTemplateAction);
     const nextCompanyTemplates = [...companyWorkflowTemplates, template];
@@ -1149,16 +1224,19 @@ export function CompanySettings() {
             <div className="space-y-1">
               <div className="text-sm font-semibold">Reusable delivery team starting points</div>
               <p className="text-xs text-muted-foreground">
-                Preview how a generic delivery team would map onto this company before bulk provisioning is introduced.
+                Preview and apply a reusable delivery team shape to this company with explicit diff confirmation.
               </p>
             </div>
             <Button
               size="sm"
               variant="outline"
-              disabled={!selectedTeamBlueprint || teamBlueprintPreviewMutation.isPending}
+              disabled={!selectedTeamBlueprint || teamBlueprintPreviewMutation.isPending || teamBlueprintApplyMutation.isPending}
               onClick={() => {
-                if (!selectedTeamBlueprint) return;
-                teamBlueprintPreviewMutation.mutate(selectedTeamBlueprint.key);
+                if (!selectedTeamBlueprint || !selectedCompanyId) return;
+                teamBlueprintPreviewMutation.mutate({
+                  companyId: selectedCompanyId,
+                  blueprintKey: selectedTeamBlueprint.key,
+                });
               }}
             >
               {teamBlueprintPreviewMutation.isPending ? "Generating preview..." : "Preview team plan"}
@@ -1255,7 +1333,7 @@ export function CompanySettings() {
                     <div>
                       <div className="text-sm font-semibold">Preview diff</div>
                       <p className="text-xs text-muted-foreground">
-                        Preview-first only. Apply will come later with explicit diff confirmation.
+                        Review the diff, confirm it, then apply the team shape to this company.
                       </p>
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -1352,6 +1430,75 @@ export function CompanySettings() {
                         ))}
                       </ul>
                     </div>
+                  )}
+
+                  <div className="rounded-md border border-border bg-muted/20 px-3 py-3">
+                    <label className="flex items-start gap-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={confirmTeamBlueprintApply}
+                        onChange={(event) => setConfirmTeamBlueprintApply(event.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-border"
+                      />
+                      <span>
+                        I reviewed this preview diff and want to apply the current team blueprint to this company.
+                      </span>
+                    </label>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleApplyTeamBlueprint}
+                        disabled={!confirmTeamBlueprintApply || teamBlueprintApplyMutation.isPending}
+                      >
+                        {teamBlueprintApplyMutation.isPending ? "Applying blueprint..." : "Apply team blueprint"}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Apply uses the current preview hash and will be rejected if company state drifts first.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {teamBlueprintApplyResult && selectedTeamBlueprint && teamBlueprintApplyResult.blueprintKey === selectedTeamBlueprint.key && (
+                <div className="space-y-3 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-emerald-900">Blueprint applied</div>
+                      <p className="text-xs text-emerald-800">
+                        Preview hash {teamBlueprintApplyResult.previewHash.slice(0, 12)}... applied successfully.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-emerald-300 px-2 py-0.5 text-[11px] text-emerald-800">
+                      {teamBlueprintApplyResult.blueprintKey}
+                    </span>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <div className="rounded-md border border-emerald-200 bg-white/70 px-3 py-3 text-sm">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">Projects</div>
+                      <div className="mt-1 font-medium text-foreground">
+                        {teamBlueprintApplyResult.summary.adoptedProjectCount} adopt / {teamBlueprintApplyResult.summary.createdProjectCount} create
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-emerald-200 bg-white/70 px-3 py-3 text-sm">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">Agents</div>
+                      <div className="mt-1 font-medium text-foreground">
+                        {teamBlueprintApplyResult.summary.adoptedAgentCount} adopt / {teamBlueprintApplyResult.summary.createdAgentCount} create / {teamBlueprintApplyResult.summary.updatedAgentCount} update
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-emerald-200 bg-white/70 px-3 py-3 text-sm">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">Role packs</div>
+                      <div className="mt-1 font-medium text-foreground">
+                        {teamBlueprintApplyResult.summary.seededRolePackCount} seeded / {teamBlueprintApplyResult.summary.existingRolePackCount} existing
+                      </div>
+                    </div>
+                  </div>
+                  {teamBlueprintApplyResult.warnings.length > 0 && (
+                    <ul className="space-y-1 text-xs text-emerald-900">
+                      {teamBlueprintApplyResult.warnings.map((warning) => (
+                        <li key={warning}>• {warning}</li>
+                      ))}
+                    </ul>
                   )}
                 </div>
               )}

@@ -17,6 +17,8 @@ import type {
   RepairOrgSync,
   TeamBlueprintKey,
   TeamBlueprintCatalogView,
+  TeamBlueprintApplyRequest,
+  TeamBlueprintApplyResult,
   TeamBlueprintPreviewRequest,
   TeamBlueprintPreviewResult,
   CreateCustomRolePack,
@@ -77,6 +79,12 @@ export const companiesApi = {
     data: TeamBlueprintPreviewRequest = {},
   ) =>
     api.post<TeamBlueprintPreviewResult>(`/companies/${companyId}/team-blueprints/${blueprintKey}/preview`, data),
+  applyTeamBlueprint: (
+    companyId: string,
+    blueprintKey: TeamBlueprintKey,
+    data: TeamBlueprintApplyRequest,
+  ) =>
+    api.post<TeamBlueprintApplyResult>(`/companies/${companyId}/team-blueprints/${blueprintKey}/apply`, data),
   updateWorkflowTemplates: (companyId: string, data: UpdateWorkflowTemplates) =>
     api.patch<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`, data),
   getOperatingAlerts: (companyId: string) =>

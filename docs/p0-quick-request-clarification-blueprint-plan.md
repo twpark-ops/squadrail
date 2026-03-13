@@ -34,8 +34,8 @@
 
 - quick request는 기본 입력 경로가 됐지만 onboarding/company-wide first path까지는 아직 올라오지 않음
 - clarification loop는 공식 answer path와 shared pending contract까지 닫혔지만, Company Settings/onboarding consumption이 아직 없다
-- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog skeleton까지는 생겼지만 preview/apply와 product surface가 아직 없다
-- 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning이 없음
+- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings operator surface까지는 올라왔지만, onboarding first path와 canonical 완전 흡수는 아직 남아 있다
+- 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings apply flow까지 올라왔지만, onboarding first path 재편은 아직 없다
 - onboarding / company settings가 위 흐름 기준으로 재편되지 않음
 
 ### 구현 체크포인트 2026-03-13
@@ -60,7 +60,7 @@
   - `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route를 추가했다.
   - `CompanySettings`가 blueprint catalog를 읽고 preview diff를 operator surface로 보여준다.
   - 남은 immediate next는 `apply contract -> confirmation gate -> semantics test -> UI flow`다.
-- `Phase 5` server kickoff 완료
+- `Phase 5` 구현 완료
   - `previewHash`가 포함된 preview response contract를 추가했다.
   - `team blueprint apply` request/response contract를 추가했다.
   - `POST /api/companies/:companyId/team-blueprints/:blueprintKey/apply` route를 추가했다.
@@ -68,7 +68,10 @@
   - apply는 outer transaction으로 묶여 partial org/team residue를 남기지 않는다.
   - per-project TL slot expansion과 project lead wiring을 `standard_product_squad` 실제 apply test로 고정했다.
   - service/unit + route regression으로 `stale reject`, `first apply create`, `same preview retry reject`, rollback failure injection을 고정했다.
-  - 남은 immediate next는 `Company Settings apply flow + swiftsight canonical absorption prep`다.
+  - `CompanySettings`가 preview diff 확인 -> confirmation -> apply까지 공식 operator flow로 연결됐다.
+  - apply 성공 후 `setup/doctor/agent/project/orgSync/knowledgeSetup/activity/sidebar badges` invalidate와 success toast를 연결했다.
+  - `swiftsight-org-canonical`에 generic blueprint parameter-map 흡수 준비 메타를 추가했다.
+  - 남은 immediate next는 `Phase 6 onboarding / company settings reframe + swiftsight absorption follow-through`다.
 
 ## 4. 제품 계약
 
@@ -311,7 +314,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - readiness metadata preview regression
 - Company Settings typecheck/build regression
 
-## Phase 5. Bulk Provisioning with Preview/Diff [server apply kickoff shipped, UI pending]
+## Phase 5. Bulk Provisioning with Preview/Diff [완료]
 
 ### 목표
 
@@ -340,8 +343,9 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - preview의 projectDiff와 실제 apply 결과가 일치한다
 - preview의 roleDiff와 실제 agent/reportsTo 결과가 일치한다
 - apply 후 company setup 상태가 일관되게 갱신된다
-- preview route와 Company Settings read surface는 이미 shipped 상태다
-- 남은 핵심은 `Company Settings apply CTA`, `invalidate/success trace`, `swiftsight canonical absorption prep`이다
+- preview route와 Company Settings read/apply surface가 함께 shipped 상태다
+- apply 성공 후 setup/doctor/agent/project/orgSync/knowledgeSetup/activity/sidebar 상태가 invalidate 된다
+- `swiftsight canonical`은 generic blueprint parameter map 흡수 준비 메타를 가진다
 
 ### 테스트
 
@@ -352,7 +356,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - preview/apply route tests
 - company setup invalidation regression
 
-## Phase 6. Onboarding / Company Settings 재편
+## Phase 6. Onboarding / Company Settings 재편 [다음 시작점]
 
 ### 목표
 
