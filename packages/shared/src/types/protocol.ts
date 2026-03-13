@@ -81,8 +81,14 @@ export interface IssueProtocolAskClarificationPayload {
   question: string;
   blocking: boolean;
   requestedFrom: IssueProtocolRequestTargetRole;
+  resumeWorkflowState?: IssueProtocolWorkflowState | null;
   relatedArtifacts?: string[];
   proposedAssumptions?: string[];
+}
+
+export interface IssueProtocolAnswerClarificationPayload extends IssueProtocolBoardTemplateTrace {
+  answer: string;
+  nextStep?: string | null;
 }
 
 export interface IssueProtocolPlanStep {
@@ -229,6 +235,7 @@ export interface IssueProtocolPayloadByMessageType {
   ASSIGN_TASK: IssueProtocolAssignTaskPayload;
   ACK_ASSIGNMENT: IssueProtocolAckAssignmentPayload;
   ASK_CLARIFICATION: IssueProtocolAskClarificationPayload;
+  ANSWER_CLARIFICATION: IssueProtocolAnswerClarificationPayload;
   PROPOSE_PLAN: IssueProtocolProposePlanPayload;
   START_IMPLEMENTATION: IssueProtocolStartImplementationPayload;
   REPORT_PROGRESS: IssueProtocolProgressPayload;

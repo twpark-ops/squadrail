@@ -47,6 +47,48 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
   });
 
+  it("wakes the clarifying participant when a human clarification answer is posted", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-clarify",
+      protocolMessageId: "msg-answer-1",
+      senderAgentId: null,
+      message: {
+        messageType: "ANSWER_CLARIFICATION",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "implementing",
+        summary: "Board answered the missing project question",
+        causalMessageId: "question-1",
+        payload: {
+          answer: "Use the swiftsight-cloud project.",
+          nextStep: "Resume implementation planning.",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      source: "automation",
+      reason: "protocol_clarification_answered",
+      recipientId: "eng-1",
+      contextSnapshot: {
+        protocolMessageType: "ANSWER_CLARIFICATION",
+      },
+    });
+  });
+
   it("keeps reviewer recipients as notify_only during assignment handoff", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-1",

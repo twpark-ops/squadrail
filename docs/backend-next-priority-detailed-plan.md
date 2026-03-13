@@ -6,6 +6,20 @@
 
 > 업데이트 2026-03-13:
 > 이 문서는 원래 retrieval follow-up 중심 계획이었지만, 현재 즉시 시작 기준은 아래 상태가 우선이다.
+>
+> 제품 방향 업데이트 2026-03-13:
+> coverage `80.23%` threshold는 유지 중이다. immediate next는 coverage 총량이 아니라 상위 제품 플로우를 닫는 것이다.
+> 새 기준 문서:
+> - [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)
+> - [`p0-quick-request-clarification-blueprint-plan.puml`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.puml)
+> 새 우선순위:
+> 1. `Quick request 기본화`
+> 2. `Clarification 질문/답변 루프`
+> 3. `Human answer path 정식화`
+> 4. `Generic team blueprint v1`
+> 5. `Bulk provisioning`
+> 6. `Onboarding / Company Settings 재편`
+> backend runtime coverage hardening은 유지보수 트랙으로 내린다.
 > 완료된 항목:
 > - `1. 통합 경계 안정화` P0 1차 완료
 > - `2. 사람 최종 리뷰 유지 PR bridge` 완료
@@ -31,14 +45,47 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `heartbeat / knowledge / routes/issues high-risk body distribution hardening after 80% threshold`이다.
+> 현재 다음 순차 작업은 `Phase 3 operator clarification surface polish + Phase 4 blueprint contract kickoff`이다.
 
 ## 목적
 
-현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 새 기능 추가가 아니라 `80%` coverage를 유지하면서 high-risk runtime 분포를 더 평탄하게 만드는 것이다. helper seam 확대만으로는 총량 상승이 작고, 전역 수치만 넘겨도 `heartbeat / knowledge / routes/issues` 같은 병목이 남는다는 점이 확인됐다.
+현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 coverage 총량이 아니라 상위 제품 플로우를 닫는 것이다. coverage `80.23%`는 유지보수 기준선으로 남기되, immediate next는 `quick request -> clarification -> blueprint -> bulk provisioning` productization이다.
 
 현재 제품 방향은 계속 `standardized software delivery org kernel`이다.
 즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
+
+## 현재 최우선 제품 트랙
+
+`coverage uplift`는 이제 선행 게이트를 넘겼다. immediate next는 아래 사용자 플로우를 제품 수준으로 닫는 것이다.
+
+1. 사람이 짧게 요청한다.
+2. 시스템/PM이 구조화한다.
+3. 부족한 정보만 질문한다.
+4. 사람이 짧게 답한다.
+5. 팀이 실행/리뷰/QA/close를 수행한다.
+6. 같은 팀 구성을 다른 회사에도 쉽게 재사용한다.
+
+정리된 상세 phase는 [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)에 있다.
+
+### Immediate Next Slice
+
+1. `Phase 3 finish`
+   - `ANSWER_CLARIFICATION`의 resume semantics는 server-owned transition으로 닫혔다
+   - `Inbox` clarification card를 answer CTA/deep-link까지 올리기
+   - answered / resumed 상태를 operator surface에서 읽을 수 있게 만들기
+   - `Inbox` / `IssueDetail`은 shared pending human clarification contract를 계속 사용한다
+2. `Generic team blueprint v1 contract skeleton`
+   - shared type / validator / registry 뼈대 추가
+   - swiftsight-specific canonical 흡수 준비
+3. `Focused validation`
+   - clarification answer route / surface regression
+   - blueprint contract service/unit regression
+
+### Follow-up Slices
+
+4. `Bulk provisioning with preview/diff`
+5. `Onboarding / Company Settings 재편`
+6. `Bounded autonomy E2E`
 
 ## 2026-03-13 coverage threshold push
 
@@ -96,8 +143,8 @@
   - `pnpm --filter @squadrail/server typecheck`
   - `pnpm --filter @squadrail/server build`
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - 최신 coverage: statements/lines `80.37%`, branches `64.92%`, functions `91.36%`
-  - 최신 server tests: `172 files / 1091 tests` 통과
+  - 최신 coverage: statements/lines `80.23%`, branches `65.06%`, functions `91.38%`
+  - 최신 server tests: `172 files / 1099 tests` 통과
   - 해석: 전역 `80%`는 달성했지만 core 분포는 아직 불균형하다. 다음 병목은 `heartbeat.ts 44.47%`, `knowledge.ts 62.95%`, `routes/issues.ts 66.28%`다.
 
 ## 상태 업데이트

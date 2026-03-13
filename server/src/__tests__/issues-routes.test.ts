@@ -2317,6 +2317,61 @@ describe("issue routes wakeup handling", () => {
     expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps retrieval brief generation and dispatch for ANSWER_CLARIFICATION messages", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-240",
+      title: "Protocol clarification issue",
+      description: "Clarify the target project",
+      projectId: "project-1",
+      labels: [],
+    });
+    mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({
+      retrievalRuns: [],
+      recipientHints: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildBoardActor(),
+      body: {
+        messageType: "ANSWER_CLARIFICATION",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "engineer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "implementing",
+        summary: "Board answered the project clarification",
+        causalMessageId: "44444444-4444-4444-8444-444444444444",
+        payload: {
+          answer: "Use the swiftsight-cloud project.",
+          nextStep: "Resume TL routing in the cloud lane.",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+    expect(mockIssueRetrievalHandleProtocolMessage).toHaveBeenCalledTimes(1);
+    expect(mockProtocolDispatchMessage).toHaveBeenCalledTimes(1);
+    const appendInput = mockProtocolAppendMessage.mock.calls[0]?.[0];
+    expect(appendInput?.message).toEqual(expect.objectContaining({
+      messageType: "ANSWER_CLARIFICATION",
+      causalMessageId: "44444444-4444-4444-8444-444444444444",
+      payload: expect.objectContaining({
+        answer: "Use the swiftsight-cloud project.",
+      }),
+    }));
+  });
+
   it("keeps retrieval brief generation for SUBMIT_FOR_REVIEW handoff messages", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",

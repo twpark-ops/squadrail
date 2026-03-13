@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
+import { resolveClarificationResumeWorkflowState } from "@squadrail/shared";
 import {
   issueComments,
   issueMergeCandidates,
@@ -14,10 +15,12 @@ import {
   projects,
 } from "@squadrail/db";
 import type {
+  IssueProtocolBlockedPhase,
   CreateIssueProtocolMessage,
   CreateIssueProtocolViolation,
   IssueProtocolArtifact,
   IssueProtocolMessageType,
+  IssueProtocolRequestTargetRole,
   IssueProtocolRole,
   IssueProtocolWorkflowState,
   IssueStatus,
@@ -48,6 +51,7 @@ const MESSAGE_RULES: Record<
   ASSIGN_TASK: { from: ["backlog"], to: "assigned", roles: ["tech_lead", "cto", "pm", "human_board"], stateChanging: true },
   ACK_ASSIGNMENT: { from: ["assigned"], to: "accepted", roles: ["engineer"], stateChanging: true },
   ASK_CLARIFICATION: { from: "*", to: "same", roles: ["tech_lead", "engineer", "reviewer", "cto", "pm", "qa"], stateChanging: false },
+  ANSWER_CLARIFICATION: { from: "*", to: "same", roles: ["tech_lead", "reviewer", "human_board"], stateChanging: true },
   PROPOSE_PLAN: { from: ["accepted", "planning"], to: "planning", roles: ["engineer"], stateChanging: true },
   START_IMPLEMENTATION: {
     from: ["accepted", "planning", "changes_requested"],
@@ -257,6 +261,43 @@ export function validateHumanBoardProtocolIntervention(input: {
   return null;
 }
 
+function readClarificationRequestTarget(
+  payload: unknown,
+): IssueProtocolRequestTargetRole | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const requestedFrom = (payload as Record<string, unknown>).requestedFrom;
+  return requestedFrom === "tech_lead" || requestedFrom === "reviewer" || requestedFrom === "human_board"
+    ? requestedFrom
+    : null;
+}
+
+function readClarificationResumeWorkflowState(
+  payload: unknown,
+): IssueProtocolWorkflowState | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const resumeWorkflowState = (payload as Record<string, unknown>).resumeWorkflowState;
+  switch (resumeWorkflowState) {
+    case "backlog":
+    case "assigned":
+    case "accepted":
+    case "planning":
+    case "implementing":
+    case "submitted_for_review":
+    case "under_review":
+    case "qa_pending":
+    case "under_qa_review":
+    case "changes_requested":
+    case "awaiting_human_decision":
+    case "approved":
+    case "blocked":
+    case "done":
+    case "cancelled":
+      return resumeWorkflowState;
+    default:
+      return null;
+  }
+}
+
 export function validateProtocolRecipientContract(message: CreateIssueProtocolMessage) {
   const payload = message.payload as Record<string, unknown>;
 
@@ -317,6 +358,15 @@ export function validateProtocolRecipientContract(message: CreateIssueProtocolMe
     }
   }
 
+  if (message.messageType === "ANSWER_CLARIFICATION") {
+    if (!message.causalMessageId) {
+      return "ANSWER_CLARIFICATION requires causalMessageId";
+    }
+    if (message.recipients.length === 0) {
+      return "ANSWER_CLARIFICATION must target the clarifying participant";
+    }
+  }
+
   return null;
 }
 
@@ -350,6 +400,10 @@ export function resolveExpectedWorkflowStateAfter(input: {
     }
 
     return "approved";
+  }
+
+  if (input.message.messageType === "ANSWER_CLARIFICATION") {
+    return input.message.workflowStateAfter;
   }
 
   return input.rule.to === "same" ? input.before : input.rule.to;
@@ -431,6 +485,17 @@ async function getLatestSubmittedReviewMessage(tx: any, issueId: string) {
     .from(issueProtocolMessages)
     .where(and(eq(issueProtocolMessages.issueId, issueId), eq(issueProtocolMessages.messageType, "SUBMIT_FOR_REVIEW")))
     .orderBy(desc(issueProtocolMessages.seq))
+    .then((rows: Array<typeof issueProtocolMessages.$inferSelect>) => rows[0] ?? null);
+}
+
+async function getProtocolMessageById(
+  tx: any,
+  messageId: string,
+) {
+  return tx
+    .select()
+    .from(issueProtocolMessages)
+    .where(eq(issueProtocolMessages.id, messageId))
     .then((rows: Array<typeof issueProtocolMessages.$inferSelect>) => rows[0] ?? null);
 }
 
@@ -742,8 +807,51 @@ export function issueProtocolService(db: Db) {
           .for("update")
           .then((rows: Array<typeof issueProtocolState.$inferSelect>) => rows[0] ?? null);
 
-        await validateMessage(currentState, input.message);
-        await validateEvidenceRequirements(tx, issue.id, input.message);
+        let effectiveMessage = input.message;
+
+        if (effectiveMessage.messageType === "ANSWER_CLARIFICATION") {
+          if (!effectiveMessage.causalMessageId) {
+            throw unprocessable("Clarification answers must reference the original question");
+          }
+          const causalMessage = await getProtocolMessageById(tx, effectiveMessage.causalMessageId);
+          if (!causalMessage || causalMessage.issueId !== issue.id) {
+            throw conflict("Clarification answer must reference a question on the same issue");
+          }
+          if (causalMessage.messageType !== "ASK_CLARIFICATION") {
+            throw unprocessable("Clarification answer can only acknowledge ASK_CLARIFICATION messages");
+          }
+          const requestedFrom = readClarificationRequestTarget(causalMessage.payload);
+          if (!requestedFrom) {
+            throw conflict("Clarification question is missing the requestedFrom contract");
+          }
+          if (requestedFrom !== effectiveMessage.sender.role) {
+            throw unprocessable(`Clarification answer must be sent by the requested ${requestedFrom} actor`);
+          }
+          if (causalMessage.ackedAt) {
+            throw conflict("Clarification question has already been answered");
+          }
+          const hasQuestionSenderRecipient = effectiveMessage.recipients.some((recipient) =>
+            recipient.recipientType === causalMessage.senderActorType
+            && recipient.recipientId === causalMessage.senderActorId
+            && recipient.role === causalMessage.senderRole,
+          );
+          if (!hasQuestionSenderRecipient) {
+            throw unprocessable("Clarification answer must target the original clarifying participant");
+          }
+
+          effectiveMessage = {
+            ...effectiveMessage,
+            workflowStateAfter: resolveClarificationResumeWorkflowState({
+              currentWorkflowState: (currentState?.workflowState ?? effectiveMessage.workflowStateBefore) as IssueProtocolWorkflowState,
+              blockedPhase: (currentState?.blockedPhase ?? null) as IssueProtocolBlockedPhase | null,
+              explicitResumeWorkflowState: readClarificationResumeWorkflowState(causalMessage.payload),
+              askedByRole: causalMessage.senderRole as IssueProtocolRole,
+            }),
+          };
+        }
+
+        await validateMessage(currentState, effectiveMessage);
+        await validateEvidenceRequirements(tx, issue.id, effectiveMessage);
 
         const thread = await ensurePrimaryThread(tx, issue.companyId, issue.id);
         const lastMessage = await tx
@@ -761,21 +869,21 @@ export function issueProtocolService(db: Db) {
             issueId: issue.id,
             threadId: thread.id,
             seq,
-            messageType: input.message.messageType,
-            senderActorType: input.message.sender.actorType,
-            senderActorId: input.message.sender.actorId,
-            senderRole: input.message.sender.role,
-            workflowStateBefore: input.message.workflowStateBefore,
-            workflowStateAfter: input.message.workflowStateAfter,
-            summary: input.message.summary,
-            payload: input.message.payload as Record<string, unknown>,
-            causalMessageId: input.message.causalMessageId ?? null,
-            retrievalRunId: input.message.retrievalRunId ?? null,
-            requiresAck: input.message.requiresAck ?? false,
+            messageType: effectiveMessage.messageType,
+            senderActorType: effectiveMessage.sender.actorType,
+            senderActorId: effectiveMessage.sender.actorId,
+            senderRole: effectiveMessage.sender.role,
+            workflowStateBefore: effectiveMessage.workflowStateBefore,
+            workflowStateAfter: effectiveMessage.workflowStateAfter,
+            summary: effectiveMessage.summary,
+            payload: effectiveMessage.payload as Record<string, unknown>,
+            causalMessageId: effectiveMessage.causalMessageId ?? null,
+            retrievalRunId: effectiveMessage.retrievalRunId ?? null,
+            requiresAck: effectiveMessage.requiresAck ?? false,
           })
           .returning();
 
-        const insertedRecipients = normalizeIntegrityRecipients(input.message.recipients);
+        const insertedRecipients = normalizeIntegrityRecipients(effectiveMessage.recipients);
         if (insertedRecipients.length > 0) {
           await tx.insert(issueProtocolRecipients).values(
             insertedRecipients.map((recipient) => ({
@@ -788,7 +896,7 @@ export function issueProtocolService(db: Db) {
           );
         }
 
-        const insertedArtifacts = normalizeIntegrityArtifacts(input.message.artifacts ?? []);
+        const insertedArtifacts = normalizeIntegrityArtifacts(effectiveMessage.artifacts ?? []);
         if (insertedArtifacts.length > 0) {
           await tx.insert(issueProtocolArtifacts).values(
             insertedArtifacts.map((artifact) => ({
@@ -826,14 +934,14 @@ export function issueProtocolService(db: Db) {
             .returning();
         }
 
-        if (input.message.causalMessageId) {
+        if (effectiveMessage.causalMessageId) {
           await tx
             .update(issueProtocolMessages)
             .set({ ackedAt: new Date() })
-            .where(eq(issueProtocolMessages.id, input.message.causalMessageId));
+            .where(eq(issueProtocolMessages.id, effectiveMessage.causalMessageId));
         }
 
-        if (input.message.messageType === "START_REVIEW") {
+        if (effectiveMessage.messageType === "START_REVIEW") {
           const openCycle = await getOpenReviewCycle(tx, issue.id);
           if (openCycle) {
             throw conflict("An active review cycle already exists");
@@ -842,23 +950,23 @@ export function issueProtocolService(db: Db) {
           if (!latestSubmit) {
             throw conflict("Cannot start review without SUBMIT_FOR_REVIEW");
           }
-          const payload = input.message.payload as Record<string, unknown>;
+          const payload = effectiveMessage.payload as Record<string, unknown>;
           const reviewCycle = typeof payload.reviewCycle === "number" ? payload.reviewCycle : 1;
           await tx.insert(issueReviewCycles).values({
             companyId: issue.companyId,
             issueId: issue.id,
             cycleNumber: reviewCycle,
             reviewerAgentId:
-              input.message.sender.actorType === "agent"
-                && (input.message.sender.role === "reviewer" || input.message.sender.role === "qa")
-                ? input.message.sender.actorId
+              effectiveMessage.sender.actorType === "agent"
+                && (effectiveMessage.sender.role === "reviewer" || effectiveMessage.sender.role === "qa")
+                ? effectiveMessage.sender.actorId
                 : null,
-            reviewerUserId: input.message.sender.actorType === "user" ? input.message.sender.actorId : null,
+            reviewerUserId: effectiveMessage.sender.actorType === "user" ? effectiveMessage.sender.actorId : null,
             submittedMessageId: latestSubmit.id,
           });
         }
 
-        if (input.message.messageType === "REQUEST_CHANGES" || input.message.messageType === "APPROVE_IMPLEMENTATION") {
+        if (effectiveMessage.messageType === "REQUEST_CHANGES" || effectiveMessage.messageType === "APPROVE_IMPLEMENTATION") {
           const openCycle = await getOpenReviewCycle(tx, issue.id);
           if (!openCycle) {
             throw conflict("No active review cycle found");
@@ -867,15 +975,15 @@ export function issueProtocolService(db: Db) {
             .update(issueReviewCycles)
             .set({
               closedAt: new Date(),
-              outcome: input.message.messageType === "REQUEST_CHANGES" ? "changes_requested" : "approved",
+              outcome: effectiveMessage.messageType === "REQUEST_CHANGES" ? "changes_requested" : "approved",
               outcomeMessageId: createdMessage.id,
             })
             .where(eq(issueReviewCycles.id, openCycle.id));
         }
 
-        const workflowState = input.message.workflowStateAfter;
+        const workflowState = effectiveMessage.workflowStateAfter;
         const coarseIssueStatus = mapProtocolStateToIssueStatus(workflowState);
-        const currentPayload = input.message.payload as Record<string, unknown>;
+        const currentPayload = effectiveMessage.payload as Record<string, unknown>;
         const resolvedOwnership = resolveProtocolOwnershipForMessage({
           currentState: currentState
             ? {
@@ -885,7 +993,7 @@ export function issueProtocolService(db: Db) {
                 qaAgentId: currentState.qaAgentId ?? null,
               }
             : null,
-          message: input.message,
+          message: effectiveMessage,
           fallbackTechLeadAgentId,
         });
 
@@ -915,7 +1023,7 @@ export function issueProtocolService(db: Db) {
           reviewerAgentId: resolvedOwnership.reviewerAgentId,
           qaAgentId: resolvedOwnership.qaAgentId,
           currentReviewCycle:
-            input.message.messageType === "START_REVIEW"
+            effectiveMessage.messageType === "START_REVIEW"
               ? Number(currentPayload.reviewCycle ?? (currentState?.currentReviewCycle ?? 0) + 1)
               : currentState?.currentReviewCycle ?? 0,
           lastProtocolMessageId: sealedMessage.id,
@@ -955,7 +1063,7 @@ export function issueProtocolService(db: Db) {
             issueId: issue.id,
             authorAgentId: input.authorAgentId ?? null,
             authorUserId: input.authorUserId ?? null,
-            body: renderMirrorComment(input.message),
+            body: renderMirrorComment(effectiveMessage),
           });
         }
 

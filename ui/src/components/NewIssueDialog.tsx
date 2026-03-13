@@ -224,7 +224,7 @@ export function NewIssueDialog() {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [mode, setMode] = useState<"standard" | "intake">("standard");
+  const [mode, setMode] = useState<"standard" | "intake">("intake");
   const [status, setStatus] = useState("todo");
   const [priority, setPriority] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -435,7 +435,7 @@ export function NewIssueDialog() {
 
     const draft = loadDraft();
     if (draft && (draft.title.trim() || draft.description.trim())) {
-      setMode(draft.mode ?? "standard");
+      setMode(draft.mode ?? "intake");
       setTitle(draft.title);
       setDescription(draft.description);
       setStatus(draft.status || "todo");
@@ -449,7 +449,7 @@ export function NewIssueDialog() {
       setAssigneeChrome(draft.assigneeChrome ?? false);
       setAssigneeUseProjectWorkspace(draft.assigneeUseProjectWorkspace ?? true);
     } else {
-      setMode("standard");
+      setMode("intake");
       setStatus(newIssueDefaults.status ?? "todo");
       setPriority(newIssueDefaults.priority ?? "");
       setProjectId(newIssueDefaults.projectId ?? "");
@@ -496,7 +496,7 @@ export function NewIssueDialog() {
   function reset() {
     setTitle("");
     setDescription("");
-    setMode("standard");
+    setMode("intake");
     setStatus("todo");
     setPriority("");
     setAssigneeId("");
@@ -788,7 +788,7 @@ export function NewIssueDialog() {
               )}
               onClick={() => setMode("standard")}
             >
-              Standard issue
+              Advanced issue
             </button>
             <button
               type="button"
@@ -798,7 +798,7 @@ export function NewIssueDialog() {
               )}
               onClick={() => setMode("intake")}
             >
-              Human intake
+              Quick request
             </button>
           </div>
         </div>
@@ -807,7 +807,7 @@ export function NewIssueDialog() {
         <div className="px-4 pt-4 pb-2 shrink-0">
           <textarea
             className="w-full text-lg font-semibold bg-transparent outline-none resize-none overflow-hidden placeholder:text-muted-foreground/50"
-            placeholder={mode === "intake" ? "Optional intake title" : "Issue title"}
+            placeholder={mode === "intake" ? "Optional request title" : "Issue title"}
             rows={1}
             value={title}
             onChange={(e) => {
@@ -1114,8 +1114,8 @@ export function NewIssueDialog() {
         >
           {mode === "intake" && (
             <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              Paste the human request here. Squadrail will create an intake issue, assign the PM lane, and route the
-              reviewer automatically unless you pin the owners above.
+              Describe the work request in a structured but lightweight way. Squadrail will create a PM intake issue,
+              route it into the PM lane, and only ask follow-up questions when execution needs missing information.
             </div>
           )}
           <MarkdownEditor
@@ -1124,7 +1124,7 @@ export function NewIssueDialog() {
             onChange={setDescription}
             placeholder={
               mode === "intake"
-                ? "Describe the request, desired outcome, constraints, and relevant context..."
+                ? "Describe the request, desired outcome, constraints, project hints, and any relevant context..."
                 : "Add description..."
             }
             bordered={false}
@@ -1277,7 +1277,7 @@ export function NewIssueDialog() {
             {mode === "intake"
               ? createIntakeIssue.isPending
                 ? "Routing..."
-                : "Create Intake"
+                : "Create Quick Request"
               : createIssue.isPending
               ? "Creating..."
               : "Create Issue"}

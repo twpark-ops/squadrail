@@ -28,7 +28,10 @@ vi.mock("../services/issue-protocol.js", () => ({
   }),
 }));
 
-import { dashboardService } from "../services/dashboard.js";
+import {
+  buildProtocolDashboardBuckets,
+  dashboardService,
+} from "../services/dashboard.js";
 
 function createResolvedChain(rows: unknown[]) {
   const chain = {
@@ -187,6 +190,97 @@ describe("dashboard service", () => {
       },
       pendingApprovals: 2,
       staleTasks: 1,
+    });
+  });
+
+  it("queues only pending human clarifications regardless of the latest message type", () => {
+    const queue = buildProtocolDashboardBuckets({
+      items: [
+        {
+          issueId: "issue-1",
+          identifier: "CLO-100",
+          title: "Clarify project ownership",
+          priority: "high",
+          projectId: "project-1",
+          projectName: "Cloud",
+          coarseIssueStatus: "in_progress",
+          workflowState: "implementing",
+          currentReviewCycle: 0,
+          lastTransitionAt: new Date("2026-03-13T10:00:00.000Z"),
+          stale: false,
+          nextOwnerRole: "human_board",
+          blockedPhase: null,
+          blockedCode: null,
+          openViolationCount: 0,
+          highestViolationSeverity: null,
+          techLead: null,
+          engineer: null,
+          reviewer: null,
+          latestMessage: {
+            id: "msg-1",
+            messageType: "NOTE",
+            summary: "Board saw the clarification but has not answered yet",
+            senderRole: "human_board",
+            createdAt: new Date("2026-03-13T10:05:00.000Z"),
+          },
+          pendingHumanClarifications: [{
+            questionMessageId: "question-1",
+            questionType: "requirement",
+            question: "Need project confirmation",
+            blocking: true,
+            askedByActorType: "agent",
+            askedByActorId: "eng-1",
+            askedByRole: "engineer",
+            askedByLabel: "Cloud Engineer",
+            createdAt: new Date("2026-03-13T10:00:00.000Z"),
+            resumeWorkflowState: "implementing",
+          }],
+          openReviewCycle: null,
+          latestBriefs: {},
+        },
+        {
+          issueId: "issue-2",
+          identifier: "CLO-101",
+          title: "Agent-only clarification should not page the board",
+          priority: "medium",
+          projectId: "project-1",
+          projectName: "Cloud",
+          coarseIssueStatus: "in_progress",
+          workflowState: "implementing",
+          currentReviewCycle: 0,
+          lastTransitionAt: new Date("2026-03-13T10:01:00.000Z"),
+          stale: false,
+          nextOwnerRole: "engineer",
+          blockedPhase: null,
+          blockedCode: null,
+          openViolationCount: 0,
+          highestViolationSeverity: null,
+          techLead: null,
+          engineer: null,
+          reviewer: null,
+          latestMessage: {
+            id: "msg-2",
+            messageType: "ASK_CLARIFICATION",
+            summary: "Need reviewer clarification",
+            senderRole: "reviewer",
+            createdAt: new Date("2026-03-13T10:01:00.000Z"),
+          },
+          pendingHumanClarifications: [],
+          openReviewCycle: null,
+          latestBriefs: {},
+        },
+      ],
+      limit: 10,
+    });
+
+    expect(queue.clarificationQueue).toHaveLength(1);
+    expect(queue.clarificationQueue[0]).toMatchObject({
+      issueId: "issue-1",
+      pendingHumanClarifications: [
+        expect.objectContaining({
+          questionMessageId: "question-1",
+        }),
+      ],
     });
   });
 
@@ -422,6 +516,7 @@ describe("dashboard service", () => {
             createdAt: new Date("2026-03-13T06:01:00.000Z"),
           },
         ],
+        [],
         [
           { issueId: "issue-1", severity: "high" },
           { issueId: "issue-1", severity: "critical" },

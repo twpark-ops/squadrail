@@ -346,6 +346,10 @@ function renderProtocolPayloadMarkdown(input: {
       lines.push("", "## Question", "", readString(input.payload.question) ?? "_No question body._");
       pushList(lines, "Proposed Assumptions", readStringArray(input.payload.proposedAssumptions));
       break;
+    case "ANSWER_CLARIFICATION":
+      lines.push(`- nextStep: ${readString(input.payload.nextStep) ?? "-"}`);
+      lines.push("", "## Clarification Answer", "", readString(input.payload.answer) ?? "_No answer body provided._");
+      break;
     case "PROPOSE_PLAN":
       lines.push(`- planSummary: ${readString(input.payload.planSummary) ?? "-"}`);
       pushList(lines, "Risks", readStringArray(input.payload.risks));

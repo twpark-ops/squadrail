@@ -24,7 +24,10 @@ import { InlineEditor } from "../components/InlineEditor";
 import { CommentThread } from "../components/CommentThread";
 import { IssueProperties } from "../components/IssueProperties";
 import { LiveRunWidget } from "../components/LiveRunWidget";
-import { ProtocolActionConsole } from "../components/ProtocolActionConsole";
+import {
+  ProtocolActionConsole,
+  type PendingClarificationRequest,
+} from "../components/ProtocolActionConsole";
 import type { MentionOption } from "../components/MarkdownEditor.types";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
@@ -93,6 +96,7 @@ import type {
   IssueReviewCycle,
   IssueTaskBrief,
 } from "@squadrail/shared";
+import { derivePendingHumanClarifications } from "@squadrail/shared";
 import { appRoutes } from "../lib/appRoutes";
 
 type CommentReassignment = {
@@ -306,6 +310,39 @@ function readProtocolString(payload: Record<string, unknown>, key: string) {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function derivePendingClarificationRequests(
+  protocolMessages: IssueProtocolMessage[],
+  agentMap: Map<string, Agent>,
+): PendingClarificationRequest[] {
+  return derivePendingHumanClarifications(
+    protocolMessages.map((message) => ({
+      id: message.id,
+      messageType: message.messageType,
+      causalMessageId: message.causalMessageId,
+      ackedAt: message.ackedAt,
+      createdAt: message.createdAt,
+      payload: (message.payload ?? {}) as unknown as Record<string, unknown>,
+      sender: message.sender,
+    })),
+  ).map((request) => {
+    const senderAgent = request.askedByActorType === "agent"
+      ? agentMap.get(request.askedByActorId) ?? null
+      : null;
+    return {
+      questionMessageId: request.questionMessageId,
+      questionType: request.questionType,
+      question: request.question,
+      blocking: request.blocking,
+      askedByActorType: request.askedByActorType,
+      askedByActorId: request.askedByActorId,
+      askedByRole: request.askedByRole,
+      askedByLabel: senderAgent?.name ?? formatProtocolValue(request.askedByRole),
+      createdAt: request.createdAt,
+      resumeWorkflowState: request.resumeWorkflowState,
+    } satisfies PendingClarificationRequest;
+  });
 }
 
 function deriveFeedbackTarget(hit: {
@@ -1053,6 +1090,10 @@ export function IssueDetail() {
   const protocolTimeline = useMemo(
     () => [...protocolMessages].slice(-12).reverse(),
     [protocolMessages]
+  );
+  const pendingClarificationRequests = useMemo(
+    () => derivePendingClarificationRequests(protocolMessages, agentMap),
+    [agentMap, protocolMessages],
   );
   const openViolations = useMemo(
     () => protocolViolations.filter((violation) => violation.status === "open"),
@@ -2322,6 +2363,7 @@ export function IssueDetail() {
                   protocolState={protocolState ?? null}
                   agents={agents ?? []}
                   currentUserId={currentUserId}
+                  clarificationRequests={pendingClarificationRequests}
                   onSubmit={async (message) => {
                     await createProtocolMessage.mutateAsync(message);
                   }}

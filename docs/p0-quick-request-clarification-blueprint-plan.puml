@@ -1,0 +1,51 @@
+@startuml
+title Quick Request -> Clarification -> Team Blueprint Product Flow
+
+actor Human
+rectangle "Squadrail UI" {
+  rectangle "Quick Request" as QuickRequest
+  rectangle "Inbox / Issue Thread" as Inbox
+  rectangle "Team Builder" as TeamBuilder
+}
+
+rectangle "Control Plane" {
+  rectangle "PM Intake" as Intake
+  rectangle "Clarification Policy" as Clarify
+  rectangle "Projection / Dispatch" as Projection
+  rectangle "Blueprint Registry" as Blueprint
+  rectangle "Bulk Provisioning" as Provision
+}
+
+rectangle "Execution Org" {
+  rectangle "PM" as PM
+  rectangle "TL" as TL
+  rectangle "Engineer" as Eng
+  rectangle "Reviewer / QA" as Review
+}
+
+Human --> QuickRequest : short structured request
+QuickRequest --> Intake : create intake root
+Intake --> PM : assign root
+PM --> Clarify : detect ambiguity
+Clarify --> Inbox : question card
+Human --> Inbox : short answer
+Inbox --> Projection : answer + resume
+Projection --> TL : execution-ready root / work items
+TL --> Eng : assign implementation
+Eng --> Review : submit for review
+Review --> Human : only if decision needed
+
+TeamBuilder --> Blueprint : preview blueprint
+Blueprint --> Provision : apply team template
+Provision --> PM
+Provision --> TL
+Provision --> Review
+
+note right of Blueprint
+v1 blueprints:
+- small_delivery_team
+- standard_product_squad
+- delivery_plus_qa
+end note
+
+@enduml

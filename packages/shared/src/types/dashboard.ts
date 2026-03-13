@@ -1,8 +1,11 @@
 import type {
   IssuePriority,
+  IssueProtocolActorType,
   IssueProtocolBlockedPhase,
+  IssueProtocolClarificationType,
   IssueProtocolMessageType,
   IssueProtocolParticipantRole,
+  IssueProtocolRole,
   IssueProtocolViolationSeverity,
   IssueProtocolWorkflowState,
   IssueStatus,
@@ -82,6 +85,19 @@ export interface DashboardLatestMessageSnapshot {
   createdAt: Date;
 }
 
+export interface DashboardPendingHumanClarificationSnapshot {
+  questionMessageId: string;
+  questionType: IssueProtocolClarificationType;
+  question: string;
+  blocking: boolean;
+  askedByActorType: IssueProtocolActorType;
+  askedByActorId: string;
+  askedByRole: IssueProtocolRole;
+  askedByLabel: string;
+  createdAt: Date;
+  resumeWorkflowState: IssueProtocolWorkflowState | null;
+}
+
 export interface DashboardBriefSnapshot {
   id: string;
   briefScope: string;
@@ -113,6 +129,7 @@ export interface DashboardProtocolQueueItem {
   engineer: DashboardProtocolActorSnapshot | null;
   reviewer: DashboardProtocolActorSnapshot | null;
   latestMessage: DashboardLatestMessageSnapshot | null;
+  pendingHumanClarifications: DashboardPendingHumanClarificationSnapshot[];
   openReviewCycle: {
     cycleNumber: number;
     openedAt: Date;
@@ -123,6 +140,7 @@ export interface DashboardProtocolQueueItem {
 export interface DashboardProtocolBuckets {
   executionQueue: DashboardProtocolQueueItem[];
   reviewQueue: DashboardProtocolQueueItem[];
+  clarificationQueue: DashboardProtocolQueueItem[];
   handoffBlockerQueue: DashboardProtocolQueueItem[];
   blockedQueue: DashboardProtocolQueueItem[];
   humanDecisionQueue: DashboardProtocolQueueItem[];

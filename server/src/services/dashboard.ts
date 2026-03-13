@@ -1,6 +1,9 @@
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
-import type { IssueProtocolWorkflowState } from "@squadrail/shared";
+import {
+  derivePendingHumanClarifications,
+  type IssueProtocolWorkflowState,
+} from "@squadrail/shared";
 import {
   agents,
   approvals,
@@ -65,6 +68,19 @@ export interface DashboardLatestMessageSnapshot {
   createdAt: Date;
 }
 
+export interface DashboardPendingHumanClarificationSnapshot {
+  questionMessageId: string;
+  questionType: string;
+  question: string;
+  blocking: boolean;
+  askedByActorType: string;
+  askedByActorId: string;
+  askedByRole: string;
+  askedByLabel: string;
+  createdAt: Date;
+  resumeWorkflowState: string | null;
+}
+
 export interface DashboardBriefSnapshot {
   id: string;
   briefScope: string;
@@ -96,6 +112,7 @@ export interface DashboardProtocolQueueItem {
   engineer: DashboardActorSnapshot | null;
   reviewer: DashboardActorSnapshot | null;
   latestMessage: DashboardLatestMessageSnapshot | null;
+  pendingHumanClarifications: DashboardPendingHumanClarificationSnapshot[];
   openReviewCycle: {
     cycleNumber: number;
     openedAt: Date;
@@ -106,6 +123,7 @@ export interface DashboardProtocolQueueItem {
 export interface DashboardProtocolBuckets {
   executionQueue: DashboardProtocolQueueItem[];
   reviewQueue: DashboardProtocolQueueItem[];
+  clarificationQueue: DashboardProtocolQueueItem[];
   handoffBlockerQueue: DashboardProtocolQueueItem[];
   blockedQueue: DashboardProtocolQueueItem[];
   humanDecisionQueue: DashboardProtocolQueueItem[];
@@ -258,6 +276,10 @@ function buildTeamSupervisionSummaryText(input: {
     default:
       return "Queued internal work item ready for assignment or kickoff.";
   }
+}
+
+function formatDashboardParticipantLabel(role: string) {
+  return role.replace(/_/g, " ");
 }
 
 export function buildTeamSupervisionSummary(input: {
@@ -544,6 +566,10 @@ export function buildProtocolDashboardBuckets(input: {
     .filter((item) => ["submitted_for_review", "under_review", "qa_pending", "under_qa_review", "changes_requested"].includes(item.workflowState))
     .sort(compareQueueItems)
     .slice(0, limit);
+  const clarificationQueue = input.items
+    .filter((item) => item.pendingHumanClarifications.length > 0)
+    .sort(compareQueueItems)
+    .slice(0, limit);
   const handoffBlockerQueue = input.items
     .filter((item) => ["qa_pending", "changes_requested", "awaiting_human_decision", "approved"].includes(item.workflowState))
     .sort(compareQueueItems)
@@ -572,6 +598,7 @@ export function buildProtocolDashboardBuckets(input: {
   return {
     executionQueue,
     reviewQueue,
+    clarificationQueue,
     handoffBlockerQueue,
     blockedQueue,
     humanDecisionQueue,
@@ -1060,7 +1087,7 @@ export function dashboardService(db: Db) {
         stateRows.map((row) => row.lastProtocolMessageId).filter((value): value is string => typeof value === "string"),
       ));
 
-      const [agentRows, messageRows, violationRows, reviewCycleRows, briefRows] = await Promise.all([
+      const [agentRows, messageRows, clarificationMessageRows, violationRows, reviewCycleRows, briefRows] = await Promise.all([
         agentIds.length === 0
           ? Promise.resolve([])
           : db
@@ -1073,6 +1100,29 @@ export function dashboardService(db: Db) {
             .select()
             .from(issueProtocolMessages)
             .where(inArray(issueProtocolMessages.id, messageIds)),
+        issueIds.length === 0
+          ? Promise.resolve([])
+          : db
+            .select({
+              id: issueProtocolMessages.id,
+              issueId: issueProtocolMessages.issueId,
+              messageType: issueProtocolMessages.messageType,
+              causalMessageId: issueProtocolMessages.causalMessageId,
+              ackedAt: issueProtocolMessages.ackedAt,
+              createdAt: issueProtocolMessages.createdAt,
+              payload: issueProtocolMessages.payload,
+              senderActorType: issueProtocolMessages.senderActorType,
+              senderActorId: issueProtocolMessages.senderActorId,
+              senderRole: issueProtocolMessages.senderRole,
+            })
+            .from(issueProtocolMessages)
+            .where(
+              and(
+                eq(issueProtocolMessages.companyId, input.companyId),
+                inArray(issueProtocolMessages.issueId, issueIds),
+                inArray(issueProtocolMessages.messageType, ["ASK_CLARIFICATION", "ANSWER_CLARIFICATION"]),
+              ),
+            ),
         db
           .select({
             issueId: issueProtocolViolations.issueId,
@@ -1124,6 +1174,47 @@ export function dashboardService(db: Db) {
 
       const agentMap = new Map(agentRows.map((agent) => [agent.id, agent]));
       const messageMap = new Map(messageRows.map((message) => [message.id, message]));
+      const pendingClarificationMap = new Map<string, DashboardPendingHumanClarificationSnapshot[]>();
+
+      const clarificationRowsByIssue = new Map<string, typeof clarificationMessageRows>();
+      for (const row of clarificationMessageRows) {
+        const current = clarificationRowsByIssue.get(row.issueId) ?? [];
+        current.push(row);
+        clarificationRowsByIssue.set(row.issueId, current);
+      }
+
+      for (const [issueId, rows] of clarificationRowsByIssue.entries()) {
+        const pending = derivePendingHumanClarifications(rows.map((row) => ({
+          id: row.id,
+          messageType: row.messageType as "ASK_CLARIFICATION" | "ANSWER_CLARIFICATION",
+          causalMessageId: row.causalMessageId,
+          ackedAt: row.ackedAt,
+          createdAt: row.createdAt,
+          payload: row.payload ?? {},
+          sender: {
+            actorType: row.senderActorType as "agent" | "user" | "system",
+            actorId: row.senderActorId,
+            role: row.senderRole as "system" | "cto" | "engineer" | "pm" | "qa" | "tech_lead" | "reviewer" | "human_board",
+          },
+        }))).map((request) => {
+          const senderAgent = request.askedByActorType === "agent"
+            ? agentMap.get(request.askedByActorId) ?? null
+            : null;
+          return {
+            questionMessageId: request.questionMessageId,
+            questionType: request.questionType,
+            question: request.question,
+            blocking: request.blocking,
+            askedByActorType: request.askedByActorType,
+            askedByActorId: request.askedByActorId,
+            askedByRole: request.askedByRole,
+            askedByLabel: senderAgent?.name ?? formatDashboardParticipantLabel(request.askedByRole),
+            createdAt: request.createdAt,
+            resumeWorkflowState: request.resumeWorkflowState,
+          } satisfies DashboardPendingHumanClarificationSnapshot;
+        });
+        pendingClarificationMap.set(issueId, pending);
+      }
 
       const violationMap = new Map<string, { count: number; highestSeverity: string | null }>();
       for (const row of violationRows) {
@@ -1160,6 +1251,7 @@ export function dashboardService(db: Db) {
         const engineer = row.primaryEngineerAgentId ? agentMap.get(row.primaryEngineerAgentId) ?? null : null;
         const reviewer = row.reviewerAgentId ? agentMap.get(row.reviewerAgentId) ?? null : null;
         const latestMessage = row.lastProtocolMessageId ? messageMap.get(row.lastProtocolMessageId) ?? null : null;
+        const pendingHumanClarifications = pendingClarificationMap.get(row.issueId) ?? [];
         const openReviewCycle = reviewCycleMap.get(row.issueId) ?? null;
         const latestBriefs = briefMap.get(row.issueId) ?? {};
 
@@ -1219,6 +1311,7 @@ export function dashboardService(db: Db) {
               createdAt: latestMessage.createdAt,
             }
             : null,
+          pendingHumanClarifications,
           openReviewCycle: openReviewCycle
             ? {
               cycleNumber: openReviewCycle.cycleNumber,

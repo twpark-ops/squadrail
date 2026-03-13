@@ -165,6 +165,8 @@ function protocolExecutionReason(messageType: string) {
       return "protocol_ack_assignment";
     case "ASK_CLARIFICATION":
       return "protocol_clarification_requested";
+    case "ANSWER_CLARIFICATION":
+      return "protocol_clarification_answered";
     case "PROPOSE_PLAN":
       return "protocol_plan_proposed";
     case "START_IMPLEMENTATION":

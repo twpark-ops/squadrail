@@ -10,11 +10,33 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `heartbeat / issue-retrieval / knowledge runtime service-body coverage uplift toward 80%`
-  - superseded on 2026-03-13 after `77.41%` coverage checkpoint; see latest status below.
-  - superseded again on 2026-03-13 after `80.37%` coverage threshold completion; continue with post-threshold distribution hardening below.
+- open this handoff first, then continue immediately with `Phase 3 operator clarification surface polish + blueprint contract kickoff`
+  - coverage threshold work is done; backend coverage hardening remains a maintenance track.
+  - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
 
 ## Current Status
+
+- `P0 productization pivot`: Phase 1/2 shipped, Phase 3 핵심 semantics shipped
+  - lower delivery kernel은 이미 제품 수준으로 닫혔다.
+  - 다음 북극성은 `사람이 짧게 요청 -> 시스템/PM 구조화 -> 부족한 정보만 질문 -> 사람이 짧게 답변 -> 팀이 실행/리뷰/클로즈 -> 다른 회사에서도 같은 팀 구성을 쉽게 재사용`이다.
+  - 새 상세 계획 문서:
+    - [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)
+    - [`p0-quick-request-clarification-blueprint-plan.puml`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.puml)
+  - 이번 배치 완료:
+    1. `NewIssueDialog` 기본 경로를 quick request로 전환
+    2. 기존 상세 작성 경로를 `Advanced issue` secondary path로 정리
+    3. `ANSWER_CLARIFICATION` shared/server contract + validator + wake reason 연결
+    4. `Inbox` clarification queue read surface와 `IssueDetail` pending clarification view 추가
+    5. `ProtocolActionConsole` 공식 clarification answer submit 경로 추가
+    6. `ANSWER_CLARIFICATION`가 blocked / awaiting-human 상태를 공식 resume state로 되돌리도록 server-owned workflow transition을 추가
+    7. `Inbox`와 `IssueDetail`이 shared pending human clarification contract를 사용하도록 통합
+  - immediate next:
+    1. `Inbox` clarification card를 answer CTA/deep-link까지 올리기
+    2. answered / resumed 상태를 Inbox / Issue Detail / change surface에서 읽을 수 있게 만들기
+    3. `Generic team blueprint v1` shared/server contract skeleton 시작
+  - 해석:
+    - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
+    - `cloud-swiftsight` 전용 canonical은 이후 phase에서 generic team blueprint registry로 일반화해야 한다.
 
 - `13-S. runtime service-body coverage uplift toward 80%`: 완료
   - `access-invites-routes.test.ts`에 pending join request redaction, board reject, invalid claim secret 분기를 추가했다.
@@ -26,8 +48,8 @@ One-line startup rule:
     - `pnpm --filter @squadrail/server typecheck`
     - `pnpm --filter @squadrail/server build`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - 최신 server tests: `172 files / 1091 tests` 통과
-  - 최신 server coverage: statements/lines `80.37%`, branches `64.92%`, functions `91.36%`
+  - 최신 server tests: `172 files / 1099 tests` 통과
+  - 최신 server coverage: statements/lines `80.23%`, branches `65.06%`, functions `91.38%`
   - 핵심 해석: 전역 `80%`는 넘겼지만 분포는 아직 불균형하다. 현재 병목은 `heartbeat.ts 44.47%`, `knowledge.ts 62.95%`, `routes/issues.ts 66.28%`다.
 
 - `13-Q. runtime bottleneck helper coverage uplift`: 진행 중
@@ -174,33 +196,35 @@ One-line startup rule:
   - `pnpm --filter @squadrail/server typecheck`
   - `pnpm --filter @squadrail/server build`
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - `172 files / 1091 tests` 통과
-  - server coverage `80.37%`
-- 현재 다음 순차 작업은 `heartbeat / knowledge / routes/issues high-risk body distribution hardening after 80% threshold`
+  - `172 files / 1099 tests` 통과
+  - server coverage `80.23%`
+- 현재 다음 순차 작업은 `clarification operator surface polish + generic team blueprint contract kickoff`
 
 ## Next Priorities
 
-1. `heartbeat.ts`의 `executeRun`, `reapOrphanedRuns`, watchdog/finalize tail을 service-body direct test로 더 올리기
-2. `knowledge.ts`의 retrieval run / task brief / cache inspection / feedback aggregation read-write path를 service-body test로 확대하기
-3. `routes/issues.ts`의 heavy operator/admin path를 route-level regression으로 보강해 병목 분포를 낮추기
-4. `issue-retrieval.ts`는 이미 `76.77%`까지 올라왔으므로 우선순위를 한 단계 내리고, 남은 zero-hit / graph/model-rerank 변형만 ROI 기준으로 선택 보강하기
-5. 마지막에 `pnpm --filter @squadrail/server typecheck`, `build`, `test:coverage`를 다시 돌려 전역 `80%+` 유지와 병목 분포 개선을 확인하기
+1. `Quick request 기본화`
+2. `Clarification 질문/답변 루프`
+3. `Human answer path 정식화`
+4. `Generic team blueprint v1`
+5. `Bulk provisioning with preview/diff`
+6. `Onboarding / Company Settings 재편`
+7. backend coverage hardening은 위 product flow가 흔들리지 않게 유지 보수 트랙으로 병행
 
 Interpretation:
 
-- next focus is runtime bottleneck hardening after the threshold is already satisfied
-- 새 기능 backlog보다 large service direct test와 tail branch regression 고정이 immediate next다
+- next focus is productizing the primary user flow above the already-completed kernel
+- backend runtime hardening is no longer the lead product track
 
 ## Recommended First Task Next Session
 
-Start with `heartbeat / knowledge / routes/issues high-risk body distribution hardening after 80% threshold`.
+Start with `Phase 3 operator clarification surface polish + Phase 4 blueprint contract kickoff`.
 
 Suggested slice:
 
-1. `heartbeat.ts`는 `executeRun`, `reapOrphanedRuns`, watchdog tail, cancel/finalize 후속 흐름을 service-body에서 직접 고정하기
-2. `knowledge.ts`는 retrieval run / task brief / cache inspection / retrieval feedback aggregation 경로를 service-level mock으로 넓히기
-3. `routes/issues.ts`는 operator/admin mutation, recovery, approval side-path 중 ROI 높은 경로를 route regression으로 고정하기
-4. 마지막에 `pnpm --filter @squadrail/server typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
+1. `Inbox` clarification card에서 issue detail answer flow로 자연스럽게 이동시키기
+2. answered / resumed trace를 protocol/change surface에 반영하기
+3. `team blueprint` shared type / validator / registry skeleton을 올리기
+4. 마지막에 focused server/UI 검증을 돌리기
 
 ## Important Files
 
@@ -227,6 +251,7 @@ Planning / memory:
 
 - [summary.md](/home/taewoong/company-project/squadall/memory-bank/projects/squadall-run-first/summary.md)
 - [backend-next-priority-detailed-plan.md](/home/taewoong/company-project/squadall/docs/backend-next-priority-detailed-plan.md)
+- [p0-quick-request-clarification-blueprint-plan.md](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)
 
 ## Validation Commands
 
@@ -254,4 +279,5 @@ pnpm vitest run server/src/__tests__/issues-routes.test.ts server/src/__tests__/
 
 - product direction is `standardized software delivery org kernel`
 - not arbitrary workflow builder
+- immediate productization target is `quick request -> clarification -> blueprint -> bulk provisioning`
 - `peer mode` is deferred optional feature, not current priority
