@@ -2,6 +2,22 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 server coverage 80.37% threshold 달성
+
+- `13-S runtime service-body coverage uplift toward 80%`: **완료**
+  - `access-invites-routes.test.ts`에 pending join request redaction, board reject, invalid claim secret 분기를 추가했다.
+  - `agents-routes-read.test.ts`에 config revision redaction, heartbeat run list/cancel/event/log read, company/issue live run route 경로를 추가했다.
+  - `heartbeat-service-flow.test.ts`, `issue-protocol-service.test.ts`에 reap/review-cycle rejection tail branch를 추가했다.
+  - 새 `issue-retrieval-service-body.test.ts`를 추가해 `issueRetrievalService.handleProtocolMessage()`의 cached-hit path와 cold-miss + embedding/cache persistence path를 dependency-mocked integration test로 직접 태웠다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/access-invites-routes.test.ts src/__tests__/agents-routes-read.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/issue-retrieval-service-body.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `80.37%`, branches `64.92%`, functions `91.36%`
+  - 최신 server tests: `172 files / 1091 tests` 통과
+  - immediate next는 `heartbeat / knowledge / routes/issues high-risk body distribution hardening after 80% threshold`다.
+
 ## 2026-03-13 server coverage 77.34% checkpoint
 
 - `13-Q runtime bottleneck helper coverage uplift`: **진행 중**

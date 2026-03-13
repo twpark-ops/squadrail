@@ -883,4 +883,128 @@ describe("heartbeat service flow coverage", () => {
       }),
     });
   });
+
+  it("reaps stale queued or running runs that no longer have a live process", async () => {
+    const staleQueuedRun = makeRun({
+      id: "run-stale-queued",
+      wakeupRequestId: "wake-stale-queued",
+      status: "queued",
+      updatedAt: new Date("2026-03-13T00:00:00Z"),
+    });
+    const staleRunningRun = makeRun({
+      id: "run-stale-running",
+      wakeupRequestId: "wake-stale-running",
+      status: "running",
+      updatedAt: new Date("2026-03-13T00:00:00Z"),
+    });
+    const failedQueuedRun = {
+      ...staleQueuedRun,
+      status: "failed",
+      finishedAt: new Date("2026-03-13T06:00:00Z"),
+      error: "Process lost during queue.created -- server may have restarted",
+      errorCode: "process_lost",
+    };
+    const failedRunningRun = {
+      ...staleRunningRun,
+      status: "failed",
+      finishedAt: new Date("2026-03-13T06:00:00Z"),
+      error: "Process lost during adapter.execute_start -- server may have restarted",
+      errorCode: "process_lost",
+    };
+    const { db, updateSets, conflictSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [heartbeatRuns, [[staleQueuedRun, staleRunningRun]]],
+        [heartbeatRunLeases, [[
+          {
+            runId: "run-stale-queued",
+            status: "queued",
+            heartbeatAt: null,
+            leaseExpiresAt: null,
+            updatedAt: new Date("2026-03-13T00:00:00Z"),
+            checkpointJson: { phase: "queue.created" },
+          },
+          {
+            runId: "run-stale-running",
+            status: "executing",
+            heartbeatAt: new Date("2026-03-13T00:00:00Z"),
+            leaseExpiresAt: new Date("2026-03-13T00:01:00Z"),
+            updatedAt: new Date("2026-03-13T00:00:00Z"),
+            checkpointJson: { phase: "adapter.execute_start" },
+          },
+        ]]],
+      ]),
+      updateRows: new Map([
+        [heartbeatRuns, [[failedQueuedRun], [failedRunningRun]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.reapOrphanedRuns({ staleThresholdMs: 1 });
+
+    expect(result).toEqual({
+      reaped: 2,
+      runIds: ["run-stale-queued", "run-stale-running"],
+    });
+    expect(updateSets.filter((entry) => entry.table === heartbeatRuns)).toHaveLength(2);
+    expect(updateSets.filter((entry) => entry.table === agentWakeupRequests)).toEqual([
+      expect.objectContaining({
+        value: expect.objectContaining({
+          status: "failed",
+          error: "Process lost during queue.created -- server may have restarted",
+        }),
+      }),
+      expect.objectContaining({
+        value: expect.objectContaining({
+          status: "failed",
+          error: "Process lost during adapter.execute_start -- server may have restarted",
+        }),
+      }),
+    ]);
+    expect(conflictSets.filter((entry) => entry.table === heartbeatRunLeases)).toEqual([
+      expect.objectContaining({
+        value: expect.objectContaining({
+          status: "lost",
+          checkpointJson: expect.objectContaining({ phase: "queue.created" }),
+        }),
+      }),
+      expect.objectContaining({
+        value: expect.objectContaining({
+          status: "lost",
+          checkpointJson: expect.objectContaining({ phase: "adapter.execute_start" }),
+        }),
+      }),
+    ]);
+  });
+
+  it("does not reap fresh runs that still hold a healthy lease", async () => {
+    const healthyRun = makeRun({
+      id: "run-healthy",
+      wakeupRequestId: "wake-healthy",
+      status: "running",
+      updatedAt: new Date(),
+    });
+    const { db, updateSets, conflictSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [heartbeatRuns, [[healthyRun]]],
+        [heartbeatRunLeases, [[{
+          runId: "run-healthy",
+          status: "executing",
+          heartbeatAt: new Date(),
+          leaseExpiresAt: new Date(Date.now() + 60_000),
+          updatedAt: new Date(),
+          checkpointJson: { phase: "adapter.execute_start" },
+        }]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const result = await service.reapOrphanedRuns({ staleThresholdMs: 60_000 });
+
+    expect(result).toEqual({
+      reaped: 0,
+      runIds: [],
+    });
+    expect(updateSets).toEqual([]);
+    expect(conflictSets).toEqual([]);
+  });
 });
