@@ -39,6 +39,20 @@ console.log(JSON.stringify({
   await fs.chmod(commandPath, 0o755);
 }
 
+async function writeStreamIncompleteClaudeCommand(commandPath: string): Promise<void> {
+  const script = `#!/usr/bin/env node
+console.log(JSON.stringify({ type: "system", subtype: "init", session_id: "claude-session-incomplete", model: "claude-sonnet" }));
+console.log(JSON.stringify({
+  type: "assistant",
+  session_id: "claude-session-incomplete",
+  message: { content: [{ type: "text", text: "partial response" }] },
+}));
+process.exit(143);
+`;
+  await fs.writeFile(commandPath, script, "utf8");
+  await fs.chmod(commandPath, 0o755);
+}
+
 type CapturePayload = {
   argv: string[];
   cwd: string;
@@ -225,6 +239,49 @@ describe("claude execute", () => {
       expect(capture.prompt).toContain("Minimal REASSIGN_TASK example");
       expect(capture.prompt).toContain("Exact helper command form:");
       expect(capture.prompt).toContain("Required payload keys: reason, newAssigneeAgentId, newReviewerAgentId");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("marks incomplete Claude streams as retryable adapter failures", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-claude-stream-incomplete-"));
+    const commandPath = path.join(root, "claude");
+    await writeStreamIncompleteClaudeCommand(commandPath);
+
+    try {
+      const result = await execute({
+        runId: "run-stream-incomplete",
+        agent: {
+          id: "agent-1",
+          companyId: "company-1",
+          name: "Claude Reviewer",
+          adapterType: "claude_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          promptTemplate: "Continue the task.",
+        },
+        context: {},
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(143);
+      expect(result.errorCode).toBe("claude_stream_incomplete");
+      expect(result.sessionId).toBe("claude-session-incomplete");
+      expect(result.resultJson).toEqual(expect.objectContaining({
+        subtype: "stream_incomplete",
+        session_id: "claude-session-incomplete",
+      }));
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

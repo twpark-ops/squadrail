@@ -1071,6 +1071,10 @@ async function assignIssue(issueId, scenario) {
     artifacts: [],
   };
 
+  return postProtocolMessageWithRetry(issueId, body, "assign");
+}
+
+async function postProtocolMessageWithRetry(issueId, body, label) {
   const deadline = Date.now() + 15_000;
   let attempt = 0;
 
@@ -1087,7 +1091,7 @@ async function assignIssue(issueId, scenario) {
       if (!retryable || Date.now() >= deadline) {
         throw error;
       }
-      note(`assign retry ${attempt} for ${issueId}: ${text}`);
+      note(`${label} retry ${attempt} for ${issueId}: ${text}`);
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
   }
@@ -1128,44 +1132,41 @@ async function cancelIssue(issueId, reason, summary = "Cancel failed E2E scenari
 async function sendCloseTask(issueId, scenario, workflowStateBefore) {
   assert(scenario.closeAction, `${scenario.key} missing closeAction`);
   const closeAction = scenario.closeAction;
-  return api(`/api/issues/${issueId}/protocol/messages`, {
-    method: "POST",
-    body: {
-      messageType: "CLOSE_TASK",
-      sender: {
-        actorType: "user",
-        actorId: E2E_ACTOR_ID,
+  return postProtocolMessageWithRetry(issueId, {
+    messageType: "CLOSE_TASK",
+    sender: {
+      actorType: "user",
+      actorId: E2E_ACTOR_ID,
+      role: "human_board",
+    },
+    recipients: [
+      {
+        recipientType: "role_group",
+        recipientId: "human_board",
         role: "human_board",
       },
-      recipients: [
-        {
-          recipientType: "role_group",
-          recipientId: "human_board",
-          role: "human_board",
-        },
-      ],
-      workflowStateBefore,
-      workflowStateAfter: "done",
-      summary: closeAction.summary,
-      requiresAck: false,
-      payload: {
-        closeReason:
-          closeAction.closeReason
-          ?? (closeAction.followUpIssueIds?.length ? "moved_to_followup" : "completed"),
-        closureSummary: closeAction.closureSummary,
-        verificationSummary: closeAction.verificationSummary,
-        rollbackPlan: closeAction.rollbackPlan,
-        finalArtifacts: closeAction.finalArtifacts,
-        finalTestStatus:
-          closeAction.finalTestStatus
-          ?? ((closeAction.remainingRisks?.length ?? 0) > 0 ? "passed_with_known_risk" : "passed"),
-        followUpIssueIds: closeAction.followUpIssueIds,
-        remainingRisks: closeAction.remainingRisks,
-        mergeStatus: closeAction.mergeStatus,
-      },
-      artifacts: [],
+    ],
+    workflowStateBefore,
+    workflowStateAfter: "done",
+    summary: closeAction.summary,
+    requiresAck: false,
+    payload: {
+      closeReason:
+        closeAction.closeReason
+        ?? (closeAction.followUpIssueIds?.length ? "moved_to_followup" : "completed"),
+      closureSummary: closeAction.closureSummary,
+      verificationSummary: closeAction.verificationSummary,
+      rollbackPlan: closeAction.rollbackPlan,
+      finalArtifacts: closeAction.finalArtifacts,
+      finalTestStatus:
+        closeAction.finalTestStatus
+        ?? ((closeAction.remainingRisks?.length ?? 0) > 0 ? "passed_with_known_risk" : "passed"),
+      followUpIssueIds: closeAction.followUpIssueIds,
+      remainingRisks: closeAction.remainingRisks,
+      mergeStatus: closeAction.mergeStatus,
     },
-  });
+    artifacts: [],
+  }, "close");
 }
 
 function findMatchingMessage(messages, predicate) {
@@ -1245,7 +1246,7 @@ async function waitForCompletion(issueId, scenario) {
     const approvalMessage = latestMessage(snapshot.messages, "APPROVE_IMPLEMENTATION");
     const closeFallbackEligible =
       scenario.closeAction
-      && ["approved", "qa_pending"].includes(snapshot.state?.workflowState)
+      && snapshot.state?.workflowState === "approved"
       && approvalMessage;
     if (closeMessage) {
       closeFallbackSent = true;
@@ -1296,7 +1297,7 @@ async function waitForCompletion(issueId, scenario) {
   const approvalMessage = latestMessage(snapshot.messages, "APPROVE_IMPLEMENTATION");
   const closeFallbackEligible =
     scenario.closeAction
-    && ["approved", "qa_pending"].includes(snapshot.state?.workflowState)
+    && snapshot.state?.workflowState === "approved"
     && approvalMessage
     && !closeMessage;
   if (closeFallbackEligible) {
