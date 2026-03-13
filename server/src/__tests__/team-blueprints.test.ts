@@ -152,8 +152,181 @@ describe("team blueprints", () => {
     expect(preview.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining("Seed knowledge sources"),
-        expect.stringContaining("required workspace slot"),
+        expect.stringContaining("required project slot"),
         expect.stringContaining("Apply should be reviewed"),
+      ]),
+    );
+  });
+
+  it("does not adopt unrelated projects when no positive match exists", () => {
+    const blueprint = listTeamBlueprints()[1]!;
+    const preview = buildTeamBlueprintPreview({
+      companyId: "company-1",
+      blueprint,
+      currentProjects: [
+        {
+          id: "project-1",
+          name: "Data Pipeline",
+          urlKey: "data-pipeline",
+          workspaces: [{ id: "workspace-1" }],
+        },
+      ],
+      currentAgents: [],
+      setupProgress: {
+        companyId: "company-1",
+        status: "workspace_connected",
+        selectedEngine: "claude_local",
+        selectedWorkspaceId: null,
+        metadata: {},
+        createdAt: new Date("2026-03-14T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-14T00:00:00.000Z"),
+        steps: {
+          companyReady: true,
+          squadReady: false,
+          engineReady: true,
+          workspaceConnected: true,
+          knowledgeSeeded: false,
+          firstIssueReady: false,
+        },
+      },
+      request: {
+        projectCount: 2,
+      },
+    });
+
+    expect(preview.projectDiff).toEqual([
+      expect.objectContaining({
+        templateKey: "product_app",
+        status: "create_new",
+        existingProjectId: null,
+      }),
+      expect.objectContaining({
+        templateKey: "product_api",
+        status: "create_new",
+        existingProjectId: null,
+      }),
+    ]);
+    expect(preview.summary.adoptedProjectCount).toBe(0);
+    expect(preview.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Existing projects beyond the preview match set are left untouched"),
+      ]),
+    );
+  });
+
+  it("computes workspace readiness by covered project slots instead of total workspace count", () => {
+    const blueprint = listTeamBlueprints()[1]!;
+    const preview = buildTeamBlueprintPreview({
+      companyId: "company-1",
+      blueprint,
+      currentProjects: [
+        {
+          id: "project-1",
+          name: "Product App",
+          urlKey: "product-app",
+          workspaces: [{ id: "workspace-1" }, { id: "workspace-2" }],
+        },
+      ],
+      currentAgents: [],
+      setupProgress: {
+        companyId: "company-1",
+        status: "workspace_connected",
+        selectedEngine: "claude_local",
+        selectedWorkspaceId: null,
+        metadata: {},
+        createdAt: new Date("2026-03-14T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-14T00:00:00.000Z"),
+        steps: {
+          companyReady: true,
+          squadReady: false,
+          engineReady: true,
+          workspaceConnected: true,
+          knowledgeSeeded: false,
+          firstIssueReady: false,
+        },
+      },
+      request: {
+        projectCount: 2,
+      },
+    });
+
+    expect(preview.summary.currentWorkspaceCount).toBe(2);
+    expect(preview.projectDiff[0]).toMatchObject({
+      templateKey: "product_app",
+      status: "adopt_existing",
+      workspaceCount: 2,
+    });
+    expect(preview.projectDiff[1]).toMatchObject({
+      templateKey: "product_api",
+      status: "create_new",
+      workspaceCount: 0,
+    });
+    expect(preview.readinessChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "workspace_count",
+          status: "warning",
+          detail: expect.stringContaining("1/2 required project slot(s)"),
+        }),
+      ]),
+    );
+  });
+
+  it("rewires reports and readiness when optional roles are disabled", () => {
+    const blueprint = listTeamBlueprints()[1]!;
+    const preview = buildTeamBlueprintPreview({
+      companyId: "company-1",
+      blueprint,
+      currentProjects: [],
+      currentAgents: [],
+      setupProgress: {
+        companyId: "company-1",
+        status: "company_ready",
+        selectedEngine: "claude_local",
+        selectedWorkspaceId: null,
+        metadata: {},
+        createdAt: new Date("2026-03-14T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-14T00:00:00.000Z"),
+        steps: {
+          companyReady: true,
+          squadReady: false,
+          engineReady: true,
+          workspaceConnected: false,
+          knowledgeSeeded: false,
+          firstIssueReady: false,
+        },
+      },
+      request: {
+        includePm: false,
+      },
+    });
+
+    expect(preview.blueprint.roles.map((role) => role.key)).not.toContain("pm");
+    expect(preview.blueprint.roles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "app_tech_lead",
+          reportsToKey: null,
+        }),
+        expect.objectContaining({
+          key: "backend_tech_lead",
+          reportsToKey: null,
+        }),
+        expect.objectContaining({
+          key: "reviewer",
+          reportsToKey: null,
+        }),
+      ]),
+    );
+    expect(preview.blueprint.readiness.approvalRequiredRoleKeys).not.toContain("pm");
+    expect(preview.roleDiff.map((role) => role.templateKey)).not.toContain("pm");
+    expect(preview.readinessChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "role_graph",
+          status: "warning",
+          detail: expect.stringContaining("rewired manager links"),
+        }),
       ]),
     );
   });
