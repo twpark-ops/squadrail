@@ -39,9 +39,10 @@
 - immediate next slice:
   - server `team blueprint apply` contract / confirmation gate / semantics test는 완료
   - apply는 outer transaction으로 묶였고, `standard_product_squad` per-project lead wiring과 rollback failure test까지 닫혔다
-  - 다음은 `Company Settings` preview -> apply flow 시작
-  - apply 후 setup/doctor/agent/project invalidate와 success trace 연결
-  - 마지막에 `swiftsight canonical` generic registry 흡수 parameter map 정리
+  - `CompanySettings` preview -> apply flow와 confirmation gate가 연결됐다
+  - apply 후 setup/doctor/agent/project/orgSync/knowledgeSetup/activity/sidebar invalidate와 success trace를 추가했다
+  - `swiftsight canonical` generic registry 흡수용 parameter map prep metadata를 추가했다
+  - 다음은 `Phase 6 onboarding / Company Settings 재편 + swiftsight absorption follow-through`다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

@@ -54,6 +54,7 @@ RUNS_DOM_PATH="${RUNS_DOM_PATH:-$SQUADRAIL_HOME/runs.dom.html}"
 TEAM_DOM_PATH="${TEAM_DOM_PATH:-$SQUADRAIL_HOME/team.dom.html}"
 KNOWLEDGE_DOM_PATH="${KNOWLEDGE_DOM_PATH:-$SQUADRAIL_HOME/knowledge.dom.html}"
 CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-$SQUADRAIL_HOME/chrome-profile}"
+RUN_SUPPORT_PLAYWRIGHT_SPEC="${RUN_SUPPORT_PLAYWRIGHT_SPEC:-false}"
 
 mkdir -p "$SQUADRAIL_HOME"
 
@@ -466,6 +467,14 @@ grep -q "Role Studio" "$SETTINGS_DOM_PATH"
 grep -q "Side-by-side diff" "$SETTINGS_DOM_PATH"
 grep -q "Protocol integrity" "$SETTINGS_DOM_PATH"
 grep -q "Tenant RLS" "$SETTINGS_DOM_PATH"
+
+if [[ "$RUN_SUPPORT_PLAYWRIGHT_SPEC" == "true" ]]; then
+  echo "==> verifying Company Settings blueprint apply flow with Playwright"
+  (
+    cd "$REPO_ROOT"
+    UI_REVIEW_BASE_URL="$BASE_URL" pnpm exec playwright test scripts/smoke/ui-support-routes.spec.ts --reporter=line
+  )
+fi
 
 echo "==> verifying work list page"
 WORK_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$WORK_URL")"

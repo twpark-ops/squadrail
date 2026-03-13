@@ -60,6 +60,14 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await page.goto(`${baseUrl}/SMO/settings`);
   await expect(page.getByRole("heading", { name: "Company Settings", exact: true })).toBeVisible();
   await expect(page.getByText("Setup progress").first()).toBeVisible();
+  await page.getByRole("button", { name: "Preview team plan", exact: true }).click();
+  await expect(page.getByText("Preview diff").first()).toBeVisible();
+  await page
+    .getByLabel("I reviewed this preview diff and want to apply the current team blueprint to this company.")
+    .check();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Apply team blueprint", exact: true }).click();
+  await expect(page.getByText("Blueprint applied").first()).toBeVisible();
 
   await page.goto(`${baseUrl}/SMO/agents/all`);
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();

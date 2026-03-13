@@ -392,7 +392,9 @@ function readMetadataString(metadata: Record<string, unknown> | null | undefined
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function resolveBlueprint(blueprintKey: TeamBlueprint["key"]) {
+export type TeamBlueprintProjectSlot = ExpandedBlueprintProjectSlot;
+
+export function resolveTeamBlueprint(blueprintKey: TeamBlueprint["key"]) {
   return DEFAULT_TEAM_BLUEPRINTS.find((blueprint) => blueprint.key === blueprintKey) ?? null;
 }
 
@@ -427,7 +429,7 @@ export function buildTeamBlueprintPreviewHash(preview: Omit<TeamBlueprintPreview
   return createHash("sha256").update(stableSerialize(preview)).digest("hex");
 }
 
-function expandBlueprintProjects(
+export function expandTeamBlueprintProjects(
   blueprint: TeamBlueprint,
   parameters: TeamBlueprintPreviewParameters,
 ): ExpandedBlueprintProjectSlot[] {
@@ -447,7 +449,7 @@ function expandBlueprintProjects(
 }
 
 function scoreProjectMatch(
-  slot: ReturnType<typeof expandBlueprintProjects>[number],
+  slot: ReturnType<typeof expandTeamBlueprintProjects>[number],
   project: PreviewProjectLike,
   index: number,
 ) {
@@ -462,7 +464,7 @@ function scoreProjectMatch(
 }
 
 function buildProjectDiff(
-  slots: ReturnType<typeof expandBlueprintProjects>,
+  slots: ReturnType<typeof expandTeamBlueprintProjects>,
   currentProjects: PreviewProjectLike[],
 ): TeamBlueprintPreviewProjectDiff[] {
   const unusedProjects = new Map(currentProjects.map((project) => [project.id, project]));
@@ -830,7 +832,7 @@ export function buildTeamBlueprintPreview(input: {
   const baseBlueprint = cloneBlueprint(input.blueprint);
   const parameters = resolveTeamBlueprintPreviewParameters(baseBlueprint, input.request);
   const { blueprint, roleGraphWarnings } = buildEffectiveBlueprint(baseBlueprint, parameters);
-  const projectSlots = expandBlueprintProjects(blueprint, parameters);
+    const projectSlots = expandTeamBlueprintProjects(blueprint, parameters);
   const projectDiff = buildProjectDiff(projectSlots, input.currentProjects);
   const roleDiff = buildRoleDiff(blueprint, input.currentAgents, parameters, projectSlots);
   const readinessChecks = buildReadinessChecks({
@@ -962,7 +964,7 @@ async function loadPreviewState(
   blueprintKey: TeamBlueprint["key"],
   request?: TeamBlueprintPreviewRequest,
 ) {
-  const blueprint = resolveBlueprint(blueprintKey);
+  const blueprint = resolveTeamBlueprint(blueprintKey);
   if (!blueprint) throw notFound("Team blueprint not found");
 
   const [projects, agents, setupProgress] = await Promise.all([
@@ -980,7 +982,7 @@ async function loadPreviewState(
     setupProgress,
     request,
   });
-  const projectSlots = expandBlueprintProjects(preview.blueprint, preview.parameters);
+  const projectSlots = expandTeamBlueprintProjects(preview.blueprint, preview.parameters);
   const roleSlotMatches = buildRoleSlotMatches(preview.blueprint, currentAgents, preview.parameters, projectSlots);
 
   return {

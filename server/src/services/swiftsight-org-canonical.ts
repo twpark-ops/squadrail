@@ -1,4 +1,4 @@
-import type { AgentAdapterType } from "@squadrail/shared";
+import type { AgentAdapterType, TeamBlueprintKey, TeamBlueprintPreviewRequest } from "@squadrail/shared";
 import { normalizeAgentUrlKey } from "@squadrail/shared";
 import {
   DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS,
@@ -7,6 +7,11 @@ import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
   DEFAULT_CODEX_LOCAL_MODEL,
 } from "@squadrail/adapter-codex-local";
+import {
+  expandTeamBlueprintProjects,
+  resolveTeamBlueprint,
+  resolveTeamBlueprintPreviewParameters,
+} from "./team-blueprints.js";
 
 export const SWIFTSIGHT_CANONICAL_TEMPLATE_KEY = "cloud-swiftsight";
 export const SWIFTSIGHT_CANONICAL_VERSION = "cloud-swiftsight-18a-v1";
@@ -15,6 +20,23 @@ type CanonicalProject = {
   slug: string;
   name: string;
   leadAgentSlug: string;
+};
+
+export type CanonicalBlueprintAbsorptionProjectMapping = {
+  canonicalProjectSlug: string;
+  canonicalProjectName: string;
+  blueprintSlotKey: string;
+  blueprintTemplateKey: string;
+  expectedLeadRoleKey: string | null;
+};
+
+export type CanonicalBlueprintAbsorptionPrep = {
+  canonicalTemplateKey: string;
+  canonicalVersion: string;
+  blueprintKey: TeamBlueprintKey;
+  previewRequest: TeamBlueprintPreviewRequest;
+  projectMappings: CanonicalBlueprintAbsorptionProjectMapping[];
+  warnings: string[];
 };
 
 export type CanonicalAgentDefinition = {
@@ -259,6 +281,50 @@ export function buildCanonicalLookupMaps() {
   };
 }
 
+export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): CanonicalBlueprintAbsorptionPrep {
+  const blueprintKey: TeamBlueprintKey = "delivery_plus_qa";
+  const previewRequest: TeamBlueprintPreviewRequest = {
+    projectCount: PROJECTS.length,
+    engineerPairsPerProject: 1,
+    includePm: true,
+    includeQa: true,
+    includeCto: true,
+  };
+  const blueprint = resolveTeamBlueprint(blueprintKey);
+  if (!blueprint) {
+    throw new Error(`Missing team blueprint: ${blueprintKey}`);
+  }
+  const parameters = resolveTeamBlueprintPreviewParameters(blueprint, previewRequest);
+  const projectSlots = expandTeamBlueprintProjects(blueprint, parameters);
+
+  const projectMappings = PROJECTS.map((project, index) => {
+    const blueprintSlot = projectSlots[index];
+    if (!blueprintSlot) {
+      throw new Error(`Missing blueprint slot for canonical project ${project.slug}`);
+    }
+    return {
+      canonicalProjectSlug: project.slug,
+      canonicalProjectName: project.name,
+      blueprintSlotKey: blueprintSlot.slotKey,
+      blueprintTemplateKey: blueprintSlot.templateKey,
+      expectedLeadRoleKey: blueprintSlot.defaultLeadRoleKey,
+    };
+  });
+
+  return {
+    canonicalTemplateKey: SWIFTSIGHT_CANONICAL_TEMPLATE_KEY,
+    canonicalVersion: SWIFTSIGHT_CANONICAL_VERSION,
+    blueprintKey,
+    previewRequest,
+    projectMappings,
+    warnings: [
+      "Swiftsight canonical currently has richer per-project naming than generic blueprint slots; apply should treat this as a parameter map, not a lossless migration.",
+      "Canonical engineer pairs are adapter-specialized, while generic blueprint v1 uses one engineer slot per project pair and relies on later role/customization phases for deeper specialization.",
+      "QA engineer and Python TL specializations still need a follow-up mapping layer beyond the generic preview/apply contract.",
+    ],
+  };
+}
+
 export function canonicalTemplateForCompanyName(companyName: string | null | undefined) {
   if (companyName?.trim() !== "cloud-swiftsight") return null;
   return {
@@ -266,5 +332,6 @@ export function canonicalTemplateForCompanyName(companyName: string | null | und
     canonicalVersion: SWIFTSIGHT_CANONICAL_VERSION,
     agents: listCanonicalSwiftsightAgents(),
     projects: listCanonicalSwiftsightProjects(),
+    blueprintAbsorptionPrep: buildSwiftsightCanonicalBlueprintAbsorptionPrep(),
   };
 }
