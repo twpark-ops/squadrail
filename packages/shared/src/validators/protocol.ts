@@ -102,8 +102,15 @@ export const issueProtocolAskClarificationPayloadSchema = z.object({
   question: z.string().min(1),
   blocking: z.boolean(),
   requestedFrom: z.enum(ISSUE_PROTOCOL_REQUEST_TARGET_ROLES),
+  resumeWorkflowState: issueProtocolWorkflowStateSchema.nullable().optional(),
   relatedArtifacts: stringArraySchema.optional(),
   proposedAssumptions: stringArraySchema.optional(),
+}).strict();
+
+export const issueProtocolAnswerClarificationPayloadSchema = z.object({
+  answer: z.string().trim().min(1),
+  nextStep: z.string().trim().min(1).nullable().optional(),
+  ...issueProtocolBoardTemplateTraceShape,
 }).strict();
 
 export const issueProtocolPlanStepSchema = z.object({
@@ -288,6 +295,7 @@ const createIssueProtocolMessageSchemaUnion = z.discriminatedUnion("messageType"
   createTypedProtocolMessageSchema("ASSIGN_TASK", issueProtocolAssignTaskPayloadSchema),
   createTypedProtocolMessageSchema("ACK_ASSIGNMENT", issueProtocolAckAssignmentPayloadSchema),
   createTypedProtocolMessageSchema("ASK_CLARIFICATION", issueProtocolAskClarificationPayloadSchema),
+  createTypedProtocolMessageSchema("ANSWER_CLARIFICATION", issueProtocolAnswerClarificationPayloadSchema),
   createTypedProtocolMessageSchema("PROPOSE_PLAN", issueProtocolProposePlanPayloadSchema),
   createTypedProtocolMessageSchema("START_IMPLEMENTATION", issueProtocolStartImplementationPayloadSchema),
   createTypedProtocolMessageSchema("REPORT_PROGRESS", issueProtocolProgressPayloadSchema),
@@ -308,6 +316,14 @@ const createIssueProtocolMessageSchemaUnion = z.discriminatedUnion("messageType"
 ]);
 
 export const createIssueProtocolMessageSchema = createIssueProtocolMessageSchemaUnion.superRefine((message, ctx) => {
+  if (message.messageType === "ANSWER_CLARIFICATION" && !message.causalMessageId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Clarification answers must reference the original ASK_CLARIFICATION message",
+      path: ["causalMessageId"],
+    });
+  }
+
   if (message.messageType === "ASSIGN_TASK") {
     if (message.payload.assigneeAgentId === message.payload.reviewerAgentId) {
       ctx.addIssue({

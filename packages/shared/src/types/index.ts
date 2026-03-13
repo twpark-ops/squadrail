@@ -79,6 +79,7 @@ export type { DashboardSummary } from "./dashboard.js";
 export type {
   DashboardProtocolActorSnapshot,
   DashboardLatestMessageSnapshot,
+  DashboardPendingHumanClarificationSnapshot,
   DashboardBriefSnapshot,
   DashboardProtocolQueueItem,
   DashboardProtocolBuckets,
@@ -168,6 +169,7 @@ export type {
   IssueProtocolAssignTaskPayload,
   IssueProtocolAckAssignmentPayload,
   IssueProtocolAskClarificationPayload,
+  IssueProtocolAnswerClarificationPayload,
   IssueProtocolPlanStep,
   IssueProtocolProposePlanPayload,
   IssueProtocolStartImplementationPayload,

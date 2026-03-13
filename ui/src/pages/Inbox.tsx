@@ -43,6 +43,7 @@ import {
 import { Identity } from "../components/Identity";
 import { PageTabBar } from "../components/PageTabBar";
 import type {
+  DashboardProtocolQueueItem,
   DashboardTeamSupervisionItem,
   HeartbeatRun,
   Issue,
@@ -57,6 +58,7 @@ type InboxTab = "new" | "all";
 type InboxCategoryFilter =
   | "everything"
   | "assigned_to_me"
+  | "clarifications"
   | "team_supervision"
   | "join_requests"
   | "approvals"
@@ -66,6 +68,7 @@ type InboxCategoryFilter =
 type InboxApprovalFilter = "all" | "actionable" | "resolved";
 type SectionKey =
   | "assigned_to_me"
+  | "clarifications"
   | "team_supervision"
   | "join_requests"
   | "approvals"
@@ -338,6 +341,54 @@ function TeamSupervisionCard({
   );
 }
 
+function ClarificationCard({
+  item,
+}: {
+  item: DashboardProtocolQueueItem;
+}) {
+  const pendingClarification = item.pendingHumanClarifications[0] ?? null;
+  return (
+    <Link
+      to={`/issues/${item.identifier ?? item.issueId}`}
+      className="block rounded-xl border border-border bg-card p-4 transition-colors hover:bg-accent/20 no-underline text-inherit"
+    >
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span className="font-mono">{item.identifier ?? item.issueId.slice(0, 8)}</span>
+        <span>•</span>
+        <span>{item.projectName ?? "No project"}</span>
+        <span>•</span>
+        <span>{timeAgo(item.lastTransitionAt)}</span>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <StatusBadge status={item.coarseIssueStatus} />
+        <span className="text-xs text-muted-foreground">
+          {formatProtocolQueueOwner(item)}
+        </span>
+      </div>
+      <div className="mt-3 text-sm font-medium text-foreground">{item.title}</div>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {pendingClarification?.question ?? "Pending clarification requires a human answer."}
+      </p>
+      {pendingClarification && item.pendingHumanClarifications.length > 1 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {item.pendingHumanClarifications.length} pending clarification requests are waiting on the board.
+        </p>
+      )}
+    </Link>
+  );
+}
+
+function formatProtocolQueueOwner(item: DashboardProtocolQueueItem) {
+  const pendingClarification = item.pendingHumanClarifications[0] ?? null;
+  if (pendingClarification) {
+    return `Asked by ${pendingClarification.askedByLabel}`;
+  }
+  if (item.nextOwnerRole) {
+    return `Next owner ${item.nextOwnerRole.replace(/_/g, " ")}`;
+  }
+  return "Pending operator clarification";
+}
+
 export function Inbox() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -395,6 +446,11 @@ export function Inbox() {
     queryFn: () => dashboardApi.summary(selectedCompanyId!),
     enabled: !!selectedCompanyId,
   });
+  const { data: protocolQueue, isLoading: isProtocolQueueLoading } = useQuery({
+    queryKey: queryKeys.dashboardProtocolQueue(selectedCompanyId!, 12),
+    queryFn: () => dashboardApi.protocolQueue(selectedCompanyId!, 12),
+    enabled: !!selectedCompanyId,
+  });
   const { data: teamSupervision, isLoading: isTeamSupervisionLoading } =
     useQuery({
       queryKey: queryKeys.dashboardTeamSupervision(selectedCompanyId!, 12),
@@ -427,6 +483,7 @@ export function Inbox() {
   });
 
   const staleIssues = issues ? getStaleIssues(issues) : [];
+  const clarificationItems = protocolQueue?.buckets.clarificationQueue ?? [];
   const teamSupervisionItems = teamSupervision?.items ?? [];
   const assignedToMeIssues = useMemo(
     () =>
@@ -549,6 +606,7 @@ export function Inbox() {
 
   const newItemCount =
     assignedToMeIssues.length +
+    clarificationItems.length +
     teamSupervisionItems.length +
     joinRequests.length +
     actionableApprovals.length +
@@ -561,6 +619,8 @@ export function Inbox() {
     allCategoryFilter === "everything" || allCategoryFilter === "join_requests";
   const showAssignedCategory =
     allCategoryFilter === "everything" || allCategoryFilter === "assigned_to_me";
+  const showClarificationsCategory =
+    allCategoryFilter === "everything" || allCategoryFilter === "clarifications";
   const showTeamSupervisionCategory =
     allCategoryFilter === "everything" || allCategoryFilter === "team_supervision";
   const showApprovalsCategory = allCategoryFilter === "everything" || allCategoryFilter === "approvals";
@@ -571,6 +631,10 @@ export function Inbox() {
 
   const approvalsToRender = tab === "new" ? actionableApprovals : filteredAllApprovals;
   const showAssignedSection = tab === "new" ? hasAssignedToMe : showAssignedCategory && hasAssignedToMe;
+  const showClarificationsSection =
+    tab === "new"
+      ? clarificationItems.length > 0
+      : showClarificationsCategory && clarificationItems.length > 0;
   const showJoinRequestsSection =
     tab === "new" ? hasJoinRequests : showJoinRequestsCategory && hasJoinRequests;
   const showTeamSupervisionSection =
@@ -588,6 +652,7 @@ export function Inbox() {
 
   const visibleSections = [
     showAssignedSection ? "assigned_to_me" : null,
+    showClarificationsSection ? "clarifications" : null,
     showTeamSupervisionSection ? "team_supervision" : null,
     showApprovalsSection ? "approvals" : null,
     showJoinRequestsSection ? "join_requests" : null,
@@ -600,6 +665,7 @@ export function Inbox() {
     !isJoinRequestsLoading &&
     !isApprovalsLoading &&
     !isDashboardLoading &&
+    !isProtocolQueueLoading &&
     !isTeamSupervisionLoading &&
     !isIssuesLoading &&
     !isAssignedToMeLoading &&
@@ -689,6 +755,7 @@ export function Inbox() {
                   <SelectContent>
                     <SelectItem value="everything">All categories</SelectItem>
                     <SelectItem value="assigned_to_me">Assigned to me</SelectItem>
+                    <SelectItem value="clarifications">Clarifications</SelectItem>
                     <SelectItem value="team_supervision">Team supervision</SelectItem>
                     <SelectItem value="join_requests">Join requests</SelectItem>
                     <SelectItem value="approvals">Approvals</SelectItem>
@@ -758,6 +825,22 @@ export function Inbox() {
                     updated {timeAgo(issue.updatedAt)}
                   </span>
                 </Link>
+              ))}
+            </div>
+          </div>
+        </>
+        )}
+
+        {showClarificationsSection && (
+        <>
+          {showSeparatorBefore("clarifications") && <Separator />}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Clarifications
+            </h3>
+            <div className="grid gap-3">
+              {clarificationItems.map((item) => (
+                <ClarificationCard key={item.issueId} item={item} />
               ))}
             </div>
           </div>

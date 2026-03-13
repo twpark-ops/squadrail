@@ -218,6 +218,7 @@ export type {
   DashboardSummary,
   DashboardProtocolActorSnapshot,
   DashboardLatestMessageSnapshot,
+  DashboardPendingHumanClarificationSnapshot,
   DashboardBriefSnapshot,
   DashboardProtocolQueueItem,
   DashboardProtocolBuckets,
@@ -300,6 +301,7 @@ export type {
   IssueProtocolAssignTaskPayload,
   IssueProtocolAckAssignmentPayload,
   IssueProtocolAskClarificationPayload,
+  IssueProtocolAnswerClarificationPayload,
   IssueProtocolPlanStep,
   IssueProtocolProposePlanPayload,
   IssueProtocolStartImplementationPayload,
@@ -567,3 +569,9 @@ export {
   type SecretsLocalEncryptedConfig,
   type ConfigMeta,
 } from "./config-schema.js";
+export {
+  derivePendingHumanClarifications,
+  resolveClarificationResumeWorkflowState,
+  type PendingHumanClarification,
+  type ProtocolClarificationMessageLike,
+} from "./protocol-clarifications.js";

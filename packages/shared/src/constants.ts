@@ -328,6 +328,7 @@ export type IssueProtocolStateChangingMessageType = (typeof ISSUE_PROTOCOL_STATE
 
 export const ISSUE_PROTOCOL_NON_STATE_MESSAGE_TYPES = [
   "ASK_CLARIFICATION",
+  "ANSWER_CLARIFICATION",
   "REPORT_PROGRESS",
   "NOTE",
 ] as const;

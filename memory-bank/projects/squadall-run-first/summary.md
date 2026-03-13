@@ -2,7 +2,45 @@
 
 작성일: 2026-03-12
 
-## 2026-03-13 server coverage 80.37% threshold 달성
+## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
+
+- lower delivery kernel은 제품 기준으로 이미 충분히 닫혔다.
+- 다음 제품 북극성은 아래 기본 사용자 플로우다.
+  1. 사람이 짧게 요청한다.
+  2. 시스템/PM이 구조화한다.
+  3. 부족한 정보만 질문한다.
+  4. 사람이 짧게 답한다.
+  5. 팀이 실행/리뷰/QA/close를 수행한다.
+  6. 같은 팀 구성을 다른 회사에도 쉽게 재사용한다.
+- 새 상세 계획 문서:
+  - [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)
+  - [`p0-quick-request-clarification-blueprint-plan.puml`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.puml)
+- 최우선 순서:
+  1. `Quick request 기본화`
+  2. `Clarification 질문/답변 루프`
+  3. `Human answer path 정식화`
+  4. `Generic team blueprint v1`
+  5. `Bulk provisioning`
+  6. `Onboarding / Company Settings 재편`
+- 이번 배치 구현:
+  - `NewIssueDialog` 기본 경로를 `quick request`로 전환했다.
+  - 기존 상세 이슈 작성은 `Advanced issue` secondary path로 정리했다.
+  - `ANSWER_CLARIFICATION` shared/server contract와 validator를 추가했다.
+  - `IssueDetail` pending clarification view와 `Inbox` clarification queue read surface를 올렸다.
+  - `ProtocolActionConsole`에 공식 clarification answer submit path를 추가했다.
+  - answer -> question ack -> retrieval/memory ingest -> wake reason propagation을 연결했다.
+  - `ANSWER_CLARIFICATION`가 blocked / awaiting-human 상태를 공식 resume state로 복구하도록 server-owned workflow transition을 추가했다.
+  - `Inbox`와 `IssueDetail`이 shared pending human clarification contract를 사용하도록 정리했다.
+- immediate next slice:
+  - `Inbox` clarification card를 answer CTA/deep-link까지 올리기
+  - answered / resumed trace를 operator surface에 반영하기
+  - `Generic team blueprint v1` shared/server contract skeleton 시작
+- 해석:
+  - coverage hardening은 유지보수 트랙으로 내린다.
+  - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.
+  - 최신 검증 기준은 `172 files / 1099 tests`, coverage `80.23%`다.
+
+## 2026-03-13 server coverage 80% threshold 유지
 
 - `13-S runtime service-body coverage uplift toward 80%`: **완료**
   - `access-invites-routes.test.ts`에 pending join request redaction, board reject, invalid claim secret 분기를 추가했다.
@@ -14,8 +52,8 @@
   - `pnpm --filter @squadrail/server typecheck`
   - `pnpm --filter @squadrail/server build`
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - 최신 server coverage: statements/lines `80.37%`, branches `64.92%`, functions `91.36%`
-  - 최신 server tests: `172 files / 1091 tests` 통과
+  - 최신 server coverage: statements/lines `80.23%`, branches `65.06%`, functions `91.38%`
+  - 최신 server tests: `172 files / 1099 tests` 통과
   - immediate next는 `heartbeat / knowledge / routes/issues high-risk body distribution hardening after 80% threshold`다.
 
 ## 2026-03-13 server coverage 77.34% checkpoint

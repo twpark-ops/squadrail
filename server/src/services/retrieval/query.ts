@@ -16,6 +16,7 @@ export const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
   REASSIGN_TASK: "on_assignment",
   ACK_ASSIGNMENT: "on_acceptance",
   ASK_CLARIFICATION: "on_progress_report",
+  ANSWER_CLARIFICATION: "on_progress_report",
   PROPOSE_PLAN: "on_plan_requested",
   REPORT_PROGRESS: "on_progress_report",
   ESCALATE_BLOCKER: "on_blocker",
@@ -117,6 +118,11 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
       return uniqueNonEmpty([
         String(payload.question ?? ""),
         ...readStringArray(payload.proposedAssumptions),
+      ]);
+    case "ANSWER_CLARIFICATION":
+      return uniqueNonEmpty([
+        String(payload.answer ?? ""),
+        String(payload.nextStep ?? ""),
       ]);
     case "PROPOSE_PLAN":
       return uniqueNonEmpty([

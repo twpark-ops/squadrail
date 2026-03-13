@@ -9,6 +9,7 @@ import {
   ISSUE_PROTOCOL_FINAL_TEST_STATUSES,
   ISSUE_PROTOCOL_MERGE_STATUSES,
   ISSUE_PROTOCOL_NOTE_TYPES,
+  resolveClarificationResumeWorkflowState,
   type Agent,
   type CreateIssueProtocolMessage,
   type IssueProtocolRecipient,
@@ -24,6 +25,7 @@ import { cn } from "../lib/utils";
 type HumanBoardAction =
   | "ASSIGN_TASK"
   | "REASSIGN_TASK"
+  | "ANSWER_CLARIFICATION"
   | "REQUEST_CHANGES"
   | "APPROVE_IMPLEMENTATION"
   | "CLOSE_TASK"
@@ -39,13 +41,28 @@ interface ProtocolActionConsoleProps {
   protocolState: IssueProtocolState | null;
   agents: Agent[];
   currentUserId: string | null;
+  clarificationRequests: PendingClarificationRequest[];
   onSubmit: (message: CreateIssueProtocolMessage) => Promise<void>;
   isSubmitting: boolean;
+}
+
+export interface PendingClarificationRequest {
+  questionMessageId: string;
+  questionType: string;
+  question: string;
+  blocking: boolean;
+  askedByActorType: "agent" | "user";
+  askedByActorId: string;
+  askedByRole: IssueProtocolRecipient["role"];
+  askedByLabel: string;
+  createdAt: Date;
+  resumeWorkflowState: IssueProtocolWorkflowState | null;
 }
 
 const HUMAN_BOARD_ACTIONS: HumanBoardAction[] = [
   "ASSIGN_TASK",
   "REASSIGN_TASK",
+  "ANSWER_CLARIFICATION",
   "REQUEST_CHANGES",
   "APPROVE_IMPLEMENTATION",
   "CLOSE_TASK",
@@ -133,31 +150,43 @@ function dedupeRecipients(recipients: IssueProtocolRecipient[]) {
   });
 }
 
-function availableActions(state: IssueProtocolState | null): HumanBoardAction[] {
+function availableActions(state: IssueProtocolState | null, hasPendingClarifications: boolean): HumanBoardAction[] {
   if (!state) {
-    return ["ASSIGN_TASK"];
+    return hasPendingClarifications ? ["ASSIGN_TASK", "ANSWER_CLARIFICATION"] : ["ASSIGN_TASK"];
   }
   const workflowState = state?.workflowState ?? "backlog";
   switch (workflowState) {
     case "backlog":
-      return ["ASSIGN_TASK", "NOTE", "CANCEL_TASK"];
+      return hasPendingClarifications
+        ? ["ASSIGN_TASK", "ANSWER_CLARIFICATION", "NOTE", "CANCEL_TASK"]
+        : ["ASSIGN_TASK", "NOTE", "CANCEL_TASK"];
     case "assigned":
     case "accepted":
     case "planning":
     case "implementing":
     case "blocked":
     case "changes_requested":
-      return ["REASSIGN_TASK", "NOTE", "CANCEL_TASK"];
+      return hasPendingClarifications
+        ? ["REASSIGN_TASK", "ANSWER_CLARIFICATION", "NOTE", "CANCEL_TASK"]
+        : ["REASSIGN_TASK", "NOTE", "CANCEL_TASK"];
     case "submitted_for_review":
     case "qa_pending":
-      return ["NOTE", "CANCEL_TASK"];
+      return hasPendingClarifications
+        ? ["ANSWER_CLARIFICATION", "NOTE", "CANCEL_TASK"]
+        : ["NOTE", "CANCEL_TASK"];
     case "under_review":
     case "under_qa_review":
-      return ["APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
+      return hasPendingClarifications
+        ? ["ANSWER_CLARIFICATION", "APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"]
+        : ["APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
     case "awaiting_human_decision":
-      return ["REQUEST_CHANGES", "APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
+      return hasPendingClarifications
+        ? ["ANSWER_CLARIFICATION", "REQUEST_CHANGES", "APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"]
+        : ["REQUEST_CHANGES", "APPROVE_IMPLEMENTATION", "NOTE", "CANCEL_TASK"];
     case "approved":
-      return ["CLOSE_TASK", "NOTE", "CANCEL_TASK"];
+      return hasPendingClarifications
+        ? ["ANSWER_CLARIFICATION", "CLOSE_TASK", "NOTE", "CANCEL_TASK"]
+        : ["CLOSE_TASK", "NOTE", "CANCEL_TASK"];
     case "done":
     case "cancelled":
       return ["NOTE"];
@@ -166,11 +195,24 @@ function availableActions(state: IssueProtocolState | null): HumanBoardAction[] 
   }
 }
 
-function nextWorkflowState(action: HumanBoardAction, currentState: IssueProtocolWorkflowState): IssueProtocolWorkflowState {
+function nextWorkflowState(input: {
+  action: HumanBoardAction;
+  currentState: IssueProtocolWorkflowState;
+  blockedPhase: IssueProtocolState["blockedPhase"] | null | undefined;
+  selectedClarification: PendingClarificationRequest | null;
+}): IssueProtocolWorkflowState {
+  const { action, currentState, blockedPhase, selectedClarification } = input;
   switch (action) {
     case "ASSIGN_TASK":
     case "REASSIGN_TASK":
       return "assigned";
+    case "ANSWER_CLARIFICATION":
+      return resolveClarificationResumeWorkflowState({
+        currentWorkflowState: currentState,
+        blockedPhase: blockedPhase ?? null,
+        explicitResumeWorkflowState: selectedClarification?.resumeWorkflowState ?? null,
+        askedByRole: selectedClarification?.askedByRole ?? null,
+      });
     case "REQUEST_CHANGES":
       return "changes_requested";
     case "APPROVE_IMPLEMENTATION":
@@ -233,10 +275,14 @@ export function ProtocolActionConsole({
   protocolState,
   agents,
   currentUserId,
+  clarificationRequests,
   onSubmit,
   isSubmitting,
 }: ProtocolActionConsoleProps) {
-  const allowedActions = useMemo(() => availableActions(protocolState), [protocolState]);
+  const allowedActions = useMemo(
+    () => availableActions(protocolState, clarificationRequests.length > 0),
+    [clarificationRequests.length, protocolState],
+  );
   const [selectedAction, setSelectedAction] = useState<HumanBoardAction>(allowedActions[0] ?? "NOTE");
   const [summary, setSummary] = useState("");
   const [goal, setGoal] = useState("");
@@ -271,6 +317,9 @@ export function ProtocolActionConsole({
   const [cancelReason, setCancelReason] = useState("");
   const [cancelType, setCancelType] = useState<(typeof ISSUE_PROTOCOL_CANCEL_TYPES)[number]>("manual_stop");
   const [replacementIssueId, setReplacementIssueId] = useState("");
+  const [selectedClarificationId, setSelectedClarificationId] = useState("");
+  const [clarificationAnswer, setClarificationAnswer] = useState("");
+  const [clarificationNextStep, setClarificationNextStep] = useState("");
   const [noteType, setNoteType] = useState<(typeof ISSUE_PROTOCOL_NOTE_TYPES)[number]>("context");
   const [noteBody, setNoteBody] = useState("");
   const [noteAudience, setNoteAudience] = useState<Record<"tech_lead" | "engineer" | "reviewer" | "human_board", boolean>>({
@@ -296,6 +345,16 @@ export function ProtocolActionConsole({
     if (allowedActions.includes(selectedAction)) return;
     setSelectedAction(allowedActions[0] ?? "NOTE");
   }, [allowedActions, selectedAction]);
+
+  useEffect(() => {
+    if (
+      selectedClarificationId
+      && clarificationRequests.some((request) => request.questionMessageId === selectedClarificationId)
+    ) {
+      return;
+    }
+    setSelectedClarificationId(clarificationRequests[0]?.questionMessageId ?? "");
+  }, [clarificationRequests, selectedClarificationId]);
 
   useEffect(() => {
     setLastAppliedTemplate(null);
@@ -334,8 +393,17 @@ export function ProtocolActionConsole({
   );
 
   const currentState: IssueProtocolWorkflowState = protocolState?.workflowState ?? "backlog";
-  const nextState = nextWorkflowState(selectedAction, currentState);
   const artifacts = useMemo(() => parseArtifacts(artifactLines), [artifactLines]);
+  const selectedClarification = useMemo(
+    () => clarificationRequests.find((request) => request.questionMessageId === selectedClarificationId) ?? null,
+    [clarificationRequests, selectedClarificationId],
+  );
+  const nextState = nextWorkflowState({
+    action: selectedAction,
+    currentState,
+    blockedPhase: protocolState?.blockedPhase,
+    selectedClarification,
+  });
 
   const extraRecipientViews = useMemo(
     () =>
@@ -352,6 +420,8 @@ export function ProtocolActionConsole({
         return `Board assigned ${issueIdentifier} for execution`;
       case "REASSIGN_TASK":
         return `Board reassigned ${issueIdentifier}`;
+      case "ANSWER_CLARIFICATION":
+        return `Board answered clarification for ${issueIdentifier}`;
       case "REQUEST_CHANGES":
         return `Board requested changes for ${issueIdentifier}`;
       case "APPROVE_IMPLEMENTATION":
@@ -394,6 +464,22 @@ export function ProtocolActionConsole({
       }
       return dedupeRecipients([
         ...recipients,
+        ...extraRecipients.map((recipient) => ({
+          recipientType: "agent" as const,
+          recipientId: recipient.recipientId,
+          role: recipient.role,
+        })),
+      ]);
+    }
+
+    if (selectedAction === "ANSWER_CLARIFICATION") {
+      if (!selectedClarification) return [];
+      return dedupeRecipients([
+        {
+          recipientType: selectedClarification.askedByActorType === "agent" ? "agent" : "user",
+          recipientId: selectedClarification.askedByActorId,
+          role: selectedClarification.askedByRole,
+        },
         ...extraRecipients.map((recipient) => ({
           recipientType: "agent" as const,
           recipientId: recipient.recipientId,
@@ -446,6 +532,11 @@ export function ProtocolActionConsole({
     }
     if (action === "REASSIGN_TASK") {
       setReassignReason(`Reassign ${issueIdentifier} to unblock delivery while preserving current brief and reviewer expectations.`);
+      return;
+    }
+    if (action === "ANSWER_CLARIFICATION") {
+      setClarificationAnswer("");
+      setClarificationNextStep("");
       return;
     }
     if (action === "REQUEST_CHANGES") {
@@ -679,6 +770,27 @@ export function ProtocolActionConsole({
           artifacts,
         };
         break;
+      case "ANSWER_CLARIFICATION":
+        if (!selectedClarification || !clarificationAnswer.trim()) {
+          setError("Clarification answer requires a pending question and a short answer.");
+          return;
+        }
+        message = {
+          messageType: "ANSWER_CLARIFICATION",
+          sender: { actorType: "user", actorId: currentUserId, role: "human_board" },
+          recipients,
+          workflowStateBefore: currentState,
+          workflowStateAfter: nextState,
+          summary: resolvedSummary,
+          causalMessageId: selectedClarification.questionMessageId,
+          requiresAck: false,
+          payload: applyTemplateTrace({
+            answer: clarificationAnswer.trim(),
+            ...(clarificationNextStep.trim() ? { nextStep: clarificationNextStep.trim() } : {}),
+          }),
+          artifacts,
+        };
+        break;
       case "REQUEST_CHANGES": {
         const parsedChangeRequests = parseChangeRequests(changeRequestLines);
         if (
@@ -850,6 +962,13 @@ export function ProtocolActionConsole({
       setSummary("");
       return;
     }
+    if (selectedAction === "ANSWER_CLARIFICATION") {
+      setClarificationAnswer("");
+      setClarificationNextStep("");
+      setArtifactLines("");
+      setSummary("");
+      return;
+    }
     setSummary("");
   }
 
@@ -872,6 +991,13 @@ export function ProtocolActionConsole({
           newAssigneeAgentId: assigneeAgentId,
           assignmentRecipientRole,
           newReviewerAgentId: reviewerAgentId || null,
+        };
+      case "ANSWER_CLARIFICATION":
+        return {
+          questionMessageId: selectedClarification?.questionMessageId ?? null,
+          askedBy: selectedClarification?.askedByLabel ?? null,
+          answer: clarificationAnswer.trim(),
+          nextStep: clarificationNextStep.trim() || null,
         };
       case "REQUEST_CHANGES":
         return {
@@ -931,6 +1057,8 @@ export function ProtocolActionConsole({
     followUpIssueIds,
     goal,
     changeRequestLines,
+    clarificationAnswer,
+    clarificationNextStep,
     mergeStatus,
     noteBody,
     noteType,
@@ -943,6 +1071,7 @@ export function ProtocolActionConsole({
     assignmentRecipientRole,
     reviewerAgentId,
     reviewSummary,
+    selectedClarification,
     selectedAction,
     verifiedEvidence,
     closureSummary,
@@ -985,13 +1114,15 @@ export function ProtocolActionConsole({
             {formatProtocolValue(action)}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => applyTemplate(selectedAction)}
-          className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50"
-        >
-          Load template
-        </button>
+        {selectedAction !== "ANSWER_CLARIFICATION" && (
+          <button
+            type="button"
+            onClick={() => applyTemplate(selectedAction)}
+            className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50"
+          >
+            Load template
+          </button>
+        )}
       </div>
 
       {availableTemplates.length > 0 ? (
@@ -1171,6 +1302,56 @@ export function ProtocolActionConsole({
                 value={reassignReason}
                 onChange={(event) => setReassignReason(event.target.value)}
                 placeholder="Explain why reassignment is required and what must carry forward."
+              />
+            </label>
+          </div>
+        )}
+
+        {selectedAction === "ANSWER_CLARIFICATION" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block md:col-span-2">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending clarification</div>
+              <select
+                className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={selectedClarificationId}
+                onChange={(event) => setSelectedClarificationId(event.target.value)}
+              >
+                <option value="">Select pending clarification</option>
+                {clarificationRequests.map((request) => (
+                  <option key={request.questionMessageId} value={request.questionMessageId}>
+                    {request.askedByLabel} · {formatProtocolValue(request.questionType)} · {request.question}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedClarification && (
+              <div className="rounded-md border border-border bg-muted/20 px-3 py-3 md:col-span-2">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <span>{formatProtocolValue(selectedClarification.questionType)}</span>
+                  <span>·</span>
+                  <span>{selectedClarification.blocking ? "Blocking" : "Non-blocking"}</span>
+                  <span>·</span>
+                  <span>Asked by {selectedClarification.askedByLabel}</span>
+                </div>
+                <p className="mt-2 text-sm text-foreground">{selectedClarification.question}</p>
+              </div>
+            )}
+            <label className="block md:col-span-2">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Answer</div>
+              <textarea
+                className="min-h-[112px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={clarificationAnswer}
+                onChange={(event) => setClarificationAnswer(event.target.value)}
+                placeholder="Answer only the missing information needed for the team to resume execution."
+              />
+            </label>
+            <label className="block md:col-span-2">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Next step hint</div>
+              <input
+                className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm outline-none"
+                value={clarificationNextStep}
+                onChange={(event) => setClarificationNextStep(event.target.value)}
+                placeholder="Optional hint such as preferred project, reviewer bar, or deadline confirmation."
               />
             </label>
           </div>
@@ -1527,7 +1708,7 @@ export function ProtocolActionConsole({
 
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-muted-foreground">
-            Sender: Human Board. Current participants are used as recipients unless the action explicitly selects new ownership.
+            Sender: Human Board. Current participants are used as recipients unless the action explicitly selects new ownership or clarification target.
           </div>
           <Button size="sm" onClick={() => void handleSubmit()} disabled={isSubmitting}>
             {isSubmitting ? "Posting..." : `Post ${formatProtocolValue(selectedAction)}`}

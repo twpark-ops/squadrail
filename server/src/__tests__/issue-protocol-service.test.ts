@@ -427,6 +427,233 @@ describe("issue protocol service", () => {
     await expect(service.reopenForRecovery("issue-1")).rejects.toThrow("Issue protocol is not in a terminal state");
   });
 
+  it("answers a blocked human clarification request, acks the question, and resumes execution", async () => {
+    const issue = {
+      id: "issue-clarify",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+      status: "blocked",
+    };
+    const currentState = {
+      issueId: "issue-clarify",
+      companyId: "company-1",
+      workflowState: "blocked",
+      coarseIssueStatus: "blocked",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 1,
+      blockedPhase: "implementing",
+      blockedCode: "human_clarification",
+      blockedByMessageId: "question-1",
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-clarify",
+      issueId: "issue-clarify",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-3",
+      issueId: "issue-clarify",
+      threadId: "thread-clarify",
+      seq: 3,
+      integritySignature: null,
+    };
+    const clarificationMessage = {
+      id: "question-1",
+      issueId: "issue-clarify",
+      threadId: "thread-clarify",
+      seq: 2,
+      messageType: "ASK_CLARIFICATION",
+      senderActorType: "agent",
+      senderActorId: "eng-1",
+      senderRole: "engineer",
+      ackedAt: null,
+      payload: {
+        questionType: "requirement",
+        question: "Which project should own this request?",
+        blocking: true,
+        requestedFrom: "human_board",
+        resumeWorkflowState: "implementing",
+      },
+    };
+    const createdMessage = {
+      id: "message-4",
+      issueId: "issue-clarify",
+      threadId: "thread-clarify",
+      seq: 4,
+      messageType: "ANSWER_CLARIFICATION",
+      senderActorType: "user",
+      senderActorId: "board-1",
+      senderRole: "human_board",
+      workflowStateBefore: "blocked",
+      workflowStateAfter: "implementing",
+      summary: "Board answered clarification",
+      payload: {
+        answer: "Use the swiftsight-cloud project.",
+        nextStep: "Resume routing through the cloud TL lane.",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-1",
+    };
+    const { db, insertValues, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [clarificationMessage],
+        [thread],
+        [lastMessage],
+      ],
+      insertResults: [[createdMessage], [], []],
+      updateResults: [[sealedMessage], [], [], []],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-clarify",
+      authorUserId: "board-1",
+      message: {
+        messageType: "ANSWER_CLARIFICATION",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "blocked",
+        workflowStateAfter: "blocked",
+        summary: "Board answered clarification",
+        causalMessageId: "question-1",
+        payload: {
+          answer: "Use the swiftsight-cloud project.",
+          nextStep: "Resume routing through the cloud TL lane.",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.message).toMatchObject({
+      id: "message-4",
+      messageType: "ANSWER_CLARIFICATION",
+      integrityStatus: "verified",
+    });
+    expect(appended.state).toMatchObject({
+      workflowState: "implementing",
+      coarseIssueStatus: "in_progress",
+      blockedPhase: null,
+      blockedCode: null,
+      blockedByMessageId: null,
+    });
+    expect(insertValues).toContainEqual({
+      table: issueProtocolRecipients,
+      value: [
+        {
+          companyId: "company-1",
+          messageId: "message-4",
+          recipientType: "agent",
+          recipientId: "eng-1",
+          recipientRole: "engineer",
+        },
+      ],
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolMessages,
+      value: expect.objectContaining({
+        ackedAt: expect.any(Date),
+      }),
+    });
+  });
+
+  it("rejects clarification answers from the wrong actor role", async () => {
+    const issue = {
+      id: "issue-clarify-2",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+      status: "in_progress",
+    };
+    const currentState = {
+      issueId: "issue-clarify-2",
+      companyId: "company-1",
+      workflowState: "implementing",
+      coarseIssueStatus: "in_progress",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 1,
+      metadata: {},
+    };
+    const clarificationMessage = {
+      id: "question-2",
+      issueId: "issue-clarify-2",
+      messageType: "ASK_CLARIFICATION",
+      senderActorType: "agent",
+      senderActorId: "rev-1",
+      senderRole: "reviewer",
+      ackedAt: null,
+      payload: {
+        questionType: "review_feedback",
+        question: "Should QA review this before close?",
+        blocking: true,
+        requestedFrom: "reviewer",
+      },
+    };
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [clarificationMessage],
+      ],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.appendMessage({
+      issueId: "issue-clarify-2",
+      authorUserId: "board-1",
+      message: {
+        messageType: "ANSWER_CLARIFICATION",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "implementing",
+        summary: "Board answered clarification",
+        causalMessageId: "question-2",
+        payload: {
+          answer: "Yes, keep QA in the loop.",
+        },
+        artifacts: [],
+      },
+    })).rejects.toThrow("Clarification answer must be sent by the requested reviewer actor");
+  });
+
   it("opens a review cycle when START_REVIEW is appended", async () => {
     const issue = {
       id: "issue-review",
