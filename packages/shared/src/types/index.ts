@@ -109,6 +109,12 @@ export type {
   TeamBlueprintReadiness,
   TeamBlueprint,
   TeamBlueprintCatalogView,
+  TeamBlueprintPreviewRequest,
+  TeamBlueprintPreviewParameters,
+  TeamBlueprintPreviewProjectDiff,
+  TeamBlueprintPreviewRoleDiff,
+  TeamBlueprintPreviewReadinessCheck,
+  TeamBlueprintPreviewResult,
 } from "./team-blueprint.js";
 export type {
   OrgSyncStatus,

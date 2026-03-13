@@ -10,13 +10,13 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `Phase 4 blueprint preview/diff + Company Settings catalog surface`
+- open this handoff first, then continue immediately with `Phase 5 blueprint apply kickoff + swiftsight canonical absorption prep`
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
 
 ## Current Status
 
-- `P0 productization pivot`: Phase 1/2/3 shipped, Phase 4 catalog skeleton shipped
+- `P0 productization pivot`: Phase 1/2/3 shipped, Phase 4 preview/diff shipped
   - lower delivery kernel은 이미 제품 수준으로 닫혔다.
   - 다음 북극성은 `사람이 짧게 요청 -> 시스템/PM 구조화 -> 부족한 정보만 질문 -> 사람이 짧게 답변 -> 팀이 실행/리뷰/클로즈 -> 다른 회사에서도 같은 팀 구성을 쉽게 재사용`이다.
   - 새 상세 계획 문서:
@@ -33,9 +33,11 @@ One-line startup rule:
     8. `Inbox` clarification answer CTA/deep-link 추가
     9. `IssueDetail` / `ChangeReviewDesk`에 answered / resumed clarification trace 추가
     10. generic `team blueprint` shared/server contract skeleton과 `GET /api/companies/:companyId/team-blueprints` route 추가
+    11. `team blueprint preview/diff` contract와 `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route 추가
+    12. `CompanySettings`에 blueprint catalog read + preview diff surface 추가
   - immediate next:
-    1. `team blueprint preview/diff` contract와 server preview route 시작
-    2. `Company Settings`에 blueprint catalog read surface와 preview entry 추가
+    1. `team blueprint apply` contract와 confirmation gate 시작
+    2. `Company Settings`에서 preview -> apply flow를 잇기
     3. `swiftsight canonical`을 generic registry에 흡수할 parameter map 초안 작성
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
@@ -51,8 +53,8 @@ One-line startup rule:
     - `pnpm --filter @squadrail/server typecheck`
     - `pnpm --filter @squadrail/server build`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - 최신 server tests: `174 files / 1105 tests` 통과
-  - 최신 server coverage: statements/lines `80.36%`, branches `65.03%`, functions `91.34%`
+  - 최신 server tests: `174 files / 1108 tests` 통과
+  - 최신 server coverage: statements/lines `80.38%`, branches `65.01%`, functions `91.29%`
   - 핵심 해석: 전역 `80%`는 넘겼지만 분포는 아직 불균형하다. 현재 병목은 `heartbeat.ts 44.47%`, `knowledge.ts 62.95%`, `routes/issues.ts 66.28%`다.
 
 - `13-Q. runtime bottleneck helper coverage uplift`: 진행 중
@@ -186,7 +188,9 @@ One-line startup rule:
 - `generic team blueprint v1 contract skeleton` 완료
   - `packages/shared`에 team blueprint type / validator / constants를 추가했다.
   - `server/src/services/team-blueprints.ts`와 `GET /api/companies/:companyId/team-blueprints` route를 추가했다.
-  - 아직 preview/diff/apply mutation과 Company Settings 소비 surface는 남아 있다.
+  - `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route와 preview/diff contract를 추가했다.
+  - `CompanySettings`가 blueprint catalog와 preview diff를 읽는다.
+  - 아직 apply mutation과 onboarding 소비 surface는 남아 있다.
 - `root 1개 -> hidden child work item fan-out -> multi-project parallel execution -> reviewer -> QA -> done` 검증 완료
 - `Human -> PM intake`, `PM projection`, `QA separate gate`, `organizational memory ingest` 완료
 - `cross-issue memory reuse` 완료
@@ -207,9 +211,9 @@ One-line startup rule:
   - `pnpm --filter @squadrail/server typecheck`
   - `pnpm --filter @squadrail/server build`
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - `174 files / 1105 tests` 통과
-  - server coverage `80.36%`
-- 현재 다음 순차 작업은 `blueprint preview/diff + Company Settings catalog surface`
+  - `174 files / 1108 tests` 통과
+  - server coverage `80.38%`
+- 현재 다음 순차 작업은 `blueprint apply kickoff + swiftsight canonical absorption prep`
 
 ## Next Priorities
 
@@ -228,14 +232,14 @@ Interpretation:
 
 ## Recommended First Task Next Session
 
-Start with `Phase 4 blueprint preview/diff + Company Settings catalog surface`.
+Start with `Phase 5 blueprint apply kickoff + swiftsight canonical absorption prep`.
 
 Suggested slice:
 
-1. `team blueprint preview/diff` shared/server contract를 추가한다
-2. `companies` route에 preview endpoint를 추가한다
-3. `Company Settings`가 blueprint catalog와 preview 결과를 읽게 한다
-4. 마지막에 focused server/UI 검증을 돌린다
+1. `team blueprint apply` request/response contract를 추가한다
+2. `companies` route에 apply endpoint와 confirmation guard를 추가한다
+3. `Company Settings`가 preview 결과 위에서 apply를 호출하게 한다
+4. `swiftsight canonical`과 generic blueprint parameter map 연결 초안을 만든다
 
 ## Important Files
 

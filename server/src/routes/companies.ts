@@ -14,10 +14,12 @@ import {
   listRolePacksQuerySchema,
   restoreRolePackRevisionSchema,
   seedDefaultRolePacksSchema,
+  teamBlueprintPreviewRequestSchema,
   updateWorkflowTemplatesSchema,
   updateOperatingAlertsConfigSchema,
   updateSetupProgressSchema,
   updateCompanySchema,
+  type TeamBlueprintKey,
 } from "@squadrail/shared";
 import { z } from "zod";
 import { forbidden } from "../errors.js";
@@ -66,7 +68,7 @@ export function companyRoutes(
   const access = accessService(db);
   const setup = setupProgressService(db);
   const workflowTemplates = workflowTemplateService(db);
-  const teamBlueprints = teamBlueprintService();
+  const teamBlueprints = teamBlueprintService(db);
   const operatingAlerts = operatingAlertService(db);
   const rolePacks = rolePackService(db);
   const knowledgeSetup = knowledgeSetupService(db);
@@ -140,6 +142,14 @@ export function companyRoutes(
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const view = teamBlueprints.getCatalog(companyId);
+    res.json(view);
+  });
+
+  router.post("/:companyId/team-blueprints/:blueprintKey/preview", validate(teamBlueprintPreviewRequestSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const blueprintKey = req.params.blueprintKey as string;
+    assertCompanyAccess(req, companyId);
+    const view = await teamBlueprints.preview(companyId, blueprintKey as TeamBlueprintKey, req.body);
     res.json(view);
   });
 

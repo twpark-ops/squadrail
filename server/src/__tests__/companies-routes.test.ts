@@ -16,6 +16,7 @@ const {
   mockSetupUpdate,
   mockWorkflowTemplatesGetView,
   mockTeamBlueprintsGetCatalog,
+  mockTeamBlueprintsPreview,
   mockWorkflowTemplatesUpdateConfig,
   mockOperatingAlertsGetView,
   mockOperatingAlertsUpdateConfig,
@@ -53,6 +54,7 @@ const {
   mockSetupUpdate: vi.fn(),
   mockWorkflowTemplatesGetView: vi.fn(),
   mockTeamBlueprintsGetCatalog: vi.fn(),
+  mockTeamBlueprintsPreview: vi.fn(),
   mockWorkflowTemplatesUpdateConfig: vi.fn(),
   mockOperatingAlertsGetView: vi.fn(),
   mockOperatingAlertsUpdateConfig: vi.fn(),
@@ -119,6 +121,7 @@ vi.mock("../services/index.js", () => ({
   }),
   teamBlueprintService: () => ({
     getCatalog: mockTeamBlueprintsGetCatalog,
+    preview: mockTeamBlueprintsPreview,
   }),
   rolePackService: () => ({
     listPresets: mockListPresets,
@@ -394,6 +397,132 @@ describe("company routes", () => {
       ],
     });
     expect(mockTeamBlueprintsGetCatalog).toHaveBeenCalledWith("company-1");
+  });
+
+  it("returns a team blueprint preview diff for the requested company", async () => {
+    mockTeamBlueprintsPreview.mockResolvedValue({
+      companyId: "company-1",
+      blueprint: {
+        key: "standard_product_squad",
+        label: "Standard Product Squad",
+        description: "Reusable squad",
+        presetKey: "example_product_squad_v1",
+        projects: [
+          {
+            key: "product_app",
+            label: "Product App",
+            description: null,
+            kind: "product",
+            repositoryHint: "Connect app workspace",
+            defaultLeadRoleKey: "app_tech_lead",
+          },
+        ],
+        roles: [
+          {
+            key: "pm",
+            label: "PM",
+            role: "pm",
+            title: "PM",
+            reportsToKey: null,
+            projectBinding: "none",
+            preferredAdapterTypes: ["claude_local"],
+            deliveryLane: "planning",
+            capabilities: ["projection"],
+          },
+        ],
+        parameterHints: {
+          supportsPm: true,
+          supportsQa: false,
+          supportsCto: false,
+          defaultProjectCount: 1,
+          defaultEngineerPairsPerProject: 1,
+        },
+        readiness: {
+          requiredWorkspaceCount: 1,
+          knowledgeRequired: true,
+          knowledgeSources: ["project_docs"],
+          approvalRequiredRoleKeys: ["pm"],
+          doctorSetupPrerequisites: ["workspace_connected"],
+          recommendedFirstQuickRequest: "Turn one request into a scoped delivery issue.",
+        },
+      },
+      parameters: {
+        projectCount: 1,
+        engineerPairsPerProject: 1,
+        includePm: true,
+        includeQa: false,
+        includeCto: false,
+      },
+      summary: {
+        currentProjectCount: 1,
+        currentWorkspaceCount: 1,
+        currentAgentCount: 2,
+        adoptedProjectCount: 1,
+        createProjectCount: 0,
+        matchedRoleCount: 1,
+        missingRoleCount: 1,
+      },
+      projectDiff: [
+        {
+          slotKey: "product_app",
+          templateKey: "product_app",
+          label: "Product App",
+          kind: "product",
+          status: "adopt_existing",
+          existingProjectId: "project-1",
+          existingProjectName: "Product App",
+          workspaceCount: 1,
+          repositoryHint: "Connect app workspace",
+        },
+      ],
+      roleDiff: [
+        {
+          templateKey: "pm",
+          label: "PM",
+          role: "pm",
+          status: "ready",
+          requiredCount: 1,
+          existingCount: 1,
+          missingCount: 0,
+          matchingAgentNames: ["Product PM"],
+          notes: ["Existing company agents already cover this role requirement."],
+        },
+      ],
+      readinessChecks: [
+        {
+          key: "workspace_count",
+          label: "Workspace coverage",
+          status: "ready",
+          detail: "1/1 required workspace slot(s) are connected.",
+        },
+      ],
+      warnings: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/:blueprintKey/preview",
+      method: "post",
+      params: { companyId: "company-1", blueprintKey: "standard_product_squad" },
+      body: {
+        projectCount: 1,
+        includePm: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      companyId: "company-1",
+      blueprint: expect.objectContaining({
+        key: "standard_product_squad",
+      }),
+      summary: expect.objectContaining({
+        adoptedProjectCount: 1,
+      }),
+    });
+    expect(mockTeamBlueprintsPreview).toHaveBeenCalledWith("company-1", "standard_product_squad", {
+      projectCount: 1,
+      includePm: true,
+    });
   });
 
   it("updates workflow templates and records activity", async () => {

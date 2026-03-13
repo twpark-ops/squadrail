@@ -34,14 +34,16 @@
   - `Inbox` clarification card에 answer CTA/deep-link를 추가했다.
   - `IssueDetail` / `ChangeReviewDesk`에 answered / resumed clarification trace를 추가했다.
   - generic `team blueprint` shared/server contract skeleton과 `GET /api/companies/:companyId/team-blueprints` route를 추가했다.
+  - `team blueprint preview/diff` contract와 `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route를 추가했다.
+  - `CompanySettings`가 blueprint catalog와 preview diff를 읽고 operator 경고를 보여준다.
 - immediate next slice:
-  - `team blueprint preview/diff` contract와 server preview route 추가
-  - `Company Settings`에 blueprint catalog read/preview entry 추가
+  - `team blueprint apply` contract와 confirmation gate 추가
+  - `Company Settings`에서 preview -> apply flow 시작
   - `swiftsight canonical` generic registry 흡수 parameter map 정리
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.
-  - 최신 검증 기준은 `174 files / 1105 tests`, coverage `80.36%`다.
+  - 최신 검증 기준은 `174 files / 1108 tests`, coverage `80.38%`다.
 
 ## 2026-03-13 server coverage 80% threshold 유지
 
