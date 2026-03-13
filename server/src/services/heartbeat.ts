@@ -151,7 +151,7 @@ export async function insertOrRefetchSingleton<T>(input: {
   return input.refetch();
 }
 
-function normalizeMaxConcurrentRuns(value: unknown) {
+export function normalizeMaxConcurrentRuns(value: unknown) {
   const parsed = Math.floor(asNumber(value, HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT));
   if (!Number.isFinite(parsed)) return HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT;
   return Math.max(HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT, Math.min(HEARTBEAT_MAX_CONCURRENT_RUNS_MAX, parsed));
@@ -190,11 +190,11 @@ interface ParsedIssueAssigneeAdapterOverrides {
   useProjectWorkspace: boolean | null;
 }
 
-function readNonEmptyString(value: unknown): string | null {
+export function readNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
-function normalizeIssuePriorityValue(value: unknown): IssuePriority | null {
+export function normalizeIssuePriorityValue(value: unknown): IssuePriority | null {
   const normalized = readNonEmptyString(value)?.toLowerCase();
   if (
     normalized === "critical"
@@ -207,7 +207,7 @@ function normalizeIssuePriorityValue(value: unknown): IssuePriority | null {
   return null;
 }
 
-function priorityRank(priority: IssuePriority | null) {
+export function priorityRank(priority: IssuePriority | null) {
   switch (priority) {
     case "critical":
       return 3;
@@ -220,7 +220,7 @@ function priorityRank(priority: IssuePriority | null) {
   }
 }
 
-function priorityClassFromRank(rank: number) {
+export function priorityClassFromRank(rank: number) {
   if (rank >= 3) return "critical" as const;
   if (rank === 2) return "high" as const;
   if (rank === 1) return "normal" as const;
@@ -354,7 +354,7 @@ export function prioritizeQueuedRunsForDispatch<T extends {
   });
 }
 
-function parseIssueAssigneeAdapterOverrides(
+export function parseIssueAssigneeAdapterOverrides(
   raw: unknown,
 ): ParsedIssueAssigneeAdapterOverrides | null {
   const parsed = parseObject(raw);
@@ -372,7 +372,7 @@ function parseIssueAssigneeAdapterOverrides(
   };
 }
 
-function deriveTaskKey(
+export function deriveTaskKey(
   contextSnapshot: Record<string, unknown> | null | undefined,
   payload: Record<string, unknown> | null | undefined,
 ) {
@@ -444,7 +444,7 @@ export function describeSessionResetReason(
   return null;
 }
 
-function deriveCommentId(
+export function deriveCommentId(
   contextSnapshot: Record<string, unknown> | null | undefined,
   payload: Record<string, unknown> | null | undefined,
 ) {
@@ -683,19 +683,19 @@ export function buildHeartbeatRunQueuedEvent(input: {
   };
 }
 
-function truncateDisplayId(value: string | null | undefined, max = 128) {
+export function truncateDisplayId(value: string | null | undefined, max = 128) {
   if (!value) return null;
   return value.length > max ? value.slice(0, max) : value;
 }
 
-function toEpochMillis(value: Date | string | null | undefined) {
+export function toEpochMillis(value: Date | string | null | undefined) {
   if (!value) return null;
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function computeLeaseExpiresAt(now = new Date()) {
+export function computeLeaseExpiresAt(now = new Date()) {
   return new Date(now.getTime() + RUN_LEASE_TTL_MS);
 }
 
@@ -988,7 +988,7 @@ export function runDispatchWatchdogOutsideDbContext(callback: () => void) {
   runWithoutDbContext(callback);
 }
 
-function normalizeAgentNameKey(value: string | null | undefined) {
+export function normalizeAgentNameKey(value: string | null | undefined) {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   return normalized.length > 0 ? normalized : null;
@@ -1011,12 +1011,12 @@ const defaultSessionCodec: AdapterSessionCodec = {
   },
 };
 
-function getAdapterSessionCodec(adapterType: string) {
+export function getAdapterSessionCodec(adapterType: string) {
   const adapter = getServerAdapter(adapterType);
   return adapter.sessionCodec ?? defaultSessionCodec;
 }
 
-function normalizeSessionParams(params: Record<string, unknown> | null | undefined) {
+export function normalizeSessionParams(params: Record<string, unknown> | null | undefined) {
   if (!params) return null;
   return Object.keys(params).length > 0 ? params : null;
 }
@@ -1075,6 +1075,21 @@ export function resolveNextSessionState(input: {
     params: serialized,
     displayId,
     legacySessionId,
+  };
+}
+
+export function parseHeartbeatPolicyConfig(runtimeConfig: unknown) {
+  const runtime = parseObject(runtimeConfig);
+  const heartbeat = parseObject(runtime.heartbeat);
+
+  return {
+    enabled: asBoolean(heartbeat.enabled, true),
+    intervalSec: Math.max(0, asNumber(heartbeat.intervalSec, 0)),
+    wakeOnDemand: asBoolean(
+      heartbeat.wakeOnDemand ?? heartbeat.wakeOnAssignment ?? heartbeat.wakeOnOnDemand ?? heartbeat.wakeOnAutomation,
+      true,
+    ),
+    maxConcurrentRuns: normalizeMaxConcurrentRuns(heartbeat.maxConcurrentRuns),
   };
 }
 
@@ -1403,15 +1418,7 @@ export function heartbeatService(db: Db) {
   }
 
   function parseHeartbeatPolicy(agent: typeof agents.$inferSelect) {
-    const runtimeConfig = parseObject(agent.runtimeConfig);
-    const heartbeat = parseObject(runtimeConfig.heartbeat);
-
-    return {
-      enabled: asBoolean(heartbeat.enabled, true),
-      intervalSec: Math.max(0, asNumber(heartbeat.intervalSec, 0)),
-      wakeOnDemand: asBoolean(heartbeat.wakeOnDemand ?? heartbeat.wakeOnAssignment ?? heartbeat.wakeOnOnDemand ?? heartbeat.wakeOnAutomation, true),
-      maxConcurrentRuns: normalizeMaxConcurrentRuns(heartbeat.maxConcurrentRuns),
-    };
+    return parseHeartbeatPolicyConfig(agent.runtimeConfig);
   }
 
   async function countRunningRunsForAgent(agentId: string) {

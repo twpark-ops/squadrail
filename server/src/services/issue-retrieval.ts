@@ -748,17 +748,17 @@ export function buildKnowledgeRevisionSignature(input: {
   }));
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
+export function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
 }
 
-function asStringArray(value: unknown) {
+export function asStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return uniqueNonEmpty(value.filter((entry): entry is string => typeof entry === "string"));
 }
 
-function asNumberRecord(value: unknown) {
+export function asNumberRecord(value: unknown) {
   const record = asRecord(value);
   if (!record) return {};
 
@@ -768,15 +768,15 @@ function asNumberRecord(value: unknown) {
   return Object.fromEntries(numericEntries) as Record<string, number>;
 }
 
-function readConfiguredNumber(value: unknown, fallback: number) {
+export function readConfiguredNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function dbVectorLiteral(value: string) {
+export function dbVectorLiteral(value: string) {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function normalizeEmbeddingVector(values: unknown) {
+export function normalizeEmbeddingVector(values: unknown) {
   if (!Array.isArray(values)) return null;
 
   const normalized = values
@@ -1580,7 +1580,7 @@ export function resolveRecipientBriefQuality(input: {
   };
 }
 
-function defaultPolicyTemplate(input: {
+export function defaultPolicyTemplate(input: {
   role: RetrievalTargetRole;
   eventType: RetrievalEventType;
   workflowState: string;
@@ -1627,7 +1627,7 @@ function defaultPolicyTemplate(input: {
   };
 }
 
-function resolveLaneAwareRetrievalPolicy(input: {
+export function resolveLaneAwareRetrievalPolicy(input: {
   lane: ExecutionLane;
   policy: {
     topKDense: number;
@@ -1647,7 +1647,7 @@ function resolveLaneAwareRetrievalPolicy(input: {
   }) satisfies LaneAwareRetrievalPolicy;
 }
 
-function shouldEscalateGraphSeed(input: {
+export function shouldEscalateGraphSeed(input: {
   entityType: RetrievalGraphSeed["entityType"];
   currentSeed: RetrievalGraphSeed;
   linkReason: string;
@@ -1669,12 +1669,12 @@ function shouldEscalateGraphSeed(input: {
   );
 }
 
-function readMetadataString(metadata: Record<string, unknown>, key: string) {
+export function readMetadataString(metadata: Record<string, unknown>, key: string) {
   const value = metadata[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-async function listDocumentVersionsForRetrieval(input: {
+export async function listDocumentVersionsForRetrieval(input: {
   db: Db;
   companyId: string;
   documentIds: string[];
@@ -1721,7 +1721,7 @@ async function listDocumentVersionsForRetrieval(input: {
   return byDocumentId;
 }
 
-async function deriveRetrievalTemporalContext(input: {
+export async function deriveRetrievalTemporalContext(input: {
   db: Db;
   companyId: string;
   issueId: string;
@@ -1823,7 +1823,7 @@ async function deriveRetrievalTemporalContext(input: {
   return null;
 }
 
-function computeTemporalBoost(input: {
+export function computeTemporalBoost(input: {
   hit: RetrievalHitView;
   temporalContext: RetrievalTemporalContext | null;
   versions: RetrievalDocumentVersionView[];
@@ -1944,7 +1944,7 @@ function computeTemporalBoost(input: {
   };
 }
 
-function computeLinkBoost(input: {
+export function computeLinkBoost(input: {
   hit: RetrievalHitView;
   links: RetrievalLinkView[];
   issueId: string;
@@ -1980,7 +1980,7 @@ function computeLinkBoost(input: {
   return Math.min(input.weights.linkBoostCap, score);
 }
 
-function computeGraphConnectivityBoost(input: {
+export function computeGraphConnectivityBoost(input: {
   hit: RetrievalHitView;
   signals: RetrievalSignals;
   weights: RetrievalRerankWeights;
@@ -1996,6 +1996,120 @@ function computeGraphConnectivityBoost(input: {
     score += input.weights.graphCrossProjectBoost;
   }
   return score;
+}
+
+export async function listRelatedIssueIdentifierMap(input: {
+  db: Db;
+  companyId: string;
+  issueIds: string[];
+}) {
+  const issueIds = uniqueNonEmpty(input.issueIds);
+  if (issueIds.length === 0) return {} as Record<string, string>;
+
+  const rows = await input.db
+    .select({
+      id: issues.id,
+      identifier: issues.identifier,
+    })
+    .from(issues)
+    .where(and(
+      eq(issues.companyId, input.companyId),
+      inArray(issues.id, issueIds),
+    ));
+
+  return Object.fromEntries(
+    rows.map((row) => [row.id, row.identifier ?? row.id] as const),
+  );
+}
+
+export async function listRelatedIssueIdsByIdentifiers(input: {
+  db: Db;
+  companyId: string;
+  identifiers: string[];
+}) {
+  const identifiers = uniqueNonEmpty(input.identifiers.map((identifier) => normalizeIssueIdentifier(identifier)));
+  if (identifiers.length === 0) return {} as Record<string, string>;
+
+  const rows = await input.db
+    .select({
+      id: issues.id,
+      identifier: issues.identifier,
+    })
+    .from(issues)
+    .where(and(
+      eq(issues.companyId, input.companyId),
+      inArray(issues.identifier, identifiers),
+    ));
+
+  return Object.fromEntries(
+    rows
+      .filter((row): row is typeof row & { identifier: string } => typeof row.identifier === "string" && row.identifier.length > 0)
+      .map((row) => [row.id, row.identifier] as const),
+  );
+}
+
+export async function listBacklinkedRelatedIssueIds(input: {
+  db: Db;
+  companyId: string;
+  issueId: string;
+}) {
+  const rows = await input.db
+    .select({
+      documentIssueId: knowledgeDocuments.issueId,
+    })
+    .from(knowledgeChunkLinks)
+    .innerJoin(knowledgeChunks, eq(knowledgeChunkLinks.chunkId, knowledgeChunks.id))
+    .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+    .where(and(
+      eq(knowledgeChunkLinks.companyId, input.companyId),
+      eq(knowledgeChunkLinks.entityType, "issue"),
+      eq(knowledgeChunkLinks.entityId, input.issueId),
+      sql`${knowledgeDocuments.issueId} is not null`,
+      sql`${knowledgeDocuments.issueId} <> ${input.issueId}`,
+      sql`${knowledgeDocuments.authorityLevel} <> 'deprecated'`,
+    ))
+    .orderBy(desc(knowledgeChunkLinks.weight), desc(knowledgeDocuments.updatedAt))
+    .limit(24);
+
+  return uniqueNonEmpty(
+    rows.map((row) => (typeof row.documentIssueId === "string" ? row.documentIssueId : null)),
+  );
+}
+
+export async function resolveRelatedIssueSignals(input: {
+  db: Db;
+  companyId: string;
+  issueId: string;
+  issueIdentifier: string | null;
+  signals: RetrievalSignals;
+  backlinkedIssueIds: string[];
+}) {
+  const currentIssueIdentifier = input.issueIdentifier ? normalizeIssueIdentifier(input.issueIdentifier) : null;
+  const referencedIdentifiers = uniqueNonEmpty((input.signals.relatedIssueIdentifiers ?? [])
+    .map((identifier) => normalizeIssueIdentifier(identifier))
+    .filter((identifier) => identifier !== currentIssueIdentifier));
+  const identifierMatches = await listRelatedIssueIdsByIdentifiers({
+    db: input.db,
+    companyId: input.companyId,
+    identifiers: referencedIdentifiers,
+  });
+  const relatedIssueIds = uniqueNonEmpty([
+    ...(input.signals.relatedIssueIds ?? []),
+    ...Object.keys(identifierMatches),
+    ...input.backlinkedIssueIds,
+  ]).filter((issueId) => issueId !== input.issueId);
+
+  return {
+    ...input.signals,
+    preferredSourceTypes: relatedIssueIds.length > 0
+      ? uniqueNonEmpty(["review", "protocol_message", "issue", ...input.signals.preferredSourceTypes])
+      : input.signals.preferredSourceTypes,
+    relatedIssueIds,
+    relatedIssueIdentifiers: uniqueNonEmpty([
+      ...referencedIdentifiers,
+      ...Object.values(identifierMatches),
+    ]),
+  } satisfies RetrievalSignals;
 }
 
 export function rerankRetrievalHits(input: {
@@ -2463,115 +2577,6 @@ export function issueRetrievalService(db: Db) {
       symbolMap.set(row.chunkId, current);
     }
     return symbolMap;
-  }
-
-  async function listRelatedIssueIdentifierMap(input: {
-    companyId: string;
-    issueIds: string[];
-  }) {
-    const issueIds = uniqueNonEmpty(input.issueIds);
-    if (issueIds.length === 0) return {} as Record<string, string>;
-
-    const rows = await db
-      .select({
-        id: issues.id,
-        identifier: issues.identifier,
-      })
-      .from(issues)
-      .where(and(
-        eq(issues.companyId, input.companyId),
-        inArray(issues.id, issueIds),
-      ));
-
-    return Object.fromEntries(
-      rows.map((row) => [row.id, row.identifier ?? row.id] as const),
-    );
-  }
-
-  async function listRelatedIssueIdsByIdentifiers(input: {
-    companyId: string;
-    identifiers: string[];
-  }) {
-    const identifiers = uniqueNonEmpty(input.identifiers.map((identifier) => normalizeIssueIdentifier(identifier)));
-    if (identifiers.length === 0) return {} as Record<string, string>;
-
-    const rows = await db
-      .select({
-        id: issues.id,
-        identifier: issues.identifier,
-      })
-      .from(issues)
-      .where(and(
-        eq(issues.companyId, input.companyId),
-        inArray(issues.identifier, identifiers),
-      ));
-
-    return Object.fromEntries(
-      rows
-        .filter((row): row is typeof row & { identifier: string } => typeof row.identifier === "string" && row.identifier.length > 0)
-        .map((row) => [row.id, row.identifier] as const),
-    );
-  }
-
-  async function listBacklinkedRelatedIssueIds(input: {
-    companyId: string;
-    issueId: string;
-  }) {
-    const rows = await db
-      .select({
-        documentIssueId: knowledgeDocuments.issueId,
-      })
-      .from(knowledgeChunkLinks)
-      .innerJoin(knowledgeChunks, eq(knowledgeChunkLinks.chunkId, knowledgeChunks.id))
-      .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
-      .where(and(
-        eq(knowledgeChunkLinks.companyId, input.companyId),
-        eq(knowledgeChunkLinks.entityType, "issue"),
-        eq(knowledgeChunkLinks.entityId, input.issueId),
-        sql`${knowledgeDocuments.issueId} is not null`,
-        sql`${knowledgeDocuments.issueId} <> ${input.issueId}`,
-        sql`${knowledgeDocuments.authorityLevel} <> 'deprecated'`,
-      ))
-      .orderBy(desc(knowledgeChunkLinks.weight), desc(knowledgeDocuments.updatedAt))
-      .limit(24);
-
-    return uniqueNonEmpty(
-      rows.map((row) => (typeof row.documentIssueId === "string" ? row.documentIssueId : null)),
-    );
-  }
-
-  async function resolveRelatedIssueSignals(input: {
-    companyId: string;
-    issueId: string;
-    issueIdentifier: string | null;
-    signals: RetrievalSignals;
-    backlinkedIssueIds: string[];
-  }) {
-    const currentIssueIdentifier = input.issueIdentifier ? normalizeIssueIdentifier(input.issueIdentifier) : null;
-    const referencedIdentifiers = uniqueNonEmpty((input.signals.relatedIssueIdentifiers ?? [])
-      .map((identifier) => normalizeIssueIdentifier(identifier))
-      .filter((identifier) => identifier !== currentIssueIdentifier));
-    const identifierMatches = await listRelatedIssueIdsByIdentifiers({
-      companyId: input.companyId,
-      identifiers: referencedIdentifiers,
-    });
-    const relatedIssueIds = uniqueNonEmpty([
-      ...(input.signals.relatedIssueIds ?? []),
-      ...Object.keys(identifierMatches),
-      ...input.backlinkedIssueIds,
-    ]).filter((issueId) => issueId !== input.issueId);
-
-    return {
-      ...input.signals,
-      preferredSourceTypes: relatedIssueIds.length > 0
-        ? uniqueNonEmpty(["review", "protocol_message", "issue", ...input.signals.preferredSourceTypes])
-        : input.signals.preferredSourceTypes,
-      relatedIssueIds,
-      relatedIssueIdentifiers: uniqueNonEmpty([
-        ...referencedIdentifiers,
-        ...Object.values(identifierMatches),
-      ]),
-    } satisfies RetrievalSignals;
   }
 
   async function queryGraphExpansionKnowledge(input: {
@@ -3106,6 +3111,7 @@ export function issueRetrievalService(db: Db) {
       const getBacklinkedRelatedIssueIds = () => {
         if (!backlinkedRelatedIssueIdsPromise) {
           backlinkedRelatedIssueIdsPromise = listBacklinkedRelatedIssueIds({
+            db,
             companyId: input.companyId,
             issueId: input.issueId,
           });
@@ -3159,6 +3165,7 @@ export function issueRetrievalService(db: Db) {
           baselineSourceTypes: rerankConfig.preferredSourceTypes,
         });
         const baselineSignals = await resolveRelatedIssueSignals({
+          db,
           companyId: input.companyId,
           issueId: input.issueId,
           issueIdentifier: input.issue.identifier,
@@ -3229,6 +3236,7 @@ export function issueRetrievalService(db: Db) {
         });
         const relatedIssueIds = dynamicSignals.relatedIssueIds ?? [];
         const relatedIssueIdentifierMap = await listRelatedIssueIdentifierMap({
+          db,
           companyId: input.companyId,
           issueIds: relatedIssueIds,
         });

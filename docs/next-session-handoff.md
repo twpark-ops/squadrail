@@ -10,10 +10,24 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`
-  - superseded on 2026-03-13 after coverage threshold hit; see latest status below.
+- open this handoff first, then continue immediately with `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`
+  - superseded on 2026-03-13 after `77.34%` coverage checkpoint; see latest status below.
 
 ## Current Status
+
+- `13-Q. runtime bottleneck helper coverage uplift`: 진행 중
+  - `heartbeat.ts` internal normalization/session/policy helpers를 exported seam으로 정리하고 helper direct test를 추가했다.
+  - `issue-retrieval.ts`의 related issue signal / temporal context / document version lookup helper를 exported seam으로 승격하고 DB mock direct test를 추가했다.
+  - `issues.ts` protocol role / mention context / attachment path / memory ingest / label ensure helper를 route 바깥 direct test 가능한 형태로 추출했다.
+  - `knowledge-service-operations.test.ts`에 populated `replaceDocumentChunks` code-graph rebuild path와 empty `listRecentRetrievalRuns` read path를 추가했다.
+  - 검증:
+    - `pnpm --filter @squadrail/server exec vitest run src/__tests__/heartbeat-internal-helpers.test.ts src/__tests__/issues-route-helpers.test.ts src/__tests__/issues-route-internal-ops.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts src/__tests__/knowledge-service-operations.test.ts`
+    - `pnpm --filter @squadrail/server typecheck`
+    - `pnpm --filter @squadrail/server build`
+    - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server tests: `170 files / 1058 tests` 통과
+  - 최신 server coverage: statements/lines `77.34%`, branches `63.41%`, functions `91.34%`
+  - immediate next는 `heartbeat / issue-retrieval / knowledge / issues route` service-body direct path를 더 안쪽까지 끌어올려 `80%`를 넘기는 것이다.
 
 - `13-P. coverage threshold push`: 완료
   - server coverage가 `60.11%`까지 올라가서 목표 기준 `60%`를 넘겼다.
@@ -135,14 +149,15 @@ One-line startup rule:
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - `130 files / 855 tests` 통과
   - server coverage `60.11%`
-- 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge runtime bottleneck hardening`
+- 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`
 
 ## Next Priorities
 
-1. `heartbeat.ts / issue-retrieval.ts / knowledge.ts` tail branch와 service-body direct path를 계속 분해/고정
-2. `issue-protocol.ts`는 coverage보다 append/review-cycle policy drift를 막는 회귀 중심으로 유지
-3. low-coverage infra shell (`access.ts`, `agents.ts`, `config.ts`, `doctor.ts`)은 ROI 기준으로만 추가 보강
-4. next slice는 `heartbeat cancel/reap/watchdog`, `issue-retrieval cache/revision/provenance`, `knowledge retrieval-run/listRecentRetrievalRuns`다
+1. `heartbeat.ts`의 `reapOrphanedRuns`, watchdog tail, runtime session/state path를 direct service test로 더 끌어올리기
+2. `issue-retrieval.ts`의 cache/revision/provenance/query orchestration path를 helper 안쪽 service-body 기준으로 확대하기
+3. `knowledge.ts`의 retrieval run/listRecentRetrievalRuns/task brief read path와 populated replace path를 더 메우기
+4. `issues.ts` operator/upload/approval helper와 mention/context branch를 route helper 회귀로 추가 고정하기
+5. 그 다음 `pnpm --filter @squadrail/server typecheck`, `build`, `test:coverage`를 다시 돌려 `80%` 달성 여부를 확인하기
 
 Interpretation:
 
@@ -151,16 +166,15 @@ Interpretation:
 
 ## Recommended First Task Next Session
 
-Start with `heartbeat / issue-retrieval / knowledge runtime bottleneck hardening`.
+Start with `heartbeat / issue-retrieval / knowledge / issues route runtime bottleneck hardening toward 80%`.
 
 Suggested slice:
 
-1. `heartbeat.ts`는 `cancelActiveForAgent` 이후 `reapOrphanedRuns`와 watchdog tail을 계속 direct test로 늘리기
-2. `knowledge.ts`는 `listRecentRetrievalRuns`, `listTaskBriefs`, retrieval feedback aggregation read path를 우선 메우기
-3. `issue-retrieval.ts`는 service-body cache/revision/provenance path를 helper보다 한 단계 안쪽까지 끌어올리기
-4. `issue-protocol.ts`는 policy drift가 큰 append/review-cycle branch만 선택적으로 유지 보강하기
-5. infra shell은 `agents.ts`, `access.ts`, `doctor.ts` 중 ROI가 높은 경로만 추가로 메우기
-6. 마지막에 `pnpm --filter @squadrail/server typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
+1. `heartbeat.ts`는 `reapOrphanedRuns`, watchdog/reap finalization, runtime session normalization branch를 direct test로 늘리기
+2. `issue-retrieval.ts`는 related issue reuse + cache/revision/provenance path를 service-body에서 직접 고정하기
+3. `knowledge.ts`는 `listRecentRetrievalRuns`, `listTaskBriefs`, `replaceDocumentChunks` populated graph rebuild read/write path를 우선 메우기
+4. `issues.ts`는 mention/attachment/memory ingest/label ensure helper를 route 경계 없이 direct regression으로 추가 확장하기
+5. 마지막에 `pnpm --filter @squadrail/server typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
 
 ## Important Files
 
