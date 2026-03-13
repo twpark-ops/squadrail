@@ -477,6 +477,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           outputTokens: asNumber(usageObj.output_tokens, 0),
         };
       })();
+    const parsedSubtype = asString(parsed.subtype, "").trim().toLowerCase();
+    const transientErrorCode =
+      parsedSubtype === "stream_incomplete"
+        ? "claude_stream_incomplete"
+        : null;
 
     const resolvedSessionId =
       parsedStream.sessionId ??
@@ -500,7 +505,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         (proc.exitCode ?? 0) === 0
           ? null
           : describeClaudeFailure(parsed) ?? `Claude exited with code ${proc.exitCode ?? -1}`,
-      errorCode: loginMeta.requiresLogin ? "claude_auth_required" : null,
+      errorCode: loginMeta.requiresLogin ? "claude_auth_required" : transientErrorCode,
       errorMeta,
       usage,
       sessionId: resolvedSessionId,

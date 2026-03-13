@@ -4,6 +4,7 @@ import {
   buildRequiredProtocolProgressError,
   hasRequiredProtocolProgress,
   isSupersededProtocolWakeReason,
+  shouldEnqueueRetryableAdapterFailure,
   shouldEnqueueProtocolRequiredRetry,
   shouldSkipSupersededProtocolFollowup,
   shouldResetTaskSessionForWake,
@@ -88,6 +89,42 @@ describe("heartbeat protocol progress helpers", () => {
         protocolRequiredRetryCount: 1,
       }),
     ).toBe(true);
+    expect(
+      shouldResetTaskSessionForWake({
+        wakeReason: "adapter_retry",
+      }),
+    ).toBe(false);
+  });
+
+  it("enqueues transient adapter retries only for retryable errors on active issues", () => {
+    expect(
+      shouldEnqueueRetryableAdapterFailure({
+        adapterErrorCode: "claude_stream_incomplete",
+        adapterRetryCount: 0,
+        issueStatus: "in_review",
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnqueueRetryableAdapterFailure({
+        adapterErrorCode: "claude_stream_incomplete",
+        adapterRetryCount: 2,
+        issueStatus: "in_review",
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnqueueRetryableAdapterFailure({
+        adapterErrorCode: "claude_stream_incomplete",
+        adapterRetryCount: 0,
+        issueStatus: "done",
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnqueueRetryableAdapterFailure({
+        adapterErrorCode: "adapter_failed",
+        adapterRetryCount: 0,
+        issueStatus: "in_review",
+      }),
+    ).toBe(false);
   });
 
   it("does not enqueue protocol-required retry for terminal issues", () => {

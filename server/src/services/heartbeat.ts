@@ -48,6 +48,7 @@ const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
 const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
+const RETRYABLE_ADAPTER_FAILURE_LIMIT = 2;
 const DISPATCH_PRIORITY_ESCALATION_STEP_MS = 20 * 60 * 1000;
 const DISPATCH_PRIORITY_ESCALATION_MAX_BOOST = 2;
 const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
@@ -58,6 +59,9 @@ const SUPERSEDED_PROTOCOL_WAKE_REASONS = new Set([
   "issue_ready_for_closure",
   "issue_ready_for_qa_gate",
   "protocol_required_retry",
+]);
+const RETRYABLE_ADAPTER_ERROR_CODES = new Set([
+  "claude_stream_incomplete",
 ]);
 
 class SupersededProtocolFollowupError extends Error {
@@ -874,6 +878,18 @@ export function shouldEnqueueProtocolRequiredRetry(input: {
     requirement: input.requirement,
     workflowState: input.workflowState,
   });
+}
+
+export function shouldEnqueueRetryableAdapterFailure(input: {
+  adapterErrorCode?: string | null;
+  adapterRetryCount: number;
+  issueStatus?: string | null;
+}) {
+  const errorCode = readNonEmptyString(input.adapterErrorCode);
+  if (!errorCode || !RETRYABLE_ADAPTER_ERROR_CODES.has(errorCode)) return false;
+  if (input.adapterRetryCount >= RETRYABLE_ADAPTER_FAILURE_LIMIT) return false;
+  if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
+  return true;
 }
 
 export function isWorkflowStateEligibleForProtocolRetry(input: {
@@ -2367,6 +2383,10 @@ export function heartbeatService(db: Db) {
         typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
           ? context.protocolRequiredRetryCount
           : 0;
+      const adapterRetryCount =
+        typeof context.adapterRetryCount === "number" && Number.isFinite(context.adapterRetryCount)
+          ? context.adapterRetryCount
+          : 0;
       let protocolProgressResult: Record<string, unknown> | null = null;
       let protocolProgressFailure:
         | {
@@ -2374,6 +2394,8 @@ export function heartbeatService(db: Db) {
             errorCode: "protocol_required";
           }
         | null = null;
+      let adapterRetryResult: Record<string, unknown> | null = null;
+      let adapterRetryEnqueued = false;
 
       if (
         issueId
@@ -2506,6 +2528,66 @@ export function heartbeatService(db: Db) {
         }
       }
 
+      if (
+        issueId
+        && (adapterResult.exitCode ?? 0) !== 0
+        && adapterResult.errorMessage
+      ) {
+        const issueStateSnapshot = await db
+          .select({
+            status: issues.status,
+          })
+          .from(issues)
+          .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null);
+        adapterRetryEnqueued = shouldEnqueueRetryableAdapterFailure({
+          adapterErrorCode: adapterResult.errorCode ?? null,
+          adapterRetryCount,
+          issueStatus: issueStateSnapshot?.status ?? null,
+        });
+        adapterRetryResult = {
+          required: Boolean(readNonEmptyString(adapterResult.errorCode)),
+          errorCode: adapterResult.errorCode ?? null,
+          retryCount: adapterRetryCount,
+          retryEnqueued: adapterRetryEnqueued,
+        };
+
+        if (adapterRetryEnqueued) {
+          const retryContextSnapshot: Record<string, unknown> = {
+            ...context,
+            issueId,
+            taskId: issueId,
+            wakeReason: "adapter_retry",
+            adapterRetryCount: adapterRetryCount + 1,
+            adapterRetryPreviousRunId: run.id,
+            adapterRetryErrorCode: adapterResult.errorCode,
+            forceFollowupRun: true,
+          };
+          await enqueueWakeup(agent.id, {
+            source: "automation",
+            triggerDetail: "system",
+            reason: "adapter_retry",
+            payload: {
+              issueId,
+              adapterRetryPreviousRunId: run.id,
+              adapterRetryErrorCode: adapterResult.errorCode,
+            },
+            contextSnapshot: retryContextSnapshot,
+          });
+          await appendRunEvent(eventRun, seq++, {
+            eventType: "adapter.retryable_failure",
+            stream: "system",
+            level: "warn",
+            message: `queued retry follow-up after transient adapter failure (${adapterResult.errorCode})`,
+            payload: {
+              errorCode: adapterResult.errorCode,
+              retryCount: adapterRetryCount,
+            },
+          });
+        }
+      }
+
       const latestRun = await getRun(run.id);
       const outcome = resolveHeartbeatRunOutcome({
         latestRunStatus: latestRun?.status ?? null,
@@ -2584,6 +2666,7 @@ export function heartbeatService(db: Db) {
         {
           ...(workspaceGitSnapshot ? { workspaceGitSnapshot } : {}),
           ...(protocolProgressResult ? { protocolProgress: protocolProgressResult } : {}),
+          ...(adapterRetryResult ? { adapterRetry: adapterRetryResult } : {}),
         },
       );
       const verificationSignals = extractRunVerificationSignals({
@@ -2642,7 +2725,7 @@ export function heartbeatService(db: Db) {
           },
         });
         await releaseIssueExecutionAndPromote(finalizedRun);
-        if (status === "failed" || status === "timed_out") {
+        if ((status === "failed" || status === "timed_out") && !adapterRetryEnqueued) {
           await wakeLeadSupervisorForRunFailure({
             run: finalizedRun,
             status,
