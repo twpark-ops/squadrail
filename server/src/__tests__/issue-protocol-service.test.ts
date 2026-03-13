@@ -709,4 +709,272 @@ describe("issue protocol service", () => {
       }),
     });
   });
+
+  it("rejects START_REVIEW when an active review cycle already exists", async () => {
+    const issue = {
+      id: "issue-review-active",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+    };
+    const currentState = {
+      issueId: "issue-review-active",
+      companyId: "company-1",
+      workflowState: "submitted_for_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 2,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-1",
+      issueId: "issue-review-active",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-9",
+      issueId: "issue-review-active",
+      threadId: "thread-1",
+      seq: 9,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-10",
+      issueId: "issue-review-active",
+      threadId: "thread-1",
+      seq: 10,
+      messageType: "START_REVIEW",
+      senderActorType: "agent",
+      senderActorId: "rev-1",
+      senderRole: "reviewer",
+      workflowStateBefore: "submitted_for_review",
+      workflowStateAfter: "under_review",
+      summary: "Start review",
+      payload: { reviewCycle: 3 },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-10",
+    };
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [{ id: "cycle-open", issueId: "issue-review-active", closedAt: null }],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.appendMessage({
+      issueId: "issue-review-active",
+      authorAgentId: "rev-1",
+      message: {
+        messageType: "START_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [],
+        artifacts: [],
+        workflowStateBefore: "submitted_for_review",
+        workflowStateAfter: "under_review",
+        summary: "Start review",
+        payload: { reviewCycle: 3 },
+      },
+    })).rejects.toThrow("An active review cycle already exists");
+  });
+
+  it("rejects START_REVIEW when review has not been submitted yet", async () => {
+    const issue = {
+      id: "issue-review-missing-submit",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+    };
+    const currentState = {
+      issueId: "issue-review-missing-submit",
+      companyId: "company-1",
+      workflowState: "submitted_for_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 0,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-1",
+      issueId: "issue-review-missing-submit",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-1",
+      issueId: "issue-review-missing-submit",
+      threadId: "thread-1",
+      seq: 1,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-2",
+      issueId: "issue-review-missing-submit",
+      threadId: "thread-1",
+      seq: 2,
+      messageType: "START_REVIEW",
+      senderActorType: "agent",
+      senderActorId: "rev-1",
+      senderRole: "reviewer",
+      workflowStateBefore: "submitted_for_review",
+      workflowStateAfter: "under_review",
+      summary: "Start review",
+      payload: { reviewCycle: 1 },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-2",
+    };
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [],
+        [],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.appendMessage({
+      issueId: "issue-review-missing-submit",
+      authorAgentId: "rev-1",
+      message: {
+        messageType: "START_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [],
+        artifacts: [],
+        workflowStateBefore: "submitted_for_review",
+        workflowStateAfter: "under_review",
+        summary: "Start review",
+        payload: { reviewCycle: 1 },
+      },
+    })).rejects.toThrow("Cannot start review without SUBMIT_FOR_REVIEW");
+  });
+
+  it("rejects REQUEST_CHANGES when there is no active review cycle", async () => {
+    const issue = {
+      id: "issue-review-no-open-cycle",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+    };
+    const currentState = {
+      issueId: "issue-review-no-open-cycle",
+      companyId: "company-1",
+      workflowState: "under_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 1,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-1",
+      issueId: "issue-review-no-open-cycle",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-4",
+      issueId: "issue-review-no-open-cycle",
+      threadId: "thread-1",
+      seq: 4,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-5",
+      issueId: "issue-review-no-open-cycle",
+      threadId: "thread-1",
+      seq: 5,
+      messageType: "REQUEST_CHANGES",
+      senderActorType: "agent",
+      senderActorId: "rev-1",
+      senderRole: "reviewer",
+      workflowStateBefore: "under_review",
+      workflowStateAfter: "changes_requested",
+      summary: "Need a follow-up patch",
+      payload: {},
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-5",
+    };
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.appendMessage({
+      issueId: "issue-review-no-open-cycle",
+      authorAgentId: "rev-1",
+      message: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [],
+        artifacts: [],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "Need a follow-up patch",
+        payload: {},
+      },
+    })).rejects.toThrow("No active review cycle found");
+  });
 });

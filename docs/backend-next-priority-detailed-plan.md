@@ -30,11 +30,12 @@
 > - `13-P. coverage threshold push` 완료
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
-> 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge runtime service-body coverage uplift toward 80%`이다.
+> - `13-S. runtime service-body coverage uplift toward 80%` 완료
+> 현재 다음 순차 작업은 `heartbeat / knowledge / routes/issues high-risk body distribution hardening after 80% threshold`이다.
 
 ## 목적
 
-현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 새 기능 추가가 아니라 `80%` coverage 달성을 위한 runtime bottleneck hardening이며, helper seam 확대만으로는 총량 상승이 작다는 점이 확인됐다.
+현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 새 기능 추가가 아니라 `80%` coverage를 유지하면서 high-risk runtime 분포를 더 평탄하게 만드는 것이다. helper seam 확대만으로는 총량 상승이 작고, 전역 수치만 넘겨도 `heartbeat / knowledge / routes/issues` 같은 병목이 남는다는 점이 확인됐다.
 
 현재 제품 방향은 계속 `standardized software delivery org kernel`이다.
 즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
@@ -82,6 +83,22 @@
   - 최신 coverage: statements/lines `77.41%`, branches `63.87%`, functions `91.31%`
   - 최신 server tests: `171 files / 1073 tests` 통과
   - 해석: helper seam 확대만으로는 총량이 거의 움직이지 않으므로, 다음 슬라이스는 `heartbeat / issue-retrieval / knowledge` service-body public method를 dependency-mocked integration test로 직접 태우는 쪽이 맞다.
+
+## 2026-03-13 runtime service-body coverage uplift toward 80%
+
+- `13-S runtime service-body coverage uplift toward 80%` 완료
+  - `access-invites-routes.test.ts`에 pending join request redaction, board reject, invalid claim secret 분기를 추가했다.
+  - `agents-routes-read.test.ts`에 config revision redaction, heartbeat run list/cancel/event/log read, company/issue live run route 경로를 추가했다.
+  - `heartbeat-service-flow.test.ts`, `issue-protocol-service.test.ts`에 reap/review-cycle rejection tail branch를 추가했다.
+  - 새 `issue-retrieval-service-body.test.ts`를 추가해 `issueRetrievalService.handleProtocolMessage()`의 cached-hit path와 cold-miss + embedding/cache persistence path를 dependency-mocked integration test로 직접 고정했다.
+- 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/access-invites-routes.test.ts src/__tests__/agents-routes-read.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issue-protocol-service.test.ts src/__tests__/issue-retrieval-service-body.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `80.37%`, branches `64.92%`, functions `91.36%`
+  - 최신 server tests: `172 files / 1091 tests` 통과
+  - 해석: 전역 `80%`는 달성했지만 core 분포는 아직 불균형하다. 다음 병목은 `heartbeat.ts 44.47%`, `knowledge.ts 62.95%`, `routes/issues.ts 66.28%`다.
 
 ## 상태 업데이트
 

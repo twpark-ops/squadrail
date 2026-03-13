@@ -314,6 +314,49 @@ describe("access invite and join-request routes", () => {
     );
   });
 
+  it("lists pending join requests without exposing claim secret hashes", async () => {
+    const joinRequest = createJoinRequest();
+    const { db } = createAccessDbMock({
+      selectResults: [[joinRequest]],
+    });
+    const app = createApp(db);
+
+    const response = await request(app).get("/companies/company-1/join-requests");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      expect.objectContaining({
+        id: "join-1",
+        requestType: "agent",
+        status: "pending_approval",
+      }),
+    ]);
+    expect(response.body[0]).not.toHaveProperty("claimSecretHash");
+  });
+
+  it("rejects pending join requests through the board surface", async () => {
+    const joinRequest = createJoinRequest();
+    const rejectedRequest = createJoinRequest({
+      status: "rejected",
+      rejectedByUserId: "user-1",
+      rejectedAt: new Date("2026-03-13T00:15:00.000Z"),
+    });
+    const { db } = createAccessDbMock({
+      selectResults: [[joinRequest]],
+      updateResults: [[rejectedRequest]],
+    });
+    const app = createApp(db);
+
+    const response = await request(app).post("/companies/company-1/join-requests/join-1/reject");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(expect.objectContaining({
+      id: "join-1",
+      status: "rejected",
+      rejectedByUserId: "user-1",
+    }));
+  });
+
   it("claims agent API keys from approved join requests exactly once", async () => {
     const joinRequest = createJoinRequest({
       status: "approved",
@@ -339,5 +382,27 @@ describe("access invite and join-request routes", () => {
       agentId: "agent-1",
     }));
     expect(mockCreateApiKey).toHaveBeenCalledWith("agent-1", "initial-join-key");
+  });
+
+  it("rejects API key claims when the provided claim secret is invalid", async () => {
+    const joinRequest = createJoinRequest({
+      status: "approved",
+      createdAgentId: "agent-1",
+      claimSecretHash: "b2df3ae9f738c2ae798dc9d6092269931f7eb04f3833cecff2fdc4a5ac7b496e",
+    });
+    const { db } = createAccessDbMock({
+      selectResults: [[joinRequest]],
+    });
+    const app = createApp(db);
+
+    const response = await request(app)
+      .post("/join-requests/join-1/claim-api-key")
+      .send({
+        claimSecret: "secret-to-claim-124",
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "Invalid claim secret" });
+    expect(mockCreateApiKey).not.toHaveBeenCalled();
   });
 });
