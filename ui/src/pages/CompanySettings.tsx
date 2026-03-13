@@ -26,6 +26,9 @@ import {
   type RolePackFileName,
   type RolePackPresetDescriptor,
   type RolePackPresetKey,
+  type TeamBlueprint,
+  type TeamBlueprintKey,
+  type TeamBlueprintPreviewResult,
   type RolePackWithLatestRevision,
   type WorkflowTemplate,
   type WorkflowTemplateActionType,
@@ -61,6 +64,13 @@ function formatSetupStepLabel(stepKey: string) {
   return stepKey
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/^./, (char) => char.toUpperCase());
+}
+
+function blueprintStatusTone(status: "ready" | "warning" | "missing" | "partial") {
+  if (status === "ready") return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  if (status === "warning") return "border-amber-300 bg-amber-50 text-amber-700";
+  if (status === "partial") return "border-amber-300 bg-amber-50 text-amber-700";
+  return "border-red-300 bg-red-50 text-red-700";
 }
 
 function previewRolePackFile(rolePack: RolePackWithLatestRevision, filename: string) {
@@ -183,6 +193,8 @@ export function CompanySettings() {
   const [alertMinSeverity, setAlertMinSeverity] = useState<"medium" | "high" | "critical">("high");
   const [alertCooldownMinutes, setAlertCooldownMinutes] = useState("15");
   const [alertDestinations, setAlertDestinations] = useState<OperatingAlertDestinationConfig[]>([]);
+  const [selectedTeamBlueprintKey, setSelectedTeamBlueprintKey] = useState<TeamBlueprintKey | null>(null);
+  const [teamBlueprintPreview, setTeamBlueprintPreview] = useState<TeamBlueprintPreviewResult | null>(null);
 
   // Sync local state from selected company
   useEffect(() => {
@@ -227,11 +239,35 @@ export function CompanySettings() {
     enabled: Boolean(selectedCompanyId),
   });
 
+  const { data: teamBlueprintCatalog } = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.companies.teamBlueprints(selectedCompanyId) : ["companies", "__none__", "team-blueprints"],
+    queryFn: () => companiesApi.getTeamBlueprints(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+
   const { data: rolePacks = [] } = useQuery({
     queryKey: selectedCompanyId ? queryKeys.companies.rolePacks(selectedCompanyId) : ["companies", "__none__", "role-packs"],
     queryFn: () => companiesApi.listRolePacks(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
+
+  useEffect(() => {
+    setTeamBlueprintPreview(null);
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    const firstBlueprint = teamBlueprintCatalog?.blueprints[0]?.key ?? null;
+    if (!selectedTeamBlueprintKey && firstBlueprint) {
+      setSelectedTeamBlueprintKey(firstBlueprint);
+      return;
+    }
+    if (
+      selectedTeamBlueprintKey
+      && !teamBlueprintCatalog?.blueprints.some((blueprint) => blueprint.key === selectedTeamBlueprintKey)
+    ) {
+      setSelectedTeamBlueprintKey(firstBlueprint);
+    }
+  }, [selectedTeamBlueprintKey, teamBlueprintCatalog?.blueprints]);
   const { data: rolePackPresets = [] } = useQuery({
     queryKey: queryKeys.companies.rolePackPresets,
     queryFn: () => companiesApi.listRolePackPresets(),
@@ -518,6 +554,15 @@ export function CompanySettings() {
     },
   });
 
+  const teamBlueprintPreviewMutation = useMutation({
+    mutationFn: async (blueprintKey: TeamBlueprintKey) =>
+      companiesApi.previewTeamBlueprint(selectedCompanyId!, blueprintKey),
+    onSuccess: (preview) => {
+      setSelectedTeamBlueprintKey(preview.blueprint.key);
+      setTeamBlueprintPreview(preview);
+    },
+  });
+
   const createCustomRoleMutation = useMutation({
     mutationFn: () =>
       companiesApi.createCustomRolePack(selectedCompanyId!, {
@@ -716,6 +761,14 @@ export function CompanySettings() {
   const doctorFailCount = activeDoctorReport
     ? activeDoctorReport.checks.filter((check) => check.status === "fail").length
     : 0;
+  const teamBlueprints = teamBlueprintCatalog?.blueprints ?? [];
+  const selectedTeamBlueprint: TeamBlueprint | null = selectedTeamBlueprintKey
+    ? teamBlueprints.find((blueprint) => blueprint.key === selectedTeamBlueprintKey) ?? null
+    : teamBlueprints[0] ?? null;
+  const selectedTeamBlueprintPreview =
+    teamBlueprintPreview && selectedTeamBlueprint && teamBlueprintPreview.blueprint.key === selectedTeamBlueprint.key
+      ? teamBlueprintPreview
+      : null;
   const workflowTemplates = workflowTemplatesView?.templates ?? [];
   const companyWorkflowTemplates = workflowTemplatesView?.companyTemplates ?? [];
   const selectedWorkflowTemplate = selectedWorkflowTemplateId
@@ -1083,6 +1136,234 @@ export function CompanySettings() {
             <p className="text-sm text-destructive">
               {setupMutation.error instanceof Error ? setupMutation.error.message : "Failed to save setup"}
             </p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Team Blueprints
+        </div>
+        <div className="space-y-4 rounded-md border border-border px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-sm font-semibold">Reusable delivery team starting points</div>
+              <p className="text-xs text-muted-foreground">
+                Preview how a generic delivery team would map onto this company before bulk provisioning is introduced.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!selectedTeamBlueprint || teamBlueprintPreviewMutation.isPending}
+              onClick={() => {
+                if (!selectedTeamBlueprint) return;
+                teamBlueprintPreviewMutation.mutate(selectedTeamBlueprint.key);
+              }}
+            >
+              {teamBlueprintPreviewMutation.isPending ? "Generating preview..." : "Preview team plan"}
+            </Button>
+          </div>
+
+          {teamBlueprints.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+              Team blueprint catalog is not available yet.
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-3 lg:grid-cols-3">
+                {teamBlueprints.map((blueprint) => {
+                  const active = blueprint.key === selectedTeamBlueprint?.key;
+                  return (
+                    <button
+                      key={blueprint.key}
+                      type="button"
+                      onClick={() => setSelectedTeamBlueprintKey(blueprint.key)}
+                      className={`rounded-md border px-4 py-3 text-left transition ${active ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40 hover:bg-muted/30"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold">{blueprint.label}</div>
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {blueprint.projects.length} project template(s)
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">{blueprint.description}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                        <span className="rounded-full border border-border px-2 py-0.5">
+                          default {blueprint.parameterHints.defaultProjectCount} project(s)
+                        </span>
+                        <span className="rounded-full border border-border px-2 py-0.5">
+                          {blueprint.roles.length} role template(s)
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedTeamBlueprint && (
+                <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                  <div className="space-y-3 rounded-md border border-border px-4 py-4">
+                    <div>
+                      <div className="text-sm font-semibold">{selectedTeamBlueprint.label}</div>
+                      <p className="mt-1 text-sm text-muted-foreground">{selectedTeamBlueprint.description}</p>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {selectedTeamBlueprint.projects.map((project) => (
+                        <div key={project.key} className="rounded-md border border-border px-3 py-3 text-sm">
+                          <div className="font-medium">{project.label}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{project.description}</div>
+                          <div className="mt-2 text-[11px] text-muted-foreground">
+                            Kind: {project.kind} {project.repositoryHint ? `· ${project.repositoryHint}` : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                      Recommended first quick request: {selectedTeamBlueprint.readiness.recommendedFirstQuickRequest}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-md border border-border px-4 py-4">
+                    <div className="text-sm font-semibold">Readiness expectations</div>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <div>
+                        Required workspaces: <span className="font-medium text-foreground">{selectedTeamBlueprint.readiness.requiredWorkspaceCount}</span>
+                      </div>
+                      <div>
+                        Knowledge sources: <span className="font-medium text-foreground">{selectedTeamBlueprint.readiness.knowledgeSources.join(", ")}</span>
+                      </div>
+                      <div>
+                        Approval roles: <span className="font-medium text-foreground">{selectedTeamBlueprint.readiness.approvalRequiredRoleKeys.join(", ")}</span>
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Setup prerequisites</div>
+                      <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                        {selectedTeamBlueprint.readiness.doctorSetupPrerequisites.map((step) => (
+                          <li key={step}>• {step}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedTeamBlueprintPreview && (
+                <div className="space-y-4 rounded-md border border-border px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold">Preview diff</div>
+                      <p className="text-xs text-muted-foreground">
+                        Preview-first only. Apply will come later with explicit diff confirmation.
+                      </p>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Projects {selectedTeamBlueprintPreview.summary.adoptedProjectCount} adopt / {selectedTeamBlueprintPreview.summary.createProjectCount} create
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-md border border-border px-3 py-3 text-sm">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">Current state</div>
+                      <div className="mt-2 font-medium text-foreground">
+                        {selectedTeamBlueprintPreview.summary.currentProjectCount} project(s) / {selectedTeamBlueprintPreview.summary.currentWorkspaceCount} workspace(s)
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-border px-3 py-3 text-sm">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">Role coverage</div>
+                      <div className="mt-2 font-medium text-foreground">
+                        {selectedTeamBlueprintPreview.summary.matchedRoleCount} matched / {selectedTeamBlueprintPreview.summary.missingRoleCount} missing
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-border px-3 py-3 text-sm">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">Preview parameters</div>
+                      <div className="mt-2 font-medium text-foreground">
+                        {selectedTeamBlueprintPreview.parameters.projectCount} project slot(s), {selectedTeamBlueprintPreview.parameters.engineerPairsPerProject} engineer pair(s)
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="space-y-2">
+                      <div className="text-sm font-semibold">Project diff</div>
+                      {selectedTeamBlueprintPreview.projectDiff.map((project) => (
+                        <div key={project.slotKey} className="rounded-md border border-border px-3 py-3 text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-medium">{project.label}</div>
+                            <span className={`rounded-full border px-2 py-0.5 text-[11px] ${project.status === "adopt_existing" ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-amber-300 bg-amber-50 text-amber-700"}`}>
+                              {project.status === "adopt_existing" ? "Adopt existing" : "Create new"}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {project.existingProjectName
+                              ? `${project.existingProjectName} · ${project.workspaceCount} workspace(s)`
+                              : project.repositoryHint ?? "New project slot"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-sm font-semibold">Role coverage</div>
+                      {selectedTeamBlueprintPreview.roleDiff.map((role) => (
+                        <div key={role.templateKey} className="rounded-md border border-border px-3 py-3 text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-medium">{role.label}</div>
+                            <span className={`rounded-full border px-2 py-0.5 text-[11px] ${blueprintStatusTone(role.status)}`}>
+                              {role.status}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {role.existingCount}/{role.requiredCount} matched
+                            {role.matchingAgentNames.length > 0 ? ` · ${role.matchingAgentNames.join(", ")}` : ""}
+                          </div>
+                          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            {role.notes.map((note) => (
+                              <li key={note}>• {note}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold">Readiness checks</div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {selectedTeamBlueprintPreview.readinessChecks.map((check) => (
+                        <div
+                          key={check.key}
+                          className={`rounded-md border px-3 py-3 text-sm ${blueprintStatusTone(check.status)}`}
+                        >
+                          <div className="font-medium">{check.label}</div>
+                          <div className="mt-1 text-xs">{check.detail}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedTeamBlueprintPreview.warnings.length > 0 && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3">
+                      <div className="text-sm font-semibold text-amber-800">Preview warnings</div>
+                      <ul className="mt-2 space-y-1 text-xs text-amber-700">
+                        {selectedTeamBlueprintPreview.warnings.map((warning) => (
+                          <li key={warning}>• {warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {teamBlueprintPreviewMutation.isError && !selectedTeamBlueprintPreview && (
+                <div className="text-sm text-destructive">
+                  {teamBlueprintPreviewMutation.error instanceof Error
+                    ? teamBlueprintPreviewMutation.error.message
+                    : "Failed to generate blueprint preview"}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

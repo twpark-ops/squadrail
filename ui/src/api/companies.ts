@@ -15,7 +15,10 @@ import type {
   OrgSyncRepairResult,
   OrgSyncView,
   RepairOrgSync,
+  TeamBlueprintKey,
   TeamBlueprintCatalogView,
+  TeamBlueprintPreviewRequest,
+  TeamBlueprintPreviewResult,
   CreateCustomRolePack,
   RolePackPresetDescriptor,
   RolePackRevisionWithFiles,
@@ -68,6 +71,12 @@ export const companiesApi = {
     api.get<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`),
   getTeamBlueprints: (companyId: string) =>
     api.get<TeamBlueprintCatalogView>(`/companies/${companyId}/team-blueprints`),
+  previewTeamBlueprint: (
+    companyId: string,
+    blueprintKey: TeamBlueprintKey,
+    data: TeamBlueprintPreviewRequest = {},
+  ) =>
+    api.post<TeamBlueprintPreviewResult>(`/companies/${companyId}/team-blueprints/${blueprintKey}/preview`, data),
   updateWorkflowTemplates: (companyId: string, data: UpdateWorkflowTemplates) =>
     api.patch<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`, data),
   getOperatingAlerts: (companyId: string) =>

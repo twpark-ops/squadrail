@@ -60,3 +60,69 @@ export interface TeamBlueprintCatalogView {
   companyId: string;
   blueprints: TeamBlueprint[];
 }
+
+export interface TeamBlueprintPreviewRequest {
+  projectCount?: number | null;
+  engineerPairsPerProject?: number | null;
+  includePm?: boolean | null;
+  includeQa?: boolean | null;
+  includeCto?: boolean | null;
+}
+
+export interface TeamBlueprintPreviewParameters {
+  projectCount: number;
+  engineerPairsPerProject: number;
+  includePm: boolean;
+  includeQa: boolean;
+  includeCto: boolean;
+}
+
+export interface TeamBlueprintPreviewProjectDiff {
+  slotKey: string;
+  templateKey: string;
+  label: string;
+  kind: TeamBlueprintProjectKind;
+  status: "adopt_existing" | "create_new";
+  existingProjectId: string | null;
+  existingProjectName: string | null;
+  workspaceCount: number;
+  repositoryHint: string | null;
+}
+
+export interface TeamBlueprintPreviewRoleDiff {
+  templateKey: string;
+  label: string;
+  role: AgentRole;
+  status: "ready" | "partial" | "missing";
+  requiredCount: number;
+  existingCount: number;
+  missingCount: number;
+  matchingAgentNames: string[];
+  notes: string[];
+}
+
+export interface TeamBlueprintPreviewReadinessCheck {
+  key: string;
+  label: string;
+  status: "ready" | "warning" | "missing";
+  detail: string;
+}
+
+export interface TeamBlueprintPreviewResult {
+  companyId: string;
+  blueprint: TeamBlueprint;
+  parameters: TeamBlueprintPreviewParameters;
+  summary: {
+    currentProjectCount: number;
+    currentWorkspaceCount: number;
+    currentAgentCount: number;
+    adoptedProjectCount: number;
+    createProjectCount: number;
+    matchedRoleCount: number;
+    missingRoleCount: number;
+  };
+  projectDiff: TeamBlueprintPreviewProjectDiff[];
+  roleDiff: TeamBlueprintPreviewRoleDiff[];
+  readinessChecks: TeamBlueprintPreviewReadinessCheck[];
+  warnings: string[];
+}

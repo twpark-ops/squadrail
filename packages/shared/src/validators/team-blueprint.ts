@@ -63,3 +63,11 @@ export const teamBlueprintCatalogViewSchema = z.object({
   companyId: z.string().uuid(),
   blueprints: z.array(teamBlueprintSchema).min(1).max(20),
 }).strict();
+
+export const teamBlueprintPreviewRequestSchema = z.object({
+  projectCount: z.number().int().min(1).max(20).nullable().optional(),
+  engineerPairsPerProject: z.number().int().min(1).max(10).nullable().optional(),
+  includePm: z.boolean().nullable().optional(),
+  includeQa: z.boolean().nullable().optional(),
+  includeCto: z.boolean().nullable().optional(),
+}).strict();

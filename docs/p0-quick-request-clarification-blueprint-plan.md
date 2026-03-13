@@ -55,7 +55,11 @@
   - generic `team blueprint` shared type / validator / constants를 추가했다.
   - server `team-blueprints` catalog service와 `GET /api/companies/:companyId/team-blueprints` read route를 추가했다.
   - `Inbox` answer CTA deep-link, `IssueDetail` answered/resumed trace, `ChangeReviewDesk` clarification trace를 추가했다.
-  - 남은 immediate next는 `blueprint preview/diff contract + Company Settings catalog surface`다.
+- `Phase 4` 2차 구현 완료
+  - `team blueprint preview/diff` request/response contract를 추가했다.
+  - `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route를 추가했다.
+  - `CompanySettings`가 blueprint catalog를 읽고 preview diff를 operator surface로 보여준다.
+  - 남은 immediate next는 `swiftsight canonical absorption prep + bulk apply contract`다.
 
 ## 4. 제품 계약
 
@@ -254,7 +258,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - pending human clarification derivation parity test
 - inbox -> issue detail -> resume end-to-end smoke
 
-## Phase 4. Generic Team Blueprint v1 [catalog skeleton 완료]
+## Phase 4. Generic Team Blueprint v1 [preview/diff kickoff 완료]
 
 ### 목표
 
@@ -269,6 +273,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
   - `delivery_plus_qa`
 - company-scoped blueprint catalog read route
 - preview/diff/apply를 위한 readiness metadata skeleton
+- preview request/response contract
+- Company Settings catalog/preview surface
 
 ### 주요 파일
 
@@ -286,6 +292,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - blueprint metadata만으로 project/agent/reportsTo/lane defaults를 설명할 수 있다
 - blueprint metadata만으로 workspace/knowledge/setup readiness expectations도 함께 설명할 수 있다
 - operator surface가 company blueprint catalog를 읽을 수 있다
+- operator surface가 preview diff와 readiness warnings를 읽을 수 있다
 - 기존 `cloud-swiftsight` canonical은 registry의 한 blueprint로 흡수될 준비가 된다
 
 ### 테스트
@@ -293,8 +300,9 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - blueprint registry service tests
 - team blueprint route tests
 - readiness metadata preview regression
+- Company Settings typecheck/build regression
 
-## Phase 5. Bulk Provisioning with Preview/Diff
+## Phase 5. Bulk Provisioning with Preview/Diff [preview shipped, apply pending]
 
 ### 목표
 
@@ -319,6 +327,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - preview 없이 apply가 불가능하거나 최소한 strongly recommended path가 preview다
 - create/update/adopt/pause diff를 operator가 본다
 - apply 후 company setup 상태가 일관되게 갱신된다
+- preview route와 Company Settings read surface는 이미 shipped 상태다
+- 남은 핵심은 `apply mutation`, `confirmation gate`, `activity/setup invalidation`이다
 
 ### 테스트
 
@@ -406,8 +416,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. `team blueprint preview/diff` shared/server contract 고정
-2. `Company Settings`가 company blueprint catalog를 읽고 preview 진입점을 제공하게 만들기
-3. `swiftsight canonical`과 generic blueprint registry의 흡수 경로를 명확히 하기
+1. `swiftsight canonical` metadata를 generic blueprint parameter map으로 흡수할 준비를 한다
+2. `team blueprint apply` contract와 confirmation gate를 추가한다
+3. `Company Settings`에서 preview -> apply로 이어지는 operator flow를 시작한다
 
-즉 다음 배치는 `Phase 4 preview/diff kickoff`다.
+즉 다음 배치는 `Phase 5 apply kickoff`다.
