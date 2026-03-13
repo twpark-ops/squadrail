@@ -416,17 +416,13 @@ function buildProjectDiff(
 
   return slots.map((slot, index) => {
     let bestMatch: PreviewProjectLike | null = null;
-    let bestScore = -1;
+    let bestScore = 0;
     for (const project of unusedProjects.values()) {
       const score = scoreProjectMatch(slot, project, index);
       if (score > bestScore) {
         bestScore = score;
         bestMatch = project;
       }
-    }
-
-    if (!bestMatch && unusedProjects.size > 0) {
-      bestMatch = unusedProjects.values().next().value ?? null;
     }
 
     if (bestMatch) {
@@ -456,6 +452,53 @@ function buildProjectDiff(
       repositoryHint: slot.repositoryHint,
     };
   });
+}
+
+function buildEffectiveBlueprint(
+  blueprint: TeamBlueprint,
+  parameters: TeamBlueprintPreviewParameters,
+) {
+  const effectiveBlueprint = cloneBlueprint(blueprint);
+  const removedRoles = new Set(
+    effectiveBlueprint.roles
+      .filter((role) => !shouldIncludeRoleTemplate(role, parameters))
+      .map((role) => role.key),
+  );
+  const roleGraphWarnings: string[] = [];
+  const rewiredRoles: string[] = [];
+
+  effectiveBlueprint.roles = effectiveBlueprint.roles
+    .filter((role) => !removedRoles.has(role.key))
+    .map((role) => {
+      if (role.reportsToKey && removedRoles.has(role.reportsToKey)) {
+        rewiredRoles.push(role.label);
+        return {
+          ...role,
+          reportsToKey: null,
+        };
+      }
+      return role;
+    });
+
+  if (removedRoles.size > 0) {
+    roleGraphWarnings.push(
+      `Preview disabled optional roles: ${Array.from(removedRoles).join(", ")}.`,
+    );
+  }
+  if (rewiredRoles.length > 0) {
+    roleGraphWarnings.push(
+      `Preview rewired manager links for ${rewiredRoles.join(", ")} because a parent optional role is disabled.`,
+    );
+  }
+
+  const effectiveRoleKeys = new Set(effectiveBlueprint.roles.map((role) => role.key));
+  effectiveBlueprint.readiness.approvalRequiredRoleKeys =
+    effectiveBlueprint.readiness.approvalRequiredRoleKeys.filter((roleKey) => effectiveRoleKeys.has(roleKey));
+
+  return {
+    blueprint: effectiveBlueprint,
+    roleGraphWarnings,
+  };
 }
 
 function shouldIncludeRoleTemplate(
@@ -555,19 +598,20 @@ function buildRoleDiff(
 function buildReadinessChecks(input: {
   blueprint: TeamBlueprint;
   projectDiff: TeamBlueprintPreviewProjectDiff[];
-  currentProjects: PreviewProjectLike[];
   currentAgentCount: number;
   setupProgress: SetupProgressView;
+  roleGraphWarnings: string[];
 }) {
-  const currentWorkspaceCount = input.currentProjects.reduce((count, project) => count + project.workspaces.length, 0);
+  const workspaceReadyProjectCount = input.projectDiff.filter((project) => project.workspaceCount > 0).length;
   const checks: TeamBlueprintPreviewResult["readinessChecks"] = [
     {
       key: "workspace_count",
       label: "Workspace coverage",
-      status: currentWorkspaceCount >= input.blueprint.readiness.requiredWorkspaceCount
+      status: workspaceReadyProjectCount >= input.blueprint.readiness.requiredWorkspaceCount
         ? "ready"
-        : currentWorkspaceCount > 0 ? "warning" : "missing",
-      detail: `${currentWorkspaceCount}/${input.blueprint.readiness.requiredWorkspaceCount} required workspace slot(s) are connected.`,
+        : workspaceReadyProjectCount > 0 ? "warning" : "missing",
+      detail:
+        `${workspaceReadyProjectCount}/${input.blueprint.readiness.requiredWorkspaceCount} required project slot(s) already have at least one workspace.`,
     },
     {
       key: "engine_ready",
@@ -618,6 +662,15 @@ function buildReadinessChecks(input: {
     });
   }
 
+  if (input.roleGraphWarnings.length > 0) {
+    checks.push({
+      key: "role_graph",
+      label: "Role graph adjustments",
+      status: "warning",
+      detail: input.roleGraphWarnings.join(" "),
+    });
+  }
+
   return checks;
 }
 
@@ -629,16 +682,17 @@ export function buildTeamBlueprintPreview(input: {
   setupProgress: SetupProgressView;
   request?: TeamBlueprintPreviewRequest;
 }): TeamBlueprintPreviewResult {
-  const blueprint = cloneBlueprint(input.blueprint);
-  const parameters = resolveTeamBlueprintPreviewParameters(blueprint, input.request);
+  const baseBlueprint = cloneBlueprint(input.blueprint);
+  const parameters = resolveTeamBlueprintPreviewParameters(baseBlueprint, input.request);
+  const { blueprint, roleGraphWarnings } = buildEffectiveBlueprint(baseBlueprint, parameters);
   const projectDiff = buildProjectDiff(expandBlueprintProjects(blueprint, parameters), input.currentProjects);
   const roleDiff = buildRoleDiff(blueprint, input.currentAgents, parameters);
   const readinessChecks = buildReadinessChecks({
     blueprint,
     projectDiff,
-    currentProjects: input.currentProjects,
     currentAgentCount: input.currentAgents.length,
     setupProgress: input.setupProgress,
+    roleGraphWarnings,
   });
   const currentWorkspaceCount = input.currentProjects.reduce((count, project) => count + project.workspaces.length, 0);
   const adoptedProjectCount = projectDiff.filter((project) => project.status === "adopt_existing").length;
