@@ -923,9 +923,26 @@ export function isWorkflowStateEligibleForProtocolRetry(input: {
 export function shouldSkipSupersededProtocolFollowup(input: {
   wakeReason?: string | null;
   issueStatus?: string | null;
+  workflowState?: string | null;
+  protocolMessageType?: string | null;
+  protocolRecipientRole?: string | null;
 }) {
-  if (input.issueStatus !== "done" && input.issueStatus !== "cancelled") return false;
-  return isSupersededProtocolWakeReason(input.wakeReason);
+  if (input.issueStatus === "done" || input.issueStatus === "cancelled") {
+    return isSupersededProtocolWakeReason(input.wakeReason) || readNonEmptyString(input.wakeReason) === "adapter_retry";
+  }
+
+  if (readNonEmptyString(input.wakeReason) !== "adapter_retry") return false;
+
+  const requirement = resolveProtocolRunRequirement({
+    protocolMessageType: readNonEmptyString(input.protocolMessageType) ?? undefined,
+    protocolRecipientRole: readNonEmptyString(input.protocolRecipientRole) ?? undefined,
+  });
+  if (!requirement) return false;
+
+  return !isWorkflowStateEligibleForProtocolRetry({
+    requirement,
+    workflowState: input.workflowState,
+  });
 }
 
 export function isSupersededProtocolWakeReason(wakeReason?: string | null) {
@@ -2074,20 +2091,37 @@ export function heartbeatService(db: Db) {
               assigneeAgentId: issues.assigneeAgentId,
               assigneeAdapterOverrides: issues.assigneeAdapterOverrides,
               status: issues.status,
+              workflowState: issueProtocolState.workflowState,
             })
             .from(issues)
+            .leftJoin(
+              issueProtocolState,
+              and(
+                eq(issueProtocolState.issueId, issues.id),
+                eq(issueProtocolState.companyId, issues.companyId),
+              ),
+            )
             .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
             .then((rows) => rows[0] ?? null)
         : null;
       if (shouldSkipSupersededProtocolFollowup({
         wakeReason,
         issueStatus: issueRuntimeConfig?.status ?? null,
+        workflowState: issueRuntimeConfig?.workflowState ?? null,
+        protocolMessageType: readNonEmptyString(context.protocolMessageType),
+        protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
       })) {
-        const message = `Skipping stale protocol follow-up because issue is already ${issueRuntimeConfig?.status ?? "terminal"}.`;
+        const message =
+          issueRuntimeConfig?.status === "done" || issueRuntimeConfig?.status === "cancelled"
+            ? `Skipping stale protocol follow-up because issue is already ${issueRuntimeConfig.status}.`
+            : "Skipping stale protocol follow-up because issue workflow no longer matches this wake.";
         currentPhase = "preflight.followup_superseded";
         await appendCheckpoint("preflight.followup_superseded", message, {
           wakeReason,
           issueStatus: issueRuntimeConfig?.status ?? null,
+          workflowState: issueRuntimeConfig?.workflowState ?? null,
+          protocolMessageType: readNonEmptyString(context.protocolMessageType),
+          protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
         });
         const cancelledRun = await setRunStatus(run.id, "cancelled", {
           finishedAt: new Date(),

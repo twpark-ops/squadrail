@@ -1169,6 +1169,51 @@ async function sendCloseTask(issueId, scenario, workflowStateBefore) {
   }, "close");
 }
 
+async function sendHumanDecisionApproval(issueId, scenario, workflowStateBefore) {
+  const closeAction = scenario.closeAction ?? null;
+  const residualRisks =
+    closeAction?.remainingRisks?.length
+      ? closeAction.remainingRisks
+      : ["Merge remains external to this E2E harness."];
+  return postProtocolMessageWithRetry(issueId, {
+    messageType: "APPROVE_IMPLEMENTATION",
+    sender: {
+      actorType: "user",
+      actorId: E2E_ACTOR_ID,
+      role: "human_board",
+    },
+    recipients: [
+      {
+        recipientType: "role_group",
+        recipientId: "human_board",
+        role: "human_board",
+      },
+    ],
+    workflowStateBefore,
+    workflowStateAfter: "approved",
+    summary: `Board approves escalated implementation decision for ${scenario.key}`,
+    requiresAck: false,
+    payload: {
+      approvalMode: "human_override",
+      approvalSummary:
+        closeAction?.closureSummary
+        ?? "Human board reviewed the explicit escalation and approved the implementation for closure.",
+      approvalChecklist: [
+        "REQUEST_HUMAN_DECISION reviewed",
+        "QA escalation context reviewed",
+        "Delivery can proceed to closure",
+      ],
+      verifiedEvidence: [
+        "protocol decision trail reviewed",
+        "latest review cycle reviewed",
+        "scenario close criteria reviewed",
+      ],
+      residualRisks,
+    },
+    artifacts: [],
+  }, "approve-human-decision");
+}
+
 function findMatchingMessage(messages, predicate) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (predicate(messages[index])) return messages[index];
@@ -1226,7 +1271,9 @@ async function waitForCompletion(issueId, scenario) {
   const hardDeadlineAt = startedAt + E2E_TIMEOUT_MS + ACTIVE_RUN_TIMEOUT_GRACE_MS;
   const seenMessages = new Set();
   let approvalObservedAt = null;
+  let humanDecisionObservedAt = null;
   let closeFallbackSent = false;
+  let humanDecisionFallbackSent = false;
   let timeoutGraceLogged = false;
 
   while (Date.now() < hardDeadlineAt) {
@@ -1244,13 +1291,19 @@ async function waitForCompletion(issueId, scenario) {
 
     const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
     const approvalMessage = latestMessage(snapshot.messages, "APPROVE_IMPLEMENTATION");
+    const humanDecisionMessage = latestMessage(snapshot.messages, "REQUEST_HUMAN_DECISION");
     const closeFallbackEligible =
       scenario.closeAction
       && snapshot.state?.workflowState === "approved"
       && approvalMessage;
+    const humanDecisionFallbackEligible =
+      scenario.closeAction
+      && snapshot.state?.workflowState === "awaiting_human_decision"
+      && humanDecisionMessage;
     if (closeMessage) {
       closeFallbackSent = true;
       approvalObservedAt = null;
+      humanDecisionObservedAt = null;
     } else if (closeFallbackEligible) {
       if (approvalObservedAt == null) {
         approvalObservedAt = Date.parse(approvalMessage.createdAt) || Date.now();
@@ -1263,6 +1316,23 @@ async function waitForCompletion(issueId, scenario) {
       }
     } else {
       approvalObservedAt = null;
+    }
+
+    if (humanDecisionFallbackEligible) {
+      if (humanDecisionObservedAt == null) {
+        humanDecisionObservedAt = Date.parse(humanDecisionMessage.createdAt) || Date.now();
+      } else if (
+        !humanDecisionFallbackSent
+        && Date.now() - humanDecisionObservedAt >= CLOSE_FALLBACK_AFTER_MS
+      ) {
+        note(
+          `[${scenario.key}] ${snapshot.state.workflowState} persisted after REQUEST_HUMAN_DECISION, sending board approval fallback`,
+        );
+        await sendHumanDecisionApproval(issueId, scenario, snapshot.state.workflowState);
+        humanDecisionFallbackSent = true;
+      }
+    } else {
+      humanDecisionObservedAt = null;
     }
 
     const primaryTimeoutElapsed = Date.now() - startedAt >= E2E_TIMEOUT_MS;

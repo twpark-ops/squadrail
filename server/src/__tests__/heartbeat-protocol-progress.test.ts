@@ -222,4 +222,34 @@ describe("heartbeat protocol progress helpers", () => {
       }),
     ).toBe(false);
   });
+
+  it("skips stale adapter retries once the issue has moved beyond the original protocol lane", () => {
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "adapter_retry",
+        issueStatus: "in_progress",
+        workflowState: "submitted_for_review",
+        protocolMessageType: "ASSIGN_TASK",
+        protocolRecipientRole: "tech_lead",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "adapter_retry",
+        issueStatus: "todo",
+        workflowState: "assigned",
+        protocolMessageType: "ASSIGN_TASK",
+        protocolRecipientRole: "tech_lead",
+      }),
+    ).toBe(false);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "adapter_retry",
+        issueStatus: "done",
+        workflowState: "approved",
+        protocolMessageType: "SUBMIT_FOR_REVIEW",
+        protocolRecipientRole: "reviewer",
+      }),
+    ).toBe(true);
+  });
 });
