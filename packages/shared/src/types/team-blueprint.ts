@@ -6,6 +6,7 @@ import type {
   TeamBlueprintProjectBinding,
   TeamBlueprintProjectKind,
 } from "../constants.js";
+import type { SetupProgressView } from "./setup.js";
 
 export interface TeamBlueprintProjectTemplate {
   key: string;
@@ -110,6 +111,7 @@ export interface TeamBlueprintPreviewReadinessCheck {
 
 export interface TeamBlueprintPreviewResult {
   companyId: string;
+  previewHash: string;
   blueprint: TeamBlueprint;
   parameters: TeamBlueprintPreviewParameters;
   summary: {
@@ -124,5 +126,49 @@ export interface TeamBlueprintPreviewResult {
   projectDiff: TeamBlueprintPreviewProjectDiff[];
   roleDiff: TeamBlueprintPreviewRoleDiff[];
   readinessChecks: TeamBlueprintPreviewReadinessCheck[];
+  warnings: string[];
+}
+
+export interface TeamBlueprintApplyRequest extends TeamBlueprintPreviewRequest {
+  previewHash: string;
+}
+
+export interface TeamBlueprintApplyProjectResult {
+  slotKey: string;
+  templateKey: string;
+  label: string;
+  action: "adopt_existing" | "create_new";
+  projectId: string;
+  projectName: string;
+}
+
+export interface TeamBlueprintApplyRoleResult {
+  slotKey: string;
+  templateKey: string;
+  label: string;
+  action: "adopt_existing" | "create_new" | "update_existing";
+  agentId: string;
+  agentName: string;
+  reportsToAgentId: string | null;
+  updated: boolean;
+}
+
+export interface TeamBlueprintApplyResult {
+  companyId: string;
+  blueprintKey: TeamBlueprintKey;
+  previewHash: string;
+  parameters: TeamBlueprintPreviewParameters;
+  summary: {
+    adoptedProjectCount: number;
+    createdProjectCount: number;
+    adoptedAgentCount: number;
+    createdAgentCount: number;
+    updatedAgentCount: number;
+    seededRolePackCount: number;
+    existingRolePackCount: number;
+  };
+  projectResults: TeamBlueprintApplyProjectResult[];
+  roleResults: TeamBlueprintApplyRoleResult[];
+  setupProgress: SetupProgressView;
   warnings: string[];
 }

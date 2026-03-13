@@ -14,6 +14,7 @@ import {
   listRolePacksQuerySchema,
   restoreRolePackRevisionSchema,
   seedDefaultRolePacksSchema,
+  teamBlueprintApplyRequestSchema,
   teamBlueprintPreviewRequestSchema,
   updateWorkflowTemplatesSchema,
   updateOperatingAlertsConfigSchema,
@@ -151,6 +152,42 @@ export function companyRoutes(
     assertCompanyAccess(req, companyId);
     const view = await teamBlueprints.preview(companyId, blueprintKey as TeamBlueprintKey, req.body);
     res.json(view);
+  });
+
+  router.post("/:companyId/team-blueprints/:blueprintKey/apply", validate(teamBlueprintApplyRequestSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    const blueprintKey = req.params.blueprintKey as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await teamBlueprints.apply(
+      companyId,
+      blueprintKey as TeamBlueprintKey,
+      req.body,
+      {
+        userId: actor.actorType === "user" ? actor.actorId : null,
+        agentId: actor.actorType === "agent" ? actor.actorId : null,
+      },
+    );
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.team_blueprint_applied",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        blueprintKey,
+        previewHash: result.previewHash,
+        createdProjectCount: result.summary.createdProjectCount,
+        createdAgentCount: result.summary.createdAgentCount,
+        updatedAgentCount: result.summary.updatedAgentCount,
+        seededRolePackCount: result.summary.seededRolePackCount,
+      },
+    });
+    res.status(201).json(result);
   });
 
   router.patch("/:companyId/workflow-templates", validate(updateWorkflowTemplatesSchema), async (req, res) => {

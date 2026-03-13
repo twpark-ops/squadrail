@@ -59,7 +59,16 @@
   - `team blueprint preview/diff` request/response contract를 추가했다.
   - `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route를 추가했다.
   - `CompanySettings`가 blueprint catalog를 읽고 preview diff를 operator surface로 보여준다.
-  - 남은 immediate next는 `swiftsight canonical absorption prep + bulk apply contract`다.
+  - 남은 immediate next는 `apply contract -> confirmation gate -> semantics test -> UI flow`다.
+- `Phase 5` server kickoff 완료
+  - `previewHash`가 포함된 preview response contract를 추가했다.
+  - `team blueprint apply` request/response contract를 추가했다.
+  - `POST /api/companies/:companyId/team-blueprints/:blueprintKey/apply` route를 추가했다.
+  - apply는 preview hash drift가 있으면 stale preview로 거부한다.
+  - apply는 outer transaction으로 묶여 partial org/team residue를 남기지 않는다.
+  - per-project TL slot expansion과 project lead wiring을 `standard_product_squad` 실제 apply test로 고정했다.
+  - service/unit + route regression으로 `stale reject`, `first apply create`, `same preview retry reject`, rollback failure injection을 고정했다.
+  - 남은 immediate next는 `Company Settings apply flow + swiftsight canonical absorption prep`다.
 
 ## 4. 제품 계약
 
@@ -302,7 +311,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - readiness metadata preview regression
 - Company Settings typecheck/build regression
 
-## Phase 5. Bulk Provisioning with Preview/Diff [preview shipped, apply pending]
+## Phase 5. Bulk Provisioning with Preview/Diff [server apply kickoff shipped, UI pending]
 
 ### 목표
 
@@ -310,10 +319,11 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 ### 구현 범위
 
-- preview blueprint
-- diff against current company
-- apply blueprint
+- apply request/response contract
+- preview hash/token 기반 confirmation gate
+- preview 대비 실제 apply 결과 일치 보장
 - reportsTo / project / lane / engine / role-pack preset 일괄 생성
+- Company Settings preview -> apply operator flow
 
 ### 주요 파일
 
@@ -324,16 +334,22 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 ### 성공 조건
 
-- preview 없이 apply가 불가능하거나 최소한 strongly recommended path가 preview다
+- preview 없이 apply가 불가능하다
+- preview 결과와 회사 상태가 drift하면 stale preview apply를 거부한다
 - create/update/adopt/pause diff를 operator가 본다
+- preview의 projectDiff와 실제 apply 결과가 일치한다
+- preview의 roleDiff와 실제 agent/reportsTo 결과가 일치한다
 - apply 후 company setup 상태가 일관되게 갱신된다
 - preview route와 Company Settings read surface는 이미 shipped 상태다
-- 남은 핵심은 `apply mutation`, `confirmation gate`, `activity/setup invalidation`이다
+- 남은 핵심은 `Company Settings apply CTA`, `invalidate/success trace`, `swiftsight canonical absorption prep`이다
 
 ### 테스트
 
+- apply contract validator tests
+- preview hash/token gate tests
+- stale preview rejection tests
+- preview/apply service semantics tests
 - preview/apply route tests
-- diff normalization tests
 - company setup invalidation regression
 
 ## Phase 6. Onboarding / Company Settings 재편
@@ -416,8 +432,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. `swiftsight canonical` metadata를 generic blueprint parameter map으로 흡수할 준비를 한다
-2. `team blueprint apply` contract와 confirmation gate를 추가한다
-3. `Company Settings`에서 preview -> apply로 이어지는 operator flow를 시작한다
+1. `Company Settings`에서 preview -> apply로 이어지는 operator flow를 시작한다
+2. apply 후 setup/doctor/agent/project invalidate와 success trace를 연결한다
+3. 마지막에 `swiftsight canonical` metadata를 generic blueprint parameter map으로 흡수할 준비를 한다
 
-즉 다음 배치는 `Phase 5 apply kickoff`다.
+즉 다음 배치는 `Phase 5 Company Settings apply flow`다.

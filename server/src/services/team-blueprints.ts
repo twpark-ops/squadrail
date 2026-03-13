@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
 import type { Db } from "@squadrail/db";
 import {
   normalizeAgentUrlKey,
   normalizeProjectUrlKey,
   type SetupProgressView,
+  type TeamBlueprintApplyRequest,
+  type TeamBlueprintApplyResult,
   type TeamBlueprint,
   type TeamBlueprintCatalogView,
   type TeamBlueprintPreviewParameters,
@@ -11,9 +14,10 @@ import {
   type TeamBlueprintPreviewResult,
   type TeamBlueprintRoleTemplate,
 } from "@squadrail/shared";
-import { notFound } from "../errors.js";
+import { conflict, notFound } from "../errors.js";
 import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
+import { rolePackService } from "./role-packs.js";
 import { setupProgressService } from "./setup-progress.js";
 
 const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
@@ -327,8 +331,40 @@ type PreviewAgentLike = {
   urlKey: string;
   role: string;
   title: string | null;
+  reportsTo: string | null;
   metadata: Record<string, unknown> | null;
 };
+
+type ExpandedBlueprintProjectSlot = {
+  slotKey: string;
+  templateKey: string;
+  label: string;
+  description: string | null;
+  kind: TeamBlueprint["projects"][number]["kind"];
+  repositoryHint: string | null;
+  defaultLeadRoleKey: string | null;
+};
+
+type ExpandedRoleSlot = {
+  slotKey: string;
+  templateKey: string;
+  label: string;
+  role: TeamBlueprintRoleTemplate["role"];
+  title: string | null;
+  reportsToKey: string | null;
+  projectBinding: TeamBlueprintRoleTemplate["projectBinding"];
+  preferredAdapterTypes: TeamBlueprintRoleTemplate["preferredAdapterTypes"];
+  deliveryLane: string | null;
+  capabilities: string[];
+  projectSlotKey: string | null;
+};
+
+type MatchedRoleSlot = {
+  slot: ExpandedRoleSlot;
+  existingAgent: PreviewAgentLike | null;
+};
+
+const MIN_STRONG_AGENT_MATCH_SCORE = 7;
 
 function cloneBlueprint(blueprint: TeamBlueprint): TeamBlueprint {
   return {
@@ -376,10 +412,25 @@ export function resolveTeamBlueprintPreviewParameters(
   };
 }
 
+function stableSerialize(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right));
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableSerialize(entry)}`).join(",")}}`;
+}
+
+export function buildTeamBlueprintPreviewHash(preview: Omit<TeamBlueprintPreviewResult, "previewHash">) {
+  return createHash("sha256").update(stableSerialize(preview)).digest("hex");
+}
+
 function expandBlueprintProjects(
   blueprint: TeamBlueprint,
   parameters: TeamBlueprintPreviewParameters,
-) {
+): ExpandedBlueprintProjectSlot[] {
   return Array.from({ length: parameters.projectCount }, (_, index) => {
     const template = blueprint.projects[index % blueprint.projects.length]!;
     const cycle = Math.floor(index / blueprint.projects.length) + 1;
@@ -387,8 +438,10 @@ function expandBlueprintProjects(
       slotKey: cycle === 1 ? template.key : `${template.key}_${cycle}`,
       templateKey: template.key,
       label: cycle === 1 ? template.label : `${template.label} ${cycle}`,
+      description: template.description,
       kind: template.kind,
       repositoryHint: template.repositoryHint,
+      defaultLeadRoleKey: template.defaultLeadRoleKey,
     };
   });
 }
@@ -524,48 +577,140 @@ function requiredRoleCount(
   return 1;
 }
 
-function scoreAgentMatch(template: TeamBlueprintRoleTemplate, agent: PreviewAgentLike) {
-  const titleKey = normalizeAgentUrlKey(template.title ?? template.label ?? template.key);
+function resolveProjectSlotsForRoleTemplate(
+  template: TeamBlueprintRoleTemplate,
+  projectSlots: ExpandedBlueprintProjectSlot[],
+) {
+  if (template.projectBinding !== "per_project") return [] as ExpandedBlueprintProjectSlot[];
+  const explicitlyBoundSlots = projectSlots.filter((projectSlot) => projectSlot.defaultLeadRoleKey === template.key);
+  return explicitlyBoundSlots.length > 0 ? explicitlyBoundSlots : projectSlots;
+}
+
+function expandRoleSlots(
+  blueprint: TeamBlueprint,
+  parameters: TeamBlueprintPreviewParameters,
+  projectSlots: ExpandedBlueprintProjectSlot[],
+): ExpandedRoleSlot[] {
+  const slots: ExpandedRoleSlot[] = [];
+
+  for (const template of blueprint.roles) {
+    if (template.projectBinding === "per_project") {
+      const boundProjectSlots = resolveProjectSlotsForRoleTemplate(template, projectSlots);
+      const slotCount = template.key === "engineer" ? parameters.engineerPairsPerProject : 1;
+      for (const projectSlot of boundProjectSlots) {
+        for (let slotIndex = 0; slotIndex < slotCount; slotIndex += 1) {
+          const suffix = slotCount > 1 ? ` ${slotIndex + 1}` : "";
+          const slotKey = template.key === "engineer"
+            ? `${template.key}:${projectSlot.slotKey}:${slotIndex + 1}`
+            : `${template.key}:${projectSlot.slotKey}`;
+          const label = `${projectSlot.label} ${template.label}${suffix}`;
+          slots.push({
+            slotKey,
+            templateKey: template.key,
+            label,
+            role: template.role,
+            title: template.title,
+            reportsToKey: template.reportsToKey,
+            projectBinding: template.projectBinding,
+            preferredAdapterTypes: template.preferredAdapterTypes,
+            deliveryLane: template.deliveryLane,
+            capabilities: template.capabilities,
+            projectSlotKey: projectSlot.slotKey,
+          });
+        }
+      }
+      continue;
+    }
+
+    slots.push({
+      slotKey: template.key,
+      templateKey: template.key,
+      label: template.label,
+      role: template.role,
+      title: template.title,
+      reportsToKey: template.reportsToKey,
+      projectBinding: template.projectBinding,
+      preferredAdapterTypes: template.preferredAdapterTypes,
+      deliveryLane: template.deliveryLane,
+      capabilities: template.capabilities,
+      projectSlotKey: null,
+    });
+  }
+
+  return slots;
+}
+
+function scoreAgentMatch(template: Pick<ExpandedRoleSlot, "templateKey" | "label" | "title" | "role" | "deliveryLane">, agent: PreviewAgentLike) {
+  const labelKey = normalizeAgentUrlKey(template.label);
+  const titleKey = normalizeAgentUrlKey(template.title ?? template.label ?? template.templateKey);
   const agentTitleKey = normalizeAgentUrlKey(agent.title);
   const nameKey = normalizeAgentUrlKey(agent.name);
   const lane = readMetadataString(agent.metadata, "deliveryLane");
   let score = 0;
   if (agent.role === template.role) score += 2;
-  if (titleKey && agentTitleKey === titleKey) score += 4;
-  if (titleKey && nameKey?.includes(titleKey)) score += 2;
-  if (nameKey?.includes(template.key)) score += 1;
+  if (labelKey && nameKey === labelKey) score += 8;
+  if (labelKey && nameKey?.includes(labelKey)) score += 5;
+  if (labelKey && agentTitleKey === labelKey) score += 2;
+  if (titleKey && agentTitleKey === titleKey) score += 3;
+  if (titleKey && nameKey?.includes(titleKey)) score += 1;
+  if (nameKey?.includes(template.templateKey)) score += 1;
   if (template.deliveryLane && lane === template.deliveryLane) score += 1;
   return score;
+}
+
+function buildRoleSlotMatches(
+  blueprint: TeamBlueprint,
+  currentAgents: PreviewAgentLike[],
+  parameters: TeamBlueprintPreviewParameters,
+  projectSlots: ExpandedBlueprintProjectSlot[],
+) {
+  const templates = expandRoleSlots(blueprint, parameters, projectSlots);
+  const unusedAgents = new Map(currentAgents.map((agent) => [agent.id, agent]));
+
+  return templates.map((slot) => {
+    let bestMatch: PreviewAgentLike | null = null;
+    let bestScore = 0;
+    for (const agent of unusedAgents.values()) {
+      const score = scoreAgentMatch(slot, agent);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = agent;
+      }
+    }
+    if (bestMatch && bestScore >= MIN_STRONG_AGENT_MATCH_SCORE) {
+      unusedAgents.delete(bestMatch.id);
+    } else {
+      bestMatch = null;
+    }
+    return {
+      slot,
+      existingAgent: bestMatch,
+    } satisfies MatchedRoleSlot;
+  });
 }
 
 function buildRoleDiff(
   blueprint: TeamBlueprint,
   currentAgents: PreviewAgentLike[],
   parameters: TeamBlueprintPreviewParameters,
+  projectSlots: ExpandedBlueprintProjectSlot[],
 ) {
-  const templates = blueprint.roles.filter((template) => shouldIncludeRoleTemplate(template, parameters));
-  const unusedAgents = new Map(currentAgents.map((agent) => [agent.id, agent]));
-
-  return templates.map((template) => {
-    const requiredCount = requiredRoleCount(template, parameters);
-    const matches: PreviewAgentLike[] = [];
-
-    for (let slotIndex = 0; slotIndex < requiredCount; slotIndex += 1) {
-      let bestMatch: PreviewAgentLike | null = null;
-      let bestScore = 0;
-      for (const agent of unusedAgents.values()) {
-        const score = scoreAgentMatch(template, agent);
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = agent;
-        }
-      }
-      if (!bestMatch) continue;
-      unusedAgents.delete(bestMatch.id);
-      matches.push(bestMatch);
+  const matches = buildRoleSlotMatches(blueprint, currentAgents, parameters, projectSlots);
+  const matchesByTemplate = new Map<string, MatchedRoleSlot[]>();
+  for (const match of matches) {
+    const existing = matchesByTemplate.get(match.slot.templateKey);
+    if (existing) {
+      existing.push(match);
+    } else {
+      matchesByTemplate.set(match.slot.templateKey, [match]);
     }
+  }
 
-    const existingCount = matches.length;
+  return blueprint.roles.map((template) => {
+    const templateMatches = matchesByTemplate.get(template.key) ?? [];
+    const existingAgents = templateMatches.flatMap((match) => (match.existingAgent ? [match.existingAgent] : []));
+    const requiredCount = templateMatches.length;
+    const existingCount = existingAgents.length;
     const missingCount = Math.max(0, requiredCount - existingCount);
     const status = missingCount === 0 ? "ready" : existingCount > 0 ? "partial" : "missing";
     const notes: string[] = [];
@@ -589,7 +734,7 @@ function buildRoleDiff(
       requiredCount,
       existingCount,
       missingCount,
-      matchingAgentNames: matches.map((agent) => agent.name),
+      matchingAgentNames: existingAgents.map((agent) => agent.name),
       notes,
     } satisfies TeamBlueprintPreviewResult["roleDiff"][number];
   });
@@ -685,8 +830,9 @@ export function buildTeamBlueprintPreview(input: {
   const baseBlueprint = cloneBlueprint(input.blueprint);
   const parameters = resolveTeamBlueprintPreviewParameters(baseBlueprint, input.request);
   const { blueprint, roleGraphWarnings } = buildEffectiveBlueprint(baseBlueprint, parameters);
-  const projectDiff = buildProjectDiff(expandBlueprintProjects(blueprint, parameters), input.currentProjects);
-  const roleDiff = buildRoleDiff(blueprint, input.currentAgents, parameters);
+  const projectSlots = expandBlueprintProjects(blueprint, parameters);
+  const projectDiff = buildProjectDiff(projectSlots, input.currentProjects);
+  const roleDiff = buildRoleDiff(blueprint, input.currentAgents, parameters, projectSlots);
   const readinessChecks = buildReadinessChecks({
     blueprint,
     projectDiff,
@@ -710,8 +856,7 @@ export function buildTeamBlueprintPreview(input: {
   for (const check of readinessChecks) {
     if (check.status !== "ready") warnings.push(check.detail);
   }
-
-  return {
+  const previewBase = {
     companyId: input.companyId,
     blueprint,
     parameters,
@@ -728,6 +873,124 @@ export function buildTeamBlueprintPreview(input: {
     roleDiff,
     readinessChecks,
     warnings: Array.from(new Set(warnings)),
+  };
+  return {
+    ...previewBase,
+    previewHash: buildTeamBlueprintPreviewHash(previewBase),
+  };
+}
+
+function toPreviewProjects(
+  projects: Awaited<ReturnType<ReturnType<typeof projectService>["list"]>>,
+): PreviewProjectLike[] {
+  return projects.map((project) => ({
+    id: project.id,
+    name: project.name,
+    urlKey: project.urlKey,
+    workspaces: project.workspaces.map((workspace) => ({ id: workspace.id })),
+  }));
+}
+
+function toPreviewAgents(
+  agents: Awaited<ReturnType<ReturnType<typeof agentService>["list"]>>,
+): PreviewAgentLike[] {
+  return agents.map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    urlKey: agent.urlKey,
+    role: agent.role,
+    title: agent.title ?? null,
+    reportsTo: agent.reportsTo ?? null,
+    metadata:
+      typeof agent.metadata === "object" && agent.metadata !== null && !Array.isArray(agent.metadata)
+        ? agent.metadata as Record<string, unknown>
+        : null,
+  }));
+}
+
+function buildAgentMetadataForBlueprint(input: {
+  existingMetadata: Record<string, unknown> | null | undefined;
+  blueprintKey: TeamBlueprint["key"];
+  roleTemplateKey: string;
+  projectSlotKey: string | null;
+  deliveryLane: string | null;
+}) {
+  const metadata = input.existingMetadata ? { ...input.existingMetadata } : {};
+  metadata.teamBlueprintKey = input.blueprintKey;
+  metadata.teamBlueprintRoleKey = input.roleTemplateKey;
+  metadata.teamBlueprintProjectSlotKey = input.projectSlotKey;
+  if (input.deliveryLane) {
+    metadata.deliveryLane = input.deliveryLane;
+  }
+  return metadata;
+}
+
+function resolveManagerAgentId(
+  slot: ExpandedRoleSlot,
+  matches: MatchedRoleSlot[],
+  agentIdBySlotKey: Map<string, string>,
+  projectSlotByKey: Map<string, ExpandedBlueprintProjectSlot>,
+  roleTemplateByKey: Map<string, TeamBlueprintRoleTemplate>,
+) {
+  if (!slot.reportsToKey) return null;
+  const managerTemplate = roleTemplateByKey.get(slot.reportsToKey) ?? null;
+  const managerMatches = matches.filter((match) => match.slot.templateKey === slot.reportsToKey);
+  if (managerMatches.length === 0) return null;
+  if (slot.projectSlotKey && managerTemplate?.projectBinding === "per_project") {
+    const sameProjectManager = managerMatches.find((match) => match.slot.projectSlotKey === slot.projectSlotKey);
+    if (sameProjectManager) {
+      return agentIdBySlotKey.get(sameProjectManager.slot.slotKey) ?? null;
+    }
+
+    const projectLeadRoleKey = projectSlotByKey.get(slot.projectSlotKey)?.defaultLeadRoleKey ?? null;
+    if (projectLeadRoleKey) {
+      const projectLeadMatch = matches.find((match) =>
+        match.slot.projectSlotKey === slot.projectSlotKey && match.slot.templateKey === projectLeadRoleKey
+      );
+      if (projectLeadMatch) {
+        return agentIdBySlotKey.get(projectLeadMatch.slot.slotKey) ?? null;
+      }
+    }
+  }
+  const managerSlot = managerMatches[0]!;
+  return agentIdBySlotKey.get(managerSlot.slot.slotKey) ?? null;
+}
+
+async function loadPreviewState(
+  db: Db,
+  companyId: string,
+  blueprintKey: TeamBlueprint["key"],
+  request?: TeamBlueprintPreviewRequest,
+) {
+  const blueprint = resolveBlueprint(blueprintKey);
+  if (!blueprint) throw notFound("Team blueprint not found");
+
+  const [projects, agents, setupProgress] = await Promise.all([
+    projectService(db).list(companyId),
+    agentService(db).list(companyId),
+    setupProgressService(db).getView(companyId),
+  ]);
+  const currentProjects = toPreviewProjects(projects);
+  const currentAgents = toPreviewAgents(agents);
+  const preview = buildTeamBlueprintPreview({
+    companyId,
+    blueprint,
+    currentProjects,
+    currentAgents,
+    setupProgress,
+    request,
+  });
+  const projectSlots = expandBlueprintProjects(preview.blueprint, preview.parameters);
+  const roleSlotMatches = buildRoleSlotMatches(preview.blueprint, currentAgents, preview.parameters, projectSlots);
+
+  return {
+    blueprint,
+    liveProjects: projects,
+    liveAgents: agents,
+    setupProgress,
+    preview,
+    projectSlots,
+    roleSlotMatches,
   };
 }
 
@@ -749,37 +1012,202 @@ export function teamBlueprintService(db?: Db) {
       request?: TeamBlueprintPreviewRequest,
     ) {
       if (!db) throw new Error("teamBlueprintService.preview requires a database handle");
-      const blueprint = resolveBlueprint(blueprintKey);
-      if (!blueprint) throw notFound("Team blueprint not found");
+      const state = await loadPreviewState(db, companyId, blueprintKey, request);
+      return state.preview;
+    },
+    async apply(
+      companyId: string,
+      blueprintKey: TeamBlueprint["key"],
+      request: TeamBlueprintApplyRequest,
+      actor: {
+        userId?: string | null;
+        agentId?: string | null;
+      },
+    ): Promise<TeamBlueprintApplyResult> {
+      if (!db) throw new Error("teamBlueprintService.apply requires a database handle");
 
-      const [projects, agents, setupProgress] = await Promise.all([
-        projectService(db).list(companyId),
-        agentService(db).list(companyId),
-        setupProgressService(db).getView(companyId),
-      ]);
+      return db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const state = await loadPreviewState(txDb, companyId, blueprintKey, request);
+        if (state.preview.previewHash !== request.previewHash) {
+          throw conflict("Blueprint preview is stale. Refresh preview before applying.");
+        }
 
-      return buildTeamBlueprintPreview({
-        companyId,
-        blueprint,
-        currentProjects: projects.map((project) => ({
-          id: project.id,
-          name: project.name,
-          urlKey: project.urlKey,
-          workspaces: project.workspaces.map((workspace) => ({ id: workspace.id })),
-        })),
-        currentAgents: agents.map((agent) => ({
-          id: agent.id,
-          name: agent.name,
-          urlKey: agent.urlKey,
-          role: agent.role,
-          title: agent.title ?? null,
-          metadata:
-            typeof agent.metadata === "object" && agent.metadata !== null && !Array.isArray(agent.metadata)
-              ? agent.metadata as Record<string, unknown>
-              : null,
-        })),
-        setupProgress,
-        request,
+        const projectsSvc = projectService(txDb);
+        const agentsSvc = agentService(txDb);
+        const setupSvc = setupProgressService(txDb);
+        const rolePacks = rolePackService(txDb);
+        const roleTemplateByKey = new Map(state.preview.blueprint.roles.map((role) => [role.key, role]));
+        const projectSlotByKey = new Map(state.projectSlots.map((slot) => [slot.slotKey, slot]));
+
+        const rolePackSeed = await rolePacks.seedDefaults({
+          companyId,
+          presetKey: state.preview.blueprint.presetKey,
+          actor,
+        });
+
+        const projectIdBySlotKey = new Map<string, string>();
+        const projectResults: TeamBlueprintApplyResult["projectResults"] = [];
+
+        for (const projectDiff of state.preview.projectDiff) {
+          if (projectDiff.status === "adopt_existing" && projectDiff.existingProjectId && projectDiff.existingProjectName) {
+            projectIdBySlotKey.set(projectDiff.slotKey, projectDiff.existingProjectId);
+            projectResults.push({
+              slotKey: projectDiff.slotKey,
+              templateKey: projectDiff.templateKey,
+              label: projectDiff.label,
+              action: "adopt_existing",
+              projectId: projectDiff.existingProjectId,
+              projectName: projectDiff.existingProjectName,
+            });
+            continue;
+          }
+
+          const projectSlot = state.projectSlots.find((slot) => slot.slotKey === projectDiff.slotKey);
+          if (!projectSlot) {
+            throw conflict(`Blueprint project slot '${projectDiff.slotKey}' could not be resolved during apply.`);
+          }
+          const createdProject = await projectsSvc.create(companyId, {
+            name: projectSlot.label,
+            description: projectSlot.description,
+            status: "planned",
+            leadAgentId: null,
+            targetDate: null,
+            archivedAt: null,
+            color: null,
+          });
+          projectIdBySlotKey.set(projectDiff.slotKey, createdProject.id);
+          projectResults.push({
+            slotKey: projectDiff.slotKey,
+            templateKey: projectDiff.templateKey,
+            label: projectDiff.label,
+            action: "create_new",
+            projectId: createdProject.id,
+            projectName: createdProject.name,
+          });
+        }
+
+        const createdAgentIds = new Set<string>();
+        const updatedAgentIds = new Set<string>();
+        const agentIdBySlotKey = new Map<string, string>();
+        const roleResults: TeamBlueprintApplyResult["roleResults"] = [];
+
+        for (const match of state.roleSlotMatches) {
+          const desiredReportsTo = resolveManagerAgentId(
+            match.slot,
+            state.roleSlotMatches,
+            agentIdBySlotKey,
+            projectSlotByKey,
+            roleTemplateByKey,
+          );
+          const desiredMetadata = buildAgentMetadataForBlueprint({
+            existingMetadata: match.existingAgent?.metadata,
+            blueprintKey,
+            roleTemplateKey: match.slot.templateKey,
+            projectSlotKey: match.slot.projectSlotKey,
+            deliveryLane: match.slot.deliveryLane,
+          });
+
+          if (match.existingAgent) {
+            agentIdBySlotKey.set(match.slot.slotKey, match.existingAgent.id);
+            const needsUpdate =
+              match.existingAgent.reportsTo !== desiredReportsTo ||
+              JSON.stringify(match.existingAgent.metadata ?? null) !== JSON.stringify(desiredMetadata);
+
+            if (needsUpdate) {
+              await agentsSvc.update(match.existingAgent.id, {
+                reportsTo: desiredReportsTo,
+                metadata: desiredMetadata,
+              });
+              updatedAgentIds.add(match.existingAgent.id);
+            }
+
+            roleResults.push({
+              slotKey: match.slot.slotKey,
+              templateKey: match.slot.templateKey,
+              label: match.slot.label,
+              action: needsUpdate ? "update_existing" : "adopt_existing",
+              agentId: match.existingAgent.id,
+              agentName: match.existingAgent.name,
+              reportsToAgentId: desiredReportsTo,
+              updated: needsUpdate,
+            });
+            continue;
+          }
+
+          const createdAgent = await agentsSvc.create(companyId, {
+            name: match.slot.label,
+            role: match.slot.role,
+            title: match.slot.title ?? match.slot.label,
+            icon: null,
+            reportsTo: desiredReportsTo,
+            capabilities: match.slot.capabilities.join(", "),
+            adapterType: match.slot.preferredAdapterTypes[0] ?? "process",
+            adapterConfig: {},
+            runtimeConfig: {},
+            budgetMonthlyCents: 0,
+            metadata: desiredMetadata,
+            status: "idle",
+            spentMonthlyCents: 0,
+            lastHeartbeatAt: null,
+          });
+          createdAgentIds.add(createdAgent.id);
+          agentIdBySlotKey.set(match.slot.slotKey, createdAgent.id);
+          roleResults.push({
+            slotKey: match.slot.slotKey,
+            templateKey: match.slot.templateKey,
+            label: match.slot.label,
+            action: "create_new",
+            agentId: createdAgent.id,
+            agentName: createdAgent.name,
+            reportsToAgentId: desiredReportsTo,
+            updated: false,
+          });
+        }
+
+        for (const projectSlot of state.projectSlots) {
+          if (!projectSlot.defaultLeadRoleKey) continue;
+          const projectId = projectIdBySlotKey.get(projectSlot.slotKey);
+          if (!projectId) continue;
+          const matchingLead = state.roleSlotMatches.find((match) =>
+            match.slot.templateKey === projectSlot.defaultLeadRoleKey && match.slot.projectSlotKey === projectSlot.slotKey
+          ) ?? state.roleSlotMatches.find((match) => match.slot.templateKey === projectSlot.defaultLeadRoleKey);
+          const leadAgentId = matchingLead ? agentIdBySlotKey.get(matchingLead.slot.slotKey) ?? null : null;
+          if (!leadAgentId) continue;
+          await projectsSvc.update(projectId, {
+            leadAgentId,
+          });
+        }
+
+        const setupProgress = await setupSvc.update(companyId, {
+          status: "squad_ready",
+          metadata: {
+            rolePacksSeeded: true,
+            rolePackPresetKey: state.preview.blueprint.presetKey,
+            teamBlueprintKey: blueprintKey,
+            teamBlueprintPreviewHash: state.preview.previewHash,
+          },
+        });
+
+        return {
+          companyId,
+          blueprintKey,
+          previewHash: state.preview.previewHash,
+          parameters: state.preview.parameters,
+          summary: {
+            adoptedProjectCount: projectResults.filter((result) => result.action === "adopt_existing").length,
+            createdProjectCount: projectResults.filter((result) => result.action === "create_new").length,
+            adoptedAgentCount: roleResults.filter((result) => result.action === "adopt_existing").length,
+            createdAgentCount: createdAgentIds.size,
+            updatedAgentCount: updatedAgentIds.size,
+            seededRolePackCount: rolePackSeed.created.length,
+            existingRolePackCount: rolePackSeed.existing.length,
+          },
+          projectResults,
+          roleResults,
+          setupProgress,
+          warnings: state.preview.warnings,
+        };
       });
     },
   };

@@ -114,6 +114,7 @@ describe("team blueprints", () => {
     });
 
     expect(preview.parameters.projectCount).toBe(2);
+    expect(preview.previewHash).toMatch(/^[a-f0-9]{64}$/);
     expect(preview.projectDiff).toEqual([
       expect.objectContaining({
         templateKey: "product_app",
@@ -329,5 +330,61 @@ describe("team blueprints", () => {
         }),
       ]),
     );
+    });
   });
-});
+
+  it("expands per-project lead requirements when project count exceeds the base template size", () => {
+    const blueprint = listTeamBlueprints()[1]!;
+    const preview = buildTeamBlueprintPreview({
+      companyId: "company-1",
+      blueprint,
+      currentProjects: [],
+      currentAgents: [],
+      setupProgress: {
+        companyId: "company-1",
+        status: "engine_ready",
+        selectedEngine: "claude_local",
+        selectedWorkspaceId: null,
+        metadata: {},
+        createdAt: new Date("2026-03-14T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-14T00:00:00.000Z"),
+        steps: {
+          companyReady: true,
+          squadReady: false,
+          engineReady: true,
+          workspaceConnected: false,
+          knowledgeSeeded: false,
+          firstIssueReady: false,
+        },
+      },
+      request: {
+        projectCount: 4,
+      },
+    });
+
+    expect(preview.projectDiff.map((project) => project.slotKey)).toEqual([
+      "product_app",
+      "product_api",
+      "product_app_2",
+      "product_api_2",
+    ]);
+    expect(preview.roleDiff).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          templateKey: "app_tech_lead",
+          requiredCount: 2,
+          missingCount: 2,
+        }),
+        expect.objectContaining({
+          templateKey: "backend_tech_lead",
+          requiredCount: 2,
+          missingCount: 2,
+        }),
+        expect.objectContaining({
+          templateKey: "engineer",
+          requiredCount: 4,
+          missingCount: 4,
+        }),
+      ]),
+    );
+  });

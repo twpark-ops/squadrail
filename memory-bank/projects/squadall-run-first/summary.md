@@ -37,9 +37,11 @@
   - `team blueprint preview/diff` contract와 `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route를 추가했다.
   - `CompanySettings`가 blueprint catalog와 preview diff를 읽고 operator 경고를 보여준다.
 - immediate next slice:
-  - `team blueprint apply` contract와 confirmation gate 추가
-  - `Company Settings`에서 preview -> apply flow 시작
-  - `swiftsight canonical` generic registry 흡수 parameter map 정리
+  - server `team blueprint apply` contract / confirmation gate / semantics test는 완료
+  - apply는 outer transaction으로 묶였고, `standard_product_squad` per-project lead wiring과 rollback failure test까지 닫혔다
+  - 다음은 `Company Settings` preview -> apply flow 시작
+  - apply 후 setup/doctor/agent/project invalidate와 success trace 연결
+  - 마지막에 `swiftsight canonical` generic registry 흡수 parameter map 정리
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

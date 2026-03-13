@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `Phase 5 blueprint apply kickoff + swiftsight canonical absorption prep`다.
+> 현재 다음 순차 작업은 `Phase 5 Company Settings apply flow + swiftsight canonical absorption prep`다.
 
 ## 목적
 
@@ -69,10 +69,13 @@
 
 ### Immediate Next Slice
 
-1. `Phase 5 apply kickoff`
+1. `Phase 5 server kickoff`: 완료
    - `team blueprint apply` request/response contract 추가
-   - preview 결과를 confirmation gate 없이 apply하지 못하게 막기
-   - create/update/adopt/pause activity semantics 정의
+   - preview hash/token 기반 confirmation gate 추가
+   - blueprint apply service/unit regression + companies route apply regression 추가
+   - stale preview apply reject / first apply create / same preview retry reject 고정
+   - apply를 outer transaction으로 감싸 partial org/team residue를 막음
+   - `standard_product_squad` per-project TL expansion / lead wiring / rollback failure injection test를 추가
 2. `Company Settings preview -> apply flow`
    - preview 결과를 기반으로 apply CTA 추가
    - apply 후 setup/doctor/agent/project invalidate와 success trace 연결
@@ -80,8 +83,6 @@
    - 기존 canonical org metadata를 generic blueprint parameter map으로 정리
    - canonical-only fields와 generic blueprint field 매핑 표를 작성
 4. `Focused validation`
-   - blueprint apply service/unit regression
-   - companies route apply regression
    - Company Settings preview/apply smoke
 
 ### Follow-up Slices

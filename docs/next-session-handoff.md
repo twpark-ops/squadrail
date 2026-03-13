@@ -10,7 +10,8 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `Phase 5 blueprint apply kickoff + swiftsight canonical absorption prep`
+- open this handoff first, then continue immediately with `Phase 5 Company Settings apply flow + swiftsight canonical absorption prep`
+  - server `apply contract -> confirmation gate -> semantics test`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
 
@@ -35,9 +36,16 @@ One-line startup rule:
     10. generic `team blueprint` shared/server contract skeleton과 `GET /api/companies/:companyId/team-blueprints` route 추가
     11. `team blueprint preview/diff` contract와 `POST /api/companies/:companyId/team-blueprints/:blueprintKey/preview` route 추가
     12. `CompanySettings`에 blueprint catalog read + preview diff surface 추가
+    13. `previewHash`가 포함된 preview response와 `team blueprint apply` shared/server contract 추가
+    14. `POST /api/companies/:companyId/team-blueprints/:blueprintKey/apply` route 추가
+    15. apply가 stale preview hash를 거부하도록 confirmation gate 추가
+    16. `team-blueprints-apply.test.ts`로 stale reject / first apply create / duplicate retry reject를 고정
+    17. blueprint apply를 outer transaction으로 감싸 partial org/team 잔존을 막음
+    18. `standard_product_squad`에서 per-project TL slot expansion과 project lead wiring을 실제 apply test로 고정
+    19. project create / agent update 중간 실패 시 role-pack seed까지 rollback되는 failure injection test를 추가
   - immediate next:
-    1. `team blueprint apply` contract와 confirmation gate 시작
-    2. `Company Settings`에서 preview -> apply flow를 잇기
+    1. `Company Settings`에서 preview -> apply flow를 잇기
+    2. apply 후 setup/doctor/agent/project invalidate와 success trace를 연결
     3. `swiftsight canonical`을 generic registry에 흡수할 parameter map 초안 작성
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
@@ -213,7 +221,7 @@ One-line startup rule:
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
   - `174 files / 1108 tests` 통과
   - server coverage `80.38%`
-- 현재 다음 순차 작업은 `blueprint apply kickoff + swiftsight canonical absorption prep`
+- 현재 다음 순차 작업은 `Company Settings apply flow + swiftsight canonical absorption prep`
 
 ## Next Priorities
 
@@ -232,14 +240,13 @@ Interpretation:
 
 ## Recommended First Task Next Session
 
-Start with `Phase 5 blueprint apply kickoff + swiftsight canonical absorption prep`.
+Start with `Phase 5 Company Settings apply flow`.
 
 Suggested slice:
 
-1. `team blueprint apply` request/response contract를 추가한다
-2. `companies` route에 apply endpoint와 confirmation guard를 추가한다
-3. `Company Settings`가 preview 결과 위에서 apply를 호출하게 한다
-4. `swiftsight canonical`과 generic blueprint parameter map 연결 초안을 만든다
+1. `Company Settings`가 preview 결과 위에서 apply를 호출하게 한다
+2. apply 후 setup/doctor/agent/project invalidate와 success trace를 연결한다
+3. 마지막에 `swiftsight canonical`과 generic blueprint parameter map 연결 초안을 만든다
 
 ## Important Files
 
