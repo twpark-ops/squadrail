@@ -573,7 +573,7 @@ function assembleRevisionViews(input: {
   }));
 }
 
-function normalizeSimulationFiles(input: {
+export function normalizeSimulationFiles(input: {
   latestFiles: RolePackFile[];
   draftFiles?: RolePackSimulationRequest["draftFiles"];
 }) {
@@ -594,7 +594,7 @@ function listMarkdownBulletItems(content: string) {
     .map((line) => line.replace(/^-\s+/, "").trim());
 }
 
-function buildSimulationChecklist(roleKey: RolePackRoleKey, scenario: RolePackSimulationInput) {
+export function buildSimulationChecklist(roleKey: RolePackRoleKey, scenario: RolePackSimulationInput) {
   const shared = [
     `Confirm the protocol event ${scenario.messageType} while the task is in ${scenario.workflowState}.`,
     "Read the latest task brief and retrieval summary before choosing an action.",
@@ -648,7 +648,7 @@ function buildSimulationChecklist(roleKey: RolePackRoleKey, scenario: RolePackSi
   }
 }
 
-function buildSimulationSuggestions(roleKey: RolePackRoleKey, scenario: RolePackSimulationInput): RolePackSimulationSuggestion[] {
+export function buildSimulationSuggestions(roleKey: RolePackRoleKey, scenario: RolePackSimulationInput): RolePackSimulationSuggestion[] {
   if (roleKey === "cto") {
     if (scenario.workflowState === "backlog" || scenario.workflowState === "planning") {
       return [
@@ -793,7 +793,7 @@ function buildSimulationSuggestions(roleKey: RolePackRoleKey, scenario: RolePack
   ];
 }
 
-function buildSimulationRuntimePrompt(input: {
+export function buildSimulationRuntimePrompt(input: {
   roleKey: RolePackRoleKey;
   roleLabel?: string;
   scenario: RolePackSimulationInput;

@@ -105,12 +105,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function normalizePath(value: string | null | undefined) {
+export function normalizePath(value: string | null | undefined) {
   if (!value) return null;
   return value.replace(/\\/gu, "/").replace(/^\.\/+/u, "").trim() || null;
 }
 
-function isPersonalizablePathTarget(path: string | null | undefined) {
+export function isPersonalizablePathTarget(path: string | null | undefined) {
   const normalizedPath = normalizePath(path);
   if (!normalizedPath) return false;
   if (normalizedPath.startsWith("issues/")) return false;
@@ -135,7 +135,7 @@ function sortBoostMap(input: Record<string, number>, limit: number) {
   );
 }
 
-function normalizeBoost(input: {
+export function normalizeBoost(input: {
   targetType: "source_type" | "path" | "symbol";
   rawWeight: number;
 }) {
@@ -150,7 +150,7 @@ function normalizeBoost(input: {
   }
 }
 
-function mergeBoostMaps(input: {
+export function mergeBoostMaps(input: {
   global: Record<string, number>;
   project: Record<string, number>;
   targetType: "source_type" | "path" | "symbol";
@@ -170,7 +170,7 @@ function mergeBoostMaps(input: {
   return sortBoostMap(merged, MAX_PROFILE_KEYS[input.targetType]);
 }
 
-function parseRoleProfileJson(value: unknown): RetrievalRoleProfileJson {
+export function parseRoleProfileJson(value: unknown): RetrievalRoleProfileJson {
   const record = asRecord(value);
   const stats = asRecord(record.stats);
   return {
@@ -351,7 +351,7 @@ export function computeRetrievalPersonalizationBoost(input: {
   };
 }
 
-function describeProtocolFeedback(message: CreateIssueProtocolMessage): RetrievalFeedbackDescriptor | null {
+export function describeProtocolFeedback(message: CreateIssueProtocolMessage): RetrievalFeedbackDescriptor | null {
   switch (message.messageType) {
     case "REQUEST_CHANGES":
       return { feedbackType: "request_changes", baseWeight: -1 };
@@ -369,13 +369,13 @@ function describeProtocolFeedback(message: CreateIssueProtocolMessage): Retrieva
   }
 }
 
-function describeManualFeedback(feedbackType: "operator_pin" | "operator_hide"): RetrievalFeedbackDescriptor {
+export function describeManualFeedback(feedbackType: "operator_pin" | "operator_hide"): RetrievalFeedbackDescriptor {
   return feedbackType === "operator_pin"
     ? { feedbackType, baseWeight: 1.05 }
     : { feedbackType, baseWeight: -0.9 };
 }
 
-function describeMergeOutcomeFeedback(
+export function describeMergeOutcomeFeedback(
   outcome: "merge_completed" | "merge_rejected",
 ): RetrievalFeedbackDescriptor {
   return outcome === "merge_completed"
@@ -383,7 +383,7 @@ function describeMergeOutcomeFeedback(
     : { feedbackType: outcome, baseWeight: -1.05 };
 }
 
-function fallbackBriefScopes(input: {
+export function fallbackBriefScopes(input: {
   senderRole: string;
   messageType: CreateIssueProtocolMessage["messageType"];
 }) {
@@ -403,7 +403,7 @@ function fallbackBriefScopes(input: {
   return Array.from(new Set(scopes));
 }
 
-function buildFeedbackEvents(input: {
+export function buildFeedbackEvents(input: {
   companyId: string;
   projectId: string | null;
   issueId: string | null;
@@ -497,7 +497,7 @@ function buildFeedbackEvents(input: {
   return events;
 }
 
-function buildDirectTargetFeedbackEvents(input: {
+export function buildDirectTargetFeedbackEvents(input: {
   companyId: string;
   projectId: string | null;
   issueId: string | null;

@@ -169,7 +169,7 @@ exec "$REAL_BINARY" "$@"
 async function ensureProtocolTransportGuardDir() {
   if (!protocolTransportGuardDirPromise) {
     protocolTransportGuardDirPromise = (async () => {
-      const guardDir = path.join(os.tmpdir(), "squadrail-protocol-guard-bin");
+      const guardDir = path.join(os.tmpdir(), "squadrail-protocol-guard-bin", String(process.pid));
       const helperPath = await resolveProtocolHelperPath(
         process.env[SQUADRAIL_PROTOCOL_HELPER_ENV_VAR] ?? null,
       );

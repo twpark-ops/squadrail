@@ -46,7 +46,7 @@ function tokenHashesMatch(left: string, right: string) {
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
-function requestBaseUrl(req: Request) {
+export function requestBaseUrl(req: Request) {
   const forwardedProto = req.header("x-forwarded-proto");
   const proto = forwardedProto?.split(",")[0]?.trim() || req.protocol || "http";
   const host = req.header("x-forwarded-host")?.split(",")[0]?.trim() || req.header("host");
@@ -97,12 +97,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isLoopbackHost(hostname: string): boolean {
+export function isLoopbackHost(hostname: string): boolean {
   const value = hostname.trim().toLowerCase();
   return value === "localhost" || value === "127.0.0.1" || value === "::1";
 }
 
-function normalizeHostname(value: string | null | undefined): string | null {
+export function normalizeHostname(value: string | null | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -115,7 +115,7 @@ function normalizeHostname(value: string | null | undefined): string | null {
   return trimmed.toLowerCase();
 }
 
-function normalizeHeaderMap(input: unknown): Record<string, string> | undefined {
+export function normalizeHeaderMap(input: unknown): Record<string, string> | undefined {
   if (!isPlainObject(input)) return undefined;
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(input)) {
@@ -128,7 +128,7 @@ function normalizeHeaderMap(input: unknown): Record<string, string> | undefined 
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function buildJoinConnectivityDiagnostics(input: {
+export function buildJoinConnectivityDiagnostics(input: {
   deploymentMode: DeploymentMode;
   deploymentExposure: DeploymentExposure;
   bindHost: string;
@@ -194,7 +194,7 @@ function buildJoinConnectivityDiagnostics(input: {
   return diagnostics;
 }
 
-function normalizeAgentDefaultsForJoin(input: {
+export function normalizeAgentDefaultsForJoin(input: {
   adapterType: string | null;
   defaultsPayload: unknown;
   deploymentMode: DeploymentMode;
@@ -298,7 +298,7 @@ function normalizeAgentDefaultsForJoin(input: {
   return { normalized, diagnostics };
 }
 
-function toInviteSummaryResponse(req: Request, token: string, invite: typeof invites.$inferSelect) {
+export function toInviteSummaryResponse(req: Request, token: string, invite: typeof invites.$inferSelect) {
   const baseUrl = requestBaseUrl(req);
   const onboardingPath = `/api/invites/${token}/onboarding`;
   const onboardingTextPath = `/api/invites/${token}/onboarding.txt`;
@@ -317,7 +317,7 @@ function toInviteSummaryResponse(req: Request, token: string, invite: typeof inv
   };
 }
 
-function buildOnboardingDiscoveryDiagnostics(input: {
+export function buildOnboardingDiscoveryDiagnostics(input: {
   apiBaseUrl: string;
   deploymentMode: DeploymentMode;
   deploymentExposure: DeploymentExposure;
@@ -383,7 +383,7 @@ function buildOnboardingDiscoveryDiagnostics(input: {
   return diagnostics;
 }
 
-function buildInviteOnboardingManifest(
+export function buildInviteOnboardingManifest(
   req: Request,
   token: string,
   invite: typeof invites.$inferSelect,
@@ -592,7 +592,7 @@ async function resolveActorEmail(db: Db, req: Request): Promise<string | null> {
   return user?.email ?? null;
 }
 
-function grantsFromDefaults(
+export function grantsFromDefaults(
   defaultsPayload: Record<string, unknown> | null | undefined,
   key: "human" | "agent",
 ): Array<{ permissionKey: (typeof PERMISSION_KEYS)[number]; scope: Record<string, unknown> | null }> {

@@ -2,6 +2,21 @@
 
 작성일: 2026-03-12
 
+## 2026-03-13 server coverage 60% threshold 달성
+
+- `13-P coverage threshold push`: **완료**
+  - `access.ts` helper export/test, `retrieval-personalization.ts` feedback helper test, `organizational-memory-ingest.ts` protocol artifact variant test를 추가했다.
+  - `board-claim.ts`, `issue-merge-candidates.ts`, `issue-approvals.ts`, `goals.ts`, `sidebar-badges.ts` direct service test를 추가했다.
+  - `issues` 하위 route shell인 `approvals-routes.ts`, `attachments-routes.ts`, `protocol-read-routes.ts`를 direct route test로 닫았다.
+  - `agents-routes.test.ts` fixture contract mismatch(`tech_lead`)를 route validator에 맞게 정리했다.
+- 이번 라운드 검증:
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 server coverage: statements/lines `60.11%`, branches `61.09%`, functions `80.63%`
+  - 최신 server tests: `130 files / 855 tests` 통과
+  - immediate next는 `heartbeat / issue-retrieval / knowledge runtime bottleneck hardening after threshold`다.
+
 ## 2026-03-13 runtime/protocol coverage uplift 7차 업데이트
 
 - `13-O runtime/protocol coverage uplift batch 7`: **완료**

@@ -125,7 +125,7 @@ function uniqueSlug(base: string, used: Set<string>) {
   }
 }
 
-function uniqueNameBySlug(baseName: string, existingSlugs: Set<string>) {
+export function uniqueNameBySlug(baseName: string, existingSlugs: Set<string>) {
   const baseSlug = normalizeAgentUrlKey(baseName) ?? "agent";
   if (!existingSlugs.has(baseSlug)) return baseName;
   let idx = 2;
@@ -141,7 +141,7 @@ function toSafeProjectSlug(input: string, fallback: string) {
   return normalizeProjectUrlKey(input) ?? fallback;
 }
 
-function uniqueProjectNameBySlug(baseName: string, existingSlugs: Set<string>) {
+export function uniqueProjectNameBySlug(baseName: string, existingSlugs: Set<string>) {
   const baseSlug = normalizeProjectUrlKey(baseName) ?? "project";
   if (!existingSlugs.has(baseSlug)) return baseName;
   let idx = 2;
@@ -153,7 +153,7 @@ function uniqueProjectNameBySlug(baseName: string, existingSlugs: Set<string>) {
   }
 }
 
-function normalizeInclude(input?: Partial<CompanyPortabilityInclude>): CompanyPortabilityInclude {
+export function normalizeInclude(input?: Partial<CompanyPortabilityInclude>): CompanyPortabilityInclude {
   return {
     company: input?.company ?? DEFAULT_INCLUDE.company,
     projects: input?.projects ?? DEFAULT_INCLUDE.projects,
@@ -161,7 +161,7 @@ function normalizeInclude(input?: Partial<CompanyPortabilityInclude>): CompanyPo
   };
 }
 
-function ensureMarkdownPath(pathValue: string) {
+export function ensureMarkdownPath(pathValue: string) {
   const normalized = pathValue.replace(/\\/g, "/");
   if (!normalized.endsWith(".md")) {
     throw unprocessable(`Manifest file path must end in .md: ${pathValue}`);
@@ -169,7 +169,7 @@ function ensureMarkdownPath(pathValue: string) {
   return normalized;
 }
 
-function normalizePortableEnv(
+export function normalizePortableEnv(
   agentSlug: string,
   envValue: unknown,
   requiredSecrets: CompanyPortabilityManifest["requiredSecrets"],
@@ -193,7 +193,7 @@ function normalizePortableEnv(
   return next;
 }
 
-function normalizePortableConfig(
+export function normalizePortableConfig(
   value: unknown,
   agentSlug: string,
   requiredSecrets: CompanyPortabilityManifest["requiredSecrets"],
@@ -222,7 +222,7 @@ function isPathDefault(pathSegments: string[], value: unknown, rules: Array<{ pa
   return rules.some((rule) => jsonEqual(rule.path, pathSegments) && jsonEqual(rule.value, value));
 }
 
-function pruneDefaultLikeValue(
+export function pruneDefaultLikeValue(
   value: unknown,
   opts: {
     dropFalseBooleans: boolean;
@@ -314,7 +314,7 @@ function renderYamlBlock(value: unknown, indentLevel: number): string[] {
   return [`${indent}${renderYamlScalar(value)}`];
 }
 
-function renderFrontmatter(frontmatter: Record<string, unknown>) {
+export function renderFrontmatter(frontmatter: Record<string, unknown>) {
   const lines: string[] = ["---"];
   for (const [key, value] of Object.entries(frontmatter)) {
     const scalar =
@@ -335,7 +335,7 @@ function renderFrontmatter(frontmatter: Record<string, unknown>) {
   return `${lines.join("\n")}\n`;
 }
 
-function buildMarkdown(frontmatter: Record<string, unknown>, body: string) {
+export function buildMarkdown(frontmatter: Record<string, unknown>, body: string) {
   const cleanBody = body.replace(/\r\n/g, "\n").trim();
   if (!cleanBody) {
     return `${renderFrontmatter(frontmatter)}\n`;
@@ -343,7 +343,7 @@ function buildMarkdown(frontmatter: Record<string, unknown>, body: string) {
   return `${renderFrontmatter(frontmatter)}\n${cleanBody}\n`;
 }
 
-function renderCompanyAgentsSection(agentSummaries: Array<{ slug: string; name: string }>) {
+export function renderCompanyAgentsSection(agentSummaries: Array<{ slug: string; name: string }>) {
   const lines = ["# Agents", ""];
   if (agentSummaries.length === 0) {
     lines.push("- _none_");
@@ -355,7 +355,7 @@ function renderCompanyAgentsSection(agentSummaries: Array<{ slug: string; name: 
   return lines.join("\n");
 }
 
-function parseFrontmatterMarkdown(raw: string): MarkdownDoc {
+export function parseFrontmatterMarkdown(raw: string): MarkdownDoc {
   const normalized = raw.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("---\n")) {
     return { frontmatter: {}, body: normalized.trim() };
@@ -411,7 +411,7 @@ async function fetchText(url: string) {
   return response.text();
 }
 
-function dedupeRequiredSecrets(values: CompanyPortabilityManifest["requiredSecrets"]) {
+export function dedupeRequiredSecrets(values: CompanyPortabilityManifest["requiredSecrets"]) {
   const seen = new Set<string>();
   const out: CompanyPortabilityManifest["requiredSecrets"] = [];
   for (const value of values) {
@@ -423,7 +423,7 @@ function dedupeRequiredSecrets(values: CompanyPortabilityManifest["requiredSecre
   return out;
 }
 
-function parseGitHubTreeUrl(rawUrl: string) {
+export function parseGitHubTreeUrl(rawUrl: string) {
   const url = new URL(rawUrl);
   if (url.hostname !== "github.com") {
     throw unprocessable("GitHub source must use github.com URL");
@@ -443,12 +443,12 @@ function parseGitHubTreeUrl(rawUrl: string) {
   return { owner, repo, ref, basePath };
 }
 
-function resolveRawGitHubUrl(owner: string, repo: string, ref: string, filePath: string) {
+export function resolveRawGitHubUrl(owner: string, repo: string, ref: string, filePath: string) {
   const normalizedFilePath = filePath.replace(/^\/+/, "");
   return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${normalizedFilePath}`;
 }
 
-async function readAgentInstructions(agent: AgentLike): Promise<{ body: string; warning: string | null }> {
+export async function readAgentInstructions(agent: AgentLike): Promise<{ body: string; warning: string | null }> {
   const config = agent.adapterConfig as Record<string, unknown>;
   const instructionsFilePath = asString(config.instructionsFilePath);
   if (instructionsFilePath) {

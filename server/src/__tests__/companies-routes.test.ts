@@ -3,6 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockEnsureMembership,
   mockCompanyCreate,
+  mockCompanyList,
+  mockCompanyStats,
+  mockCompanyGetById,
+  mockCompanyUpdate,
+  mockCompanyArchive,
+  mockCompanyRemove,
+  mockPortabilityExportBundle,
+  mockPortabilityPreviewImport,
+  mockPortabilityImportBundle,
   mockSetupGetView,
   mockSetupUpdate,
   mockWorkflowTemplatesGetView,
@@ -30,6 +39,15 @@ const {
 } = vi.hoisted(() => ({
   mockEnsureMembership: vi.fn(),
   mockCompanyCreate: vi.fn(),
+  mockCompanyList: vi.fn(),
+  mockCompanyStats: vi.fn(),
+  mockCompanyGetById: vi.fn(),
+  mockCompanyUpdate: vi.fn(),
+  mockCompanyArchive: vi.fn(),
+  mockCompanyRemove: vi.fn(),
+  mockPortabilityExportBundle: vi.fn(),
+  mockPortabilityPreviewImport: vi.fn(),
+  mockPortabilityImportBundle: vi.fn(),
   mockSetupGetView: vi.fn(),
   mockSetupUpdate: vi.fn(),
   mockWorkflowTemplatesGetView: vi.fn(),
@@ -61,18 +79,18 @@ vi.mock("../services/index.js", () => ({
     ensureMembership: mockEnsureMembership,
   }),
   companyPortabilityService: () => ({
-    exportBundle: vi.fn(),
-    previewImport: vi.fn(),
-    importBundle: vi.fn(),
+    exportBundle: mockPortabilityExportBundle,
+    previewImport: mockPortabilityPreviewImport,
+    importBundle: mockPortabilityImportBundle,
   }),
   companyService: () => ({
     create: mockCompanyCreate,
-    list: vi.fn(),
-    stats: vi.fn(),
-    getById: vi.fn(),
-    update: vi.fn(),
-    archive: vi.fn(),
-    remove: vi.fn(),
+    list: mockCompanyList,
+    stats: mockCompanyStats,
+    getById: mockCompanyGetById,
+    update: mockCompanyUpdate,
+    archive: mockCompanyArchive,
+    remove: mockCompanyRemove,
   }),
   doctorService: () => ({
     run: mockDoctorRun,
@@ -144,7 +162,7 @@ function createTestRouter() {
   }) as any;
 }
 
-function findRouteLayer(router: any, path: string, method: "get" | "post" | "patch") {
+function findRouteLayer(router: any, path: string, method: "get" | "post" | "patch" | "delete") {
   const layer = router.stack.find(
     (entry: any) => entry.route?.path === path && entry.route?.methods?.[method] === true,
   );
@@ -156,7 +174,7 @@ function findRouteLayer(router: any, path: string, method: "get" | "post" | "pat
 
 async function invokeRoute(input: {
   path: string;
-  method: "get" | "post" | "patch";
+  method: "get" | "post" | "patch" | "delete";
   params?: Record<string, string>;
   body?: unknown;
   query?: Record<string, unknown>;
@@ -1288,5 +1306,234 @@ describe("company routes", () => {
     expect(mockSetupUpdate).toHaveBeenCalledWith("company-2", {
       status: "company_ready",
     });
+  });
+
+  it("lists and filters companies and stats for non-admin board actors", async () => {
+    mockCompanyList.mockResolvedValue([
+      { id: "company-1", name: "Alpha" },
+      { id: "company-2", name: "Beta" },
+    ]);
+    mockCompanyStats.mockResolvedValue({
+      "company-1": { issueCount: 10 },
+      "company-2": { issueCount: 20 },
+    });
+
+    const actor = {
+      ...buildBoardActor(["company-1"]),
+      source: "session" as const,
+      isInstanceAdmin: false,
+    };
+
+    const listed = await invokeRoute({
+      path: "/",
+      method: "get",
+      actor,
+    });
+    const stats = await invokeRoute({
+      path: "/stats",
+      method: "get",
+      actor,
+    });
+
+    expect(listed.statusCode).toBe(200);
+    expect(listed.body).toEqual([{ id: "company-1", name: "Alpha" }]);
+    expect(stats.statusCode).toBe(200);
+    expect(stats.body).toEqual({
+      "company-1": { issueCount: 10 },
+    });
+  });
+
+  it("serves company detail, update, archive, and delete flows", async () => {
+    mockCompanyGetById.mockResolvedValueOnce({
+      id: "company-1",
+      name: "Alpha",
+    }).mockResolvedValueOnce(null);
+    mockCompanyUpdate.mockResolvedValue({
+      id: "company-1",
+      name: "Alpha Prime",
+    });
+    mockCompanyArchive.mockResolvedValue({
+      id: "company-1",
+      archivedAt: "2026-03-13T01:00:00.000Z",
+    });
+    mockCompanyRemove.mockResolvedValue({
+      id: "company-1",
+    });
+
+    const detail = await invokeRoute({
+      path: "/:companyId",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+    const missing = await invokeRoute({
+      path: "/:companyId",
+      method: "get",
+      params: { companyId: "company-404" },
+    });
+    const updated = await invokeRoute({
+      path: "/:companyId",
+      method: "patch",
+      params: { companyId: "company-1" },
+      body: { name: "Alpha Prime" },
+    });
+    const archived = await invokeRoute({
+      path: "/:companyId/archive",
+      method: "post",
+      params: { companyId: "company-1" },
+    });
+    const removed = await invokeRoute({
+      path: "/:companyId",
+      method: "delete",
+      params: { companyId: "company-1" },
+    });
+
+    expect(detail.statusCode).toBe(200);
+    expect(detail.body).toEqual({ id: "company-1", name: "Alpha" });
+    expect(missing.statusCode).toBe(404);
+    expect(updated.statusCode).toBe(200);
+    expect(updated.body).toEqual({ id: "company-1", name: "Alpha Prime" });
+    expect(archived.statusCode).toBe(200);
+    expect(removed.statusCode).toBe(200);
+    expect(removed.body).toEqual({ ok: true });
+  });
+
+  it("runs doctor validation and portability export/preview/import routes", async () => {
+    mockDoctorRun.mockResolvedValue({
+      companyId: "company-1",
+      status: "ok",
+    });
+    mockPortabilityExportBundle.mockResolvedValue({
+      manifest: { schemaVersion: 1 },
+      files: { "COMPANY.md": "# Company" },
+      warnings: [],
+    });
+    mockPortabilityPreviewImport.mockResolvedValue({
+      include: { company: true, projects: false, agents: false },
+      targetCompanyId: null,
+      targetCompanyName: "Imported Company",
+      collisionStrategy: "rename",
+      selectedProjectSlugs: [],
+      selectedAgentSlugs: [],
+      plan: {
+        companyAction: "create",
+        projectPlans: [],
+        agentPlans: [],
+      },
+      requiredSecrets: [],
+      warnings: [],
+      errors: [],
+    });
+    mockPortabilityImportBundle.mockResolvedValue({
+      company: { id: "company-imported", name: "Imported Company", action: "created" },
+      projects: [],
+      agents: [],
+      warnings: [],
+    });
+
+    const badDoctor = await invokeRoute({
+      path: "/:companyId/doctor",
+      method: "get",
+      params: { companyId: "company-1" },
+      query: { workspaceId: "not-a-uuid" },
+    });
+    const goodDoctor = await invokeRoute({
+      path: "/:companyId/doctor",
+      method: "get",
+      params: { companyId: "company-1" },
+      query: { deep: "true", workspaceId: "11111111-1111-4111-8111-111111111111" },
+    });
+    const exported = await invokeRoute({
+      path: "/:companyId/export",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: { include: { company: true, projects: false, agents: false } },
+    });
+    const preview = await invokeRoute({
+      path: "/import/preview",
+      method: "post",
+      body: {
+        include: { company: true, projects: false, agents: false },
+        target: {
+          mode: "new_company",
+          newCompanyName: "Imported Company",
+        },
+        source: {
+          type: "inline",
+          manifest: {
+            schemaVersion: 1,
+            generatedAt: "2026-03-13T00:00:00.000Z",
+            source: {
+              companyId: "11111111-1111-4111-8111-111111111111",
+              companyName: "Source Co",
+            },
+            includes: { company: true, projects: false, agents: false },
+            company: {
+              path: "COMPANY.md",
+              name: "Source Co",
+              description: null,
+              brandColor: null,
+              requireBoardApprovalForNewAgents: false,
+            },
+            projects: [],
+            agents: [],
+            requiredSecrets: [],
+          },
+          files: {
+            "COMPANY.md": "---\nkind: company\n---\n\n# Source Co\n",
+          },
+        },
+      },
+    });
+    const imported = await invokeRoute({
+      path: "/import",
+      method: "post",
+      body: {
+        include: { company: true, projects: false, agents: false },
+        target: {
+          mode: "new_company",
+          newCompanyName: "Imported Company",
+        },
+        source: {
+          type: "inline",
+          manifest: {
+            schemaVersion: 1,
+            generatedAt: "2026-03-13T00:00:00.000Z",
+            source: {
+              companyId: "11111111-1111-4111-8111-111111111111",
+              companyName: "Source Co",
+            },
+            includes: { company: true, projects: false, agents: false },
+            company: {
+              path: "COMPANY.md",
+              name: "Source Co",
+              description: null,
+              brandColor: null,
+              requireBoardApprovalForNewAgents: false,
+            },
+            projects: [],
+            agents: [],
+            requiredSecrets: [],
+          },
+          files: {
+            "COMPANY.md": "---\nkind: company\n---\n\n# Source Co\n",
+          },
+        },
+      },
+    });
+
+    expect(badDoctor.statusCode).toBe(400);
+    expect(goodDoctor.statusCode).toBe(200);
+    expect(mockDoctorRun).toHaveBeenCalledWith({
+      companyId: "company-1",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      deep: true,
+    });
+    expect(exported.statusCode).toBe(200);
+    expect(preview.statusCode).toBe(200);
+    expect(imported.statusCode).toBe(200);
+    expect(mockPortabilityExportBundle).toHaveBeenCalledWith("company-1", {
+      include: { company: true, projects: false, agents: false },
+    });
+    expect(mockPortabilityImportBundle).toHaveBeenCalled();
   });
 });

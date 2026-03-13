@@ -74,7 +74,7 @@ async function attachGoals(db: Db, rows: ProjectRow[]): Promise<ProjectWithGoals
   });
 }
 
-function toWorkspace(row: ProjectWorkspaceRow): ProjectWorkspace {
+export function toWorkspace(row: ProjectWorkspaceRow): ProjectWorkspace {
   const metadata = (row.metadata as Record<string, unknown> | null) ?? null;
   return {
     id: row.id,
@@ -92,7 +92,7 @@ function toWorkspace(row: ProjectWorkspaceRow): ProjectWorkspace {
   };
 }
 
-function pickPrimaryWorkspace(rows: ProjectWorkspaceRow[]): ProjectWorkspace | null {
+export function pickPrimaryWorkspace(rows: ProjectWorkspaceRow[]): ProjectWorkspace | null {
   if (rows.length === 0) return null;
   const explicitPrimary = rows.find((row) => row.isPrimary);
   return toWorkspace(explicitPrimary ?? rows[0]);
@@ -144,7 +144,7 @@ async function syncGoalLinks(db: Db, projectId: string, companyId: string, goalI
 }
 
 /** Resolve goalIds from input, handling the legacy goalId field. */
-function resolveGoalIds(data: { goalIds?: string[]; goalId?: string | null }): string[] | undefined {
+export function resolveGoalIds(data: { goalIds?: string[]; goalId?: string | null }): string[] | undefined {
   if (data.goalIds !== undefined) return data.goalIds;
   if (data.goalId !== undefined) {
     return data.goalId ? [data.goalId] : [];
@@ -158,19 +158,19 @@ function readNonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeWorkspaceCwd(value: unknown): string | null {
+export function normalizeWorkspaceCwd(value: unknown): string | null {
   const cwd = readNonEmptyString(value);
   if (!cwd) return null;
   return REPO_ONLY_CWD_SENTINELS.has(cwd) ? null : cwd;
 }
 
-function deriveNameFromCwd(cwd: string): string {
+export function deriveNameFromCwd(cwd: string): string {
   const normalized = cwd.replace(/[\\/]+$/, "");
   const segments = normalized.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] ?? "Local folder";
 }
 
-function deriveNameFromRepoUrl(repoUrl: string): string {
+export function deriveNameFromRepoUrl(repoUrl: string): string {
   try {
     const url = new URL(repoUrl);
     const cleanedPath = url.pathname.replace(/\/+$/, "");
@@ -182,7 +182,7 @@ function deriveNameFromRepoUrl(repoUrl: string): string {
   }
 }
 
-function deriveWorkspaceName(input: {
+export function deriveWorkspaceName(input: {
   name?: string | null;
   cwd?: string | null;
   repoUrl?: string | null;

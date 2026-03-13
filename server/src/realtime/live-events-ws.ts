@@ -50,17 +50,17 @@ interface IncomingMessageWithContext extends IncomingMessage {
   squadrailUpgradeContext?: UpgradeContext;
 }
 
-function hashToken(token: string) {
+export function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function rejectUpgrade(socket: Duplex, statusLine: string, message: string) {
+export function rejectUpgrade(socket: Duplex, statusLine: string, message: string) {
   const safe = message.replace(/[\r\n]+/g, " ").trim();
   socket.write(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n${safe}`);
   socket.destroy();
 }
 
-function parseCompanyId(pathname: string) {
+export function parseCompanyId(pathname: string) {
   const match = pathname.match(/^\/api\/companies\/([^/]+)\/events\/ws$/);
   if (!match) return null;
 
@@ -71,7 +71,7 @@ function parseCompanyId(pathname: string) {
   }
 }
 
-function parseBearerToken(rawAuth: string | string[] | undefined) {
+export function parseBearerToken(rawAuth: string | string[] | undefined) {
   const auth = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth;
   if (!auth) return null;
   if (!auth.toLowerCase().startsWith("bearer ")) return null;
@@ -79,7 +79,7 @@ function parseBearerToken(rawAuth: string | string[] | undefined) {
   return token.length > 0 ? token : null;
 }
 
-function headersFromIncomingMessage(req: IncomingMessage): Headers {
+export function headersFromIncomingMessage(req: IncomingMessage): Headers {
   const headers = new Headers();
   for (const [key, raw] of Object.entries(req.headers)) {
     if (!raw) continue;
@@ -92,7 +92,7 @@ function headersFromIncomingMessage(req: IncomingMessage): Headers {
   return headers;
 }
 
-async function authorizeUpgrade(
+export async function authorizeUpgrade(
   db: Db,
   req: IncomingMessage,
   companyId: string,

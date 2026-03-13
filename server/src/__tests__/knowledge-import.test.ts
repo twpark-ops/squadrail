@@ -222,6 +222,118 @@ describe("knowledge import helpers", () => {
     ]);
   });
 
+  it("extracts semantic symbols for ruby and multiple brace languages", () => {
+    const rubySymbols = extractSemanticTopLevelSymbols({
+      relativePath: "app/services/retry_worker.rb",
+      language: "ruby",
+      content: [
+        "class RetryWorker",
+        "end",
+        "",
+        "def perform",
+        "  true",
+        "end",
+      ].join("\n"),
+    });
+    expect(rubySymbols).toMatchObject([
+      {
+        symbolName: "RetryWorker",
+        symbolKind: "class",
+        parser: "semantic_ruby",
+      },
+      {
+        symbolName: "perform",
+        symbolKind: "def",
+        parser: "semantic_ruby",
+      },
+    ]);
+
+    const rustSymbols = extractSemanticTopLevelSymbols({
+      relativePath: "src/lib.rs",
+      language: "rust",
+      content: [
+        "pub struct RetryWorker {",
+        "  attempts: u32,",
+        "}",
+        "",
+        "pub fn run_job() {}",
+      ].join("\n"),
+    });
+    expect(rustSymbols).toMatchObject([
+      {
+        symbolName: "RetryWorker",
+        symbolKind: "struct",
+        parser: "semantic_rust",
+      },
+      {
+        symbolName: "run_job",
+        symbolKind: "function",
+        parser: "semantic_rust",
+      },
+    ]);
+
+    const javaSymbols = extractSemanticTopLevelSymbols({
+      relativePath: "src/RetryWorker.java",
+      language: "java",
+      content: "public class RetryWorker { }\n",
+    });
+    expect(javaSymbols).toMatchObject([
+      {
+        symbolName: "RetryWorker",
+        symbolKind: "class",
+        parser: "semantic_java",
+      },
+    ]);
+
+    const swiftSymbols = extractSemanticTopLevelSymbols({
+      relativePath: "Sources/RetryWorker.swift",
+      language: "swift",
+      content: "public actor RetryWorker {}\n",
+    });
+    expect(swiftSymbols).toMatchObject([
+      {
+        symbolName: "RetryWorker",
+        symbolKind: "actor",
+        parser: "semantic_swift",
+      },
+    ]);
+
+    const phpSymbols = extractSemanticTopLevelSymbols({
+      relativePath: "src/RetryWorker.php",
+      language: "php",
+      content: "class RetryWorker {}\nfunction run_job() {}\n",
+    });
+    expect(phpSymbols).toMatchObject([
+      {
+        symbolName: "RetryWorker",
+        symbolKind: "class",
+        parser: "semantic_php",
+      },
+      {
+        symbolName: "run_job",
+        symbolKind: "function",
+        parser: "semantic_php",
+      },
+    ]);
+
+    const shellSymbols = extractSemanticTopLevelSymbols({
+      relativePath: "scripts/retry.sh",
+      language: "shell",
+      content: [
+        "retry_job() {",
+        "  echo retry",
+        "}",
+      ].join("\n"),
+    });
+    expect(shellSymbols).toMatchObject([
+      {
+        symbolName: "retry_job",
+        symbolKind: "function",
+        parser: "semantic_shell",
+      },
+    ]);
+  });
+
   it("chunks workspace files with overlap and symbol hints", () => {
     const content = [
       "export function alpha() {",
@@ -427,6 +539,16 @@ describe("knowledge import helpers", () => {
         content: "export const ok = true;",
       }),
     ).toBeNull();
+
+    expect(
+      detectWorkspaceSecret({
+        relativePath: ".env.production",
+        content: "SAFE=true",
+      }),
+    ).toMatchObject({
+      reason: "sensitive_file_name",
+      pattern: ".env.production",
+    });
   });
 
   it("rejects workspace roots outside the configured allowlist", async () => {
@@ -440,6 +562,163 @@ describe("knowledge import helpers", () => {
       cwd: "/tmp",
       allowedRoots: ["/var"],
     })).rejects.toThrow("outside allowed workspace roots");
+  });
+
+  it("rejects non-absolute roots and file paths when resolving workspace import roots", async () => {
+    await expect(resolveWorkspaceImportRoot({
+      cwd: "relative/path",
+      allowedRoots: ["/tmp"],
+    })).rejects.toThrow("absolute path");
+
+    const fixtureRoot = await mkdtemp(path.join(tmpdir(), "knowledge-import-root-"));
+    const fixtureFile = path.join(fixtureRoot, "README.md");
+    try {
+      await writeFile(fixtureFile, "# readme\n");
+      await expect(resolveWorkspaceImportRoot({
+        cwd: fixtureFile,
+        allowedRoots: [fixtureRoot],
+      })).rejects.toThrow("resolve to a directory");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts semantic top-level symbols for additional brace and ruby languages", () => {
+    expect(extractSemanticTopLevelSymbols({
+      relativePath: "src/worker.rs",
+      language: "rust",
+      content: [
+        "pub struct RetryWorker {",
+        "  attempts: i32,",
+        "}",
+        "",
+        "pub fn run_job() {}",
+      ].join("\n"),
+    })).toMatchObject([
+      {
+        symbolName: "RetryWorker",
+        symbolKind: "struct",
+        parser: "semantic_rust",
+      },
+      {
+        symbolName: "run_job",
+        symbolKind: "function",
+        parser: "semantic_rust",
+      },
+    ]);
+
+    expect(extractSemanticTopLevelSymbols({
+      relativePath: "src/worker.rb",
+      language: "ruby",
+      content: [
+        "class RetryWorker",
+        "end",
+        "",
+        "def run_job",
+        "end",
+      ].join("\n"),
+    })).toMatchObject([
+      {
+        symbolName: "RetryWorker",
+        symbolKind: "class",
+        parser: "semantic_ruby",
+      },
+      {
+        symbolName: "run_job",
+        symbolKind: "def",
+        parser: "semantic_ruby",
+      },
+    ]);
+
+    expect(extractSemanticTopLevelSymbols({
+      relativePath: "src/worker.sh",
+      language: "shell",
+      content: [
+        "deploy_app() {",
+        "  echo ok",
+        "}",
+      ].join("\n"),
+    })).toMatchObject([
+      {
+        symbolName: "deploy_app",
+        symbolKind: "function",
+        parser: "semantic_shell",
+      },
+    ]);
+  });
+
+  it("falls back to full import when changed paths cover the full workspace or none of it", () => {
+    expect(selectWorkspaceImportPlan({
+      allRelativePaths: ["src/a.ts", "src/b.ts"],
+      changedRelativePaths: ["src/a.ts", "src/b.ts"],
+      maxFiles: 10,
+    })).toEqual({
+      importMode: "full",
+      selectedRelativePaths: ["src/a.ts", "src/b.ts"],
+      changedPathCount: 2,
+    });
+
+    expect(selectWorkspaceImportPlan({
+      allRelativePaths: ["src/a.ts", "src/b.ts"],
+      changedRelativePaths: ["docs/readme.md"],
+      maxFiles: 10,
+    })).toEqual({
+      importMode: "incremental",
+      selectedRelativePaths: [],
+      changedPathCount: 1,
+    });
+  });
+
+  it("builds import edges for python modules and uses line windows for plain text formats", () => {
+    const pythonContent = [
+      "from .retry_worker import run_job",
+      "",
+      "def controller():",
+      "    return run_job()",
+    ].join("\n");
+    const pythonChunks = chunkWorkspaceFile({
+      relativePath: "src/controller.py",
+      content: pythonContent,
+      language: "python",
+    });
+    const pythonGraph = buildCodeGraphForWorkspaceFile({
+      relativePath: "src/controller.py",
+      content: pythonContent,
+      language: "python",
+      chunks: pythonChunks,
+    });
+
+    expect(pythonGraph?.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        edgeType: "imports",
+        targetSymbolName: "run_job",
+        targetPath: "src/retry_worker.py",
+      }),
+    ]));
+
+    const jsonChunks = chunkWorkspaceFile({
+      relativePath: "config/runtime.json",
+      content: JSON.stringify({
+        service: "runtime",
+        enabled: true,
+        pipeline: {
+          steps: ["fetch", "plan", "build", "verify", "release"],
+          retries: 3,
+          notifications: {
+            slack: true,
+            email: false,
+          },
+        },
+      }, null, 2),
+      language: "json",
+      maxLines: 2,
+      overlapLines: 1,
+    });
+    expect(jsonChunks.length).toBeGreaterThan(0);
+    expect(jsonChunks[0]?.metadata).toMatchObject({
+      language: "json",
+      lineStart: 1,
+    });
   });
 
   it("walks past lexicographic docs noise and keeps source files in the top import set", async () => {

@@ -1,6 +1,33 @@
-import { issueProtocolViolations } from "@squadrail/db";
-import { describe, expect, it } from "vitest";
+import {
+  issueComments,
+  issueProtocolMessages,
+  issueProtocolRecipients,
+  issueProtocolState,
+  issueProtocolThreads,
+  issueProtocolViolations,
+  issueReviewCycles,
+  issues,
+} from "@squadrail/db";
+import { describe, expect, it, vi } from "vitest";
 import { issueProtocolService } from "../services/issue-protocol.js";
+
+vi.mock("../services/issue-dependency-graph.js", () => ({
+  resolveIssueDependencyGraphMetadata: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../services/issue-protocol-policy.js", () => ({
+  evaluateProtocolEvidenceRequirement: vi.fn().mockReturnValue(null),
+}));
+
+vi.mock("../services/failure-learning.js", () => ({
+  summarizeIssueFailureLearning: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../services/merge-candidate-gates.js", () => ({
+  buildMergeCandidateGateStatus: vi.fn().mockReturnValue(null),
+  buildMergeCandidatePrBridge: vi.fn().mockReturnValue(null),
+  mergeCandidateRequiresGateEnforcement: vi.fn().mockReturnValue(false),
+}));
 
 function createResolvedChain(rows: unknown[]) {
   const chain = {
@@ -27,27 +54,28 @@ function createIssueProtocolDbMock(input: {
   const insertValues: Array<{ table: unknown; value: unknown }> = [];
   const updateValues: Array<{ table: unknown; value: unknown }> = [];
 
+  function nextMutationResult(queue: Array<unknown[] | Error>) {
+    const next = queue.shift();
+    if (next instanceof Error) throw next;
+    return {
+      returning: async () => next ?? [],
+      then: <T>(resolve: (value: undefined) => T | PromiseLike<T>) => Promise.resolve(undefined).then(resolve),
+    };
+  }
+
   const db = {
     select: () => createResolvedChain(selectQueue.shift() ?? []),
     insert: (table: unknown) => ({
       values: (value: unknown) => {
         insertValues.push({ table, value });
-        const next = insertQueue.shift();
-        if (next instanceof Error) throw next;
-        return {
-          returning: async () => next ?? [],
-        };
+        return nextMutationResult(insertQueue);
       },
     }),
     update: (table: unknown) => ({
       set: (value: unknown) => {
         updateValues.push({ table, value });
-        const next = updateQueue.shift();
-        if (next instanceof Error) throw next;
         return {
-          where: () => ({
-            returning: async () => next ?? [],
-          }),
+          where: () => nextMutationResult(updateQueue),
         };
       },
     }),
@@ -397,5 +425,288 @@ describe("issue protocol service", () => {
     const service = issueProtocolService(db as never);
 
     await expect(service.reopenForRecovery("issue-1")).rejects.toThrow("Issue protocol is not in a terminal state");
+  });
+
+  it("opens a review cycle when START_REVIEW is appended", async () => {
+    const issue = {
+      id: "issue-review",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+    };
+    const currentState = {
+      issueId: "issue-review",
+      companyId: "company-1",
+      workflowState: "submitted_for_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 1,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-1",
+      issueId: "issue-review",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-4",
+      issueId: "issue-review",
+      threadId: "thread-1",
+      seq: 4,
+      integritySignature: null,
+    };
+    const submittedMessage = {
+      id: "submit-1",
+      issueId: "issue-review",
+      threadId: "thread-1",
+      seq: 3,
+      messageType: "SUBMIT_FOR_REVIEW",
+    };
+    const createdMessage = {
+      id: "message-5",
+      issueId: "issue-review",
+      threadId: "thread-1",
+      seq: 5,
+      messageType: "START_REVIEW",
+      senderActorType: "agent",
+      senderActorId: "rev-1",
+      senderRole: "reviewer",
+      workflowStateBefore: "submitted_for_review",
+      workflowStateAfter: "under_review",
+      summary: "Start review",
+      payload: { reviewCycle: 2 },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-1",
+    };
+    const { db, insertValues, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [],
+        [submittedMessage],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-review",
+      authorAgentId: "rev-1",
+      message: {
+        messageType: "START_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "submitted_for_review",
+        workflowStateAfter: "under_review",
+        summary: "Start review",
+        payload: { reviewCycle: 2 },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.message).toMatchObject({
+      id: "message-5",
+      integrityStatus: "verified",
+    });
+    expect(appended.state).toMatchObject({
+      workflowState: "under_review",
+      coarseIssueStatus: "in_review",
+      currentReviewCycle: 2,
+    });
+    expect(insertValues).toContainEqual({
+      table: issueProtocolRecipients,
+      value: [
+        {
+          companyId: "company-1",
+          messageId: "message-5",
+          recipientType: "agent",
+          recipientId: "rev-1",
+          recipientRole: "reviewer",
+        },
+      ],
+    });
+    expect(insertValues).toContainEqual({
+      table: issueReviewCycles,
+      value: expect.objectContaining({
+        issueId: "issue-review",
+        cycleNumber: 2,
+        reviewerAgentId: "rev-1",
+        submittedMessageId: "submit-1",
+      }),
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        workflowState: "under_review",
+        currentReviewCycle: 2,
+      }),
+    });
+    expect(updateValues).toContainEqual({
+      table: issues,
+      value: expect.objectContaining({
+        status: "in_review",
+        assigneeAgentId: "eng-1",
+      }),
+    });
+    expect(insertValues).toContainEqual({
+      table: issueComments,
+      value: expect.objectContaining({
+        issueId: "issue-review",
+        authorAgentId: "rev-1",
+      }),
+    });
+  });
+
+  it("closes the active review cycle when REQUEST_CHANGES is appended", async () => {
+    const issue = {
+      id: "issue-changes",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-2",
+    };
+    const currentState = {
+      issueId: "issue-changes",
+      companyId: "company-1",
+      workflowState: "under_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-2",
+      primaryEngineerAgentId: "eng-2",
+      reviewerAgentId: "rev-2",
+      qaAgentId: null,
+      currentReviewCycle: 3,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-2",
+      issueId: "issue-changes",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-8",
+      issueId: "issue-changes",
+      threadId: "thread-2",
+      seq: 8,
+      integritySignature: null,
+    };
+    const openCycle = {
+      id: "cycle-open",
+      issueId: "issue-changes",
+      cycleNumber: 3,
+      closedAt: null,
+    };
+    const createdMessage = {
+      id: "message-9",
+      issueId: "issue-changes",
+      threadId: "thread-2",
+      seq: 9,
+      messageType: "REQUEST_CHANGES",
+      senderActorType: "agent",
+      senderActorId: "rev-2",
+      senderRole: "reviewer",
+      workflowStateBefore: "under_review",
+      workflowStateAfter: "changes_requested",
+      summary: "Need more rollback evidence",
+      payload: {
+        reviewSummary: "Need more rollback evidence",
+        changeRequests: [],
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-2",
+    };
+    const { db, insertValues, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [openCycle],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-changes",
+      authorAgentId: "rev-2",
+      message: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-2",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-2",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "Need more rollback evidence",
+        payload: {
+          reviewSummary: "Need more rollback evidence",
+          changeRequests: [],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.state).toMatchObject({
+      workflowState: "changes_requested",
+      coarseIssueStatus: "in_review",
+      primaryEngineerAgentId: "eng-2",
+    });
+    expect(updateValues).toContainEqual({
+      table: issueReviewCycles,
+      value: expect.objectContaining({
+        outcome: "changes_requested",
+        outcomeMessageId: "message-9",
+        closedAt: expect.any(Date),
+      }),
+    });
+    expect(insertValues).toContainEqual({
+      table: issueComments,
+      value: expect.objectContaining({
+        issueId: "issue-changes",
+        authorAgentId: "rev-2",
+      }),
+    });
   });
 });

@@ -362,6 +362,144 @@ describe("dashboard service", () => {
     });
   });
 
+  it("builds protocol queue buckets with actors, violations, review cycles, and briefs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-13T12:00:00.000Z"));
+
+    const { db } = createDashboardDbMock({
+      selectResults: [
+        [{ id: "company-1", budgetMonthlyCents: 0 }],
+        [
+          {
+            issueId: "issue-1",
+            workflowState: "submitted_for_review",
+            coarseIssueStatus: "in_review",
+            techLeadAgentId: "lead-1",
+            primaryEngineerAgentId: "eng-1",
+            reviewerAgentId: "rev-1",
+            currentReviewCycle: 2,
+            lastProtocolMessageId: "message-1",
+            lastTransitionAt: new Date("2026-03-13T06:00:00.000Z"),
+            blockedPhase: null,
+            blockedCode: null,
+            issueIdentifier: "CLO-301",
+            issueTitle: "Review runtime migration",
+            issuePriority: "high",
+            projectId: "project-1",
+            projectName: "Runtime",
+          },
+          {
+            issueId: "issue-2",
+            workflowState: "blocked",
+            coarseIssueStatus: "blocked",
+            techLeadAgentId: "lead-1",
+            primaryEngineerAgentId: "eng-2",
+            reviewerAgentId: null,
+            currentReviewCycle: 0,
+            lastProtocolMessageId: null,
+            lastTransitionAt: new Date("2026-03-13T11:30:00.000Z"),
+            blockedPhase: "implementing",
+            blockedCode: "dependency_wait",
+            issueIdentifier: "CLO-302",
+            issueTitle: "Wait for dependency",
+            issuePriority: "medium",
+            projectId: null,
+            projectName: null,
+          },
+        ],
+        [
+          { id: "lead-1", name: "Lead", title: "Tech Lead", role: "tech_lead", status: "active" },
+          { id: "eng-1", name: "Engineer", title: "Engineer", role: "engineer", status: "active" },
+          { id: "eng-2", name: "Engineer Two", title: "Engineer", role: "engineer", status: "active" },
+          { id: "rev-1", name: "Reviewer", title: "Reviewer", role: "reviewer", status: "active" },
+        ],
+        [
+          {
+            id: "message-1",
+            messageType: "SUBMIT_FOR_REVIEW",
+            summary: "Ready for reviewer pass",
+            senderRole: "engineer",
+            createdAt: new Date("2026-03-13T06:01:00.000Z"),
+          },
+        ],
+        [
+          { issueId: "issue-1", severity: "high" },
+          { issueId: "issue-1", severity: "critical" },
+        ],
+        [
+          { issueId: "issue-1", cycleNumber: 2, openedAt: new Date("2026-03-13T05:55:00.000Z") },
+        ],
+        [
+          {
+            id: "brief-1",
+            issueId: "issue-1",
+            briefScope: "reviewer",
+            briefVersion: 3,
+            workflowState: "submitted_for_review",
+            retrievalRunId: "retrieval-1",
+            contentMarkdown: "Review the migration patch and check the rollback notes.",
+            createdAt: new Date("2026-03-13T06:00:00.000Z"),
+          },
+          {
+            id: "brief-older",
+            issueId: "issue-1",
+            briefScope: "reviewer",
+            briefVersion: 2,
+            workflowState: "submitted_for_review",
+            retrievalRunId: "retrieval-old",
+            contentMarkdown: "Older brief",
+            createdAt: new Date("2026-03-13T05:00:00.000Z"),
+          },
+        ],
+      ],
+    });
+    const service = dashboardService(db as never);
+
+    const view = await service.protocolQueue({
+      companyId: "company-1",
+      limit: 10,
+    });
+
+    expect(view.totalActiveIssues).toBe(2);
+    expect(view.buckets.reviewQueue).toEqual([
+      expect.objectContaining({
+        issueId: "issue-1",
+        identifier: "CLO-301",
+        stale: true,
+        nextOwnerRole: "reviewer",
+        openViolationCount: 2,
+        highestViolationSeverity: "critical",
+        latestMessage: expect.objectContaining({
+          summary: "Ready for reviewer pass",
+        }),
+        openReviewCycle: {
+          cycleNumber: 2,
+          openedAt: new Date("2026-03-13T05:55:00.000Z"),
+        },
+        latestBriefs: {
+          reviewer: expect.objectContaining({
+            id: "brief-1",
+            briefVersion: 3,
+            retrievalRunId: "retrieval-1",
+          }),
+        },
+      }),
+    ]);
+    expect(view.buckets.blockedQueue).toEqual([
+      expect.objectContaining({
+        issueId: "issue-2",
+        blockedCode: "dependency_wait",
+        nextOwnerRole: "tech_lead",
+      }),
+    ]);
+    expect(view.buckets.violationQueue[0]).toMatchObject({
+      issueId: "issue-1",
+      highestViolationSeverity: "critical",
+    });
+
+    vi.useRealTimers();
+  });
+
   it("dedupes recovery cases and escalates repeated runtime failures", async () => {
     const now = new Date("2026-03-13T12:00:00.000Z");
     vi.useFakeTimers();
