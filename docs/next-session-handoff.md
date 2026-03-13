@@ -10,13 +10,13 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `Phase 3 operator clarification surface polish + blueprint contract kickoff`
+- open this handoff first, then continue immediately with `Phase 4 blueprint preview/diff + Company Settings catalog surface`
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
 
 ## Current Status
 
-- `P0 productization pivot`: Phase 1/2 shipped, Phase 3 핵심 semantics shipped
+- `P0 productization pivot`: Phase 1/2/3 shipped, Phase 4 catalog skeleton shipped
   - lower delivery kernel은 이미 제품 수준으로 닫혔다.
   - 다음 북극성은 `사람이 짧게 요청 -> 시스템/PM 구조화 -> 부족한 정보만 질문 -> 사람이 짧게 답변 -> 팀이 실행/리뷰/클로즈 -> 다른 회사에서도 같은 팀 구성을 쉽게 재사용`이다.
   - 새 상세 계획 문서:
@@ -30,10 +30,13 @@ One-line startup rule:
     5. `ProtocolActionConsole` 공식 clarification answer submit 경로 추가
     6. `ANSWER_CLARIFICATION`가 blocked / awaiting-human 상태를 공식 resume state로 되돌리도록 server-owned workflow transition을 추가
     7. `Inbox`와 `IssueDetail`이 shared pending human clarification contract를 사용하도록 통합
+    8. `Inbox` clarification answer CTA/deep-link 추가
+    9. `IssueDetail` / `ChangeReviewDesk`에 answered / resumed clarification trace 추가
+    10. generic `team blueprint` shared/server contract skeleton과 `GET /api/companies/:companyId/team-blueprints` route 추가
   - immediate next:
-    1. `Inbox` clarification card를 answer CTA/deep-link까지 올리기
-    2. answered / resumed 상태를 Inbox / Issue Detail / change surface에서 읽을 수 있게 만들기
-    3. `Generic team blueprint v1` shared/server contract skeleton 시작
+    1. `team blueprint preview/diff` contract와 server preview route 시작
+    2. `Company Settings`에 blueprint catalog read surface와 preview entry 추가
+    3. `swiftsight canonical`을 generic registry에 흡수할 parameter map 초안 작성
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` 전용 canonical은 이후 phase에서 generic team blueprint registry로 일반화해야 한다.
@@ -48,8 +51,8 @@ One-line startup rule:
     - `pnpm --filter @squadrail/server typecheck`
     - `pnpm --filter @squadrail/server build`
     - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - 최신 server tests: `172 files / 1099 tests` 통과
-  - 최신 server coverage: statements/lines `80.23%`, branches `65.06%`, functions `91.38%`
+  - 최신 server tests: `174 files / 1105 tests` 통과
+  - 최신 server coverage: statements/lines `80.36%`, branches `65.03%`, functions `91.34%`
   - 핵심 해석: 전역 `80%`는 넘겼지만 분포는 아직 불균형하다. 현재 병목은 `heartbeat.ts 44.47%`, `knowledge.ts 62.95%`, `routes/issues.ts 66.28%`다.
 
 - `13-Q. runtime bottleneck helper coverage uplift`: 진행 중
@@ -176,6 +179,14 @@ One-line startup rule:
 
 ## Current Product State
 
+- `clarification operator surface polish` 완료
+  - `Inbox` clarification card는 issue detail answer flow로 deep-link된다.
+  - `IssueDetail`은 latest pending / latest answered clarification과 resumed workflow state를 함께 보여준다.
+  - `ChangeReviewDesk`는 clarification trace를 operator surface로 노출한다.
+- `generic team blueprint v1 contract skeleton` 완료
+  - `packages/shared`에 team blueprint type / validator / constants를 추가했다.
+  - `server/src/services/team-blueprints.ts`와 `GET /api/companies/:companyId/team-blueprints` route를 추가했다.
+  - 아직 preview/diff/apply mutation과 Company Settings 소비 surface는 남아 있다.
 - `root 1개 -> hidden child work item fan-out -> multi-project parallel execution -> reviewer -> QA -> done` 검증 완료
 - `Human -> PM intake`, `PM projection`, `QA separate gate`, `organizational memory ingest` 완료
 - `cross-issue memory reuse` 완료
@@ -196,9 +207,9 @@ One-line startup rule:
   - `pnpm --filter @squadrail/server typecheck`
   - `pnpm --filter @squadrail/server build`
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - `172 files / 1099 tests` 통과
-  - server coverage `80.23%`
-- 현재 다음 순차 작업은 `clarification operator surface polish + generic team blueprint contract kickoff`
+  - `174 files / 1105 tests` 통과
+  - server coverage `80.36%`
+- 현재 다음 순차 작업은 `blueprint preview/diff + Company Settings catalog surface`
 
 ## Next Priorities
 
@@ -217,14 +228,14 @@ Interpretation:
 
 ## Recommended First Task Next Session
 
-Start with `Phase 3 operator clarification surface polish + Phase 4 blueprint contract kickoff`.
+Start with `Phase 4 blueprint preview/diff + Company Settings catalog surface`.
 
 Suggested slice:
 
-1. `Inbox` clarification card에서 issue detail answer flow로 자연스럽게 이동시키기
-2. answered / resumed trace를 protocol/change surface에 반영하기
-3. `team blueprint` shared type / validator / registry skeleton을 올리기
-4. 마지막에 focused server/UI 검증을 돌리기
+1. `team blueprint preview/diff` shared/server contract를 추가한다
+2. `companies` route에 preview endpoint를 추가한다
+3. `Company Settings`가 blueprint catalog와 preview 결과를 읽게 한다
+4. 마지막에 focused server/UI 검증을 돌린다
 
 ## Important Files
 

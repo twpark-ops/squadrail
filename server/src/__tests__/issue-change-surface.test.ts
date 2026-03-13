@@ -498,4 +498,61 @@ describe("issue change surface", () => {
       }),
     );
   });
+
+  it("captures latest clarification answer and resume state for operator surfaces", () => {
+    const surface = buildIssueChangeSurface({
+      issue: {
+        id: "issue-clarify",
+        identifier: "CLO-44",
+        title: "Clarification trace",
+        status: "in_progress",
+      },
+      messages: [
+        {
+          id: "ask-1",
+          messageType: "ASK_CLARIFICATION",
+          summary: "Need deadline confirmation",
+          createdAt: "2026-03-14T01:00:00.000Z",
+          payload: {
+            questionType: "deadline",
+            question: "Is today still a hard release cutoff?",
+            blocking: true,
+            requestedFrom: "human_board",
+            resumeWorkflowState: "implementing",
+          },
+          sender: {
+            actorType: "agent",
+            actorId: "agent-1",
+            role: "tech_lead",
+          },
+        },
+        {
+          id: "answer-1",
+          messageType: "ANSWER_CLARIFICATION",
+          summary: "Board confirmed the cutoff",
+          createdAt: "2026-03-14T01:05:00.000Z",
+          workflowStateAfter: "implementing",
+          causalMessageId: "ask-1",
+          payload: {
+            answer: "Yes. Keep the release cutoff for today and limit the scope.",
+            nextStep: "Ship the minimal patch and include rollback notes.",
+          },
+          sender: {
+            actorType: "user",
+            actorId: "user-1",
+            role: "human_board",
+          },
+        },
+      ],
+    });
+
+    expect(surface.clarificationTrace).toMatchObject({
+      pendingCount: 0,
+      latestResolvedQuestion: "Is today still a hard release cutoff?",
+      latestResolvedAnswer: "Yes. Keep the release cutoff for today and limit the scope.",
+      latestResolvedResumeWorkflowState: "implementing",
+      latestAskedByRole: "tech_lead",
+      latestAnsweredByRole: "human_board",
+    });
+  });
 });

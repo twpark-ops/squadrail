@@ -1,4 +1,9 @@
-import type { IssuePriority, IssueStatus } from "../constants.js";
+import type {
+  IssuePriority,
+  IssueProtocolRole,
+  IssueProtocolWorkflowState,
+  IssueStatus,
+} from "../constants.js";
 import type { Goal } from "./goal.js";
 import type { Project, ProjectWorkspace } from "./project.js";
 
@@ -164,6 +169,19 @@ export interface IssueChangeSurfaceFeedbackSummary {
   feedbackTypeCounts: Record<string, number>;
 }
 
+export interface IssueChangeSurfaceClarificationTrace {
+  pendingCount: number;
+  latestPendingQuestion: string | null;
+  latestPendingAt: Date | null;
+  latestPendingResumeWorkflowState: IssueProtocolWorkflowState | null;
+  latestResolvedAt: Date | null;
+  latestResolvedQuestion: string | null;
+  latestResolvedAnswer: string | null;
+  latestResolvedResumeWorkflowState: IssueProtocolWorkflowState | null;
+  latestAskedByRole: IssueProtocolRole | null;
+  latestAnsweredByRole: IssueProtocolRole | null;
+}
+
 export interface IssueMergeCandidateCheck {
   name: string;
   status: "queued" | "pending" | "running" | "success" | "failure" | "error" | "cancelled" | "skipped" | "neutral" | "unknown";
@@ -311,6 +329,7 @@ export interface IssueChangeSurface {
   diffStat: string | null;
   verificationSummary: string | null;
   closureSummary: string | null;
+  clarificationTrace: IssueChangeSurfaceClarificationTrace | null;
   latestRunArtifact: IssueChangeSurfaceArtifact | null;
   workspaceBindingArtifact: IssueChangeSurfaceArtifact | null;
   diffArtifact: IssueChangeSurfaceArtifact | null;

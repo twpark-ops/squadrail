@@ -42,7 +42,10 @@ interface ProtocolActionConsoleProps {
   agents: Agent[];
   currentUserId: string | null;
   clarificationRequests: PendingClarificationRequest[];
+  preferredAction?: HumanBoardAction | null;
+  preferredClarificationId?: string | null;
   onSubmit: (message: CreateIssueProtocolMessage) => Promise<void>;
+  onActionCommitted?: () => void;
   isSubmitting: boolean;
 }
 
@@ -276,7 +279,10 @@ export function ProtocolActionConsole({
   agents,
   currentUserId,
   clarificationRequests,
+  preferredAction = null,
+  preferredClarificationId = null,
   onSubmit,
+  onActionCommitted,
   isSubmitting,
 }: ProtocolActionConsoleProps) {
   const allowedActions = useMemo(
@@ -347,6 +353,19 @@ export function ProtocolActionConsole({
   }, [allowedActions, selectedAction]);
 
   useEffect(() => {
+    if (!preferredAction) return;
+    if (!allowedActions.includes(preferredAction)) return;
+    setSelectedAction(preferredAction);
+  }, [allowedActions, preferredAction]);
+
+  useEffect(() => {
+    if (
+      preferredClarificationId
+      && clarificationRequests.some((request) => request.questionMessageId === preferredClarificationId)
+    ) {
+      setSelectedClarificationId(preferredClarificationId);
+      return;
+    }
     if (
       selectedClarificationId
       && clarificationRequests.some((request) => request.questionMessageId === selectedClarificationId)
@@ -354,7 +373,7 @@ export function ProtocolActionConsole({
       return;
     }
     setSelectedClarificationId(clarificationRequests[0]?.questionMessageId ?? "");
-  }, [clarificationRequests, selectedClarificationId]);
+  }, [clarificationRequests, preferredClarificationId, selectedClarificationId]);
 
   useEffect(() => {
     setLastAppliedTemplate(null);
@@ -956,6 +975,7 @@ export function ProtocolActionConsole({
 
     setError(null);
     await onSubmit(message);
+    onActionCommitted?.();
     if (selectedAction === "NOTE") {
       setNoteBody("");
       setArtifactLines("");

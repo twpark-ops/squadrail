@@ -226,6 +226,28 @@ export type WorkflowTemplateActionType = (typeof WORKFLOW_TEMPLATE_ACTION_TYPES)
 export const WORKFLOW_TEMPLATE_SCOPES = ["default", "company"] as const;
 export type WorkflowTemplateScope = (typeof WORKFLOW_TEMPLATE_SCOPES)[number];
 
+export const TEAM_BLUEPRINT_KEYS = [
+  "small_delivery_team",
+  "standard_product_squad",
+  "delivery_plus_qa",
+] as const;
+export type TeamBlueprintKey = (typeof TEAM_BLUEPRINT_KEYS)[number];
+
+export const TEAM_BLUEPRINT_PROJECT_KINDS = [
+  "product",
+  "service",
+  "library",
+  "tooling",
+] as const;
+export type TeamBlueprintProjectKind = (typeof TEAM_BLUEPRINT_PROJECT_KINDS)[number];
+
+export const TEAM_BLUEPRINT_PROJECT_BINDINGS = [
+  "none",
+  "shared",
+  "per_project",
+] as const;
+export type TeamBlueprintProjectBinding = (typeof TEAM_BLUEPRINT_PROJECT_BINDINGS)[number];
+
 export const PRINCIPAL_TYPES = ["user", "agent"] as const;
 export type PrincipalType = (typeof PRINCIPAL_TYPES)[number];
 

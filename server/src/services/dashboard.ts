@@ -567,7 +567,7 @@ export function buildProtocolDashboardBuckets(input: {
     .sort(compareQueueItems)
     .slice(0, limit);
   const clarificationQueue = input.items
-    .filter((item) => item.pendingHumanClarifications.length > 0)
+    .filter((item) => (item.pendingHumanClarifications?.length ?? 0) > 0)
     .sort(compareQueueItems)
     .slice(0, limit);
   const handoffBlockerQueue = input.items

@@ -33,9 +33,8 @@
 아직 부족한 것:
 
 - quick request는 기본 입력 경로가 됐지만 onboarding/company-wide first path까지는 아직 올라오지 않음
-- clarification read surface는 생겼지만 Inbox answer CTA와 answered/resumed operator feedback이 아직 약함
-- human answer path는 Issue Detail에서 공식화됐지만 Inbox에서도 같은 수준으로 답변/재개가 닫히지 않음
-- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system이 없음
+- clarification loop는 공식 answer path와 shared pending contract까지 닫혔지만, Company Settings/onboarding consumption이 아직 없다
+- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog skeleton까지는 생겼지만 preview/apply와 product surface가 아직 없다
 - 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning이 없음
 - onboarding / company settings가 위 흐름 기준으로 재편되지 않음
 
@@ -47,12 +46,16 @@
 - `Phase 2` 1차 구현 완료
   - `ANSWER_CLARIFICATION` protocol contract를 shared/server validator까지 올렸다.
   - `Inbox` clarification queue read surface와 `IssueDetail` pending clarification view를 추가했다.
-- `Phase 3` 핵심 semantics 구현 완료, operator surface 확장은 후속
+- `Phase 3` 완료
   - `ProtocolActionConsole`에 공식 clarification answer submit action을 추가했다.
   - answer -> question ack -> retrieval/memory ingest -> wake reason propagation까지 연결했다.
   - `ANSWER_CLARIFICATION`가 blocked / awaiting-human 상태를 공식 resume state로 되돌리도록 서버가 workflow state를 재계산한다.
   - `Inbox`와 `IssueDetail`이 같은 pending human clarification contract를 공유하도록 정리했다.
-  - 남은 immediate next는 `Inbox answer CTA / answered-resumed trace / blueprint contract skeleton`이다.
+- `Phase 4` 1차 구현 완료
+  - generic `team blueprint` shared type / validator / constants를 추가했다.
+  - server `team-blueprints` catalog service와 `GET /api/companies/:companyId/team-blueprints` read route를 추가했다.
+  - `Inbox` answer CTA deep-link, `IssueDetail` answered/resumed trace, `ChangeReviewDesk` clarification trace를 추가했다.
+  - 남은 immediate next는 `blueprint preview/diff contract + Company Settings catalog surface`다.
 
 ## 4. 제품 계약
 
@@ -212,7 +215,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - protocol change-surface regression
 - answer contract type/validator test or doc-linked contract test
 
-## Phase 3. Human Answer Path + Resume Semantics [핵심 semantics 완료, surface polish 진행 중]
+## Phase 3. Human Answer Path + Resume Semantics [완료]
 
 ### 목표
 
@@ -240,6 +243,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - NOTE 우회가 아니라 공식 answer path로 인식된다
 - blocked / human-decision 대기 상태에서 답변하면 protocol workflow state가 공식 resume state로 복구된다
 - Inbox와 Issue Detail이 동일한 pending human clarification 소스를 사용한다
+- Inbox에서 바로 answer CTA 또는 Issue Detail deep-link를 통해 공식 answer path로 들어간다
+- answered / resumed 상태를 Issue Detail과 change surface에서 operator가 읽을 수 있다
 
 ### 테스트
 
@@ -249,7 +254,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - pending human clarification derivation parity test
 - inbox -> issue detail -> resume end-to-end smoke
 
-## Phase 4. Generic Team Blueprint v1
+## Phase 4. Generic Team Blueprint v1 [catalog skeleton 완료]
 
 ### 목표
 
@@ -262,6 +267,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
   - `small_delivery_team`
   - `standard_product_squad`
   - `delivery_plus_qa`
+- company-scoped blueprint catalog read route
+- preview/diff/apply를 위한 readiness metadata skeleton
 
 ### 주요 파일
 
@@ -270,19 +277,21 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - `packages/shared/src/types/team-blueprint.ts` 신규
 - `packages/shared/src/validators/team-blueprint.ts` 신규
 - `server/src/services/knowledge-setup.ts`
+- `server/src/routes/companies.ts`
+- `ui/src/api/companies.ts`
 
 ### 성공 조건
 
 - 특정 회사명 하드코딩 없이 blueprint registry가 동작한다
 - blueprint metadata만으로 project/agent/reportsTo/lane defaults를 설명할 수 있다
 - blueprint metadata만으로 workspace/knowledge/setup readiness expectations도 함께 설명할 수 있다
-- 기존 `cloud-swiftsight` canonical은 registry의 한 blueprint로 흡수된다
+- operator surface가 company blueprint catalog를 읽을 수 있다
+- 기존 `cloud-swiftsight` canonical은 registry의 한 blueprint로 흡수될 준비가 된다
 
 ### 테스트
 
 - blueprint registry service tests
-- swiftsight compatibility tests
-- canonical org sync view regression
+- team blueprint route tests
 - readiness metadata preview regression
 
 ## Phase 5. Bulk Provisioning with Preview/Diff
@@ -397,8 +406,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. `Inbox clarification answer path`를 read-only queue에서 공식 answer CTA로 올리기
-2. `answered / resumed` 상태를 Inbox, Issue Detail, change surface에서 operator가 읽을 수 있게 만들기
-3. `Generic team blueprint v1`의 shared/server contract skeleton을 시작하기
+1. `team blueprint preview/diff` shared/server contract 고정
+2. `Company Settings`가 company blueprint catalog를 읽고 preview 진입점을 제공하게 만들기
+3. `swiftsight canonical`과 generic blueprint registry의 흡수 경로를 명확히 하기
 
-즉 다음 배치는 `Phase 3 finish + Phase 4 contract kickoff`다.
+즉 다음 배치는 `Phase 4 preview/diff kickoff`다.

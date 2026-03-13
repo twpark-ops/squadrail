@@ -13,8 +13,9 @@ export interface ProtocolClarificationMessageLike {
   id: string;
   messageType: IssueProtocolMessageType;
   causalMessageId?: string | null;
-  ackedAt?: Date | null;
-  createdAt: Date;
+  ackedAt?: Date | string | null;
+  createdAt: Date | string;
+  workflowStateAfter?: IssueProtocolWorkflowState | null;
   payload?: Record<string, unknown> | null;
   sender: {
     actorType: IssueProtocolActorType;
@@ -35,10 +36,33 @@ export interface PendingHumanClarification {
   resumeWorkflowState: IssueProtocolWorkflowState | null;
 }
 
+export interface ResolvedHumanClarification {
+  questionMessageId: string;
+  answerMessageId: string;
+  questionType: IssueProtocolClarificationType;
+  question: string;
+  answer: string;
+  nextStep: string | null;
+  blocking: boolean;
+  askedByActorType: Exclude<IssueProtocolActorType, "system">;
+  askedByActorId: string;
+  askedByRole: Exclude<IssueProtocolRole, "system">;
+  answeredByActorType: Exclude<IssueProtocolActorType, "system">;
+  answeredByActorId: string;
+  answeredByRole: Exclude<IssueProtocolRole, "system">;
+  answeredAt: Date;
+  resumeWorkflowState: IssueProtocolWorkflowState | null;
+}
+
 function readClarificationType(value: unknown): IssueProtocolClarificationType {
   return ISSUE_PROTOCOL_CLARIFICATION_TYPES.includes(value as IssueProtocolClarificationType)
     ? (value as IssueProtocolClarificationType)
     : "requirement";
+}
+
+function normalizeDate(value: Date | string | null | undefined) {
+  if (!value) return new Date(0);
+  return value instanceof Date ? value : new Date(value);
 }
 
 function readWorkflowState(value: unknown): IssueProtocolWorkflowState | null {
@@ -109,9 +133,69 @@ export function derivePendingHumanClarifications(
         askedByActorType: message.sender.actorType as Exclude<IssueProtocolActorType, "system">,
         askedByActorId: message.sender.actorId,
         askedByRole: message.sender.role as Exclude<IssueProtocolRole, "system">,
-        createdAt: message.createdAt,
+        createdAt: normalizeDate(message.createdAt),
         resumeWorkflowState: readWorkflowState(payload.resumeWorkflowState),
       } satisfies PendingHumanClarification];
     })
     .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+}
+
+export function deriveLatestHumanClarificationResolution(
+  messages: ProtocolClarificationMessageLike[],
+): ResolvedHumanClarification | null {
+  const asks = new Map<string, PendingHumanClarification>();
+
+  for (const message of messages) {
+    if (message.messageType !== "ASK_CLARIFICATION") continue;
+    const payload = (message.payload ?? {}) as Record<string, unknown>;
+    if (payload.requestedFrom !== "human_board") continue;
+    if (message.sender.actorType === "system" || message.sender.role === "system") continue;
+    asks.set(message.id, {
+      questionMessageId: message.id,
+      questionType: readClarificationType(payload.questionType),
+      question: typeof payload.question === "string" && payload.question.trim().length > 0
+        ? payload.question.trim()
+        : "Clarification requested.",
+      blocking: payload.blocking === true,
+      askedByActorType: message.sender.actorType as Exclude<IssueProtocolActorType, "system">,
+      askedByActorId: message.sender.actorId,
+      askedByRole: message.sender.role as Exclude<IssueProtocolRole, "system">,
+      createdAt: normalizeDate(message.createdAt),
+      resumeWorkflowState: readWorkflowState(payload.resumeWorkflowState),
+    });
+  }
+
+  return [...messages]
+    .sort((left, right) => normalizeDate(right.createdAt).getTime() - normalizeDate(left.createdAt).getTime())
+    .flatMap((message) => {
+      if (message.messageType !== "ANSWER_CLARIFICATION") return [];
+      if (!message.causalMessageId) return [];
+      if (message.sender.actorType === "system" || message.sender.role === "system") return [];
+      const question = asks.get(message.causalMessageId);
+      if (!question) return [];
+      const payload = (message.payload ?? {}) as Record<string, unknown>;
+      const answer = typeof payload.answer === "string" && payload.answer.trim().length > 0
+        ? payload.answer.trim()
+        : "Clarification answered.";
+      const nextStep = typeof payload.nextStep === "string" && payload.nextStep.trim().length > 0
+        ? payload.nextStep.trim()
+        : null;
+      return [{
+        questionMessageId: question.questionMessageId,
+        answerMessageId: message.id,
+        questionType: question.questionType,
+        question: question.question,
+        answer,
+        nextStep,
+        blocking: question.blocking,
+        askedByActorType: question.askedByActorType,
+        askedByActorId: question.askedByActorId,
+        askedByRole: question.askedByRole,
+        answeredByActorType: message.sender.actorType as Exclude<IssueProtocolActorType, "system">,
+        answeredByActorId: message.sender.actorId,
+        answeredByRole: message.sender.role as Exclude<IssueProtocolRole, "system">,
+        answeredAt: normalizeDate(message.createdAt),
+        resumeWorkflowState: readWorkflowState(message.workflowStateAfter) ?? question.resumeWorkflowState,
+      } satisfies ResolvedHumanClarification];
+    })[0] ?? null;
 }

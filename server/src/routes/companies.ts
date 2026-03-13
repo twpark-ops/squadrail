@@ -33,6 +33,7 @@ import {
   operatingAlertService,
   rolePackService,
   setupProgressService,
+  teamBlueprintService,
   workflowTemplateService,
 } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -65,6 +66,7 @@ export function companyRoutes(
   const access = accessService(db);
   const setup = setupProgressService(db);
   const workflowTemplates = workflowTemplateService(db);
+  const teamBlueprints = teamBlueprintService();
   const operatingAlerts = operatingAlertService(db);
   const rolePacks = rolePackService(db);
   const knowledgeSetup = knowledgeSetupService(db);
@@ -131,6 +133,13 @@ export function companyRoutes(
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const view = await workflowTemplates.getView(companyId);
+    res.json(view);
+  });
+
+  router.get("/:companyId/team-blueprints", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const view = teamBlueprints.getCatalog(companyId);
     res.json(view);
   });
 

@@ -15,6 +15,7 @@ const {
   mockSetupGetView,
   mockSetupUpdate,
   mockWorkflowTemplatesGetView,
+  mockTeamBlueprintsGetCatalog,
   mockWorkflowTemplatesUpdateConfig,
   mockOperatingAlertsGetView,
   mockOperatingAlertsUpdateConfig,
@@ -51,6 +52,7 @@ const {
   mockSetupGetView: vi.fn(),
   mockSetupUpdate: vi.fn(),
   mockWorkflowTemplatesGetView: vi.fn(),
+  mockTeamBlueprintsGetCatalog: vi.fn(),
   mockWorkflowTemplatesUpdateConfig: vi.fn(),
   mockOperatingAlertsGetView: vi.fn(),
   mockOperatingAlertsUpdateConfig: vi.fn(),
@@ -114,6 +116,9 @@ vi.mock("../services/index.js", () => ({
   workflowTemplateService: () => ({
     getView: mockWorkflowTemplatesGetView,
     updateConfig: mockWorkflowTemplatesUpdateConfig,
+  }),
+  teamBlueprintService: () => ({
+    getCatalog: mockTeamBlueprintsGetCatalog,
   }),
   rolePackService: () => ({
     listPresets: mockListPresets,
@@ -316,6 +321,79 @@ describe("company routes", () => {
       ],
     });
     expect(mockWorkflowTemplatesGetView).toHaveBeenCalledWith("company-1");
+  });
+
+  it("returns team blueprints for the requested company", async () => {
+    mockTeamBlueprintsGetCatalog.mockReturnValue({
+      companyId: "company-1",
+      blueprints: [
+        {
+          key: "small_delivery_team",
+          label: "Small Delivery Team",
+          description: "Compact team",
+          presetKey: "squadrail_default_v1",
+          projects: [
+            {
+              key: "primary_product",
+              label: "Primary Product",
+              description: null,
+              kind: "product",
+              repositoryHint: null,
+              defaultLeadRoleKey: "tech_lead",
+            },
+          ],
+          roles: [
+            {
+              key: "tech_lead",
+              label: "Tech Lead",
+              role: "engineer",
+              title: "Tech Lead",
+              reportsToKey: null,
+              projectBinding: "shared",
+              preferredAdapterTypes: ["claude_local"],
+              deliveryLane: "planning",
+              capabilities: ["scoping"],
+            },
+          ],
+          parameterHints: {
+            supportsPm: false,
+            supportsQa: false,
+            supportsCto: false,
+            defaultProjectCount: 1,
+            defaultEngineerPairsPerProject: 1,
+          },
+          readiness: {
+            requiredWorkspaceCount: 1,
+            knowledgeRequired: true,
+            knowledgeSources: ["project_docs"],
+            approvalRequiredRoleKeys: ["tech_lead"],
+            doctorSetupPrerequisites: ["workspace_connected"],
+            recommendedFirstQuickRequest:
+              "Audit the repo and define the first delivery slice.",
+          },
+        },
+      ],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      companyId: "company-1",
+      blueprints: [
+        expect.objectContaining({
+          key: "small_delivery_team",
+          readiness: expect.objectContaining({
+            requiredWorkspaceCount: 1,
+          }),
+        }),
+      ],
+    });
+    expect(mockTeamBlueprintsGetCatalog).toHaveBeenCalledWith("company-1");
   });
 
   it("updates workflow templates and records activity", async () => {
