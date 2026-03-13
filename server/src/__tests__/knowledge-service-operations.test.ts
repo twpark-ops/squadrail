@@ -1,11 +1,14 @@
 import {
+  issueTaskBriefs,
   knowledgeChunks,
   knowledgeChunkLinks,
   knowledgeDocumentVersions,
   knowledgeDocuments,
   projectKnowledgeRevisions,
+  retrievalFeedbackEvents,
   retrievalPolicies,
   retrievalRuns,
+  retrievalRunHits,
   retrievalCacheEntries,
 } from "@squadrail/db";
 import { describe, expect, it } from "vitest";
@@ -935,5 +938,188 @@ describe("knowledge service operations", () => {
     const found = await service.getRetrievalRunById("retrieval-1");
 
     expect(found).toEqual(retrievalRun);
+  });
+
+  it("lists recent retrieval runs with feedback summaries and top hit context", async () => {
+    const { db } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [retrievalRuns, [[{
+          retrievalRunId: "retrieval-1",
+          companyId: "company-1",
+          issueId: "issue-1",
+          actorRole: "engineer",
+          eventType: "on_assignment",
+          workflowState: "assigned",
+          queryText: "find retry worker context",
+          queryDebug: {
+            quality: {
+              confidenceLevel: "high",
+              organizationalMemoryHitCount: 1,
+              codeHitCount: 2,
+              reviewHitCount: 1,
+              reuseHitCount: 1,
+              reusedIssueCount: 1,
+              reuseDecisionHitCount: 1,
+              reuseFixHitCount: 0,
+              reuseReviewHitCount: 0,
+              reuseCloseHitCount: 0,
+            },
+            cache: {
+              candidateHit: true,
+              candidateState: "hit",
+              candidateReason: "hit",
+              candidateProvenance: "exact_key",
+              finalHit: false,
+              finalState: "miss",
+              finalReason: "miss_revision_drift",
+              finalProvenance: "revision_drift",
+            },
+            personalization: {
+              applied: true,
+              averagePersonalizationBoost: 0.4,
+            },
+            graphHitCount: 2,
+            graphMaxDepth: 3,
+            graphHopDepthCounts: { "1": 1, "2": 1 },
+            multiHopGraphHitCount: 1,
+            topHitPath: "src/retry.ts",
+            topHitSourceType: "code",
+            topHitArtifactKind: "decision",
+            reusedIssueIds: ["issue-related-1"],
+            reusedIssueIdentifiers: ["CLO-2"],
+            reuseArtifactKinds: ["decision"],
+          },
+          createdAt: new Date("2026-03-13T10:00:00.000Z"),
+          issueIdentifier: "CLO-1",
+          issueTitle: "Improve retry worker",
+          issueProjectId: "project-1",
+        }]]],
+        [retrievalFeedbackEvents, [[
+          {
+            retrievalRunId: "retrieval-1",
+            feedbackType: "operator_pin",
+            targetType: "path",
+            weight: 1,
+            createdAt: new Date("2026-03-13T10:10:00.000Z"),
+          },
+          {
+            retrievalRunId: "retrieval-1",
+            feedbackType: "operator_hide",
+            targetType: "path",
+            weight: -1,
+            createdAt: new Date("2026-03-13T10:12:00.000Z"),
+          },
+        ]]],
+        [retrievalRunHits, [[
+          {
+            chunkId: "chunk-1",
+            finalRank: 1,
+            fusedScore: 2.1,
+            rationale: { source: "rerank" },
+            textContent: "retry worker handles exponential backoff",
+            headingPath: "Retry > Worker",
+            symbolName: "retryWorker",
+            documentPath: "src/retry.ts",
+            documentTitle: "retry.ts",
+            sourceType: "code",
+            authorityLevel: "canonical",
+          },
+        ]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    const rows = await service.listRecentRetrievalRuns({
+      companyId: "company-1",
+      projectId: "project-1",
+      limit: 5,
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        retrievalRunId: "retrieval-1",
+        issueIdentifier: "CLO-1",
+        issueProjectId: "project-1",
+        confidenceLevel: "high",
+        graphHitCount: 2,
+        graphMaxDepth: 3,
+        organizationalMemoryHitCount: 1,
+        codeHitCount: 2,
+        reviewHitCount: 1,
+        reuseHitCount: 1,
+        reusedIssueIds: ["issue-related-1"],
+        reusedIssueIdentifiers: ["CLO-2"],
+        reuseArtifactKinds: ["decision"],
+        candidateCacheHit: true,
+        candidateCacheReason: "hit",
+        candidateCacheProvenance: "exact_key",
+        finalCacheHit: false,
+        finalCacheReason: "miss_revision_drift",
+        finalCacheProvenance: "revision_drift",
+        personalizationApplied: true,
+        averagePersonalizationBoost: 0.4,
+        topHitPath: "src/retry.ts",
+        topHitSourceType: "code",
+        topHitArtifactKind: "decision",
+        feedbackSummary: {
+          totalCount: 2,
+          positiveCount: 1,
+          negativeCount: 1,
+          pinnedPathCount: 1,
+          hiddenPathCount: 1,
+          lastFeedbackAt: "2026-03-13T10:12:00.000Z",
+          feedbackTypeCounts: {
+            operator_pin: 1,
+            operator_hide: 1,
+          },
+        },
+        topHits: [
+          expect.objectContaining({
+            chunkId: "chunk-1",
+            finalRank: 1,
+            documentPath: "src/retry.ts",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("lists task briefs and retrieval policies with optional filters", async () => {
+    const brief = {
+      id: "brief-1",
+      issueId: "issue-1",
+      briefScope: "reviewer",
+      briefVersion: 3,
+      createdAt: new Date("2026-03-13T09:00:00.000Z"),
+    };
+    const policy = {
+      id: "policy-1",
+      companyId: "company-1",
+      role: "reviewer",
+      eventType: "on_review_submit",
+      workflowState: "submitted_for_review",
+      updatedAt: new Date("2026-03-13T09:05:00.000Z"),
+    };
+    const { db } = createKnowledgeDbMock({
+      selectRows: new Map([
+        [issueTaskBriefs, [[brief], [brief]]],
+        [retrievalPolicies, [[policy]]],
+      ]),
+    });
+    const service = knowledgeService(db as never);
+
+    await expect(service.getLatestTaskBrief("issue-1", "reviewer")).resolves.toEqual(brief);
+    await expect(service.listTaskBriefs({
+      issueId: "issue-1",
+      briefScope: "reviewer",
+      limit: 10,
+    })).resolves.toEqual([brief]);
+    await expect(service.listRetrievalPolicies({
+      companyId: "company-1",
+      role: "reviewer",
+      eventType: "on_review_submit",
+      workflowState: "submitted_for_review",
+      limit: 10,
+    })).resolves.toEqual([policy]);
   });
 });

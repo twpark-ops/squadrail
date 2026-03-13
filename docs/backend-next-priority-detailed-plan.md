@@ -27,7 +27,8 @@
 > - `13-M. runtime/protocol coverage uplift batch 6` 진행 중
 > - `13-N. recovery/template/role integrity hardening` 완료
 > - `13-O. runtime/protocol coverage uplift batch 7` 완료
-> 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`이다.
+> - `13-P. coverage threshold push` 완료
+> 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge runtime bottleneck hardening`이다.
 
 ## 목적
 
@@ -35,6 +36,20 @@
 
 현재 제품 방향은 계속 `standardized software delivery org kernel`이다.
 즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
+
+## 2026-03-13 coverage threshold push
+
+- `13-P coverage threshold push` 완료
+  - `access.ts` helper/onboarding path, `retrieval-personalization.ts` feedback helper, `organizational-memory-ingest.ts` protocol artifact variants를 direct test로 닫았다.
+  - `board-claim.ts`, `issue-merge-candidates.ts`, `issue-approvals.ts`, `goals.ts`, `sidebar-badges.ts` direct service test를 추가했다.
+  - `issues` 하위 route shell `approvals-routes.ts`, `attachments-routes.ts`, `protocol-read-routes.ts`를 direct route test로 고정했다.
+  - `agents-routes.test.ts` fixture contract mismatch를 route validator 기준으로 정리했다.
+- 검증:
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
+  - 최신 coverage: statements/lines `60.11%`, branches `61.09%`, functions `80.63%`
+  - 최신 server tests: `130 files / 855 tests` 통과
 
 ## 상태 업데이트
 

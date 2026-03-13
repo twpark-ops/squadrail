@@ -67,6 +67,54 @@ function createRolePackDbMock(input: {
 }
 
 describe("role pack service", () => {
+  it("lists revisions for an existing set and returns null when the set is missing", async () => {
+    const revision = {
+      id: "rev-1",
+      rolePackSetId: "set-1",
+      version: 1,
+      status: "published",
+      message: "Initial revision",
+      createdByUserId: "board-1",
+      createdByAgentId: null,
+      createdAt: new Date("2026-03-13T08:00:00.000Z"),
+      publishedAt: new Date("2026-03-13T08:00:00.000Z"),
+    };
+    const { db } = createRolePackDbMock({
+      selectResults: [
+        [{ id: "set-1" }],
+        [revision],
+        [{
+          id: "file-1",
+          revisionId: "rev-1",
+          filename: "ROLE.md",
+          content: "# Tech Lead",
+          checksumSha256: "checksum-1",
+          createdAt: new Date("2026-03-13T08:00:00.000Z"),
+        }],
+        [],
+      ],
+    });
+    const service = rolePackService(db as never);
+
+    await expect(service.listRevisions({
+      companyId: "company-1",
+      rolePackSetId: "set-1",
+    })).resolves.toEqual([
+      expect.objectContaining({
+        id: "rev-1",
+        files: [
+          expect.objectContaining({
+            filename: "ROLE.md",
+          }),
+        ],
+      }),
+    ]);
+    await expect(service.listRevisions({
+      companyId: "company-1",
+      rolePackSetId: "missing",
+    })).resolves.toBeNull();
+  });
+
   it("lists role packs with the latest revision and files", async () => {
     const { db } = createRolePackDbMock({
       selectResults: [
@@ -498,5 +546,163 @@ describe("role pack service", () => {
         }),
       ]),
     );
+  });
+
+  it("restores older revisions, rejects identical restores, and surfaces missing-file errors", async () => {
+    const set = {
+      id: "set-1",
+      companyId: "company-1",
+      scopeType: "company",
+      scopeId: "",
+      roleKey: "tech_lead",
+      status: "published",
+      metadata: {},
+      createdAt: new Date("2026-03-13T08:00:00.000Z"),
+      updatedAt: new Date("2026-03-13T08:00:00.000Z"),
+    };
+    const latestRevision = {
+      id: "rev-2",
+      rolePackSetId: "set-1",
+      version: 2,
+      status: "published",
+      message: "Latest revision",
+      createdByUserId: "board-1",
+      createdByAgentId: null,
+      createdAt: new Date("2026-03-13T09:00:00.000Z"),
+      publishedAt: new Date("2026-03-13T09:00:00.000Z"),
+    };
+    const olderRevision = {
+      id: "rev-1",
+      rolePackSetId: "set-1",
+      version: 1,
+      status: "draft",
+      message: "Older revision",
+      createdByUserId: "board-1",
+      createdByAgentId: null,
+      createdAt: new Date("2026-03-13T08:00:00.000Z"),
+      publishedAt: null,
+    };
+    const restoredRevision = {
+      id: "rev-3",
+      rolePackSetId: "set-1",
+      version: 3,
+      status: "published",
+      message: "Restore rev-1",
+      createdByUserId: "board-1",
+      createdByAgentId: null,
+      createdAt: new Date("2026-03-13T10:00:00.000Z"),
+      publishedAt: new Date("2026-03-13T10:00:00.000Z"),
+    };
+
+    const restoredDb = createRolePackDbMock({
+      selectResults: [
+        [set],
+        [latestRevision, olderRevision],
+        [
+          {
+            id: "file-latest",
+            revisionId: "rev-2",
+            filename: "ROLE.md",
+            content: "# Latest",
+            checksumSha256: "checksum-latest",
+            createdAt: new Date("2026-03-13T09:00:00.000Z"),
+          },
+          {
+            id: "file-old",
+            revisionId: "rev-1",
+            filename: "ROLE.md",
+            content: "# Older",
+            checksumSha256: "checksum-old",
+            createdAt: new Date("2026-03-13T08:00:00.000Z"),
+          },
+        ],
+        [set],
+        [restoredRevision, latestRevision, olderRevision],
+        [
+          {
+            id: "file-restored",
+            revisionId: "rev-3",
+            filename: "ROLE.md",
+            content: "# Older",
+            checksumSha256: "checksum-old",
+            createdAt: new Date("2026-03-13T10:00:00.000Z"),
+          },
+        ],
+      ],
+      insertResults: [[restoredRevision], []],
+      updateResults: [[]],
+    });
+    const restoredService = rolePackService(restoredDb.db as never);
+
+    await expect(restoredService.restoreRevision({
+      companyId: "company-1",
+      rolePackSetId: "set-1",
+      revisionId: "rev-1",
+      actor: { userId: "board-1" },
+      restore: {
+        message: "Restore rev-1",
+        status: "published",
+      },
+    })).resolves.toMatchObject({
+      id: "set-1",
+      latestRevision: {
+        id: "rev-3",
+        version: 3,
+      },
+    });
+
+    const identicalDb = createRolePackDbMock({
+      selectResults: [
+        [set],
+        [latestRevision, olderRevision],
+        [
+          {
+            id: "file-latest",
+            revisionId: "rev-2",
+            filename: "ROLE.md",
+            content: "# Latest",
+            checksumSha256: "checksum-latest",
+            createdAt: new Date("2026-03-13T09:00:00.000Z"),
+          },
+        ],
+      ],
+    });
+    const identicalService = rolePackService(identicalDb.db as never);
+    await expect(identicalService.restoreRevision({
+      companyId: "company-1",
+      rolePackSetId: "set-1",
+      revisionId: "rev-2",
+      actor: { userId: "board-1" },
+      restore: {
+        message: "Restore latest",
+      },
+    })).rejects.toThrow("already the latest revision");
+
+    const missingFilesDb = createRolePackDbMock({
+      selectResults: [
+        [set],
+        [latestRevision, olderRevision],
+        [
+          {
+            id: "file-latest",
+            revisionId: "rev-2",
+            filename: "ROLE.md",
+            content: "# Latest",
+            checksumSha256: "checksum-latest",
+            createdAt: new Date("2026-03-13T09:00:00.000Z"),
+          },
+        ],
+      ],
+    });
+    const missingFilesService = rolePackService(missingFilesDb.db as never);
+    await expect(missingFilesService.restoreRevision({
+      companyId: "company-1",
+      rolePackSetId: "set-1",
+      revisionId: "rev-1",
+      actor: { userId: "board-1" },
+      restore: {
+        message: "Restore without files",
+      },
+    })).rejects.toThrow("without role pack files");
   });
 });

@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateRetrievalFeedbackProfile,
+  buildDirectTargetFeedbackEvents,
+  buildFeedbackEvents,
   computeRetrievalPersonalizationBoost,
+  describeManualFeedback,
+  describeMergeOutcomeFeedback,
+  describeProtocolFeedback,
+  fallbackBriefScopes,
   mergeRetrievalPersonalizationProfiles,
+  isPersonalizablePathTarget,
+  mergeBoostMaps,
+  normalizeBoost,
+  normalizePath,
+  parseRoleProfileJson,
 } from "../services/retrieval-personalization.js";
 
 describe("retrieval personalization", () => {
@@ -128,5 +139,186 @@ describe("retrieval personalization", () => {
     expect(boost.sourceTypeBoost).toBe(0.14);
     expect(boost.pathBoost).toBe(0);
     expect(boost.matchedPath).toBeNull();
+  });
+
+  it("normalizes paths, filters documentation targets, and clamps boost magnitudes", () => {
+    expect(normalizePath("./src/retry.ts")).toBe("src/retry.ts");
+    expect(isPersonalizablePathTarget("docs/adr/retries.md")).toBe(false);
+    expect(isPersonalizablePathTarget("src/runtime/retry.ts")).toBe(true);
+    expect(normalizeBoost({ targetType: "source_type", rawWeight: 100 })).toBe(0.65);
+    expect(normalizeBoost({ targetType: "path", rawWeight: -100 })).toBe(-0.55);
+  });
+
+  it("parses persisted profiles and merges global/project boosts with project preference", () => {
+    const parsed = parseRoleProfileJson({
+      sourceTypeBoosts: { code: 0.2, test_report: "bad" },
+      pathBoosts: { "src/retry.ts": 0.3 },
+      symbolBoosts: { retryWorker: 0.15 },
+      stats: {
+        feedbackCount: 4,
+        positiveFeedbackCount: 3,
+        negativeFeedbackCount: 1,
+        lastFeedbackAt: "2026-03-10T00:00:00.000Z",
+      },
+      generatedAt: "2026-03-10T00:00:00.000Z",
+    });
+
+    expect(parsed).toMatchObject({
+      sourceTypeBoosts: { code: 0.2 },
+      pathBoosts: { "src/retry.ts": 0.3 },
+      symbolBoosts: { retryWorker: 0.15 },
+      stats: expect.objectContaining({
+        feedbackCount: 4,
+        positiveFeedbackCount: 3,
+        negativeFeedbackCount: 1,
+      }),
+    });
+
+    expect(mergeBoostMaps({
+      global: { code: 0.2, test_report: -0.1 },
+      project: { code: 0.25 },
+      targetType: "source_type",
+    })).toEqual({
+      code: 0.4875,
+      test_report: -0.1,
+    });
+  });
+
+  it("classifies protocol, manual, and merge-outcome feedback descriptors", () => {
+    expect(describeProtocolFeedback({
+      messageType: "REQUEST_CHANGES",
+      payload: {},
+    } as any)).toEqual({
+      feedbackType: "request_changes",
+      baseWeight: -1,
+    });
+    expect(describeProtocolFeedback({
+      messageType: "CLOSE_TASK",
+      payload: { mergeStatus: "merged" },
+    } as any)).toEqual({
+      feedbackType: "merge_completed",
+      baseWeight: 1.2,
+    });
+    expect(describeProtocolFeedback({
+      messageType: "CLOSE_TASK",
+      payload: { mergeStatus: "local_only" },
+    } as any)).toEqual({
+      feedbackType: "approved",
+      baseWeight: 0.75,
+    });
+    expect(describeProtocolFeedback({
+      messageType: "REPORT_PROGRESS",
+      payload: {},
+    } as any)).toBeNull();
+    expect(describeManualFeedback("operator_pin")).toEqual({
+      feedbackType: "operator_pin",
+      baseWeight: 1.05,
+    });
+    expect(describeManualFeedback("operator_hide")).toEqual({
+      feedbackType: "operator_hide",
+      baseWeight: -0.9,
+    });
+    expect(describeMergeOutcomeFeedback("merge_rejected")).toEqual({
+      feedbackType: "merge_rejected",
+      baseWeight: -1.05,
+    });
+  });
+
+  it("derives fallback brief scopes for reviewer, closure, and human board flows", () => {
+    expect(fallbackBriefScopes({
+      senderRole: "reviewer",
+      messageType: "REQUEST_CHANGES",
+    })).toEqual(["reviewer"]);
+    expect(fallbackBriefScopes({
+      senderRole: "human_board",
+      messageType: "CLOSE_TASK",
+    })).toEqual(["closure", "global", "qa", "reviewer", "tech_lead", "pm", "cto"]);
+    expect(fallbackBriefScopes({
+      senderRole: "unknown_role",
+      messageType: "START_REVIEW",
+    })).toEqual(["reviewer"]);
+  });
+
+  it("builds ranked feedback events from retrieval hits", () => {
+    const events = buildFeedbackEvents({
+      companyId: "company-1",
+      projectId: "project-1",
+      issueId: "issue-1",
+      retrievalRunId: "run-1",
+      feedbackMessageId: "message-1",
+      actorRole: "reviewer",
+      eventType: "review",
+      feedbackType: "approved",
+      baseWeight: 1,
+      hits: [
+        {
+          chunkId: "chunk-1",
+          finalRank: 1,
+          sourceType: "code",
+          documentPath: "./src/runtime/retry.ts",
+          symbolName: "retryWorker",
+          rationale: "best match",
+          fusedScore: 0.91,
+        },
+        {
+          chunkId: "chunk-2",
+          finalRank: 6,
+          sourceType: "issue",
+          documentPath: "issues/CLO-1/issue.md",
+          symbolName: null,
+          rationale: null,
+          fusedScore: 0.44,
+        },
+      ],
+    });
+
+    expect(events.filter((event) => event.targetType === "chunk")).toHaveLength(2);
+    expect(events.filter((event) => event.targetType === "source_type")).toHaveLength(2);
+    expect(events.filter((event) => event.targetType === "path")).toEqual([
+      expect.objectContaining({
+        targetId: "src/runtime/retry.ts",
+        targetType: "path",
+      }),
+    ]);
+    expect(events.filter((event) => event.targetType === "symbol")).toEqual([
+      expect.objectContaining({
+        targetId: "retryWorker",
+        targetType: "symbol",
+      }),
+    ]);
+    expect(events[0]?.metadata).toEqual(expect.objectContaining({
+      finalRank: 1,
+      fusedScore: 0.91,
+    }));
+  });
+
+  it("builds direct target feedback events and promotes code source-type once for path targets", () => {
+    const events = buildDirectTargetFeedbackEvents({
+      companyId: "company-1",
+      projectId: null,
+      issueId: "issue-1",
+      retrievalRunId: "run-1",
+      feedbackMessageId: null,
+      actorRole: "qa",
+      eventType: "review",
+      feedbackType: "operator_pin",
+      baseWeight: 0.8,
+      targetType: "path",
+      targetIds: ["src/runtime.ts", "docs/adr.md", "  ", "src/worker.ts"],
+      metadata: { origin: "operator" },
+    });
+
+    expect(events.filter((event) => event.targetType === "path")).toHaveLength(3);
+    expect(events.filter((event) => event.targetType === "source_type")).toEqual([
+      expect.objectContaining({
+        targetType: "source_type",
+        targetId: "code",
+        weight: 0.576,
+        metadata: expect.objectContaining({
+          origin: "operator",
+          promotedByPathFeedback: true,
+        }),
+      }),
+    ]);
   });
 });

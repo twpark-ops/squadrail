@@ -71,7 +71,7 @@ function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function estimateTokenCount(text: string) {
+export function estimateTokenCount(text: string) {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length === 0) return 1;
   return Math.max(normalized.split(" ").filter(Boolean).length, Math.ceil(normalized.length / 4));
@@ -85,7 +85,7 @@ function slugifyMessageType(messageType: string) {
   return messageType.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
 
-function truncateText(text: string) {
+export function truncateText(text: string) {
   if (text.length <= MAX_ORG_MEMORY_CONTENT_CHARS) return text;
   return `${text.slice(0, MAX_ORG_MEMORY_CONTENT_CHARS).trimEnd()}\n\n[truncated]`;
 }
@@ -102,7 +102,7 @@ function pushList(lines: string[], title: string, values: string[]) {
   }
 }
 
-function splitMarkdownSections(markdown: string) {
+export function splitMarkdownSections(markdown: string) {
   const sections: Array<{ headingPath: string | null; textContent: string }> = [];
   const lines = markdown.split(/\r?\n/);
   let currentHeadingPath: string | null = null;
@@ -141,7 +141,7 @@ function splitMarkdownSections(markdown: string) {
   return sections;
 }
 
-function splitOversizedSection(input: {
+export function splitOversizedSection(input: {
   headingPath: string | null;
   textContent: string;
   baseLinks: OrganizationalMemoryChunk["links"];
@@ -203,11 +203,11 @@ function splitOversizedSection(input: {
   return chunks;
 }
 
-function normalizePathLink(pathValue: string) {
+export function normalizePathLink(pathValue: string) {
   return pathValue.replace(/\\/g, "/").replace(/^\.\/+/, "").trim();
 }
 
-function extractRelatedIssueIds(payload: Record<string, unknown>) {
+export function extractRelatedIssueIds(payload: Record<string, unknown>) {
   const related = new Set<string>();
   for (const value of readStringArray(payload.relatedIssueIds)) related.add(value);
   for (const value of readStringArray(payload.followUpIssueIds)) related.add(value);
@@ -216,7 +216,7 @@ function extractRelatedIssueIds(payload: Record<string, unknown>) {
   return [...related];
 }
 
-function extractChangedPaths(payload: Record<string, unknown>) {
+export function extractChangedPaths(payload: Record<string, unknown>) {
   const result = new Set<string>();
 
   for (const entry of readStringArray(payload.changedFiles)) {

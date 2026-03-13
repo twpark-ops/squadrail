@@ -224,4 +224,70 @@ describe("goal routes", () => {
       }),
     );
   });
+
+  it("lists and retrieves goals inside company scope", async () => {
+    mockListGoals.mockResolvedValue([
+      {
+        id: "goal-1",
+        companyId: "company-1",
+        title: "Ship planning layer",
+      },
+    ]);
+    mockGetGoalById.mockResolvedValue({
+      id: "goal-1",
+      companyId: "company-1",
+      title: "Ship planning layer",
+    });
+
+    const listed = await invokeRoute({
+      path: "/companies/:companyId/goals",
+      method: "get",
+      params: { companyId: "company-1" },
+    });
+    const detail = await invokeRoute({
+      path: "/goals/:id",
+      method: "get",
+      params: { id: "goal-1" },
+    });
+
+    expect(listed.statusCode).toBe(200);
+    expect(listed.body).toEqual([{ id: "goal-1", companyId: "company-1", title: "Ship planning layer" }]);
+    expect(detail.statusCode).toBe(200);
+    expect(detail.body).toEqual({ id: "goal-1", companyId: "company-1", title: "Ship planning layer" });
+  });
+
+  it("deletes goals and reports missing goals", async () => {
+    mockGetGoalById
+      .mockResolvedValueOnce({
+        id: "goal-1",
+        companyId: "company-1",
+        title: "Ship planning layer",
+      })
+      .mockResolvedValueOnce(null);
+    mockRemoveGoal.mockResolvedValue({
+      id: "goal-1",
+      companyId: "company-1",
+      title: "Ship planning layer",
+    });
+
+    const removed = await invokeRoute({
+      path: "/goals/:id",
+      method: "delete",
+      params: { id: "goal-1" },
+    });
+    const missing = await invokeRoute({
+      path: "/goals/:id",
+      method: "delete",
+      params: { id: "goal-missing" },
+    });
+
+    expect(removed.statusCode).toBe(200);
+    expect(removed.body).toEqual({
+      id: "goal-1",
+      companyId: "company-1",
+      title: "Ship planning layer",
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.body).toEqual({ error: "Goal not found" });
+  });
 });

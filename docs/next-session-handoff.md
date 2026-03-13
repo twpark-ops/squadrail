@@ -11,8 +11,15 @@ Open this file first, then read:
 One-line startup rule:
 
 - open this handoff first, then continue immediately with `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`
+  - superseded on 2026-03-13 after coverage threshold hit; see latest status below.
 
 ## Current Status
+
+- `13-P. coverage threshold push`: 완료
+  - server coverage가 `60.11%`까지 올라가서 목표 기준 `60%`를 넘겼다.
+  - `access.ts` helper/onboarding path, `retrieval-personalization.ts` feedback helper, `organizational-memory-ingest.ts` protocol artifact variants를 direct test로 닫았다.
+  - `board-claim.ts`, `issue-merge-candidates.ts`, `issue-approvals.ts`, `goals.ts`, `sidebar-badges.ts` direct service test를 추가했다.
+  - `issues` 하위 route shell `approvals-routes.ts`, `attachments-routes.ts`, `protocol-read-routes.ts`를 direct route test로 고정했다.
 
 - `1. 통합 경계 안정화`: P0 1차 완료
   - protocol -> merge candidate -> review desk -> merged close 경계 테스트/타입/정책 정리 완료
@@ -125,35 +132,34 @@ One-line startup rule:
 - 최신 검증:
   - `pnpm --filter @squadrail/server typecheck`
   - `pnpm --filter @squadrail/server build`
-  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/issue-protocol-state-policy.test.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/knowledge-service-operations.test.ts src/__tests__/issue-retrieval.test.ts`
   - `pnpm --filter @squadrail/server test:coverage -- --reporter=default`
-  - `105 files / 736 tests` 통과
-  - server coverage `47.70%`
-- 현재 다음 순차 작업은 `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`
+  - `130 files / 855 tests` 통과
+  - server coverage `60.11%`
+- 현재 다음 순차 작업은 `heartbeat / issue-retrieval / knowledge runtime bottleneck hardening`
 
 ## Next Priorities
 
-1. remaining global coverage uplift toward `60%` across large runtime/operator services
-2. `issue-protocol.ts / heartbeat.ts / knowledge.ts / issue-retrieval.ts` direct test와 tail branch coverage 확대
-3. immediate next slice는 `issue-protocol appendMessage`, `heartbeat cancel/reap tail`, `knowledge listRecentRetrievalRuns`, `issue-retrieval service-body cache/revision path`다
-4. low-coverage support shell (`access.ts`, `board-claim.ts`, `dashboard.ts`, `companies.ts`, `secrets.ts` service/route surface) 중 ROI 높은 표면만 선택 보강
+1. `heartbeat.ts / issue-retrieval.ts / knowledge.ts` tail branch와 service-body direct path를 계속 분해/고정
+2. `issue-protocol.ts`는 coverage보다 append/review-cycle policy drift를 막는 회귀 중심으로 유지
+3. low-coverage infra shell (`access.ts`, `agents.ts`, `config.ts`, `doctor.ts`)은 ROI 기준으로만 추가 보강
+4. next slice는 `heartbeat cancel/reap/watchdog`, `issue-retrieval cache/revision/provenance`, `knowledge retrieval-run/listRecentRetrievalRuns`다
 
 Interpretation:
 
-- next focus is raising coverage on the biggest runtime/protocol bottlenecks
+- next focus is runtime bottleneck hardening after the threshold is already satisfied
 - 새 기능 backlog보다 large service direct test와 tail branch regression 고정이 immediate next다
 
 ## Recommended First Task Next Session
 
-Start with `issue-protocol / heartbeat / knowledge / issue-retrieval coverage uplift`.
+Start with `heartbeat / issue-retrieval / knowledge runtime bottleneck hardening`.
 
 Suggested slice:
 
-1. `issue-protocol.ts`는 `appendMessage`의 message validation / evidence gate / review-cycle branch를 direct service 단위로 더 메우기
-2. `heartbeat.ts`는 `cancelActiveForAgent` 이후 `reapOrphanedRuns`와 watchdog tail을 계속 direct test로 늘리기
-3. `knowledge.ts`는 `listRecentRetrievalRuns`, `listTaskBriefs`, retrieval feedback aggregation read path를 우선 메우기
-4. `issue-retrieval.ts`는 service-body cache/revision/provenance path를 helper보다 한 단계 안쪽까지 끌어올리기
-5. shell 쪽은 `board-claim.ts`와 `dashboard/companies` service surface 위주로 좁혀서 메우기
+1. `heartbeat.ts`는 `cancelActiveForAgent` 이후 `reapOrphanedRuns`와 watchdog tail을 계속 direct test로 늘리기
+2. `knowledge.ts`는 `listRecentRetrievalRuns`, `listTaskBriefs`, retrieval feedback aggregation read path를 우선 메우기
+3. `issue-retrieval.ts`는 service-body cache/revision/provenance path를 helper보다 한 단계 안쪽까지 끌어올리기
+4. `issue-protocol.ts`는 policy drift가 큰 append/review-cycle branch만 선택적으로 유지 보강하기
+5. infra shell은 `agents.ts`, `access.ts`, `doctor.ts` 중 ROI가 높은 경로만 추가로 메우기
 6. 마지막에 `pnpm --filter @squadrail/server typecheck`, `pnpm --filter @squadrail/server build`, `pnpm --filter @squadrail/server test:coverage -- --reporter=default` 재실행
 
 ## Important Files

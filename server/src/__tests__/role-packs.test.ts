@@ -5,6 +5,11 @@ import {
   buildCustomRolePackIdentity,
   buildCustomRolePackMetadata,
   buildDefaultRolePackFiles,
+  buildSimulationChecklist,
+  buildSimulationRuntimePrompt,
+  buildSimulationSuggestions,
+  listRolePackPresets,
+  normalizeSimulationFiles,
 } from "../services/role-packs.js";
 
 describe("role pack defaults", () => {
@@ -119,5 +124,116 @@ describe("role pack defaults", () => {
       customRoleDescription: "Own release orchestration",
       baseRoleKey: "tech_lead",
     });
+  });
+
+  it("lists presets and preserves runtime file ordering when draft files override published content", () => {
+    expect(listRolePackPresets().map((preset) => preset.key)).toEqual([
+      "squadrail_default_v1",
+      "example_product_squad_v1",
+      "example_large_org_v1",
+    ]);
+
+    const normalized = normalizeSimulationFiles({
+      latestFiles: [
+        { id: "1", revisionId: "rev-1", filename: "ROLE.md", content: "# Published", checksumSha256: "a", createdAt: new Date() },
+        { id: "2", revisionId: "rev-1", filename: "TOOLS.md", content: "Published tools", checksumSha256: "b", createdAt: new Date() },
+      ],
+      draftFiles: [
+        { filename: "ROLE.md", content: "# Draft" },
+        { filename: "STYLE.md", content: "Draft style" },
+      ],
+    });
+
+    expect(normalized.map((file) => file.filename)).toEqual([
+      "ROLE.md",
+      "AGENTS.md",
+      "HEARTBEAT.md",
+      "REVIEW.md",
+      "STYLE.md",
+      "TOOLS.md",
+    ]);
+    expect(normalized.find((file) => file.filename === "ROLE.md")?.content).toBe("# Draft");
+    expect(normalized.find((file) => file.filename === "STYLE.md")?.content).toBe("Draft style");
+    expect(normalized.find((file) => file.filename === "TOOLS.md")?.content).toBe("Published tools");
+  });
+
+  it("builds role-specific simulation checklists and suggestions across CTO, TL, reviewer, and QA paths", () => {
+    const baseScenario = {
+      workflowState: "under_review",
+      messageType: "REQUEST_CHANGES",
+      issueTitle: "Stabilize runtime dispatch",
+      issueSummary: "Fix watchdog drift",
+      acceptanceCriteria: ["Heartbeat finishes reliably"],
+      changedFiles: ["server/src/services/heartbeat.ts"],
+      reviewFindings: ["Missing watchdog coverage"],
+      taskBrief: "Keep retries bounded.",
+      retrievalSummary: "Recent failures cluster around process loss.",
+      blockerCode: "watchdog_timeout",
+    };
+
+    expect(buildSimulationChecklist("cto", { ...baseScenario, workflowState: "planning" })).toEqual(
+      expect.arrayContaining([
+        "Delegate company-wide work to the correct project lead before driving review or closure.",
+        "Synthesize TL and QA evidence into a final board-facing recommendation.",
+      ]),
+    );
+    expect(buildSimulationChecklist("qa", baseScenario)).toEqual(
+      expect.arrayContaining([
+        "Check regression coverage, reproduction clarity, and integration risk before signaling completion.",
+        "Escalate when evidence is missing even if local code changes look reasonable.",
+      ]),
+    );
+
+    expect(buildSimulationSuggestions("tech_lead", { ...baseScenario, workflowState: "backlog" })).toEqual([
+      expect.objectContaining({ messageType: "ASSIGN_TASK" }),
+    ]);
+    expect(buildSimulationSuggestions("tech_lead", { ...baseScenario, workflowState: "blocked" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ messageType: "REASSIGN_TASK" }),
+        expect.objectContaining({ messageType: "NOTE" }),
+      ]),
+    );
+    expect(buildSimulationSuggestions("reviewer", { ...baseScenario, workflowState: "under_review" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ messageType: "REQUEST_CHANGES" }),
+        expect.objectContaining({ messageType: "APPROVE_IMPLEMENTATION" }),
+      ]),
+    );
+    expect(buildSimulationSuggestions("qa", { ...baseScenario, workflowState: "approved" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ messageType: "REQUEST_CHANGES" }),
+        expect.objectContaining({ messageType: "NOTE" }),
+      ]),
+    );
+  });
+
+  it("renders runtime prompts with protocol transport rules and compiled markdown files", () => {
+    const runtimePrompt = buildSimulationRuntimePrompt({
+      roleKey: "engineer",
+      roleLabel: "Release Captain",
+      scenario: {
+        workflowState: "implementing",
+        messageType: "REPORT_PROGRESS",
+        issueTitle: "Harden burn-in flow",
+        issueSummary: "Fix runtime regressions",
+        acceptanceCriteria: ["Focused vitest passes"],
+        changedFiles: ["server/src/services/issue-retrieval.ts"],
+        reviewFindings: [],
+        taskBrief: "Stop after focused validation.",
+        retrievalSummary: "Prior regressions came from finalization drift.",
+        blockerCode: null,
+      },
+      checklist: ["Keep the next update evidence-backed and scoped to the current issue."],
+      files: [
+        { filename: "ROLE.md", content: "# Engineer" },
+        { filename: "AGENTS.md", content: "Use the helper." },
+      ],
+    });
+
+    expect(runtimePrompt).toContain("# Release Captain runtime simulation");
+    expect(runtimePrompt).toContain("Protocol transport rule");
+    expect(runtimePrompt).toContain("SQUADRAIL_PROTOCOL_HELPER_PATH");
+    expect(runtimePrompt).toContain("## ROLE.md");
+    expect(runtimePrompt).toContain("## AGENTS.md");
   });
 });

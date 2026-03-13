@@ -94,7 +94,7 @@ function toIsoFromEpochMs(value: number | null) {
   return value ? new Date(value).toISOString() : null;
 }
 
-function withKnowledgeSetupCacheMeta(
+export function withKnowledgeSetupCacheMeta(
   view: KnowledgeSetupView,
   input: {
     state: KnowledgeSetupCacheState;
@@ -180,7 +180,7 @@ function deriveExtraAgentReason(agent: Awaited<ReturnType<ReturnType<typeof agen
   return "not_in_canonical_template";
 }
 
-function deriveProjectSyncStatus(input: {
+export function deriveProjectSyncStatus(input: {
   workspaceExists: boolean;
   workspaceCwd: string | null;
   currentHeadSha: string | null;
@@ -309,7 +309,7 @@ export function buildOrgSyncView(input: {
   } satisfies OrgSyncView;
 }
 
-function normalizeAgentPatch(input: {
+export function normalizeAgentPatch(input: {
   canonical: CanonicalAgentDefinition;
   managerId: string | null;
 }) {

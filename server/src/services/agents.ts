@@ -59,7 +59,7 @@ function jsonEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function buildConfigSnapshot(
+export function buildConfigSnapshot(
   row: Pick<typeof agents.$inferSelect, ConfigRevisionField>,
 ): AgentConfigSnapshot {
   const adapterConfig =
@@ -88,25 +88,25 @@ function buildConfigSnapshot(
   };
 }
 
-function containsRedactedMarker(value: unknown): boolean {
+export function containsRedactedMarker(value: unknown): boolean {
   if (value === REDACTED_EVENT_VALUE) return true;
   if (Array.isArray(value)) return value.some((item) => containsRedactedMarker(item));
   if (typeof value !== "object" || value === null) return false;
   return Object.values(value as Record<string, unknown>).some((entry) => containsRedactedMarker(entry));
 }
 
-function hasConfigPatchFields(data: Partial<typeof agents.$inferInsert>) {
+export function hasConfigPatchFields(data: Partial<typeof agents.$inferInsert>) {
   return CONFIG_REVISION_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(data, field));
 }
 
-function diffConfigSnapshot(
+export function diffConfigSnapshot(
   before: AgentConfigSnapshot,
   after: AgentConfigSnapshot,
 ): string[] {
   return CONFIG_REVISION_FIELDS.filter((field) => !jsonEqual(before[field], after[field]));
 }
 
-function configPatchFromSnapshot(snapshot: unknown): Partial<typeof agents.$inferInsert> {
+export function configPatchFromSnapshot(snapshot: unknown): Partial<typeof agents.$inferInsert> {
   if (!isPlainRecord(snapshot)) throw unprocessable("Invalid revision snapshot");
 
   if (typeof snapshot.name !== "string" || snapshot.name.length === 0) {
