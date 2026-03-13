@@ -10,6 +10,7 @@ import {
   GitBranch,
   GitCommitHorizontal,
   LoaderCircle,
+  MessageSquare,
   Rocket,
   ShieldCheck,
   TestTube2,
@@ -288,6 +289,7 @@ export function ChangeReviewDesk({
   const failureAssist = mergeCandidate?.failureAssist ?? null;
   const templateTrace = mergeCandidate?.templateTrace ?? null;
   const revertAssist = mergeCandidate?.revertAssist ?? null;
+  const clarificationTrace = surface.clarificationTrace;
   const mergeBlocked = Boolean(prBridge && gateStatus && gateStatus.mergeReady === false);
   const busy = resolveMutation.isPending || automationMutation.isPending || recoveryMutation.isPending;
 
@@ -588,6 +590,63 @@ export function ChangeReviewDesk({
               {failureAssist.suggestedActions.map((action) => (
                 <div key={action}>{action}</div>
               ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {clarificationTrace ? (
+        <div className="mt-4 rounded-[0.95rem] border border-violet-500/20 bg-violet-500/8 px-4 py-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-100">
+            <MessageSquare className="h-3.5 w-3.5" />
+            Clarification loop
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-violet-100/90">
+            <span className="rounded-full border border-violet-300/30 px-2.5 py-1">
+              {clarificationTrace.pendingCount} pending
+            </span>
+            {clarificationTrace.latestResolvedResumeWorkflowState ? (
+              <span className="rounded-full border border-violet-300/30 px-2.5 py-1">
+                resumes {titleCase(clarificationTrace.latestResolvedResumeWorkflowState)}
+              </span>
+            ) : null}
+            {clarificationTrace.latestAskedByRole ? (
+              <span className="rounded-full border border-violet-300/30 px-2.5 py-1">
+                asked by {titleCase(clarificationTrace.latestAskedByRole)}
+              </span>
+            ) : null}
+          </div>
+          {clarificationTrace.latestPendingQuestion ? (
+            <div className="mt-3 rounded-md border border-violet-300/20 bg-background/20 px-3 py-3 text-sm text-violet-50">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-100/80">
+                Latest pending question
+              </div>
+              <div className="mt-2">{clarificationTrace.latestPendingQuestion}</div>
+            </div>
+          ) : null}
+          {clarificationTrace.latestResolvedQuestion || clarificationTrace.latestResolvedAnswer ? (
+            <div className="mt-3 rounded-md border border-violet-300/20 bg-background/20 px-3 py-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-violet-100/80">
+                Latest answered clarification
+              </div>
+              {clarificationTrace.latestResolvedQuestion ? (
+                <div className="mt-2 text-sm text-violet-50">
+                  Q: {clarificationTrace.latestResolvedQuestion}
+                </div>
+              ) : null}
+              {clarificationTrace.latestResolvedAnswer ? (
+                <div className="mt-2 text-sm text-violet-50">
+                  A: {clarificationTrace.latestResolvedAnswer}
+                </div>
+              ) : null}
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-violet-100/80">
+                {clarificationTrace.latestResolvedAt ? (
+                  <span>Answered {relativeTime(clarificationTrace.latestResolvedAt)}</span>
+                ) : null}
+                {clarificationTrace.latestAnsweredByRole ? (
+                  <span>by {titleCase(clarificationTrace.latestAnsweredByRole)}</span>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>

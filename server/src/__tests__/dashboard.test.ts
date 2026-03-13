@@ -36,6 +36,7 @@ function queueItem(overrides: Partial<DashboardProtocolQueueItem>): DashboardPro
     engineer: overrides.engineer ?? null,
     reviewer: overrides.reviewer ?? null,
     latestMessage: overrides.latestMessage ?? null,
+    pendingHumanClarifications: overrides.pendingHumanClarifications ?? [],
     openReviewCycle: overrides.openReviewCycle ?? null,
     latestBriefs: overrides.latestBriefs ?? {},
   };

@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { Identity } from "../components/Identity";
 import { PageTabBar } from "../components/PageTabBar";
+import { workIssuePath } from "../lib/appRoutes";
 import type {
   DashboardProtocolQueueItem,
   DashboardTeamSupervisionItem,
@@ -113,6 +114,13 @@ function firstNonEmptyLine(value: string | null | undefined): string | null {
   if (!value) return null;
   const line = value.split("\n").map((chunk) => chunk.trim()).find(Boolean);
   return line ?? null;
+}
+
+function formatProtocolValue(value: string | null | undefined) {
+  if (!value) return "Unknown";
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function runFailureMessage(run: HeartbeatRun): string {
@@ -347,11 +355,12 @@ function ClarificationCard({
   item: DashboardProtocolQueueItem;
 }) {
   const pendingClarification = item.pendingHumanClarifications[0] ?? null;
+  const issueHref = workIssuePath(item.identifier ?? item.issueId);
+  const answerHref = pendingClarification
+    ? `${issueHref}?tab=protocol&action=ANSWER_CLARIFICATION&clarification=${encodeURIComponent(pendingClarification.questionMessageId)}&source=inbox`
+    : issueHref;
   return (
-    <Link
-      to={`/issues/${item.identifier ?? item.issueId}`}
-      className="block rounded-xl border border-border bg-card p-4 transition-colors hover:bg-accent/20 no-underline text-inherit"
-    >
+    <div className="rounded-xl border border-border bg-card p-4 transition-colors hover:bg-accent/20">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span className="font-mono">{item.identifier ?? item.issueId.slice(0, 8)}</span>
         <span>•</span>
@@ -369,12 +378,28 @@ function ClarificationCard({
       <p className="mt-2 text-sm text-muted-foreground">
         {pendingClarification?.question ?? "Pending clarification requires a human answer."}
       </p>
+      {pendingClarification?.resumeWorkflowState ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Answering this resumes {formatProtocolValue(pendingClarification.resumeWorkflowState)}.
+        </p>
+      ) : null}
       {pendingClarification && item.pendingHumanClarifications.length > 1 && (
         <p className="mt-2 text-xs text-muted-foreground">
           {item.pendingHumanClarifications.length} pending clarification requests are waiting on the board.
         </p>
       )}
-    </Link>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button asChild size="sm">
+          <Link to={answerHref}>
+            Answer now
+            <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant="outline">
+          <Link to={issueHref}>Open issue</Link>
+        </Button>
+      </div>
+    </div>
   );
 }
 

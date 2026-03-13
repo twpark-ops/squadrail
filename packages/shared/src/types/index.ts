@@ -29,6 +29,7 @@ export type {
   IssueChangeSurfaceArtifact,
   IssueChangeSurfaceRetrievalRun,
   IssueChangeSurfaceFeedbackSummary,
+  IssueChangeSurfaceClarificationTrace,
   IssueMergeCandidateCheck,
   IssueMergeCandidateCheckSummary,
   IssueMergeCandidatePrBridge,
@@ -101,6 +102,14 @@ export type { ActivityEvent } from "./activity.js";
 export type { SidebarBadges } from "./sidebar-badges.js";
 export type { SetupProgress, SetupProgressView, DoctorCheck, DoctorReport, DoctorWorkspaceTarget } from "./setup.js";
 export type { WorkflowTemplate, WorkflowTemplatesView } from "./workflow-template.js";
+export type {
+  TeamBlueprintProjectTemplate,
+  TeamBlueprintRoleTemplate,
+  TeamBlueprintParameterHints,
+  TeamBlueprintReadiness,
+  TeamBlueprint,
+  TeamBlueprintCatalogView,
+} from "./team-blueprint.js";
 export type {
   OrgSyncStatus,
   OrgSyncExpectedAgent,

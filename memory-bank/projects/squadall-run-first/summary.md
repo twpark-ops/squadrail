@@ -31,14 +31,17 @@
   - answer -> question ack -> retrieval/memory ingest -> wake reason propagation을 연결했다.
   - `ANSWER_CLARIFICATION`가 blocked / awaiting-human 상태를 공식 resume state로 복구하도록 server-owned workflow transition을 추가했다.
   - `Inbox`와 `IssueDetail`이 shared pending human clarification contract를 사용하도록 정리했다.
+  - `Inbox` clarification card에 answer CTA/deep-link를 추가했다.
+  - `IssueDetail` / `ChangeReviewDesk`에 answered / resumed clarification trace를 추가했다.
+  - generic `team blueprint` shared/server contract skeleton과 `GET /api/companies/:companyId/team-blueprints` route를 추가했다.
 - immediate next slice:
-  - `Inbox` clarification card를 answer CTA/deep-link까지 올리기
-  - answered / resumed trace를 operator surface에 반영하기
-  - `Generic team blueprint v1` shared/server contract skeleton 시작
+  - `team blueprint preview/diff` contract와 server preview route 추가
+  - `Company Settings`에 blueprint catalog read/preview entry 추가
+  - `swiftsight canonical` generic registry 흡수 parameter map 정리
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.
-  - 최신 검증 기준은 `172 files / 1099 tests`, coverage `80.23%`다.
+  - 최신 검증 기준은 `174 files / 1105 tests`, coverage `80.36%`다.
 
 ## 2026-03-13 server coverage 80% threshold 유지
 

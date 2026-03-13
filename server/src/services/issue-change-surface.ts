@@ -1,4 +1,9 @@
-import type { IssueChangeSurface } from "@squadrail/shared";
+import {
+  deriveLatestHumanClarificationResolution,
+  derivePendingHumanClarifications,
+  type IssueChangeSurface,
+  type ProtocolClarificationMessageLike,
+} from "@squadrail/shared";
 import {
   buildMergeCandidateGateStatus,
   buildMergeCandidatePrBridge,
@@ -17,6 +22,14 @@ type ProtocolMessageLike = {
   messageType: string;
   summary: string;
   createdAt: Date | string;
+  workflowStateAfter?: string | null;
+  causalMessageId?: string | null;
+  ackedAt?: Date | string | null;
+  sender?: {
+    actorType: string;
+    actorId: string;
+    role: string;
+  } | null;
   payload?: Record<string, unknown> | null;
   artifacts?: Array<{
     kind: string;
@@ -230,6 +243,49 @@ function latestMessage(messages: ProtocolMessageLike[], messageType: string) {
     ?? null;
 }
 
+function buildClarificationTrace(messages: ProtocolMessageLike[]): IssueChangeSurface["clarificationTrace"] {
+  const protocolMessages: ProtocolClarificationMessageLike[] = messages.flatMap((message) => {
+    const sender = asRecord(message.sender);
+    if (!sender) return [];
+    const actorType = readString(sender.actorType);
+    const actorId = readString(sender.actorId);
+    const role = readString(sender.role);
+    if (!actorType || !actorId || !role) return [];
+    return [{
+      id: message.id,
+      messageType: message.messageType as ProtocolClarificationMessageLike["messageType"],
+      causalMessageId: message.causalMessageId ?? null,
+      ackedAt: message.ackedAt ?? null,
+      createdAt: normalizeDate(message.createdAt),
+      workflowStateAfter: readString(message.workflowStateAfter) as ProtocolClarificationMessageLike["workflowStateAfter"],
+      payload: message.payload ?? null,
+      sender: {
+        actorType: actorType as ProtocolClarificationMessageLike["sender"]["actorType"],
+        actorId,
+        role: role as ProtocolClarificationMessageLike["sender"]["role"],
+      },
+    }];
+  });
+
+  const pending = derivePendingHumanClarifications(protocolMessages);
+  const resolved = deriveLatestHumanClarificationResolution(protocolMessages);
+  if (pending.length === 0 && !resolved) return null;
+
+  const latestPending = pending[pending.length - 1] ?? null;
+  return {
+    pendingCount: pending.length,
+    latestPendingQuestion: latestPending?.question ?? null,
+    latestPendingAt: latestPending?.createdAt ?? null,
+    latestPendingResumeWorkflowState: latestPending?.resumeWorkflowState ?? null,
+    latestResolvedAt: resolved?.answeredAt ?? null,
+    latestResolvedQuestion: resolved?.question ?? null,
+    latestResolvedAnswer: resolved?.answer ?? null,
+    latestResolvedResumeWorkflowState: resolved?.resumeWorkflowState ?? null,
+    latestAskedByRole: resolved?.askedByRole ?? latestPending?.askedByRole ?? null,
+    latestAnsweredByRole: resolved?.answeredByRole ?? null,
+  };
+}
+
 function findMergeCandidateCloseMessage(input: {
   messages: ProtocolMessageLike[];
   mergeCandidateRecord?: MergeCandidateRecordLike;
@@ -355,6 +411,7 @@ export function buildIssueChangeSurface(input: {
     lastFeedbackAt: null,
     feedbackTypeCounts: {},
   };
+  const clarificationTrace = buildClarificationTrace(input.messages);
 
   let mergeCandidate: IssueChangeSurface["mergeCandidate"] = null;
   const mergeStatus = readString(closePayload.mergeStatus);
@@ -429,6 +486,7 @@ export function buildIssueChangeSurface(input: {
     diffStat,
     verificationSummary: readString(closePayload.verificationSummary),
     closureSummary: readString(closePayload.closureSummary),
+    clarificationTrace,
     latestRunArtifact: artifactSummary(runArtifact),
     workspaceBindingArtifact: artifactSummary(workspaceBinding),
     diffArtifact: artifactSummary(diffArtifact),

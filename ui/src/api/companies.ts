@@ -15,6 +15,7 @@ import type {
   OrgSyncRepairResult,
   OrgSyncView,
   RepairOrgSync,
+  TeamBlueprintCatalogView,
   CreateCustomRolePack,
   RolePackPresetDescriptor,
   RolePackRevisionWithFiles,
@@ -65,6 +66,8 @@ export const companiesApi = {
     api.patch<SetupProgressView>(`/companies/${companyId}/setup-progress`, data),
   getWorkflowTemplates: (companyId: string) =>
     api.get<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`),
+  getTeamBlueprints: (companyId: string) =>
+    api.get<TeamBlueprintCatalogView>(`/companies/${companyId}/team-blueprints`),
   updateWorkflowTemplates: (companyId: string, data: UpdateWorkflowTemplates) =>
     api.patch<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`, data),
   getOperatingAlerts: (companyId: string) =>

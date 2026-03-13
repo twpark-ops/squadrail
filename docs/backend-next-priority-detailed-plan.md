@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `Phase 3 operator clarification surface polish + Phase 4 blueprint contract kickoff`이다.
+> 현재 다음 순차 작업은 `Phase 4 blueprint preview/diff + Company Settings catalog surface`다.
 
 ## 목적
 
@@ -69,17 +69,20 @@
 
 ### Immediate Next Slice
 
-1. `Phase 3 finish`
-   - `ANSWER_CLARIFICATION`의 resume semantics는 server-owned transition으로 닫혔다
-   - `Inbox` clarification card를 answer CTA/deep-link까지 올리기
-   - answered / resumed 상태를 operator surface에서 읽을 수 있게 만들기
-   - `Inbox` / `IssueDetail`은 shared pending human clarification contract를 계속 사용한다
-2. `Generic team blueprint v1 contract skeleton`
-   - shared type / validator / registry 뼈대 추가
-   - swiftsight-specific canonical 흡수 준비
-3. `Focused validation`
-   - clarification answer route / surface regression
+1. `Phase 4 preview/diff kickoff`
+   - `team blueprint preview` request/response contract 추가
+   - company current state 대비 create/update/adopt diff shape 정의
+   - readiness warning / missing workspace / missing knowledge 상태를 preview 결과에 포함
+2. `Company Settings catalog surface`
+   - company blueprint catalog read
+   - preview entry와 diff surface 추가
+   - apply 전 preview-first UX 고정
+3. `swiftsight canonical absorption prep`
+   - 기존 canonical org metadata를 generic blueprint parameter map으로 정리
+4. `Focused validation`
    - blueprint contract service/unit regression
+   - companies route preview regression
+   - Company Settings render / mutation smoke
 
 ### Follow-up Slices
 

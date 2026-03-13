@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { useParams, Link, useNavigate, useLocation } from "@/lib/router";
+import { useParams, Link, useNavigate, useLocation, useSearchParams } from "@/lib/router";
 import {
   useQuery,
   useQueries,
@@ -96,7 +96,10 @@ import type {
   IssueReviewCycle,
   IssueTaskBrief,
 } from "@squadrail/shared";
-import { derivePendingHumanClarifications } from "@squadrail/shared";
+import {
+  deriveLatestHumanClarificationResolution,
+  derivePendingHumanClarifications,
+} from "@squadrail/shared";
 import { appRoutes } from "../lib/appRoutes";
 
 type CommentReassignment = {
@@ -151,6 +154,16 @@ type DependencyGraphSnapshotItem = {
   status: string | null;
   workflowState: string | null;
   resolved: boolean;
+};
+
+type ResolvedClarificationView = {
+  question: string;
+  answer: string;
+  nextStep: string | null;
+  askedByLabel: string;
+  answeredByLabel: string;
+  answeredAt: Date;
+  resumeWorkflowState: string | null;
 };
 
 function readDependencyGraphSnapshot(
@@ -343,6 +356,40 @@ function derivePendingClarificationRequests(
       resumeWorkflowState: request.resumeWorkflowState,
     } satisfies PendingClarificationRequest;
   });
+}
+
+function deriveLatestClarificationResolutionView(
+  protocolMessages: IssueProtocolMessage[],
+  agentMap: Map<string, Agent>,
+): ResolvedClarificationView | null {
+  const resolution = deriveLatestHumanClarificationResolution(
+    protocolMessages.map((message) => ({
+      id: message.id,
+      messageType: message.messageType,
+      causalMessageId: message.causalMessageId,
+      ackedAt: message.ackedAt,
+      createdAt: message.createdAt,
+      workflowStateAfter: message.workflowStateAfter,
+      payload: (message.payload ?? {}) as unknown as Record<string, unknown>,
+      sender: message.sender,
+    })),
+  );
+  if (!resolution) return null;
+  const askedByAgent = resolution.askedByActorType === "agent"
+    ? agentMap.get(resolution.askedByActorId) ?? null
+    : null;
+  const answeredByAgent = resolution.answeredByActorType === "agent"
+    ? agentMap.get(resolution.answeredByActorId) ?? null
+    : null;
+  return {
+    question: resolution.question,
+    answer: resolution.answer,
+    nextStep: resolution.nextStep,
+    askedByLabel: askedByAgent?.name ?? formatProtocolValue(resolution.askedByRole),
+    answeredByLabel: answeredByAgent?.name ?? formatProtocolValue(resolution.answeredByRole),
+    answeredAt: resolution.answeredAt,
+    resumeWorkflowState: resolution.resumeWorkflowState,
+  };
 }
 
 function deriveFeedbackTarget(hit: {
@@ -759,6 +806,7 @@ function ActorIdentity({
 export function IssueDetail() {
   const { issueId } = useParams<{ issueId: string }>();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { selectedCompanyId } = useCompany();
   const { pushToast } = useToast();
   const { openPanel, closePanel, panelVisible, setPanelVisible } = usePanel();
@@ -783,6 +831,9 @@ export function IssueDetail() {
   const [intakeProjectionDialogOpen, setIntakeProjectionDialogOpen] =
     useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const preferredProtocolTab = searchParams.get("tab");
+  const preferredProtocolAction = searchParams.get("action");
+  const preferredClarificationId = searchParams.get("clarification");
 
   const {
     data: issue,
@@ -1093,6 +1144,10 @@ export function IssueDetail() {
   );
   const pendingClarificationRequests = useMemo(
     () => derivePendingClarificationRequests(protocolMessages, agentMap),
+    [agentMap, protocolMessages],
+  );
+  const latestResolvedClarification = useMemo(
+    () => deriveLatestClarificationResolutionView(protocolMessages, agentMap),
     [agentMap, protocolMessages],
   );
   const openViolations = useMemo(
@@ -1445,6 +1500,24 @@ export function IssueDetail() {
       });
     },
   });
+
+  useEffect(() => {
+    if (preferredProtocolTab === "protocol" && detailTab !== "protocol") {
+      setDetailTab("protocol");
+    }
+  }, [detailTab, preferredProtocolTab]);
+
+  function clearProtocolIntent() {
+    if (!preferredProtocolTab && !preferredProtocolAction && !preferredClarificationId && !searchParams.get("source")) {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("tab");
+    next.delete("action");
+    next.delete("clarification");
+    next.delete("source");
+    setSearchParams(next, { replace: true });
+  }
 
   const recordRetrievalFeedback = useMutation({
     mutationFn: (input: {
@@ -2357,6 +2430,71 @@ export function IssueDetail() {
           <div className="space-y-4">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
               <div className="space-y-4">
+                {(pendingClarificationRequests.length > 0 || latestResolvedClarification) && (
+                  <section className="rounded-lg border border-border bg-card px-4 py-4">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Clarification Status
+                      </h3>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="outline">
+                        {pendingClarificationRequests.length} pending
+                      </Badge>
+                      {latestResolvedClarification?.resumeWorkflowState ? (
+                        <Badge variant="outline">
+                          resumed {formatProtocolValue(latestResolvedClarification.resumeWorkflowState)}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {pendingClarificationRequests[0] ? (
+                      <div className="mt-3 rounded-md border border-border/80 bg-background/70 px-3 py-3">
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                          Waiting on board
+                        </div>
+                        <div className="mt-1 text-sm text-foreground">
+                          {pendingClarificationRequests[0].question}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Asked by {pendingClarificationRequests[0].askedByLabel}
+                          {pendingClarificationRequests[0].resumeWorkflowState
+                            ? ` · resumes ${formatProtocolValue(pendingClarificationRequests[0].resumeWorkflowState)}`
+                            : ""}
+                        </div>
+                      </div>
+                    ) : null}
+                    {latestResolvedClarification ? (
+                      <div className="mt-3 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-3">
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                          Latest answered clarification
+                        </div>
+                        <div className="mt-1 text-sm text-foreground">
+                          Q: {latestResolvedClarification.question}
+                        </div>
+                        <div className="mt-2 text-sm text-foreground">
+                          A: {latestResolvedClarification.answer}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Asked by {latestResolvedClarification.askedByLabel}
+                          {" · "}
+                          answered by {latestResolvedClarification.answeredByLabel}
+                          {" · "}
+                          {relativeTime(latestResolvedClarification.answeredAt)}
+                          {latestResolvedClarification.resumeWorkflowState
+                            ? ` · resumed ${formatProtocolValue(latestResolvedClarification.resumeWorkflowState)}`
+                            : ""}
+                        </div>
+                        {latestResolvedClarification.nextStep ? (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Next step: {latestResolvedClarification.nextStep}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </section>
+                )}
+
                 <ProtocolActionConsole
                   companyId={issue.companyId}
                   issueIdentifier={issue.identifier ?? issue.id.slice(0, 8)}
@@ -2364,9 +2502,12 @@ export function IssueDetail() {
                   agents={agents ?? []}
                   currentUserId={currentUserId}
                   clarificationRequests={pendingClarificationRequests}
+                  preferredAction={preferredProtocolAction === "ANSWER_CLARIFICATION" ? "ANSWER_CLARIFICATION" : null}
+                  preferredClarificationId={preferredClarificationId}
                   onSubmit={async (message) => {
                     await createProtocolMessage.mutateAsync(message);
                   }}
+                  onActionCommitted={clearProtocolIntent}
                   isSubmitting={createProtocolMessage.isPending}
                 />
 
