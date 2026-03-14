@@ -53,7 +53,9 @@
   - PM helper CLI에 `list-projects`, `preview-intake-projection`, `apply-intake-projection`를 추가했다
   - PM role pack 가이드를 projection-first flow로 갱신했다
   - kickoff autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs`를 추가했다
-  - 다음은 kickoff autonomy harness live execution + clarification ask/answer + downstream burn-in 확장이다
+  - kickoff autonomy harness에 `ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> implementing resume` invariant를 추가했다
+  - runtime helper에 `ask-clarification` 명령을 추가했다
+  - 다음은 kickoff autonomy harness live execution + downstream burn-in 확장이다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

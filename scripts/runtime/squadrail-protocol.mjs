@@ -86,7 +86,7 @@ function tryInferSubmitForReviewArtifacts(changedFiles) {
 
 const COMMAND_HELP = {
   general:
-    "Usage: squadrail-protocol.mjs <resolve-agent|list-projects|get-brief|preview-intake-projection|apply-intake-projection|reassign-task|ack-assignment|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
+    "Usage: squadrail-protocol.mjs <resolve-agent|list-projects|get-brief|preview-intake-projection|apply-intake-projection|reassign-task|ack-assignment|ask-clarification|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
   "list-projects": [
     "Usage: squadrail-protocol.mjs list-projects",
     "",
@@ -118,6 +118,18 @@ const COMMAND_HELP = {
     "  --initial-risks \"risk1||risk2\"",
     "  --workflow-before <state>",
     "  --payload <json>                                  understoodScope, initialRisks, accepted, summary",
+  ].join("\n"),
+  "ask-clarification": [
+    "Usage: squadrail-protocol.mjs ask-clarification --issue <issueId> [--sender-role <role>] --question-type <type> --question <text> [options]",
+    "",
+    "Supported options:",
+    "  --requested-from <human_board|reviewer|tech_lead>  (default: human_board)",
+    "  --recipient-id <agentId>                           required when requested-from is not human_board",
+    "  --blocking <true|false>                            (default: true)",
+    "  --resume-workflow-state <state>",
+    "  --proposed-assumptions \"item1||item2\"",
+    "  --related-artifacts \"item1||item2\"",
+    "  --payload <json>                                  questionType, question, requestedFrom, blocking, resumeWorkflowState, proposedAssumptions, relatedArtifacts, summary",
   ].join("\n"),
   "start-implementation": [
     "Usage: squadrail-protocol.mjs start-implementation --issue <issueId> [--sender-role <role>] --summary <text> [options]",
@@ -594,6 +606,16 @@ function buildAgentRecipient(recipientId, role) {
   };
 }
 
+function buildClarificationRecipients(requestedFrom, recipientId) {
+  if (requestedFrom === "human_board") {
+    return [buildHumanBoardRecipient()];
+  }
+  if (!recipientId) {
+    fail("--recipient-id is required when --requested-from is not human_board.");
+  }
+  return [buildAgentRecipient(recipientId, requestedFrom)];
+}
+
 function buildRequestChangesRecipients(state, senderRole) {
   const recipients = [];
 
@@ -851,6 +873,93 @@ async function ackAssignmentCommand(options) {
       ),
       understoodScope,
       initialRisks,
+    },
+    artifacts: [],
+  };
+
+  await postProtocolMessage(issueId, body);
+}
+
+async function askClarificationCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("ask-clarification");
+    return;
+  }
+  const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
+  if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
+  const senderRole = await resolveSenderRole(options, "ask-clarification");
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const questionType = readAliasedOption(
+    options,
+    ["question-type", "questionType"],
+    payloadPatch.questionType ?? null,
+  );
+  if (!questionType) fail("Missing required option: --question-type");
+  const question = readAliasedOption(
+    options,
+    ["question"],
+    payloadPatch.question ?? null,
+  );
+  if (!question) fail("Missing required option: --question");
+  const requestedFrom = readAliasedOption(
+    options,
+    ["requested-from", "requestedFrom"],
+    payloadPatch.requestedFrom ?? "human_board",
+  );
+  const blocking = parseBool(
+    readAliasedOption(
+      options,
+      ["blocking"],
+      payloadPatch.blocking == null ? "true" : String(payloadPatch.blocking),
+    ),
+    true,
+  );
+  const resumeWorkflowState = readAliasedOption(
+    options,
+    ["resume-workflow-state", "resumeWorkflowState"],
+    payloadPatch.resumeWorkflowState ?? null,
+  );
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? question);
+  if (!summary) fail("Missing required option: --summary");
+  const proposedAssumptions = parseListOptionOrPayload(
+    options,
+    ["proposed-assumptions", "proposedAssumptions"],
+    payloadPatch.proposedAssumptions,
+  );
+  const relatedArtifacts = parseListOptionOrPayload(
+    options,
+    ["related-artifacts", "relatedArtifacts"],
+    payloadPatch.relatedArtifacts,
+  );
+  const recipientId = readAliasedOption(
+    options,
+    ["recipient-id", "recipientId"],
+    payloadPatch.recipientId ?? null,
+  );
+  const state = await getIssueState(issueId);
+
+  const body = {
+    messageType: "ASK_CLARIFICATION",
+    sender: {
+      actorType: "agent",
+      actorId: AGENT_ID,
+      role: senderRole,
+    },
+    recipients: buildClarificationRecipients(requestedFrom, recipientId),
+    workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
+    workflowStateAfter: blocking
+      ? readOption(options, "workflow-after", "blocked")
+      : readOption(options, "workflow-after", state.workflowState),
+    summary,
+    requiresAck: false,
+    payload: {
+      questionType,
+      question,
+      blocking,
+      requestedFrom,
+      ...(resumeWorkflowState ? { resumeWorkflowState } : {}),
+      ...(relatedArtifacts.length > 0 ? { relatedArtifacts } : {}),
+      ...(proposedAssumptions.length > 0 ? { proposedAssumptions } : {}),
     },
     artifacts: [],
   };
@@ -1484,6 +1593,9 @@ async function main() {
       return;
     case "ack-assignment":
       await ackAssignmentCommand(options);
+      return;
+    case "ask-clarification":
+      await askClarificationCommand(options);
       return;
     case "start-implementation":
       await startImplementationCommand(options);

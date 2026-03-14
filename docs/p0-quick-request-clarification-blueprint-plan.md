@@ -448,7 +448,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - PM helper CLI가 `list-projects`, `preview-intake-projection`, `apply-intake-projection`를 지원한다.
 - PM role pack guide를 projection-first flow로 업데이트했다.
 - kickoff harness [`scripts/e2e/cloud-swiftsight-autonomy-org.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-autonomy-org.mjs)를 추가했다.
-  - 현재 kickoff invariant는 `human intake -> projection preview -> projection apply -> assigned child created`다.
+  - 현재 kickoff invariant는 `human intake -> projection preview -> projection apply -> child clarification ask/answer -> resumed execution`이다.
   - 아직 live control plane에서 full `execution / review / QA / close` burn-in까지는 실행하지 않았다.
 
 ## 7. 권장 실행 순서
@@ -466,7 +466,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 현재 immediate next slice는 아래다.
 
 1. kickoff autonomy script를 live control plane에서 실제 실행하고 invariant를 고정
-2. clarification ask/answer를 autonomy harness에 포함
-3. downstream `execution / review / QA / close`까지 상위 burn-in을 확장
+2. downstream `execution / review / QA / close`까지 상위 burn-in을 확장
+3. deterministic kernel burn-in과 autonomy burn-in의 운영 목적을 더 분리
 
 즉 다음 배치는 `Phase 7 bounded autonomy E2E`다.
