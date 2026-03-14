@@ -20,6 +20,7 @@ const {
   mockTeamBlueprintsPreviewImport,
   mockTeamBlueprintsImport,
   mockTeamBlueprintsPreviewSaved,
+  mockTeamBlueprintsApplySaved,
   mockTeamBlueprintsPreview,
   mockTeamBlueprintsApply,
   mockWorkflowTemplatesUpdateConfig,
@@ -63,6 +64,7 @@ const {
   mockTeamBlueprintsPreviewImport: vi.fn(),
   mockTeamBlueprintsImport: vi.fn(),
   mockTeamBlueprintsPreviewSaved: vi.fn(),
+  mockTeamBlueprintsApplySaved: vi.fn(),
   mockTeamBlueprintsPreview: vi.fn(),
   mockTeamBlueprintsApply: vi.fn(),
   mockWorkflowTemplatesUpdateConfig: vi.fn(),
@@ -135,6 +137,7 @@ vi.mock("../services/index.js", () => ({
     previewImport: mockTeamBlueprintsPreviewImport,
     importBlueprint: mockTeamBlueprintsImport,
     previewSavedBlueprint: mockTeamBlueprintsPreviewSaved,
+    applySavedBlueprint: mockTeamBlueprintsApplySaved,
     preview: mockTeamBlueprintsPreview,
     apply: mockTeamBlueprintsApply,
   }),
@@ -909,6 +912,86 @@ describe("company routes", () => {
       previewHash: "saved-preview-hash-1234567890",
     });
     expect(mockTeamBlueprintsPreviewSaved).toHaveBeenCalledWith("company-1", "saved-blueprint-1", {});
+  });
+
+  it("applies a saved team blueprint for the requested company", async () => {
+    mockTeamBlueprintsApplySaved.mockResolvedValue({
+      companyId: "company-1",
+      blueprintKey: "small_delivery_team",
+      previewHash: "saved-apply-preview-hash-1234567890",
+      parameters: {
+        projectCount: 1,
+        engineerPairsPerProject: 1,
+        includePm: false,
+        includeQa: false,
+        includeCto: false,
+      },
+      summary: {
+        adoptedProjectCount: 0,
+        createdProjectCount: 1,
+        adoptedAgentCount: 0,
+        createdAgentCount: 3,
+        updatedAgentCount: 0,
+        seededRolePackCount: 1,
+        existingRolePackCount: 0,
+      },
+      projectResults: [],
+      roleResults: [],
+      setupProgress: {
+        companyId: "company-1",
+        status: "squad_ready",
+        selectedEngine: "claude_local",
+        selectedWorkspaceId: null,
+        metadata: {},
+        steps: {
+          companyReady: true,
+          squadReady: true,
+          engineReady: true,
+          workspaceConnected: false,
+          knowledgeSeeded: false,
+          firstIssueReady: false,
+        },
+        createdAt: new Date("2026-03-14T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-14T00:00:00.000Z"),
+      },
+      warnings: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId/apply",
+      method: "post",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-1" },
+      body: {
+        previewHash: "saved-apply-preview-hash-1234567890",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toMatchObject({
+      previewHash: "saved-apply-preview-hash-1234567890",
+      blueprintKey: "small_delivery_team",
+    });
+    expect(mockTeamBlueprintsApplySaved).toHaveBeenCalledWith(
+      "company-1",
+      "saved-blueprint-1",
+      {
+        previewHash: "saved-apply-preview-hash-1234567890",
+      },
+      expect.objectContaining({
+        userId: "user-1",
+        agentId: null,
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.saved_team_blueprint_applied",
+        details: expect.objectContaining({
+          savedBlueprintId: "saved-blueprint-1",
+          previewHash: "saved-apply-preview-hash-1234567890",
+        }),
+      }),
+    );
   });
 
   it("returns a team blueprint preview diff for the requested company", async () => {

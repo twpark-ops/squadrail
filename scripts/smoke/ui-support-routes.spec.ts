@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 
 const baseUrl = process.env.UI_REVIEW_BASE_URL ?? "http://127.0.0.1:3326";
@@ -87,6 +88,27 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await expect(page.getByText("Import blueprint bundle").first()).toBeVisible();
   await expect(page.getByText("Saved blueprint library").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Export JSON", exact: true })).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export JSON", exact: true }).click();
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  if (!downloadPath) {
+    throw new Error("failed to resolve downloaded blueprint bundle path");
+  }
+  const bundleText = await readFile(downloadPath, "utf8");
+  await page
+    .getByPlaceholder('{"schemaVersion":1,"source":{...},"definition":{...}}')
+    .fill(bundleText);
+  await page.getByRole("button", { name: "Preview import", exact: true }).click();
+  await expect(page.getByText("Import preview").first()).toBeVisible();
+  await page
+    .getByLabel("I reviewed the import preview and want to save this blueprint into the company library.")
+    .check();
+  await page.getByRole("button", { name: "Save to library", exact: true }).click();
+  await expect(page.getByText("small-delivery-team").first()).toBeVisible();
+  await page.getByRole("button", { name: "Preview saved blueprint", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Apply saved blueprint", exact: true })).toBeVisible();
 
   await page.goto(`${baseUrl}/${companyPrefix}/agents/all`);
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();

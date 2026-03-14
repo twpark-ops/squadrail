@@ -198,6 +198,41 @@ export function companyRoutes(
     res.json(result);
   });
 
+  router.post("/:companyId/team-blueprints/saved/:savedBlueprintId/apply", validate(teamBlueprintApplyRequestSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    const savedBlueprintId = req.params.savedBlueprintId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await teamBlueprints.applySavedBlueprint(
+      companyId,
+      savedBlueprintId,
+      req.body,
+      {
+        userId: actor.actorType === "user" ? actor.actorId : null,
+        agentId: actor.actorType === "agent" ? actor.actorId : null,
+      },
+    );
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.saved_team_blueprint_applied",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        savedBlueprintId,
+        previewHash: result.previewHash,
+        createdProjectCount: result.summary.createdProjectCount,
+        createdAgentCount: result.summary.createdAgentCount,
+        updatedAgentCount: result.summary.updatedAgentCount,
+      },
+    });
+    res.status(201).json(result);
+  });
+
   router.post("/:companyId/team-blueprints/:blueprintKey/preview", validate(teamBlueprintPreviewRequestSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     const blueprintKey = req.params.blueprintKey as string;

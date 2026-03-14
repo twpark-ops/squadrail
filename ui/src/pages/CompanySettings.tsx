@@ -225,6 +225,11 @@ export function CompanySettings() {
     savedBlueprintId: string;
     preview: TeamBlueprintPreviewResult;
   } | null>(null);
+  const [savedTeamBlueprintApplyResult, setSavedTeamBlueprintApplyResult] = useState<{
+    savedBlueprintId: string;
+    result: TeamBlueprintApplyResult;
+  } | null>(null);
+  const [confirmSavedTeamBlueprintApply, setConfirmSavedTeamBlueprintApply] = useState(false);
   const [teamBlueprintImportText, setTeamBlueprintImportText] = useState("");
   const [teamBlueprintImportSlug, setTeamBlueprintImportSlug] = useState("");
   const [teamBlueprintImportLabel, setTeamBlueprintImportLabel] = useState("");
@@ -314,6 +319,8 @@ export function CompanySettings() {
     setTeamBlueprintPreviewRequests({});
     setSelectedSavedTeamBlueprintId(null);
     setSavedTeamBlueprintPreviewState(null);
+    setSavedTeamBlueprintApplyResult(null);
+    setConfirmSavedTeamBlueprintApply(false);
     setSavedTeamBlueprintPreviewRequests({});
     setTeamBlueprintImportPreview(null);
     setConfirmTeamBlueprintImport(false);
@@ -353,6 +360,12 @@ export function CompanySettings() {
       setSelectedSavedTeamBlueprintId(firstSavedBlueprint);
     }
   }, [selectedSavedTeamBlueprintId, teamBlueprintCatalog]);
+
+  useEffect(() => {
+    setConfirmSavedTeamBlueprintApply(false);
+    setSavedTeamBlueprintApplyResult((current) =>
+      current && current.savedBlueprintId === selectedSavedTeamBlueprintId ? current : null);
+  }, [selectedSavedTeamBlueprintId]);
   const { data: rolePackPresets = [] } = useQuery({
     queryKey: queryKeys.companies.rolePackPresets,
     queryFn: () => companiesApi.listRolePackPresets(),
@@ -670,18 +683,7 @@ export function CompanySettings() {
         setTeamBlueprintPreview(null);
         setConfirmTeamBlueprintApply(false);
       }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.companies.setupProgress(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: ["companies", variables.companyId, "doctor"] }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.org(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.companies.orgSync(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.companies.knowledgeSetup(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.companies.rolePacks(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.activity(variables.companyId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(variables.companyId) }),
-      ]);
+      await invalidateTeamBuilderQueries(variables.companyId);
       pushToast({
         tone: "success",
         title: `Applied ${result.blueprintKey}`,
@@ -695,6 +697,46 @@ export function CompanySettings() {
         title: "Blueprint apply failed",
         body: error instanceof Error ? error.message : "Failed to apply team blueprint",
         dedupeKey: `team-blueprint-apply-error:${variables.companyId}:${variables.preview.blueprint.key}`,
+      });
+    },
+  });
+
+  const savedTeamBlueprintApplyMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      savedBlueprintId: string;
+      preview: TeamBlueprintPreviewResult;
+    }) =>
+      companiesApi.applySavedTeamBlueprint(input.companyId, input.savedBlueprintId, {
+        previewHash: input.preview.previewHash,
+        projectCount: input.preview.parameters.projectCount,
+        engineerPairsPerProject: input.preview.parameters.engineerPairsPerProject,
+        includePm: input.preview.parameters.includePm,
+        includeQa: input.preview.parameters.includeQa,
+        includeCto: input.preview.parameters.includeCto,
+      }),
+    onSuccess: async (result, variables) => {
+      if (variables.companyId === selectedCompanyId) {
+        setSavedTeamBlueprintApplyResult({
+          savedBlueprintId: variables.savedBlueprintId,
+          result,
+        });
+        setConfirmSavedTeamBlueprintApply(false);
+      }
+      await invalidateTeamBuilderQueries(variables.companyId);
+      pushToast({
+        tone: "success",
+        title: `Applied saved ${result.blueprintKey}`,
+        body: `${result.summary.createdProjectCount} project(s), ${result.summary.createdAgentCount} agent(s), ${result.summary.updatedAgentCount} agent update(s).`,
+        dedupeKey: `saved-team-blueprint-apply:${variables.companyId}:${variables.savedBlueprintId}:${result.previewHash}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Saved blueprint apply failed",
+        body: error instanceof Error ? error.message : "Failed to apply saved team blueprint",
+        dedupeKey: `saved-team-blueprint-apply-error:${variables.companyId}:${variables.savedBlueprintId}`,
       });
     },
   });
@@ -799,6 +841,8 @@ export function CompanySettings() {
         savedBlueprintId: variables.savedBlueprintId,
         preview,
       });
+      setSavedTeamBlueprintApplyResult(null);
+      setConfirmSavedTeamBlueprintApply(false);
     },
   });
 
@@ -1039,6 +1083,12 @@ export function CompanySettings() {
     && savedTeamBlueprintPreviewState.savedBlueprintId === selectedSavedTeamBlueprint.id
       ? savedTeamBlueprintPreviewState.preview
       : null;
+  const selectedSavedTeamBlueprintApplyResult =
+    savedTeamBlueprintApplyResult
+    && selectedSavedTeamBlueprint
+    && savedTeamBlueprintApplyResult.savedBlueprintId === selectedSavedTeamBlueprint.id
+      ? savedTeamBlueprintApplyResult.result
+      : null;
   const selectedSavedTeamBlueprintParameterChanges = selectedSavedTeamBlueprint
     ? describeTeamBlueprintParameterChanges(
       selectedSavedTeamBlueprint.definition,
@@ -1088,6 +1138,22 @@ export function CompanySettings() {
     : false;
   const customRoleSlugValid = customRoleSlug.trim().length === 0 || /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(customRoleSlug.trim());
   const customRoleValid = customRoleName.trim().length > 0 && customRoleSlugValid;
+
+  async function invalidateTeamBuilderQueries(companyId: string) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.setupProgress(companyId) }),
+      queryClient.invalidateQueries({ queryKey: ["companies", companyId, "doctor"] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.org(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.orgSync(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.knowledgeSetup(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.rolePacks(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.activity(companyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(companyId) }),
+    ]);
+  }
 
   function updateRolePackDraft(filename: RolePackFileName, content: string) {
     if (!selectedRolePackId) return;
@@ -1175,6 +1241,31 @@ export function CompanySettings() {
       [selectedSavedTeamBlueprint.id]: next,
     }));
     setSavedTeamBlueprintPreviewState(null);
+    setSavedTeamBlueprintApplyResult(null);
+    setConfirmSavedTeamBlueprintApply(false);
+  }
+
+  function handleApplySavedTeamBlueprint() {
+    if (
+      !selectedCompanyId
+      || !selectedSavedTeamBlueprint
+      || !selectedSavedTeamBlueprintPreview
+      || savedTeamBlueprintApplyMutation.isPending
+    ) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Apply saved blueprint ${selectedSavedTeamBlueprint.definition.label}?\n\n` +
+        `Projects: ${selectedSavedTeamBlueprintPreview.summary.adoptedProjectCount} adopt / ${selectedSavedTeamBlueprintPreview.summary.createProjectCount} create\n` +
+        `Roles: ${selectedSavedTeamBlueprintPreview.summary.matchedRoleCount} matched / ${selectedSavedTeamBlueprintPreview.summary.missingRoleCount} missing\n\n` +
+        "This will provision projects, agents, reporting lines, and setup metadata for the current company.",
+    );
+    if (!confirmed) return;
+    savedTeamBlueprintApplyMutation.mutate({
+      companyId: selectedCompanyId,
+      savedBlueprintId: selectedSavedTeamBlueprint.id,
+      preview: selectedSavedTeamBlueprintPreview,
+    });
   }
 
   function handlePreviewImportedTeamBlueprint() {
@@ -1754,7 +1845,7 @@ export function CompanySettings() {
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={savedTeamBlueprintPreviewMutation.isPending}
+                              disabled={savedTeamBlueprintPreviewMutation.isPending || savedTeamBlueprintApplyMutation.isPending}
                               onClick={() => {
                                 if (!selectedCompanyId) return;
                                 savedTeamBlueprintPreviewMutation.mutate({
@@ -1767,7 +1858,7 @@ export function CompanySettings() {
                               {savedTeamBlueprintPreviewMutation.isPending ? "Previewing..." : "Preview saved blueprint"}
                             </Button>
                             <span className="text-xs text-muted-foreground">
-                              Saved preview stays read-only in B2. Apply continues to use built-in generic blueprints.
+                              Saved blueprints now use the same generic preview/apply contract as built-in blueprints.
                             </span>
                           </div>
 
@@ -1778,7 +1869,7 @@ export function CompanySettings() {
                             onChange={handleUpdateSelectedSavedTeamBlueprintRequest}
                             disabled={savedTeamBlueprintPreviewMutation.isPending}
                             title="Saved blueprint preview parameters"
-                            description="Preview saved blueprint definitions with their stored default parameters, then compare edited values before apply support lands."
+                            description="Preview saved blueprint definitions with their stored default parameters, compare edited values, and apply the resulting team plan once the diff is reviewed."
                             compact
                           />
 
@@ -1821,6 +1912,32 @@ export function CompanySettings() {
                                   <div className="mt-1 font-medium">
                                     {selectedSavedTeamBlueprintPreview.warnings.length}
                                   </div>
+                                </div>
+                              </div>
+
+                              <div className="rounded-md border border-border bg-background px-3 py-3">
+                                <label className="flex items-start gap-2 text-sm text-foreground">
+                                  <input
+                                    type="checkbox"
+                                    checked={confirmSavedTeamBlueprintApply}
+                                    onChange={(event) => setConfirmSavedTeamBlueprintApply(event.target.checked)}
+                                    className="mt-0.5 h-4 w-4 rounded border-border"
+                                  />
+                                  <span>I reviewed this saved blueprint preview diff and want to apply it to this company.</span>
+                                </label>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    disabled={!confirmSavedTeamBlueprintApply || savedTeamBlueprintApplyMutation.isPending}
+                                    onClick={handleApplySavedTeamBlueprint}
+                                  >
+                                    {savedTeamBlueprintApplyMutation.isPending ? "Applying saved blueprint..." : "Apply saved blueprint"}
+                                  </Button>
+                                  {selectedSavedTeamBlueprintApplyResult && (
+                                    <span className="text-xs text-muted-foreground">
+                                      Applied preview hash {selectedSavedTeamBlueprintApplyResult.previewHash.slice(0, 12)}...
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>

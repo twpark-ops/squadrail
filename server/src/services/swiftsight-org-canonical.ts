@@ -20,6 +20,7 @@ import {
 
 export const SWIFTSIGHT_CANONICAL_TEMPLATE_KEY = "cloud-swiftsight";
 export const SWIFTSIGHT_CANONICAL_VERSION = "cloud-swiftsight-18a-v1";
+export const SWIFTSIGHT_CANONICAL_MIGRATION_HELPER_KEY = "swiftsight_canonical_absorption";
 
 type CanonicalProject = {
   slug: string;
@@ -300,7 +301,7 @@ export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): TeamBlueprint
   });
 
   return {
-    key: "swiftsight_canonical_absorption",
+    key: SWIFTSIGHT_CANONICAL_MIGRATION_HELPER_KEY,
     kind: "canonical_absorption",
     label: "Legacy Swiftsight Canonical Absorption",
     description:
@@ -316,6 +317,62 @@ export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): TeamBlueprint
       "QA engineer and Python TL specializations still need a follow-up mapping layer beyond the generic preview/apply contract.",
     ],
   };
+}
+
+const CANONICAL_PROJECT_URL_KEYS = new Set(
+  PROJECTS.map((project) => project.slug),
+);
+
+const CANONICAL_AGENT_URL_KEYS = new Set(
+  listCanonicalSwiftsightAgents().flatMap((definition) => {
+    const normalizedName = normalizeAgentUrlKey(definition.name);
+    return [
+      definition.canonicalSlug,
+      normalizedName,
+      ...definition.legacySlugs,
+    ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  }),
+);
+
+export function matchesSwiftsightCanonicalFootprint(input: {
+  projectUrlKeys: string[];
+  agents: Array<{
+    urlKey: string;
+    metadata?: Record<string, unknown> | null;
+  }>;
+}) {
+  let projectMatchCount = 0;
+  for (const projectUrlKey of input.projectUrlKeys) {
+    if (CANONICAL_PROJECT_URL_KEYS.has(projectUrlKey)) {
+      projectMatchCount += 1;
+    }
+  }
+
+  let agentMatchCount = 0;
+  let canonicalMetadataDetected = false;
+  for (const agent of input.agents) {
+    if (CANONICAL_AGENT_URL_KEYS.has(agent.urlKey)) {
+      agentMatchCount += 1;
+    }
+    const canonicalTemplateKey = agent.metadata?.canonicalTemplateKey;
+    if (canonicalTemplateKey === SWIFTSIGHT_CANONICAL_TEMPLATE_KEY) {
+      canonicalMetadataDetected = true;
+    }
+  }
+
+  return canonicalMetadataDetected || projectMatchCount >= 3 || agentMatchCount >= 4;
+}
+
+export function resolveSwiftsightCanonicalMigrationHelper(input: {
+  projectUrlKeys: string[];
+  agents: Array<{
+    urlKey: string;
+    metadata?: Record<string, unknown> | null;
+  }>;
+}) {
+  return matchesSwiftsightCanonicalFootprint(input)
+    ? buildSwiftsightCanonicalBlueprintAbsorptionPrep()
+    : null;
 }
 
 export function canonicalTemplateForCompanyName(companyName: string | null | undefined) {
