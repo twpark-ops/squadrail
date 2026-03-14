@@ -71,11 +71,13 @@
   - fresh Playwright smoke에서 onboarding happy path와 Company Settings blueprint import/export surface를 다시 green으로 확인했다
   - Batch B3 parameter editing 1차로 shared editor contract, Company Settings/Onboarding parameter editing UI, parameterized preview/apply parity test를 추가했다
   - `local-ui-flow.sh`의 legacy log grep을 현재 fetch 패턴에 맞게 정리했고 fresh smoke를 다시 green으로 확인했다
-  - Batch B core scope를 마감했다
+  - Batch B core + follow-up scope를 마감했다
     - helper discovery를 company name lookup에서 registry + company footprint 기반으로 일반화했다
     - built-in export -> import preview/save -> saved preview/apply roundtrip/service parity를 고정했다
     - `CompanySettings` saved blueprint surface를 preview-only에서 preview/apply flow로 올렸다
-  - 다음은 `blueprint library lifecycle hardening (rename/delete/re-export) + helper registry 확장 규칙 정리`다
+    - saved blueprint lifecycle(`rename/delete/re-export`) route/service/UI를 추가했다
+    - browser smoke에서 export -> import preview/save -> saved preview -> saved apply success path를 고정했다
+  - 다음은 `saved blueprint lifecycle browser parity 확대 + library authoring/versioning follow-up`이다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

@@ -221,6 +221,11 @@ export function CompanySettings() {
   const [confirmTeamBlueprintApply, setConfirmTeamBlueprintApply] = useState(false);
   const [selectedSavedTeamBlueprintId, setSelectedSavedTeamBlueprintId] = useState<string | null>(null);
   const [savedTeamBlueprintPreviewRequests, setSavedTeamBlueprintPreviewRequests] = useState<Record<string, TeamBlueprintPreviewRequest>>({});
+  const [savedTeamBlueprintMetadataDrafts, setSavedTeamBlueprintMetadataDrafts] = useState<Record<string, {
+    slug: string;
+    label: string;
+    description: string;
+  }>>({});
   const [savedTeamBlueprintPreviewState, setSavedTeamBlueprintPreviewState] = useState<{
     savedBlueprintId: string;
     preview: TeamBlueprintPreviewResult;
@@ -322,6 +327,7 @@ export function CompanySettings() {
     setSavedTeamBlueprintApplyResult(null);
     setConfirmSavedTeamBlueprintApply(false);
     setSavedTeamBlueprintPreviewRequests({});
+    setSavedTeamBlueprintMetadataDrafts({});
     setTeamBlueprintImportPreview(null);
     setConfirmTeamBlueprintImport(false);
   }, [selectedCompanyId]);
@@ -366,6 +372,24 @@ export function CompanySettings() {
     setSavedTeamBlueprintApplyResult((current) =>
       current && current.savedBlueprintId === selectedSavedTeamBlueprintId ? current : null);
   }, [selectedSavedTeamBlueprintId]);
+
+  useEffect(() => {
+    if (!selectedSavedTeamBlueprintId) return;
+    const selected = teamBlueprintCatalog?.savedBlueprints?.find((entry) => entry.id === selectedSavedTeamBlueprintId);
+    if (!selected) return;
+    setSavedTeamBlueprintMetadataDrafts((current) => (
+      current[selected.id]
+        ? current
+        : {
+          ...current,
+          [selected.id]: {
+            slug: selected.definition.slug,
+            label: selected.definition.label,
+            description: selected.definition.description ?? "",
+          },
+        }
+    ));
+  }, [selectedSavedTeamBlueprintId, teamBlueprintCatalog]);
   const { data: rolePackPresets = [] } = useQuery({
     queryKey: queryKeys.companies.rolePackPresets,
     queryFn: () => companiesApi.listRolePackPresets(),
@@ -808,6 +832,14 @@ export function CompanySettings() {
       }),
     onSuccess: async (result, variables) => {
       setSelectedSavedTeamBlueprintId(result.savedBlueprint.id);
+      setSavedTeamBlueprintMetadataDrafts((current) => ({
+        ...current,
+        [result.savedBlueprint.id]: {
+          slug: result.savedBlueprint.definition.slug,
+          label: result.savedBlueprint.definition.label,
+          description: result.savedBlueprint.definition.description ?? "",
+        },
+      }));
       setSavedTeamBlueprintPreviewState(null);
       setTeamBlueprintImportPreview(null);
       setConfirmTeamBlueprintImport(false);
@@ -825,6 +857,117 @@ export function CompanySettings() {
         title: "Blueprint import failed",
         body: error instanceof Error ? error.message : "Failed to save imported team blueprint",
         dedupeKey: `team-blueprint-import-error:${variables.companyId}:${variables.previewHash}`,
+      });
+    },
+  });
+
+  const savedTeamBlueprintExportMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      savedBlueprintId: string;
+    }) => companiesApi.exportSavedTeamBlueprint(input.companyId, input.savedBlueprintId),
+    onSuccess: (result, variables) => {
+      const filename = `${result.bundle.definition.slug || "team-blueprint"}.json`;
+      downloadJsonFile(filename, result.bundle);
+      pushToast({
+        tone: "success",
+        title: `Exported ${result.bundle.definition.label}`,
+        body: "Saved blueprint bundle downloaded as JSON.",
+        dedupeKey: `saved-team-blueprint-export:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Saved blueprint export failed",
+        body: error instanceof Error ? error.message : "Failed to export saved team blueprint",
+        dedupeKey: `saved-team-blueprint-export-error:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
+    },
+  });
+
+  const savedTeamBlueprintUpdateMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      savedBlueprintId: string;
+      slug: string;
+      label: string;
+      description: string | null;
+    }) => companiesApi.updateSavedTeamBlueprint(input.companyId, input.savedBlueprintId, {
+      slug: input.slug,
+      label: input.label,
+      description: input.description,
+    }),
+    onSuccess: async (result, variables) => {
+      setSavedTeamBlueprintMetadataDrafts((current) => ({
+        ...current,
+        [result.savedBlueprint.id]: {
+          slug: result.savedBlueprint.definition.slug,
+          label: result.savedBlueprint.definition.label,
+          description: result.savedBlueprint.definition.description ?? "",
+        },
+      }));
+      setSavedTeamBlueprintPreviewState((current) =>
+        current && current.savedBlueprintId === result.savedBlueprint.id ? null : current);
+      setSavedTeamBlueprintApplyResult((current) =>
+        current && current.savedBlueprintId === result.savedBlueprint.id ? null : current);
+      setConfirmSavedTeamBlueprintApply(false);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(variables.companyId) });
+      pushToast({
+        tone: "success",
+        title: `Updated ${result.savedBlueprint.definition.label}`,
+        body: "Saved blueprint library metadata updated.",
+        dedupeKey: `saved-team-blueprint-update:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Saved blueprint update failed",
+        body: error instanceof Error ? error.message : "Failed to update saved blueprint",
+        dedupeKey: `saved-team-blueprint-update-error:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
+    },
+  });
+
+  const savedTeamBlueprintDeleteMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      savedBlueprintId: string;
+    }) => companiesApi.deleteSavedTeamBlueprint(input.companyId, input.savedBlueprintId),
+    onSuccess: async (result, variables) => {
+      setSavedTeamBlueprintMetadataDrafts((current) => {
+        const next = { ...current };
+        delete next[result.deletedSavedBlueprintId];
+        return next;
+      });
+      setSavedTeamBlueprintPreviewRequests((current) => {
+        const next = { ...current };
+        delete next[result.deletedSavedBlueprintId];
+        return next;
+      });
+      setSavedTeamBlueprintPreviewState((current) =>
+        current && current.savedBlueprintId === result.deletedSavedBlueprintId ? null : current);
+      setSavedTeamBlueprintApplyResult((current) =>
+        current && current.savedBlueprintId === result.deletedSavedBlueprintId ? null : current);
+      setConfirmSavedTeamBlueprintApply(false);
+      if (selectedSavedTeamBlueprintId === result.deletedSavedBlueprintId) {
+        setSelectedSavedTeamBlueprintId(null);
+      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(variables.companyId) });
+      pushToast({
+        tone: "success",
+        title: "Saved blueprint deleted",
+        body: "The company blueprint library entry was removed.",
+        dedupeKey: `saved-team-blueprint-delete:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Saved blueprint delete failed",
+        body: error instanceof Error ? error.message : "Failed to delete saved blueprint",
+        dedupeKey: `saved-team-blueprint-delete-error:${variables.companyId}:${variables.savedBlueprintId}`,
       });
     },
   });
@@ -1070,6 +1213,13 @@ export function CompanySettings() {
   const selectedSavedTeamBlueprint: CompanySavedTeamBlueprint | null = selectedSavedTeamBlueprintId
     ? savedTeamBlueprints.find((entry) => entry.id === selectedSavedTeamBlueprintId) ?? null
     : savedTeamBlueprints[0] ?? null;
+  const selectedSavedTeamBlueprintMetadataDraft = selectedSavedTeamBlueprint
+    ? (savedTeamBlueprintMetadataDrafts[selectedSavedTeamBlueprint.id] ?? {
+      slug: selectedSavedTeamBlueprint.definition.slug,
+      label: selectedSavedTeamBlueprint.definition.label,
+      description: selectedSavedTeamBlueprint.definition.description ?? "",
+    })
+    : null;
   const selectedSavedTeamBlueprintRequest = selectedSavedTeamBlueprint
     ? (savedTeamBlueprintPreviewRequests[selectedSavedTeamBlueprint.id]
       ?? buildDefaultTeamBlueprintPreviewRequest(
@@ -1096,6 +1246,17 @@ export function CompanySettings() {
       selectedSavedTeamBlueprint.defaultPreviewRequest,
     )
     : [];
+  const selectedSavedTeamBlueprintMetadataDirty = selectedSavedTeamBlueprint && selectedSavedTeamBlueprintMetadataDraft
+    ? (
+      selectedSavedTeamBlueprintMetadataDraft.slug !== selectedSavedTeamBlueprint.definition.slug
+      || selectedSavedTeamBlueprintMetadataDraft.label !== selectedSavedTeamBlueprint.definition.label
+      || selectedSavedTeamBlueprintMetadataDraft.description !== (selectedSavedTeamBlueprint.definition.description ?? "")
+    )
+    : false;
+  const selectedSavedTeamBlueprintMetadataValid = selectedSavedTeamBlueprintMetadataDraft
+    ? selectedSavedTeamBlueprintMetadataDraft.label.trim().length > 0
+      && selectedSavedTeamBlueprintMetadataDraft.slug.trim().length > 0
+    : false;
   const workflowTemplates = workflowTemplatesView?.templates ?? [];
   const companyWorkflowTemplates = workflowTemplatesView?.companyTemplates ?? [];
   const selectedWorkflowTemplate = selectedWorkflowTemplateId
@@ -1245,6 +1406,21 @@ export function CompanySettings() {
     setConfirmSavedTeamBlueprintApply(false);
   }
 
+  function handleUpdateSelectedSavedTeamBlueprintMetadata(
+    patch: Partial<{ slug: string; label: string; description: string }>,
+  ) {
+    if (!selectedSavedTeamBlueprint) return;
+    setSavedTeamBlueprintMetadataDrafts((current) => ({
+      ...current,
+      [selectedSavedTeamBlueprint.id]: {
+        slug: current[selectedSavedTeamBlueprint.id]?.slug ?? selectedSavedTeamBlueprint.definition.slug,
+        label: current[selectedSavedTeamBlueprint.id]?.label ?? selectedSavedTeamBlueprint.definition.label,
+        description: current[selectedSavedTeamBlueprint.id]?.description ?? (selectedSavedTeamBlueprint.definition.description ?? ""),
+        ...patch,
+      },
+    }));
+  }
+
   function handleApplySavedTeamBlueprint() {
     if (
       !selectedCompanyId
@@ -1265,6 +1441,45 @@ export function CompanySettings() {
       companyId: selectedCompanyId,
       savedBlueprintId: selectedSavedTeamBlueprint.id,
       preview: selectedSavedTeamBlueprintPreview,
+    });
+  }
+
+  function handleExportSelectedSavedTeamBlueprint() {
+    if (!selectedCompanyId || !selectedSavedTeamBlueprint || savedTeamBlueprintExportMutation.isPending) return;
+    savedTeamBlueprintExportMutation.mutate({
+      companyId: selectedCompanyId,
+      savedBlueprintId: selectedSavedTeamBlueprint.id,
+    });
+  }
+
+  function handleSaveSelectedSavedTeamBlueprintMetadata() {
+    if (
+      !selectedCompanyId
+      || !selectedSavedTeamBlueprint
+      || !selectedSavedTeamBlueprintMetadataDraft
+      || savedTeamBlueprintUpdateMutation.isPending
+    ) {
+      return;
+    }
+    savedTeamBlueprintUpdateMutation.mutate({
+      companyId: selectedCompanyId,
+      savedBlueprintId: selectedSavedTeamBlueprint.id,
+      slug: selectedSavedTeamBlueprintMetadataDraft.slug.trim(),
+      label: selectedSavedTeamBlueprintMetadataDraft.label.trim(),
+      description: selectedSavedTeamBlueprintMetadataDraft.description.trim() || null,
+    });
+  }
+
+  function handleDeleteSelectedSavedTeamBlueprint() {
+    if (!selectedCompanyId || !selectedSavedTeamBlueprint || savedTeamBlueprintDeleteMutation.isPending) return;
+    const confirmed = window.confirm(
+      `Delete saved blueprint ${selectedSavedTeamBlueprint.definition.label}?\n\n` +
+      "This removes the library entry from the current company. Existing projects and agents remain unchanged.",
+    );
+    if (!confirmed) return;
+    savedTeamBlueprintDeleteMutation.mutate({
+      companyId: selectedCompanyId,
+      savedBlueprintId: selectedSavedTeamBlueprint.id,
     });
   }
 
@@ -1841,11 +2056,66 @@ export function CompanySettings() {
                               Source: {selectedSavedTeamBlueprint.sourceMetadata.type} · {selectedSavedTeamBlueprint.sourceMetadata.companyName ?? "unknown company"}
                             </div>
                           </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <Field label="Library label" hint="Operator-facing label for this company-scoped blueprint entry.">
+                              <input
+                                value={selectedSavedTeamBlueprintMetadataDraft?.label ?? ""}
+                                onChange={(event) => handleUpdateSelectedSavedTeamBlueprintMetadata({ label: event.target.value })}
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                              />
+                            </Field>
+                            <Field label="Slug" hint="Stable company library identifier used for rename/replace checks.">
+                              <input
+                                value={selectedSavedTeamBlueprintMetadataDraft?.slug ?? ""}
+                                onChange={(event) => handleUpdateSelectedSavedTeamBlueprintMetadata({ slug: event.target.value })}
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                              />
+                            </Field>
+                          </div>
+                          <Field label="Description" hint="Optional company-local note for when this saved blueprint should be reused.">
+                            <textarea
+                              rows={3}
+                              value={selectedSavedTeamBlueprintMetadataDraft?.description ?? ""}
+                              onChange={(event) => handleUpdateSelectedSavedTeamBlueprintMetadata({ description: event.target.value })}
+                              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                            />
+                          </Field>
                           <div className="flex flex-wrap items-center gap-2">
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={savedTeamBlueprintPreviewMutation.isPending || savedTeamBlueprintApplyMutation.isPending}
+                              disabled={!selectedSavedTeamBlueprintMetadataDirty || !selectedSavedTeamBlueprintMetadataValid || savedTeamBlueprintUpdateMutation.isPending}
+                              onClick={handleSaveSelectedSavedTeamBlueprintMetadata}
+                            >
+                              {savedTeamBlueprintUpdateMutation.isPending ? "Saving metadata..." : "Save library details"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={savedTeamBlueprintExportMutation.isPending}
+                              onClick={handleExportSelectedSavedTeamBlueprint}
+                            >
+                              {savedTeamBlueprintExportMutation.isPending ? "Exporting..." : "Re-export JSON"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={savedTeamBlueprintDeleteMutation.isPending}
+                              onClick={handleDeleteSelectedSavedTeamBlueprint}
+                            >
+                              {savedTeamBlueprintDeleteMutation.isPending ? "Deleting..." : "Delete from library"}
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={
+                                savedTeamBlueprintPreviewMutation.isPending
+                                || savedTeamBlueprintApplyMutation.isPending
+                                || savedTeamBlueprintUpdateMutation.isPending
+                                || savedTeamBlueprintDeleteMutation.isPending
+                              }
                               onClick={() => {
                                 if (!selectedCompanyId) return;
                                 savedTeamBlueprintPreviewMutation.mutate({
@@ -1867,7 +2137,11 @@ export function CompanySettings() {
                             value={selectedSavedTeamBlueprintRequest}
                             defaultValue={selectedSavedTeamBlueprint.defaultPreviewRequest}
                             onChange={handleUpdateSelectedSavedTeamBlueprintRequest}
-                            disabled={savedTeamBlueprintPreviewMutation.isPending}
+                            disabled={
+                              savedTeamBlueprintPreviewMutation.isPending
+                              || savedTeamBlueprintUpdateMutation.isPending
+                              || savedTeamBlueprintDeleteMutation.isPending
+                            }
                             title="Saved blueprint preview parameters"
                             description="Preview saved blueprint definitions with their stored default parameters, compare edited values, and apply the resulting team plan once the diff is reviewed."
                             compact

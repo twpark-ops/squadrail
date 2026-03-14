@@ -17,9 +17,12 @@ const {
   mockWorkflowTemplatesGetView,
   mockTeamBlueprintsGetCatalog,
   mockTeamBlueprintsExport,
+  mockTeamBlueprintsExportSaved,
   mockTeamBlueprintsPreviewImport,
   mockTeamBlueprintsImport,
   mockTeamBlueprintsPreviewSaved,
+  mockTeamBlueprintsUpdateSaved,
+  mockTeamBlueprintsDeleteSaved,
   mockTeamBlueprintsApplySaved,
   mockTeamBlueprintsPreview,
   mockTeamBlueprintsApply,
@@ -61,9 +64,12 @@ const {
   mockWorkflowTemplatesGetView: vi.fn(),
   mockTeamBlueprintsGetCatalog: vi.fn(),
   mockTeamBlueprintsExport: vi.fn(),
+  mockTeamBlueprintsExportSaved: vi.fn(),
   mockTeamBlueprintsPreviewImport: vi.fn(),
   mockTeamBlueprintsImport: vi.fn(),
   mockTeamBlueprintsPreviewSaved: vi.fn(),
+  mockTeamBlueprintsUpdateSaved: vi.fn(),
+  mockTeamBlueprintsDeleteSaved: vi.fn(),
   mockTeamBlueprintsApplySaved: vi.fn(),
   mockTeamBlueprintsPreview: vi.fn(),
   mockTeamBlueprintsApply: vi.fn(),
@@ -134,9 +140,12 @@ vi.mock("../services/index.js", () => ({
   teamBlueprintService: () => ({
     getCatalog: mockTeamBlueprintsGetCatalog,
     exportBlueprint: mockTeamBlueprintsExport,
+    exportSavedBlueprint: mockTeamBlueprintsExportSaved,
     previewImport: mockTeamBlueprintsPreviewImport,
     importBlueprint: mockTeamBlueprintsImport,
     previewSavedBlueprint: mockTeamBlueprintsPreviewSaved,
+    updateSavedBlueprint: mockTeamBlueprintsUpdateSaved,
+    deleteSavedBlueprint: mockTeamBlueprintsDeleteSaved,
     applySavedBlueprint: mockTeamBlueprintsApplySaved,
     preview: mockTeamBlueprintsPreview,
     apply: mockTeamBlueprintsApply,
@@ -912,6 +921,190 @@ describe("company routes", () => {
       previewHash: "saved-preview-hash-1234567890",
     });
     expect(mockTeamBlueprintsPreviewSaved).toHaveBeenCalledWith("company-1", "saved-blueprint-1", {});
+  });
+
+  it("exports a saved team blueprint from the company library", async () => {
+    mockTeamBlueprintsExportSaved.mockResolvedValue({
+      bundle: {
+        schemaVersion: 1,
+        generatedAt: "2026-03-15T00:00:00.000Z",
+        source: {
+          companyId: "company-1",
+          companyName: "cloud-swiftsight",
+          blueprintKey: "small_delivery_team",
+          blueprintLabel: "Small Delivery Team",
+        },
+        definition: {
+          slug: "small-delivery-team",
+          label: "Small Delivery Team",
+          description: "Compact team",
+          sourceBlueprintKey: "small_delivery_team",
+          presetKey: "squadrail_default_v1",
+          projects: [],
+          roles: [],
+          parameterHints: {
+            supportsPm: false,
+            supportsQa: false,
+            supportsCto: false,
+            defaultProjectCount: 1,
+            defaultEngineerPairsPerProject: 1,
+          },
+          readiness: {
+            requiredWorkspaceCount: 1,
+            knowledgeRequired: true,
+            knowledgeSources: ["project_docs"],
+            approvalRequiredRoleKeys: [],
+            doctorSetupPrerequisites: ["workspace_connected"],
+            recommendedFirstQuickRequest: "Start small.",
+          },
+          portability: {
+            companyAgnostic: true,
+            workspaceModel: "single_workspace",
+            knowledgeModel: "required",
+            migrationHelperKeys: [],
+            notes: ["Portable"],
+          },
+        },
+        defaultPreviewRequest: {
+          projectCount: 2,
+        },
+      },
+      warnings: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId/export",
+      method: "get",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      bundle: {
+        source: {
+          blueprintLabel: "Small Delivery Team",
+        },
+        defaultPreviewRequest: {
+          projectCount: 2,
+        },
+      },
+    });
+    expect(mockTeamBlueprintsExportSaved).toHaveBeenCalledWith("company-1", "saved-blueprint-1", "cloud-swiftsight");
+  });
+
+  it("updates a saved team blueprint library entry", async () => {
+    mockTeamBlueprintsUpdateSaved.mockResolvedValue({
+      id: "saved-blueprint-1",
+      companyId: "company-1",
+      definition: {
+        slug: "delivery-team-v2",
+        label: "Delivery Team v2",
+        description: "Renamed team",
+        sourceBlueprintKey: "small_delivery_team",
+        presetKey: "squadrail_default_v1",
+        projects: [],
+        roles: [],
+        parameterHints: {
+          supportsPm: false,
+          supportsQa: false,
+          supportsCto: false,
+          defaultProjectCount: 1,
+          defaultEngineerPairsPerProject: 1,
+        },
+        readiness: {
+          requiredWorkspaceCount: 1,
+          knowledgeRequired: true,
+          knowledgeSources: ["project_docs"],
+          approvalRequiredRoleKeys: [],
+          doctorSetupPrerequisites: ["workspace_connected"],
+          recommendedFirstQuickRequest: "Start small.",
+        },
+        portability: {
+          companyAgnostic: true,
+          workspaceModel: "single_workspace",
+          knowledgeModel: "required",
+          migrationHelperKeys: [],
+          notes: ["Portable"],
+        },
+      },
+      defaultPreviewRequest: {
+        projectCount: 1,
+      },
+      sourceMetadata: {
+        type: "import_bundle",
+        companyId: "11111111-1111-1111-1111-111111111111",
+        companyName: "Example Co",
+        blueprintKey: "small_delivery_team",
+        generatedAt: "2026-03-14T00:00:00.000Z",
+      },
+      createdAt: "2026-03-14T01:00:00.000Z",
+      updatedAt: "2026-03-15T01:00:00.000Z",
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId",
+      method: "patch",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-1" },
+      body: {
+        slug: "delivery-team-v2",
+        label: "Delivery Team v2",
+        description: "Renamed team",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      savedBlueprint: {
+        definition: {
+          slug: "delivery-team-v2",
+          label: "Delivery Team v2",
+        },
+      },
+    });
+    expect(mockTeamBlueprintsUpdateSaved).toHaveBeenCalledWith("company-1", "saved-blueprint-1", {
+      slug: "delivery-team-v2",
+      label: "Delivery Team v2",
+      description: "Renamed team",
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.saved_team_blueprint_updated",
+        details: expect.objectContaining({
+          savedBlueprintId: "saved-blueprint-1",
+          slug: "delivery-team-v2",
+        }),
+      }),
+    );
+  });
+
+  it("deletes a saved team blueprint library entry", async () => {
+    mockTeamBlueprintsDeleteSaved.mockResolvedValue({
+      ok: true,
+      deletedSavedBlueprintId: "saved-blueprint-1",
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId",
+      method: "delete",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      deletedSavedBlueprintId: "saved-blueprint-1",
+    });
+    expect(mockTeamBlueprintsDeleteSaved).toHaveBeenCalledWith("company-1", "saved-blueprint-1");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.saved_team_blueprint_deleted",
+        details: expect.objectContaining({
+          savedBlueprintId: "saved-blueprint-1",
+        }),
+      }),
+    );
   });
 
   it("applies a saved team blueprint for the requested company", async () => {

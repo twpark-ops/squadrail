@@ -124,6 +124,35 @@ describe("team blueprints", () => {
     expect(helpers[0]?.key).toBe("swiftsight_canonical_absorption");
   });
 
+  it("deduplicates helper providers when multiple footprint signals match the same migration helper", () => {
+    const helpers = resolveMigrationHelpers({
+      currentProjects: [
+        {
+          id: "project-1",
+          name: "swiftcl",
+          urlKey: "swiftcl",
+          workspaces: [],
+        },
+      ],
+      currentAgents: [
+        {
+          id: "agent-1",
+          name: "Legacy CTO",
+          urlKey: "custom-cto",
+          role: "cto",
+          title: "CTO",
+          reportsTo: null,
+          metadata: {
+            canonicalTemplateKey: "cloud-swiftsight",
+          },
+        },
+      ],
+    });
+
+    expect(helpers).toHaveLength(1);
+    expect(helpers[0]?.key).toBe("swiftsight_canonical_absorption");
+  });
+
   it("derives preview parameters from blueprint defaults and request overrides", () => {
     const blueprint = listTeamBlueprints()[1]!;
     const parameters = resolveTeamBlueprintPreviewParameters(blueprint, {
