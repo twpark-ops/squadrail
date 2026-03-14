@@ -11,7 +11,9 @@ const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
 const PROJECT_HINT = process.env.SWIFTSIGHT_AUTONOMY_PROJECT ?? "swiftsight-cloud";
 const AUTONOMY_BOARD_ID = process.env.SWIFTSIGHT_AUTONOMY_BOARD_ID ?? "autonomy-board";
 const AUTONOMY_BOOTSTRAP_BLUEPRINT = process.env.SWIFTSIGHT_AUTONOMY_BLUEPRINT ?? "delivery_plus_qa";
-const REQUEST = process.env.SWIFTSIGHT_AUTONOMY_REQUEST ?? [
+const AUTONOMY_VARIANT = process.env.SWIFTSIGHT_AUTONOMY_VARIANT ?? "baseline";
+const AUTONOMY_MULTI_CHILD_COUNT = Math.max(2, Number(process.env.SWIFTSIGHT_AUTONOMY_MULTI_CHILD_COUNT ?? 2));
+const DEFAULT_REQUEST = process.env.SWIFTSIGHT_AUTONOMY_REQUEST ?? [
   "Tighten the swiftsight-cloud export handoff before release.",
   "",
   "- keep audit evidence explicit",
@@ -24,12 +26,59 @@ const PROTOCOL_HELPER_PATH = process.env.SQUADRAIL_PROTOCOL_HELPER_PATH
 const execFileAsync = promisify(execFile);
 const agentApiKeyCache = new Map();
 
+const VARIANT_DESCRIPTIONS = {
+  baseline: "single project bounded autonomy with board clarification",
+  multi_child_coordination: "coordination-only root with multiple projected child slices",
+  reviewer_clarification_policy: "single project autonomy with reviewer-targeted clarification policy",
+};
+
 function note(message = "") {
   process.stdout.write(`${message}\n`);
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryWithBackoff(action, options = {}) {
+  const attempts = options.attempts ?? 20;
+  const baseDelayMs = options.baseDelayMs ?? 200;
+  const shouldRetry = options.shouldRetry ?? (() => true);
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetry(error, attempt)) {
+        throw error;
+      }
+      await sleep(baseDelayMs * (attempt + 1));
+    }
+  }
+  throw lastError ?? new Error("retryWithBackoff exhausted without an error payload");
+}
+
+function resolveVariantRequest(variant) {
+  if (variant === "multi_child_coordination") {
+    return [
+      "Coordinate the cloud-swiftsight export handoff across multiple delivery lanes before release.",
+      "",
+      "- keep audit evidence explicit in every child slice",
+      "- preserve bounded change scope per project lane",
+      "- focused verification is enough per child slice",
+    ].join("\n");
+  }
+  if (variant === "reviewer_clarification_policy") {
+    return [
+      "Tighten the swiftsight-cloud export handoff before release.",
+      "",
+      "- reviewer must confirm the scope boundary before implementation resumes",
+      "- keep audit evidence explicit",
+      "- focused verification is enough",
+    ].join("\n");
+  }
+  return DEFAULT_REQUEST;
 }
 
 async function api(pathname, options = {}) {
@@ -101,7 +150,8 @@ async function applyTeamBlueprint(companyId, blueprintKey, preview) {
   });
 }
 
-async function ensureCompanyContext(name) {
+async function ensureCompanyContext(name, options = {}) {
+  const requiredProjectCount = options.requiredProjectCount ?? 1;
   const companies = await api("/api/companies");
   const normalized = name.trim().toLowerCase();
   const existing = companies.find((company) => {
@@ -110,9 +160,27 @@ async function ensureCompanyContext(name) {
     return companyName === normalized || slug === normalized;
   });
   if (existing) {
+    const existingProjects = await listProjects(existing.id);
+    if (existingProjects.length < requiredProjectCount) {
+      note(`company ${name} has ${existingProjects.length} project(s); expanding to ${requiredProjectCount}`);
+      const preview = await previewTeamBlueprint(existing.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, {
+        projectCount: requiredProjectCount,
+      });
+      await applyTeamBlueprint(existing.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, preview);
+      const expandedProjects = await listProjects(existing.id);
+      const primaryProject = expandedProjects[0] ?? null;
+      return {
+        company: existing,
+        bootstrapped: false,
+        expanded: true,
+        bootstrapProjectId: primaryProject?.id ?? null,
+        bootstrapProjectName: primaryProject?.name ?? null,
+      };
+    }
     return {
       company: existing,
       bootstrapped: false,
+      expanded: false,
       bootstrapProjectId: null,
       bootstrapProjectName: null,
     };
@@ -121,13 +189,14 @@ async function ensureCompanyContext(name) {
   note(`company ${name} not found; bootstrapping ${AUTONOMY_BOOTSTRAP_BLUEPRINT}`);
   const company = await createCompany(name);
   const preview = await previewTeamBlueprint(company.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, {
-    projectCount: 1,
+    projectCount: requiredProjectCount,
   });
   const applied = await applyTeamBlueprint(company.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, preview);
   const bootstrapProject = applied.projectResults[0] ?? null;
   return {
     company,
     bootstrapped: true,
+    expanded: false,
     bootstrapProjectId: bootstrapProject?.projectId ?? null,
     bootstrapProjectName: bootstrapProject?.projectName ?? null,
   };
@@ -146,34 +215,78 @@ async function resolveProject(companyId, hint, fallbackProjectId = null) {
     return name === normalized || urlKey === normalized || project.id === hint;
   });
   if (!match && projects.length === 1) {
-    note(`project hint ${hint} not found; falling back to the only available project ${projects[0].name}`);
-    return projects[0];
+    const [fallback] = projects;
+    note(`project hint ${hint} not found; falling back to only project ${fallback.name}`);
+    return fallback;
   }
   assert(match, `Project not found for ${hint}`);
   return match;
 }
 
-async function createPmIntakeIssue(companyId, projectId) {
+async function resolveVariantFallbackProjectId(companyId, variant) {
+  const preferredProjectKeysByVariant = {
+    baseline: ["app-surface"],
+    multi_child_coordination: ["app-surface"],
+    reviewer_clarification_policy: ["platform-services"],
+  };
+  const preferredKeys = preferredProjectKeysByVariant[variant] ?? [];
+  if (preferredKeys.length === 0) return null;
+  const projects = await listProjects(companyId);
+  const preferred = projects.find((project) => {
+    const name = typeof project.name === "string" ? project.name.toLowerCase().replace(/\s+/g, "-") : "";
+    const urlKey = typeof project.urlKey === "string" ? project.urlKey.toLowerCase() : "";
+    return preferredKeys.includes(name) || preferredKeys.includes(urlKey);
+  });
+  if (!preferred) return null;
+  note(`variant ${variant} using explicit fallback project ${preferred.name}`);
+  return preferred.id;
+}
+
+async function resolveProjects(companyId, hint, fallbackProjectId = null, requiredCount = 1) {
+  const projects = await listProjects(companyId);
+  const selected = [];
+  if (requiredCount <= 1) {
+    return [await resolveProject(companyId, hint, fallbackProjectId)];
+  }
+
+  const primary = await resolveProject(companyId, hint, fallbackProjectId);
+  selected.push(primary);
+
+  const remaining = projects
+    .filter((project) => project.id !== primary.id)
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  for (const project of remaining) {
+    if (selected.length >= requiredCount) break;
+    selected.push(project);
+  }
+
+  assert(
+    selected.length >= requiredCount,
+    `Expected at least ${requiredCount} projects for autonomy variant ${AUTONOMY_VARIANT}; found ${selected.length}.`,
+  );
+  return selected.slice(0, requiredCount);
+}
+
+async function createPmIntakeIssue(companyId, projectId = null, request = DEFAULT_REQUEST) {
   const created = await api(`/api/companies/${companyId}/intake/issues`, {
     method: "POST",
     body: {
-      request: REQUEST,
-      projectId,
+      request,
+      ...(projectId ? { projectId } : {}),
       priority: "high",
     },
   });
   return created.issue ?? created;
 }
 
-async function previewProjection(issueId) {
+async function previewProjection(issueId, body = { coordinationOnly: false }) {
   let lastError = null;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       return await api(`/api/issues/${issueId}/intake/projection-preview`, {
         method: "POST",
-        body: {
-          coordinationOnly: false,
-        },
+        body,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -202,11 +315,44 @@ async function listProtocolMessages(issueId) {
   return api(`/api/issues/${issueId}/protocol/messages`);
 }
 
-async function postProtocolMessage(issueId, body) {
-  return api(`/api/issues/${issueId}/protocol/messages`, {
-    method: "POST",
-    body,
-  });
+async function waitForProtocolState(issueId, expectedWorkflowState = null) {
+  return retryWithBackoff(
+    async () => {
+      const state = await getProtocolState(issueId);
+      if (expectedWorkflowState && state.workflowState !== expectedWorkflowState) {
+        throw new Error(
+          `Expected protocol state ${expectedWorkflowState} for ${issueId}, received ${state.workflowState}`,
+        );
+      }
+      return state;
+    },
+    {
+      shouldRetry(error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return message.includes("Issue not found")
+          || message.includes("Expected protocol state");
+      },
+    },
+  );
+}
+
+async function waitForProtocolMessages(issueId, expectedMessageType = null) {
+  return retryWithBackoff(
+    async () => {
+      const messages = await listProtocolMessages(issueId);
+      if (expectedMessageType && !messages.some((message) => message.messageType === expectedMessageType)) {
+        throw new Error(`Expected protocol message ${expectedMessageType} for ${issueId}`);
+      }
+      return messages;
+    },
+    {
+      shouldRetry(error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return message.includes("Issue not found")
+          || message.includes("Expected protocol message");
+      },
+    },
+  );
 }
 
 async function ensureAgentApiKey(agentId) {
@@ -239,6 +385,28 @@ async function runProtocolHelper({ companyId, agentId, issueId, args }) {
       SQUADRAIL_AGENT_ID: agentId,
       SQUADRAIL_COMPANY_ID: companyId,
       SQUADRAIL_TASK_ID: issueId,
+    },
+    encoding: "utf8",
+    timeout: 180_000,
+    maxBuffer: 1024 * 1024 * 8,
+  });
+  return stdout.trim();
+}
+
+async function runBoardProtocolHelper({ companyId, issueId, args }) {
+  const {
+    SQUADRAIL_API_KEY: _agentApiKey,
+    SQUADRAIL_AGENT_ID: _agentId,
+    ...inheritedEnv
+  } = process.env;
+  const { stdout } = await execFileAsync("node", [PROTOCOL_HELPER_PATH, ...args], {
+    cwd: REPO_ROOT,
+    env: {
+      ...inheritedEnv,
+      SQUADRAIL_API_URL: BASE_URL,
+      SQUADRAIL_COMPANY_ID: companyId,
+      SQUADRAIL_TASK_ID: issueId,
+      SQUADRAIL_USER_ID: AUTONOMY_BOARD_ID,
     },
     encoding: "utf8",
     timeout: 180_000,
@@ -291,7 +459,39 @@ async function startImplementation(issueId, companyId, preview) {
   });
 }
 
-async function askClarification(issueId, companyId, preview, workflowStateBefore) {
+function resolveClarificationTarget(preview, mode) {
+  if (mode === "reviewer") {
+    return {
+      requestedFrom: "reviewer",
+      recipientId: preview.staffing.reviewerAgentId,
+      responderAgentId: preview.staffing.reviewerAgentId,
+      responderRole: "reviewer",
+      question:
+        "Please confirm whether the scoped export handoff change and explicit audit evidence are sufficient for this delivery slice.",
+      answer:
+        "Confirmed. Keep the delivery scoped to the export handoff and preserve explicit audit evidence only.",
+      nextStep:
+        "Resume implementation in the selected lane and prepare the focused evidence package for review.",
+      summaryPrefix: "reviewer clarification",
+    };
+  }
+
+  return {
+    requestedFrom: "human_board",
+    recipientId: null,
+    responderAgentId: null,
+    responderRole: "human_board",
+    question:
+      "Should this stay scoped to the cloud export handoff and explicit audit evidence only?",
+    answer:
+      "Yes. Keep the delivery scoped to the cloud export handoff and explicit audit evidence only.",
+    nextStep:
+      "Resume implementation in the selected lane without widening scope.",
+    summaryPrefix: "board clarification",
+  };
+}
+
+async function askClarification(issueId, companyId, preview, workflowStateBefore, clarificationTarget) {
   await runProtocolHelper({
     companyId,
     agentId: preview.staffing.implementationAssigneeAgentId,
@@ -303,13 +503,13 @@ async function askClarification(issueId, companyId, preview, workflowStateBefore
       "--workflow-before",
       workflowStateBefore,
       "--summary",
-      "Need board confirmation before implementation proceeds.",
+      `Need ${clarificationTarget.summaryPrefix} before implementation proceeds.`,
       "--question-type",
       "requirement",
       "--question",
-      "Should this stay scoped to the cloud export handoff and explicit audit evidence only?",
+      clarificationTarget.question,
       "--requested-from",
-      "human_board",
+      clarificationTarget.requestedFrom,
       "--blocking",
       "true",
       "--resume-workflow-state",
@@ -319,10 +519,13 @@ async function askClarification(issueId, companyId, preview, workflowStateBefore
         "Keep the change inside the selected project lane.",
         "Focused verification remains sufficient unless the board expands scope.",
       ]),
+      ...(clarificationTarget.recipientId
+        ? ["--recipient-id", clarificationTarget.recipientId]
+        : []),
     ],
   });
 
-  const messages = await listProtocolMessages(issueId);
+  const messages = await waitForProtocolMessages(issueId, "ASK_CLARIFICATION");
   const askMessage = [...messages]
     .reverse()
     .find((message) => message.messageType === "ASK_CLARIFICATION");
@@ -330,7 +533,7 @@ async function askClarification(issueId, companyId, preview, workflowStateBefore
   return askMessage;
 }
 
-async function escalateBlocker(issueId, companyId, preview, workflowStateBefore) {
+async function escalateBlocker(issueId, companyId, preview, workflowStateBefore, clarificationTarget) {
   await runProtocolHelper({
     companyId,
     agentId: preview.staffing.implementationAssigneeAgentId,
@@ -342,44 +545,57 @@ async function escalateBlocker(issueId, companyId, preview, workflowStateBefore)
       "--workflow-before",
       workflowStateBefore,
       "--summary",
-      "Blocking on board clarification before implementation continues.",
+      `Blocking on ${clarificationTarget.summaryPrefix} before implementation continues.`,
       "--blocker-code",
       "needs_human_decision",
       "--blocking-reason",
-      "The projected delivery needs explicit board confirmation that scope stays limited to the cloud export handoff and audit evidence.",
+      clarificationTarget.requestedFrom === "human_board"
+        ? "The projected delivery needs explicit board confirmation that scope stays limited to the cloud export handoff and audit evidence."
+        : "The projected delivery needs explicit reviewer confirmation that scope stays limited to the export handoff and audit evidence.",
       "--requested-action",
       "Confirm the scope boundary so implementation can resume without widening the change.",
       "--requested-from",
-      "human_board",
+      clarificationTarget.requestedFrom,
+      ...(clarificationTarget.recipientId
+        ? ["--recipient-id", clarificationTarget.recipientId]
+        : []),
     ],
   });
 }
 
-async function answerClarification(issueId, askMessage) {
-  await postProtocolMessage(issueId, {
-    messageType: "ANSWER_CLARIFICATION",
-    sender: {
-      actorType: "user",
-      actorId: AUTONOMY_BOARD_ID,
-      role: "human_board",
-    },
-    recipients: [
-      {
-        recipientType: "agent",
-        recipientId: askMessage.sender.actorId,
-        role: askMessage.sender.role,
-      },
-    ],
-    workflowStateBefore: "blocked",
-    workflowStateAfter: "implementing",
-    summary: "Board confirmed the clarification and resumed execution.",
-    causalMessageId: askMessage.id,
-    requiresAck: false,
-    payload: {
-      answer: "Yes. Keep the delivery scoped to the cloud export handoff and explicit audit evidence only.",
-      nextStep: "Resume implementation in the selected lane without widening scope.",
-    },
-    artifacts: [],
+async function answerClarification(issueId, companyId, askMessage, clarificationTarget) {
+  const args = [
+    "answer-clarification",
+    "--issue",
+    issueId,
+    "--sender-role",
+    clarificationTarget.responderRole,
+    "--causal-message-id",
+    askMessage.id,
+    "--workflow-before",
+    "blocked",
+    "--answer",
+    clarificationTarget.answer,
+    "--next-step",
+    clarificationTarget.nextStep,
+    "--summary",
+    `Resolved ${clarificationTarget.summaryPrefix} and resumed execution.`,
+  ];
+
+  if (clarificationTarget.responderRole === "human_board") {
+    await runBoardProtocolHelper({
+      companyId,
+      issueId,
+      args,
+    });
+    return;
+  }
+
+  await runProtocolHelper({
+    companyId,
+    agentId: clarificationTarget.responderAgentId,
+    issueId,
+    args,
   });
 }
 
@@ -542,143 +758,12 @@ function assertMessageSequence(messages, requiredTypes) {
   }
 }
 
-async function main() {
-  note("Phase 7 bounded autonomy burn-in");
-  note(`baseUrl=${BASE_URL}`);
-  note(`company=${COMPANY_NAME}`);
-  note(`projectHint=${PROJECT_HINT}`);
-
-  const context = await ensureCompanyContext(COMPANY_NAME);
-  const company = context.company;
-  const project = await resolveProject(company.id, PROJECT_HINT, context.bootstrapProjectId);
-  if (context.bootstrapped) {
-    note(`bootstrapped company ${company.name}`);
-    note(`bootstrap project=${context.bootstrapProjectName ?? project.name}`);
-  }
-
-  const intakeIssue = await createPmIntakeIssue(company.id, project.id);
-  note(`created intake root ${intakeIssue.identifier ?? intakeIssue.id}`);
-
-  const preview = await previewProjection(intakeIssue.id);
-  assert.equal(preview.issueId, intakeIssue.id);
-  assert.equal(preview.selectedProjectId, project.id);
-  assert(preview.projectCandidates.some((candidate) => candidate.selected), "Preview did not select a project");
-  assert(preview.draft.workItems.length >= 1, "Preview did not produce any work items");
-  note(`preview selected project ${preview.selectedProjectName ?? project.name}`);
-  note(`preview work items=${preview.draft.workItems.length}`);
-
-  const projection = await applyProjection(intakeIssue.id, preview.draft);
-  assert(Array.isArray(projection.projectedWorkItems), "Projection response missing projectedWorkItems");
-  assert(projection.projectedWorkItems.length >= 1, "Projection did not create any child work items");
-
-  const rootState = await getProtocolState(intakeIssue.id);
-  const childIssue = projection.projectedWorkItems[0];
-  const childState = await getProtocolState(childIssue.id);
-  assert.equal(rootState.workflowState, "assigned");
-  assert.equal(childState.workflowState, "assigned");
-
-  await ackAssignment(childIssue.id, company.id, preview);
-  const acceptedState = await getProtocolState(childIssue.id);
-  assert.equal(acceptedState.workflowState, "accepted");
-
-  await startImplementation(childIssue.id, company.id, preview);
-  const implementingState = await getProtocolState(childIssue.id);
-  assert.equal(implementingState.workflowState, "implementing");
-
-  await escalateBlocker(childIssue.id, company.id, preview, implementingState.workflowState);
-  const blockedState = await getProtocolState(childIssue.id);
-  assert.equal(blockedState.workflowState, "blocked");
-
-  const askMessage = await askClarification(childIssue.id, company.id, preview, blockedState.workflowState);
-  note(`clarification asked ${askMessage.id}`);
-
-  await answerClarification(childIssue.id, askMessage);
-  const resumedState = await getProtocolState(childIssue.id);
-  assert.equal(resumedState.workflowState, "implementing");
-
-  await submitForReview(childIssue.id, company.id, preview, project);
-  const submittedState = await getProtocolState(childIssue.id);
-  assert.equal(submittedState.workflowState, "submitted_for_review");
-
-  await startReview(
-    childIssue.id,
-    company.id,
-    preview.staffing.reviewerAgentId,
-    "reviewer",
-    [
-      "Scope remained bounded to the selected project lane",
-      "Audit evidence stayed explicit",
-      "Focused verification is sufficient for QA handoff",
-    ],
-  );
-  const underReviewState = await getProtocolState(childIssue.id);
-  assert.equal(underReviewState.workflowState, "under_review");
-
-  if (preview.staffing.qaAgentId) {
-    await approveImplementation(
-      childIssue.id,
-      company.id,
-      preview.staffing.reviewerAgentId,
-      "reviewer",
-      "qa_pending",
-    );
-    const qaPendingState = await getProtocolState(childIssue.id);
-    assert.equal(qaPendingState.workflowState, "qa_pending");
-
-    await startReview(
-      childIssue.id,
-      company.id,
-      preview.staffing.qaAgentId,
-      "qa",
-      [
-        "Focused verification evidence is sufficient",
-        "Clarification answer is reflected in the delivery scope",
-        "Close evidence is ready for the tech lead",
-      ],
-      qaPendingState.workflowState,
-    );
-    const underQaState = await getProtocolState(childIssue.id);
-    assert.equal(underQaState.workflowState, "under_qa_review");
-
-    await approveImplementation(
-      childIssue.id,
-      company.id,
-      preview.staffing.qaAgentId,
-      "qa",
-      "approved",
-    );
-  } else {
-    await approveImplementation(
-      childIssue.id,
-      company.id,
-      preview.staffing.reviewerAgentId,
-      "reviewer",
-      "approved",
-    );
-  }
-
-  const approvedState = await getProtocolState(childIssue.id);
-  assert.equal(approvedState.workflowState, "approved");
-
-  await closeTask(childIssue.id, company.id, preview.staffing.techLeadAgentId, project);
-  const doneState = await getProtocolState(childIssue.id);
-  assert.equal(doneState.workflowState, "done");
-
-  const messages = await listProtocolMessages(childIssue.id);
-  const latestAnswer = [...messages]
-    .reverse()
-    .find((message) => message.messageType === "ANSWER_CLARIFICATION");
-  assert(latestAnswer, "Clarification answer was not recorded on the projected child");
-  assert.equal(latestAnswer.causalMessageId, askMessage.id);
-  assertMessageSequence(
-    messages,
-    preview.staffing.qaAgentId
+function expectedMessageSequence(hasQa, includesClarification) {
+  if (!includesClarification) {
+    return hasQa
       ? [
           "ACK_ASSIGNMENT",
           "START_IMPLEMENTATION",
-          "ESCALATE_BLOCKER",
-          "ASK_CLARIFICATION",
-          "ANSWER_CLARIFICATION",
           "SUBMIT_FOR_REVIEW",
           "START_REVIEW",
           "APPROVE_IMPLEMENTATION",
@@ -689,20 +774,367 @@ async function main() {
       : [
           "ACK_ASSIGNMENT",
           "START_IMPLEMENTATION",
-          "ESCALATE_BLOCKER",
-          "ASK_CLARIFICATION",
-          "ANSWER_CLARIFICATION",
           "SUBMIT_FOR_REVIEW",
           "START_REVIEW",
           "APPROVE_IMPLEMENTATION",
           "CLOSE_TASK",
-        ],
+        ];
+  }
+
+  return hasQa
+    ? [
+        "ACK_ASSIGNMENT",
+        "START_IMPLEMENTATION",
+        "ESCALATE_BLOCKER",
+        "ASK_CLARIFICATION",
+        "ANSWER_CLARIFICATION",
+        "SUBMIT_FOR_REVIEW",
+        "START_REVIEW",
+        "APPROVE_IMPLEMENTATION",
+        "START_REVIEW",
+        "APPROVE_IMPLEMENTATION",
+        "CLOSE_TASK",
+      ]
+    : [
+        "ACK_ASSIGNMENT",
+        "START_IMPLEMENTATION",
+        "ESCALATE_BLOCKER",
+        "ASK_CLARIFICATION",
+        "ANSWER_CLARIFICATION",
+        "SUBMIT_FOR_REVIEW",
+        "START_REVIEW",
+        "APPROVE_IMPLEMENTATION",
+        "CLOSE_TASK",
+      ];
+}
+
+async function executeChildDeliveryLoop(input) {
+  const {
+    childIssue,
+    companyId,
+    preview,
+    project,
+    clarificationMode = "human_board",
+  } = input;
+
+  await ackAssignment(childIssue.id, companyId, preview);
+  const acceptedState = await waitForProtocolState(childIssue.id, "accepted");
+  assert.equal(acceptedState.workflowState, "accepted");
+
+  await startImplementation(childIssue.id, companyId, preview);
+  const implementingState = await waitForProtocolState(childIssue.id, "implementing");
+  assert.equal(implementingState.workflowState, "implementing");
+
+  let finalPreReviewState = implementingState;
+  let askMessage = null;
+  if (clarificationMode !== "none") {
+    const clarificationTarget = resolveClarificationTarget(preview, clarificationMode);
+    await escalateBlocker(
+      childIssue.id,
+      companyId,
+      preview,
+      implementingState.workflowState,
+      clarificationTarget,
+    );
+    const blockedState = await waitForProtocolState(childIssue.id, "blocked");
+    assert.equal(blockedState.workflowState, "blocked");
+
+    askMessage = await askClarification(
+      childIssue.id,
+      companyId,
+      preview,
+      blockedState.workflowState,
+      clarificationTarget,
+    );
+    await answerClarification(childIssue.id, companyId, askMessage, clarificationTarget);
+    finalPreReviewState = await waitForProtocolState(childIssue.id, "implementing");
+    assert.equal(finalPreReviewState.workflowState, "implementing");
+  }
+
+  await submitForReview(childIssue.id, companyId, preview, project);
+  const submittedState = await waitForProtocolState(childIssue.id, "submitted_for_review");
+  assert.equal(submittedState.workflowState, "submitted_for_review");
+
+  await startReview(
+    childIssue.id,
+    companyId,
+    preview.staffing.reviewerAgentId,
+    "reviewer",
+    [
+      "Scope remained bounded to the selected project lane",
+      "Audit evidence stayed explicit",
+      "Focused verification is sufficient for QA handoff",
+    ],
+  );
+  const underReviewState = await waitForProtocolState(childIssue.id, "under_review");
+  assert.equal(underReviewState.workflowState, "under_review");
+
+  if (preview.staffing.qaAgentId) {
+    await approveImplementation(
+      childIssue.id,
+      companyId,
+      preview.staffing.reviewerAgentId,
+      "reviewer",
+      "qa_pending",
+    );
+    const qaPendingState = await waitForProtocolState(childIssue.id, "qa_pending");
+    assert.equal(qaPendingState.workflowState, "qa_pending");
+
+    await startReview(
+      childIssue.id,
+      companyId,
+      preview.staffing.qaAgentId,
+      "qa",
+      [
+        "Focused verification evidence is sufficient",
+        "Clarification answer is reflected in the delivery scope",
+        "Close evidence is ready for the tech lead",
+      ],
+      qaPendingState.workflowState,
+    );
+    const underQaState = await waitForProtocolState(childIssue.id, "under_qa_review");
+    assert.equal(underQaState.workflowState, "under_qa_review");
+
+    await approveImplementation(
+      childIssue.id,
+      companyId,
+      preview.staffing.qaAgentId,
+      "qa",
+      "approved",
+    );
+  } else {
+    await approveImplementation(
+      childIssue.id,
+      companyId,
+      preview.staffing.reviewerAgentId,
+      "reviewer",
+      "approved",
+    );
+  }
+
+  const approvedState = await waitForProtocolState(childIssue.id, "approved");
+  assert.equal(approvedState.workflowState, "approved");
+
+  await closeTask(childIssue.id, companyId, preview.staffing.techLeadAgentId, project);
+  const doneState = await waitForProtocolState(childIssue.id, "done");
+  assert.equal(doneState.workflowState, "done");
+
+  const messages = await waitForProtocolMessages(childIssue.id, "CLOSE_TASK");
+  if (askMessage) {
+    const latestAnswer = [...messages]
+      .reverse()
+      .find((message) => message.messageType === "ANSWER_CLARIFICATION");
+    assert(latestAnswer, "Clarification answer was not recorded on the projected child");
+    assert.equal(latestAnswer.causalMessageId, askMessage.id);
+  }
+
+  assertMessageSequence(
+    messages,
+    expectedMessageSequence(Boolean(preview.staffing.qaAgentId), Boolean(askMessage)),
   );
 
-  note(`projected child ${childIssue.identifier ?? childIssue.id}`);
-  note(`clarification resumed ${resumedState.workflowState}`);
-  note(`delivery loop closed ${doneState.workflowState}`);
+  return {
+    childIssue,
+    acceptedState,
+    finalPreReviewState,
+    doneState,
+    askMessageId: askMessage?.id ?? null,
+    messageCount: messages.length,
+    clarificationMode,
+  };
+}
+
+function buildCoordinationDraft(previews) {
+  const coordinator = previews[0];
+  const projectNames = previews.map(({ project }) => project.name);
+  return {
+    reason: `Coordinate ${projectNames.length} bounded autonomy delivery slices across ${projectNames.join(", ")}.`,
+    techLeadAgentId: coordinator.preview.staffing.techLeadAgentId,
+    reviewerAgentId: coordinator.preview.staffing.reviewerAgentId,
+    qaAgentId: coordinator.preview.staffing.qaAgentId,
+    coordinationOnly: true,
+    root: {
+      structuredTitle: `Coordinated autonomy delivery across ${projectNames.join(", ")}`,
+      projectId: null,
+      priority: "high",
+      executionSummary: `Coordinate bounded delivery slices across ${projectNames.join(", ")} while keeping audit evidence explicit.`,
+      acceptanceCriteria: [
+        "Each child slice stays inside its selected project lane",
+        "Each child records explicit review and QA evidence before close",
+        "The coordination root remains a non-execution planning surface",
+      ],
+      definitionOfDone: [
+        "All projected child slices are done",
+        "Clarification and review trails are recorded per child as needed",
+        "The coordination root remains available for operator follow-through",
+      ],
+      risks: [
+        "Cross-project coordination can stall if one child lane never starts",
+      ],
+      openQuestions: [],
+      documentationDebt: [],
+    },
+    workItems: previews.map(({ project, preview }, index) => ({
+      ...preview.draft.workItems[0],
+      title: `Autonomy child: ${project.name} bounded delivery slice`,
+      description: [
+        preview.draft.workItems[0].description,
+        "",
+        "## Autonomy Variant",
+        "",
+        "- multi-child coordination",
+        `- child index: ${index + 1}`,
+        `- project: ${project.name}`,
+      ].join("\n"),
+      projectId: project.id,
+    })),
+  };
+}
+
+async function main() {
+  note("Phase 7 bounded autonomy burn-in");
+  note(`baseUrl=${BASE_URL}`);
+  note(`company=${COMPANY_NAME}`);
+  note(`projectHint=${PROJECT_HINT}`);
+  note(`variant=${AUTONOMY_VARIANT}`);
+  note(`variantDescription=${VARIANT_DESCRIPTIONS[AUTONOMY_VARIANT] ?? "custom"}`);
+
+  const requiredProjectCount = AUTONOMY_VARIANT === "multi_child_coordination"
+    ? AUTONOMY_MULTI_CHILD_COUNT
+    : 1;
+  const context = await ensureCompanyContext(COMPANY_NAME, {
+    requiredProjectCount,
+  });
+  const company = context.company;
+  const variantFallbackProjectId = context.bootstrapProjectId
+    ?? await resolveVariantFallbackProjectId(company.id, AUTONOMY_VARIANT);
+  const projects = await resolveProjects(
+    company.id,
+    PROJECT_HINT,
+    variantFallbackProjectId,
+    requiredProjectCount,
+  );
+  const project = projects[0];
+  if (context.bootstrapped) {
+    note(`bootstrapped company ${company.name}`);
+    note(`bootstrap project=${context.bootstrapProjectName ?? project.name}`);
+  } else if (context.expanded) {
+    note(`expanded company ${company.name} to ${requiredProjectCount} projects`);
+  }
+
+  const intakeIssue = await createPmIntakeIssue(
+    company.id,
+    AUTONOMY_VARIANT === "multi_child_coordination" ? null : project.id,
+    resolveVariantRequest(AUTONOMY_VARIANT),
+  );
+  note(`created intake root ${intakeIssue.identifier ?? intakeIssue.id}`);
+  const childResults = [];
+  let projection;
+  let rootState;
+  let selectedPreviews = [];
+
+  if (AUTONOMY_VARIANT === "multi_child_coordination") {
+    const perProjectPreviews = [];
+    for (const selectedProject of projects) {
+      const preview = await previewProjection(intakeIssue.id, {
+        projectId: selectedProject.id,
+        coordinationOnly: true,
+      });
+      assert.equal(preview.issueId, intakeIssue.id);
+      assert.equal(preview.selectedProjectId, selectedProject.id);
+      assert(preview.draft.workItems.length >= 1, `Preview did not produce a work item for ${selectedProject.name}`);
+      perProjectPreviews.push({ project: selectedProject, preview });
+    }
+    selectedPreviews = perProjectPreviews;
+    note(`coordination previews=${perProjectPreviews.length}`);
+    projection = await applyProjection(intakeIssue.id, buildCoordinationDraft(perProjectPreviews));
+    assert(Array.isArray(projection.projectedWorkItems), "Projection response missing projectedWorkItems");
+    assert.equal(projection.projectedWorkItems.length, perProjectPreviews.length);
+    rootState = await waitForProtocolState(intakeIssue.id, "assigned");
+    assert.equal(rootState.workflowState, "assigned");
+
+    for (const [index, childIssue] of projection.projectedWorkItems.entries()) {
+      const childPreview = perProjectPreviews[index];
+      assert(childPreview, `Missing child preview for projected work item ${index + 1}`);
+      const childState = await waitForProtocolState(childIssue.id, "assigned");
+      assert.equal(childState.workflowState, "assigned");
+      const childResult = await executeChildDeliveryLoop({
+        childIssue,
+        companyId: company.id,
+        preview: childPreview.preview,
+        project: childPreview.project,
+        clarificationMode: index === 0 ? "human_board" : "none",
+      });
+      childResults.push({
+        issueId: childIssue.id,
+        identifier: childIssue.identifier ?? null,
+        projectId: childPreview.project.id,
+        projectName: childPreview.project.name,
+        clarificationMode: childResult.clarificationMode,
+        finalWorkflowState: childResult.doneState.workflowState,
+        askMessageId: childResult.askMessageId,
+      });
+      note(`child ${childIssue.identifier ?? childIssue.id} closed ${childResult.doneState.workflowState}`);
+    }
+  } else {
+    const preview = await previewProjection(intakeIssue.id, {
+      projectId: project.id,
+      coordinationOnly: false,
+    });
+    selectedPreviews = [{ project, preview }];
+    assert.equal(preview.issueId, intakeIssue.id);
+    assert.equal(preview.selectedProjectId, project.id);
+    assert(preview.projectCandidates.some((candidate) => candidate.selected), "Preview did not select a project");
+    assert(preview.draft.workItems.length >= 1, "Preview did not produce any work items");
+    note(`preview selected project ${preview.selectedProjectName ?? project.name}`);
+    note(`preview work items=${preview.draft.workItems.length}`);
+
+    projection = await applyProjection(intakeIssue.id, preview.draft);
+    assert(Array.isArray(projection.projectedWorkItems), "Projection response missing projectedWorkItems");
+    assert(projection.projectedWorkItems.length >= 1, "Projection did not create any child work items");
+
+    rootState = await waitForProtocolState(intakeIssue.id, "assigned");
+    const childIssue = projection.projectedWorkItems[0];
+    const childState = await waitForProtocolState(childIssue.id, "assigned");
+    assert.equal(rootState.workflowState, "assigned");
+    assert.equal(childState.workflowState, "assigned");
+
+    const childResult = await executeChildDeliveryLoop({
+      childIssue,
+      companyId: company.id,
+      preview,
+      project,
+      clarificationMode: AUTONOMY_VARIANT === "reviewer_clarification_policy" ? "reviewer" : "human_board",
+    });
+    childResults.push({
+      issueId: childIssue.id,
+      identifier: childIssue.identifier ?? null,
+      projectId: project.id,
+      projectName: project.name,
+      clarificationMode: childResult.clarificationMode,
+      finalWorkflowState: childResult.doneState.workflowState,
+      askMessageId: childResult.askMessageId,
+    });
+    note(`projected child ${childIssue.identifier ?? childIssue.id}`);
+    note(`delivery loop closed ${childResult.doneState.workflowState}`);
+  }
+
   note("bounded autonomy burn-in invariants passed");
+  note(JSON.stringify({
+    ok: true,
+    variant: AUTONOMY_VARIANT,
+    companyId: company.id,
+    companyName: company.name,
+    rootIssueId: intakeIssue.id,
+    rootIssueIdentifier: intakeIssue.identifier ?? null,
+    rootWorkflowState: rootState?.workflowState ?? null,
+    projectedChildCount: projection.projectedWorkItems.length,
+    selectedProjects: selectedPreviews.map(({ project }) => ({
+      projectId: project.id,
+      projectName: project.name,
+    })),
+    childResults,
+  }, null, 2));
 }
 
 main().catch((error) => {

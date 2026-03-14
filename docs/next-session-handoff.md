@@ -14,7 +14,7 @@ One-line startup rule:
   - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
-  - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop까지 올라왔다.
+  - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop, autonomy matrix variant까지 올라왔다.
 
 ## Current Status
 
@@ -58,15 +58,21 @@ One-line startup rule:
     28. PM role pack를 projection-first flow로 갱신
     29. bounded autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs` 추가
     30. autonomy harness에 `ACK_ASSIGNMENT -> START_IMPLEMENTATION -> ESCALATE_BLOCKER -> ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> review -> QA -> CLOSE_TASK` invariant 추가
-    31. runtime helper에 `ask-clarification` / `escalate-blocker` 명령 추가
+    31. runtime helper에 `ask-clarification` / `answer-clarification` / `escalate-blocker` 명령 추가
     32. live control plane에서 bounded autonomy burn-in을 실제 실행해 `delivery loop closed done`까지 고정
+    33. autonomy matrix runner `scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs` 추가
+    34. `baseline / multi_child_coordination / reviewer_clarification_policy` autonomy variant를 live control plane에서 통과
+    35. E2E 실행 역할을 `kernel burn-in` vs `autonomy baseline/matrix`로 README/package script 수준에서 분리
   - immediate next:
-    1. deterministic kernel burn-in과 autonomy burn-in 운영 역할 분리
-    2. autonomy burn-in에 추가 clarification policy / multi-child invariants 확장
-    3. blueprint portability / import-export / parameter editing follow-up
+    1. Batch B kickoff: blueprint portability
+    2. import/export
+    3. parameter editing
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` 전용 canonical은 이후 phase에서 generic team blueprint registry로 일반화해야 한다.
+    - Batch A 종료 게이트는 모두 통과했다.
+      - bounded autonomy baseline/matrix green
+      - canonical kernel full batch green (`scenarioCount=5`, `durationMs=3374196`)
 
 - `13-S. runtime service-body coverage uplift toward 80%`: 완료
   - `access-invites-routes.test.ts`에 pending join request redaction, board reject, invalid claim secret 분기를 추가했다.

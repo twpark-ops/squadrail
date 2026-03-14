@@ -1214,6 +1214,47 @@ async function sendHumanDecisionApproval(issueId, scenario, workflowStateBefore)
   }, "approve-human-decision");
 }
 
+async function sendImplementationRecovery(issueId, scenario, snapshot) {
+  const state = snapshot.state ?? {};
+  const assigneeAgentId =
+    state.primaryEngineerAgentId
+    ?? (scenario.assigneeRole === "engineer" ? scenario.assignee.id : null);
+  const reviewerAgentId = state.reviewerAgentId ?? scenario.reviewer.id;
+  assert(assigneeAgentId, `${scenario.key} missing engineer assignee for implementation recovery`);
+
+  return postProtocolMessageWithRetry(issueId, {
+    messageType: "REASSIGN_TASK",
+    sender: {
+      actorType: "user",
+      actorId: E2E_ACTOR_ID,
+      role: "human_board",
+    },
+    recipients: [
+      {
+        recipientType: "agent",
+        recipientId: assigneeAgentId,
+        role: "engineer",
+      },
+      {
+        recipientType: "agent",
+        recipientId: reviewerAgentId,
+        role: "reviewer",
+      },
+    ],
+    workflowStateBefore: state.workflowState ?? "blocked",
+    workflowStateAfter: "assigned",
+    summary: `Board restores implementation ownership after stale routing drift for ${scenario.key}`,
+    requiresAck: false,
+    payload: {
+      reason:
+        "A late manager reroute reset the focused delivery slice after implementation had already started. Restore the active engineer lane and continue the scoped execution.",
+      newAssigneeAgentId: assigneeAgentId,
+      newReviewerAgentId: reviewerAgentId,
+    },
+    artifacts: [],
+  }, "recover-implementation");
+}
+
 function findMatchingMessage(messages, predicate) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (predicate(messages[index])) return messages[index];
@@ -1274,6 +1315,8 @@ async function waitForCompletion(issueId, scenario) {
   let humanDecisionObservedAt = null;
   let closeFallbackSent = false;
   let humanDecisionFallbackSent = false;
+  let implementationRecoveryObservedAt = null;
+  let implementationRecoverySent = false;
   let timeoutGraceLogged = false;
 
   while (Date.now() < hardDeadlineAt) {
@@ -1300,6 +1343,23 @@ async function waitForCompletion(issueId, scenario) {
       scenario.closeAction
       && snapshot.state?.workflowState === "awaiting_human_decision"
       && humanDecisionMessage;
+    const latestReassign = latestMessage(snapshot.messages, "REASSIGN_TASK");
+    const latestImplementationStart = latestMessage(snapshot.messages, "START_IMPLEMENTATION");
+    const latestAck = latestMessage(snapshot.messages, "ACK_ASSIGNMENT");
+    const latestProgress = latestMessage(snapshot.messages, "REPORT_PROGRESS");
+    const staleManagerRerouteAfterStart =
+      latestImplementationStart
+      && latestReassign
+      && Date.parse(latestReassign.createdAt) > Date.parse(latestImplementationStart.createdAt)
+      && (!latestAck || Date.parse(latestAck.createdAt) < Date.parse(latestReassign.createdAt))
+      && (!latestProgress || Date.parse(latestProgress.createdAt) < Date.parse(latestReassign.createdAt));
+    const implementationRecoveryEligible =
+      staleManagerRerouteAfterStart
+      && ["blocked", "assigned"].includes(snapshot.state?.workflowState ?? "")
+      && (
+        snapshot.state?.blockedCode === "missing_requirement"
+        || snapshot.state?.workflowState === "assigned"
+      );
     if (closeMessage) {
       closeFallbackSent = true;
       approvalObservedAt = null;
@@ -1333,6 +1393,23 @@ async function waitForCompletion(issueId, scenario) {
       }
     } else {
       humanDecisionObservedAt = null;
+    }
+
+    if (implementationRecoveryEligible) {
+      if (implementationRecoveryObservedAt == null) {
+        implementationRecoveryObservedAt = Date.now();
+      } else if (
+        !implementationRecoverySent
+        && Date.now() - implementationRecoveryObservedAt >= CLOSE_FALLBACK_AFTER_MS
+      ) {
+        note(
+          `[${scenario.key}] blocked after late manager reroute; sending board recovery reassign to restore engineer ownership`,
+        );
+        await sendImplementationRecovery(issueId, scenario, snapshot);
+        implementationRecoverySent = true;
+      }
+    } else {
+      implementationRecoveryObservedAt = null;
     }
 
     const primaryTimeoutElapsed = Date.now() - startedAt >= E2E_TIMEOUT_MS;

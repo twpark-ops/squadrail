@@ -450,7 +450,16 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - bounded autonomy harness [`scripts/e2e/cloud-swiftsight-autonomy-org.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-autonomy-org.mjs)를 추가했다.
   - 현재 invariant는 `human intake -> projection preview/apply -> ACK_ASSIGNMENT -> START_IMPLEMENTATION -> ESCALATE_BLOCKER -> ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> SUBMIT_FOR_REVIEW -> reviewer review -> QA review -> CLOSE_TASK`다.
   - live control plane 실행까지 통과했고, `cloud-swiftsight`가 없을 때는 generic `delivery_plus_qa` bootstrap company를 자동 적용한다.
-  - runtime helper는 `ask-clarification`과 `escalate-blocker`를 함께 지원한다.
+  - runtime helper는 `ask-clarification`, `answer-clarification`, `escalate-blocker`를 함께 지원한다.
+- autonomy matrix runner [`scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs)를 추가했다.
+  - `baseline`
+  - `multi_child_coordination`
+  - `reviewer_clarification_policy`
+  세 variant를 순차 실행하고 consolidated summary를 남긴다.
+- E2E 실행 역할을 분리했다.
+  - `pnpm e2e:cloud-swiftsight-kernel-burn-in`: deterministic lower-kernel regression
+  - `pnpm e2e:cloud-swiftsight-autonomy-org`: bounded autonomy baseline
+  - `pnpm e2e:cloud-swiftsight-autonomy-burn-in`: bounded autonomy matrix
 
 ## 7. 권장 실행 순서
 
@@ -466,8 +475,12 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. deterministic kernel burn-in과 autonomy burn-in의 운영 목적 / 실행 경로 / 문서 표현을 더 분리
-2. autonomy burn-in에 추가 clarification policy variants와 multi-child invariants를 확장
-3. blueprint portability / import-export / parameter editing으로 일반화 축을 이어가기
+1. Batch B `generic blueprint portability`
+2. `import/export`
+3. `parameter editing`
 
-즉 다음 배치는 `Phase 7 bounded autonomy E2E`다.
+즉 Batch A는 닫혔다.
+
+- `pnpm e2e:cloud-swiftsight-kernel-burn-in`을 canonical `cloud-swiftsight` env에서 끝까지 다시 실행했고, `CLO-1..CLO-4 = done`, coordinated root `CLO-5 = cancelled`, child `CLO-6..CLO-8 = done`으로 마감됐다.
+- kernel batch summary: `ok=true`, `scenarioCount=5`, `durationMs=3374196`
+- autonomy baseline/matrix와 deterministic kernel 둘 다 green이므로 다음 제품 배치는 바로 `Batch B portability/import-export/parameter editing`이다.
