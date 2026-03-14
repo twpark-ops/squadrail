@@ -10,6 +10,7 @@ import type {
   TeamBlueprintPreviewRequest,
   TeamBlueprintPreviewResult,
 } from "@squadrail/shared";
+import { buildDefaultTeamBlueprintPreviewRequest } from "@squadrail/shared";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { companiesApi } from "../api/companies";
@@ -31,6 +32,10 @@ import { getUIAdapter } from "../adapters";
 import { defaultCreateValues } from "./agent-config-defaults";
 import { ChoosePathButton } from "./PathInstructionsModal";
 import { HintIcon } from "./agent-config-primitives";
+import {
+  TeamBlueprintParameterEditor,
+  describeTeamBlueprintParameterChanges,
+} from "./TeamBlueprintParameterEditor";
 import { ProductWordmark } from "./ProductWordmark";
 import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
@@ -138,6 +143,8 @@ export function OnboardingWizard() {
   // Step 2
   const [selectedTeamBlueprintKey, setSelectedTeamBlueprintKey] =
     useState<TeamBlueprintKey | null>(null);
+  const [teamBlueprintPreviewRequests, setTeamBlueprintPreviewRequests] =
+    useState<Record<string, TeamBlueprintPreviewRequest>>({});
   const [selectedTeamBlueprintPreview, setSelectedTeamBlueprintPreview] =
     useState<TeamBlueprintPreviewResult | null>(null);
   const [teamBlueprintApplyResult, setTeamBlueprintApplyResult] =
@@ -262,6 +269,16 @@ export function OnboardingWizard() {
   const selectedTeamBlueprint =
     onboardingTeamBlueprints.find((blueprint) => blueprint.key === selectedTeamBlueprintKey) ??
     null;
+  const selectedTeamBlueprintRequest = selectedTeamBlueprint
+    ? (teamBlueprintPreviewRequests[selectedTeamBlueprint.key]
+      ?? buildDefaultTeamBlueprintPreviewRequest(selectedTeamBlueprint))
+    : undefined;
+  const selectedTeamBlueprintParameterChanges = selectedTeamBlueprint
+    ? describeTeamBlueprintParameterChanges(
+      selectedTeamBlueprint,
+      selectedTeamBlueprintPreview?.parameters ?? selectedTeamBlueprintRequest,
+    )
+    : [];
 
   useEffect(() => {
     if (!onboardingTeamBlueprints.length) {
@@ -286,6 +303,10 @@ export function OnboardingWizard() {
     if (!selectedTeamBlueprint || quickRequestTouched) return;
     setQuickRequest(selectedTeamBlueprint.readiness.recommendedFirstQuickRequest);
   }, [selectedTeamBlueprint, quickRequestTouched]);
+
+  useEffect(() => {
+    setTeamBlueprintPreviewRequests({});
+  }, [createdCompanyId]);
 
   const setupReadyFromExistingState = Boolean(setupProgress?.steps.squadReady);
   const hasActivePmAgent = companyAgents.some(
@@ -585,7 +606,7 @@ export function OnboardingWizard() {
       await teamBlueprintPreviewMutation.mutateAsync({
         companyId: createdCompanyId,
         blueprintKey: selectedTeamBlueprintKey,
-        request: {},
+        request: selectedTeamBlueprintRequest,
       });
     } catch (err) {
       setError(
@@ -594,6 +615,18 @@ export function OnboardingWizard() {
           : "Failed to generate the blueprint preview"
       );
     }
+  }
+
+  function handleUpdateSelectedTeamBlueprintRequest(next: TeamBlueprintPreviewRequest) {
+    if (!selectedTeamBlueprint) return;
+    setTeamBlueprintPreviewRequests((current) => ({
+      ...current,
+      [selectedTeamBlueprint.key]: next,
+    }));
+    setSelectedTeamBlueprintPreview(null);
+    setTeamBlueprintApplyResult(null);
+    setConfirmTeamBlueprintApply(false);
+    setError(null);
   }
 
   async function handleApplyTeamBlueprint() {
@@ -1317,6 +1350,20 @@ export function OnboardingWizard() {
                           </section>
                         )}
 
+                        {selectedTeamBlueprint && (
+                          <TeamBlueprintParameterEditor
+                            blueprint={selectedTeamBlueprint}
+                            value={selectedTeamBlueprintRequest}
+                            onChange={handleUpdateSelectedTeamBlueprintRequest}
+                            disabled={
+                              teamBlueprintPreviewMutation.isPending ||
+                              teamBlueprintApplyMutation.isPending
+                            }
+                            title="Blueprint parameters"
+                            description="Tune the reusable team shape before generating the preview diff for onboarding."
+                          />
+                        )}
+
                         {quickRequestReadyFromExistingState && !teamBlueprintApplyResult && (
                           <section className="rounded-[1.35rem] border border-emerald-300/70 bg-emerald-50/70 px-4 py-4 text-sm text-emerald-900">
                             This company is already squad-ready with an active PM lane. You can continue with the existing team shape or preview and apply a new blueprint first.
@@ -1358,6 +1405,25 @@ export function OnboardingWizard() {
                                 label="Parameters"
                                 value={`${selectedTeamBlueprintPreview.parameters.projectCount} project slot(s), ${selectedTeamBlueprintPreview.parameters.engineerPairsPerProject} engineer pair(s)`}
                               />
+                            </div>
+
+                            <div className="rounded-[1rem] border border-border bg-background/75 px-4 py-4">
+                              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                Parameter diff vs blueprint defaults
+                              </div>
+                              {selectedTeamBlueprintParameterChanges.length === 0 ? (
+                                <div className="mt-2 text-sm text-muted-foreground">
+                                  This preview is using the blueprint defaults.
+                                </div>
+                              ) : (
+                                <ul className="mt-2 space-y-1 text-sm text-foreground">
+                                  {selectedTeamBlueprintParameterChanges.map((change) => (
+                                    <li key={change.key}>
+                                      {change.label}: <span className="text-muted-foreground">{change.before}</span> → {change.after}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
 
                             <div className="grid gap-4 lg:grid-cols-2">

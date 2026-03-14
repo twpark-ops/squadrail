@@ -69,8 +69,10 @@
   - Batch B2 import/export 1차로 portable blueprint export bundle, company-scoped saved blueprint library, import preview/save, saved blueprint preview surface를 추가했다
   - `CompanySettings`에서 `Export JSON`, `Import blueprint bundle`, `Saved blueprint library`를 공식 surface로 올렸다
   - fresh Playwright smoke에서 onboarding happy path와 Company Settings blueprint import/export surface를 다시 green으로 확인했다
+  - Batch B3 parameter editing 1차로 shared editor contract, Company Settings/Onboarding parameter editing UI, parameterized preview/apply parity test를 추가했다
+  - `local-ui-flow.sh`의 legacy log grep을 현재 fetch 패턴에 맞게 정리했고 fresh smoke를 다시 green으로 확인했다
   - 남은 portability 제한은 helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup 기반이라는 점이다
-  - 다음은 바로 Batch B `parameter editing`이다
+  - 다음은 `migration helper discovery registry 일반화`다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

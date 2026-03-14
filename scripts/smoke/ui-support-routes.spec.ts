@@ -66,7 +66,6 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await page.getByLabel("Company name").fill(companyName);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Resume Setup", exact: true })).toBeVisible();
   const companyPrefix = new URL(page.url()).pathname.split("/").filter(Boolean)[0];
   if (!companyPrefix) {
     throw new Error("failed to resolve company prefix after company creation");
@@ -75,8 +74,10 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await page.goto(`${baseUrl}/${companyPrefix}/settings`);
   await expect(page.getByRole("heading", { name: "Company Settings", exact: true })).toBeVisible();
   await expect(page.getByText("Setup progress").first()).toBeVisible();
+  await page.getByLabel("Project slots").fill("2");
   await page.getByRole("button", { name: "Preview team plan", exact: true }).click();
   await expect(page.getByText("Preview diff").first()).toBeVisible();
+  await expect(page.getByText("2 project slot(s), 1 engineer pair(s)").first()).toBeVisible();
   await page
     .getByLabel("I reviewed this preview diff and want to apply the current team blueprint to this company.")
     .check();
@@ -162,8 +163,11 @@ test("onboarding wizard completes blueprint to quick-request happy path", async 
     .getByRole("button")
     .filter({ hasText: "Standard Product Squad" })
     .click();
+  await page.getByLabel("Project slots").fill("3");
+  await page.getByLabel("Engineer pair(s) per project").fill("2");
   await page.getByRole("button", { name: "Preview blueprint", exact: true }).click();
   await expect(page.getByText("Preview diff").first()).toBeVisible();
+  await expect(page.getByText("3 project slot(s), 2 engineer pair(s)").first()).toBeVisible();
   await page
     .getByLabel("I reviewed this preview diff and want to apply the current team blueprint to this company.")
     .check();

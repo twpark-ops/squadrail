@@ -37,6 +37,37 @@ export const teamBlueprintParameterHintsSchema = z.object({
   supportsCto: z.boolean(),
   defaultProjectCount: z.number().int().min(1).max(20),
   defaultEngineerPairsPerProject: z.number().int().min(1).max(10),
+  editors: z.object({
+    projectCount: z.object({
+      label: z.string().trim().min(1).max(160),
+      description: z.string().trim().min(1).max(500),
+      min: z.number().int().min(1).max(20),
+      max: z.number().int().min(1).max(20),
+      step: z.number().int().min(1).max(5),
+    }).strict(),
+    engineerPairsPerProject: z.object({
+      label: z.string().trim().min(1).max(160),
+      description: z.string().trim().min(1).max(500),
+      min: z.number().int().min(1).max(10),
+      max: z.number().int().min(1).max(10),
+      step: z.number().int().min(1).max(5),
+    }).strict(),
+    includePm: z.object({
+      label: z.string().trim().min(1).max(160),
+      description: z.string().trim().min(1).max(500),
+      editable: z.boolean(),
+    }).strict(),
+    includeQa: z.object({
+      label: z.string().trim().min(1).max(160),
+      description: z.string().trim().min(1).max(500),
+      editable: z.boolean(),
+    }).strict(),
+    includeCto: z.object({
+      label: z.string().trim().min(1).max(160),
+      description: z.string().trim().min(1).max(500),
+      editable: z.boolean(),
+    }).strict(),
+  }).strict().optional(),
 }).strict();
 
 export const teamBlueprintReadinessSchema = z.object({

@@ -511,6 +511,42 @@ describe("team blueprint apply", () => {
     );
   });
 
+  it("keeps preview/apply parity for edited delivery_plus_qa parameters", async () => {
+    const harness = createApplyHarness();
+    const preview = await harness.service.preview("company-1", "delivery_plus_qa", {
+      projectCount: 3,
+      engineerPairsPerProject: 2,
+      includePm: true,
+      includeQa: true,
+      includeCto: false,
+    });
+
+    const result = await harness.service.apply(
+      "company-1",
+      "delivery_plus_qa",
+      {
+        previewHash: preview.previewHash,
+        projectCount: 3,
+        engineerPairsPerProject: 2,
+        includePm: true,
+        includeQa: true,
+        includeCto: false,
+      },
+      {
+        userId: "user-1",
+        agentId: null,
+      },
+    );
+
+    expect(result.parameters).toEqual(preview.parameters);
+    expect(result.summary.createdProjectCount).toBe(preview.summary.createProjectCount);
+    expect(result.summary.createdAgentCount).toBe(preview.summary.missingRoleCount);
+    expect(result.projectResults).toHaveLength(preview.projectDiff.length);
+    expect(result.roleResults).toHaveLength(
+      preview.roleDiff.reduce((total, role) => total + role.missingCount, 0),
+    );
+  });
+
   it("rolls back project and role-pack mutations when project creation fails mid-apply", async () => {
     const harness = createApplyHarness();
     let projectCreateCalls = 0;

@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { companyTeamBlueprints, type Db } from "@squadrail/db";
 import {
+  buildDefaultTeamBlueprintPreviewRequest,
   companySavedTeamBlueprintSchema,
   normalizeAgentUrlKey,
   normalizeProjectUrlKey,
   portableTeamBlueprintDefinitionSchema,
+  resolveTeamBlueprintParameterEditors,
   savedTeamBlueprintSourceMetadataSchema,
   type SetupProgressView,
   type CompanySavedTeamBlueprint,
@@ -97,6 +99,37 @@ const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
       supportsCto: false,
       defaultProjectCount: 1,
       defaultEngineerPairsPerProject: 1,
+      editors: {
+        projectCount: {
+          label: "Project slots",
+          description: "How many primary project lanes this compact team should cover.",
+          min: 1,
+          max: 4,
+          step: 1,
+        },
+        engineerPairsPerProject: {
+          label: "Engineer pair(s) per project",
+          description: "How many implementation engineer slots to provision for each project lane.",
+          min: 1,
+          max: 3,
+          step: 1,
+        },
+        includePm: {
+          label: "Include PM lane",
+          description: "This compact blueprint does not provision a dedicated PM lane.",
+          editable: false,
+        },
+        includeQa: {
+          label: "Include QA lane",
+          description: "This compact blueprint does not provision a dedicated QA lane.",
+          editable: false,
+        },
+        includeCto: {
+          label: "Include CTO oversight",
+          description: "This compact blueprint does not provision a dedicated CTO oversight lane.",
+          editable: false,
+        },
+      },
     },
     readiness: {
       requiredWorkspaceCount: 1,
@@ -205,6 +238,37 @@ const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
       supportsCto: false,
       defaultProjectCount: 2,
       defaultEngineerPairsPerProject: 1,
+      editors: {
+        projectCount: {
+          label: "Project slots",
+          description: "How many app/service project lanes this squad should preview or apply.",
+          min: 1,
+          max: 6,
+          step: 1,
+        },
+        engineerPairsPerProject: {
+          label: "Engineer pair(s) per project",
+          description: "How many implementation engineer slots each project lane should receive.",
+          min: 1,
+          max: 4,
+          step: 1,
+        },
+        includePm: {
+          label: "Include PM lane",
+          description: "Keep the PM planning and clarification lane in the squad.",
+          editable: true,
+        },
+        includeQa: {
+          label: "Include QA lane",
+          description: "This blueprint does not include a dedicated QA lane.",
+          editable: false,
+        },
+        includeCto: {
+          label: "Include CTO oversight",
+          description: "This blueprint does not include CTO oversight by default.",
+          editable: false,
+        },
+      },
     },
     readiness: {
       requiredWorkspaceCount: 2,
@@ -339,6 +403,37 @@ const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
       supportsCto: true,
       defaultProjectCount: 2,
       defaultEngineerPairsPerProject: 1,
+      editors: {
+        projectCount: {
+          label: "Project slots",
+          description: "How many coordinated delivery lanes this org should cover.",
+          min: 1,
+          max: 8,
+          step: 1,
+        },
+        engineerPairsPerProject: {
+          label: "Engineer pair(s) per project",
+          description: "How many implementation engineer slots each project lane should receive.",
+          min: 1,
+          max: 4,
+          step: 1,
+        },
+        includePm: {
+          label: "Include PM lane",
+          description: "Keep PM intake structuring and clarification ownership in the org.",
+          editable: true,
+        },
+        includeQa: {
+          label: "Include QA lane",
+          description: "Keep QA sign-off and regression coverage in the org.",
+          editable: true,
+        },
+        includeCto: {
+          label: "Include CTO oversight",
+          description: "Keep CTO-level cross-project orchestration in the org.",
+          editable: true,
+        },
+      },
     },
     readiness: {
       requiredWorkspaceCount: 2,
@@ -526,13 +621,7 @@ export function materializePortableTeamBlueprint(
 function buildDefaultPreviewRequestForBlueprint(
   blueprint: TeamBlueprint,
 ): TeamBlueprintPreviewRequest {
-  return {
-    projectCount: blueprint.parameterHints.defaultProjectCount,
-    engineerPairsPerProject: blueprint.parameterHints.defaultEngineerPairsPerProject,
-    includePm: blueprint.parameterHints.supportsPm,
-    includeQa: blueprint.parameterHints.supportsQa,
-    includeCto: blueprint.parameterHints.supportsCto,
-  };
+  return buildDefaultTeamBlueprintPreviewRequest(blueprint);
 }
 
 function normalizeBlueprintSlug(input: string | null | undefined, fallback: string) {
@@ -638,16 +727,54 @@ export function resolveTeamBlueprint(blueprintKey: TeamBlueprint["key"]) {
 export function resolveTeamBlueprintPreviewParameters(
   blueprint: TeamBlueprint,
   input: TeamBlueprintPreviewRequest | undefined,
+  defaultRequest?: TeamBlueprintPreviewRequest,
 ): TeamBlueprintPreviewParameters {
+  const editors = resolveTeamBlueprintParameterEditors(blueprint.parameterHints);
+  const defaultProjectCount = defaultRequest?.projectCount ?? blueprint.parameterHints.defaultProjectCount;
+  const defaultEngineerPairsPerProject =
+    defaultRequest?.engineerPairsPerProject ?? blueprint.parameterHints.defaultEngineerPairsPerProject;
+  const defaultIncludePm =
+    blueprint.parameterHints.supportsPm
+      ? (defaultRequest?.includePm ?? blueprint.parameterHints.supportsPm)
+      : false;
+  const defaultIncludeQa =
+    blueprint.parameterHints.supportsQa
+      ? (defaultRequest?.includeQa ?? blueprint.parameterHints.supportsQa)
+      : false;
+  const defaultIncludeCto =
+    blueprint.parameterHints.supportsCto
+      ? (defaultRequest?.includeCto ?? blueprint.parameterHints.supportsCto)
+      : false;
   return {
-    projectCount: Math.max(1, Math.min(20, input?.projectCount ?? blueprint.parameterHints.defaultProjectCount)),
-    engineerPairsPerProject: Math.max(
-      1,
-      Math.min(10, input?.engineerPairsPerProject ?? blueprint.parameterHints.defaultEngineerPairsPerProject),
+    projectCount: Math.max(
+      editors.projectCount.min,
+      Math.min(
+        editors.projectCount.max,
+        input?.projectCount ?? defaultProjectCount,
+      ),
     ),
-    includePm: input?.includePm ?? blueprint.parameterHints.supportsPm,
-    includeQa: input?.includeQa ?? blueprint.parameterHints.supportsQa,
-    includeCto: input?.includeCto ?? blueprint.parameterHints.supportsCto,
+    engineerPairsPerProject: Math.max(
+      editors.engineerPairsPerProject.min,
+      Math.min(
+        editors.engineerPairsPerProject.max,
+        input?.engineerPairsPerProject ?? defaultEngineerPairsPerProject,
+      ),
+    ),
+    includePm: !blueprint.parameterHints.supportsPm
+      ? false
+      : editors.includePm.editable
+        ? input?.includePm ?? defaultIncludePm
+        : defaultIncludePm,
+    includeQa: !blueprint.parameterHints.supportsQa
+      ? false
+      : editors.includeQa.editable
+        ? input?.includeQa ?? defaultIncludeQa
+        : defaultIncludeQa,
+    includeCto: !blueprint.parameterHints.supportsCto
+      ? false
+      : editors.includeCto.editable
+        ? input?.includeCto ?? defaultIncludeCto
+        : defaultIncludeCto,
   };
 }
 
@@ -1065,9 +1192,10 @@ export function buildTeamBlueprintPreview(input: {
   currentAgents: PreviewAgentLike[];
   setupProgress: SetupProgressView;
   request?: TeamBlueprintPreviewRequest;
+  defaultRequest?: TeamBlueprintPreviewRequest;
 }): TeamBlueprintPreviewResult {
   const baseBlueprint = cloneBlueprint(input.blueprint);
-  const parameters = resolveTeamBlueprintPreviewParameters(baseBlueprint, input.request);
+  const parameters = resolveTeamBlueprintPreviewParameters(baseBlueprint, input.request, input.defaultRequest);
   const { blueprint, roleGraphWarnings } = buildEffectiveBlueprint(baseBlueprint, parameters);
     const projectSlots = expandTeamBlueprintProjects(blueprint, parameters);
   const projectDiff = buildProjectDiff(projectSlots, input.currentProjects);
@@ -1212,6 +1340,7 @@ async function loadPreviewStateForBlueprint(
   companyId: string,
   blueprint: TeamBlueprint,
   request?: TeamBlueprintPreviewRequest,
+  defaultRequest?: TeamBlueprintPreviewRequest,
 ) {
   const previewRequest = teamBlueprintPreviewRequestSchema.parse({
     projectCount: request?.projectCount,
@@ -1219,6 +1348,13 @@ async function loadPreviewStateForBlueprint(
     includePm: request?.includePm,
     includeQa: request?.includeQa,
     includeCto: request?.includeCto,
+  });
+  const previewDefaultRequest = teamBlueprintPreviewRequestSchema.parse({
+    projectCount: defaultRequest?.projectCount,
+    engineerPairsPerProject: defaultRequest?.engineerPairsPerProject,
+    includePm: defaultRequest?.includePm,
+    includeQa: defaultRequest?.includeQa,
+    includeCto: defaultRequest?.includeCto,
   });
 
   const [projects, agents, setupProgress] = await Promise.all([
@@ -1235,6 +1371,7 @@ async function loadPreviewStateForBlueprint(
     currentAgents,
     setupProgress,
     request: previewRequest,
+    defaultRequest: previewDefaultRequest,
   });
   const projectSlots = expandTeamBlueprintProjects(preview.blueprint, preview.parameters);
   const roleSlotMatches = buildRoleSlotMatches(preview.blueprint, currentAgents, preview.parameters, projectSlots);
@@ -1347,6 +1484,7 @@ export function teamBlueprintService(db?: Db) {
           db,
           companyId,
           materializePortableTeamBlueprint(resolved.definition),
+          undefined,
           request.source.bundle.defaultPreviewRequest,
         )
       ).preview;
@@ -1448,15 +1586,12 @@ export function teamBlueprintService(db?: Db) {
       if (!db) throw new Error("teamBlueprintService.previewSavedBlueprint requires a database handle");
 
       const savedBlueprint = await getSavedBlueprintById(db, companyId, savedBlueprintId);
-      const mergedRequest = {
-        ...savedBlueprint.defaultPreviewRequest,
-        ...(request ?? {}),
-      };
       const state = await loadPreviewStateForBlueprint(
         db,
         companyId,
         materializePortableTeamBlueprint(savedBlueprint.definition),
-        mergedRequest,
+        request,
+        savedBlueprint.defaultPreviewRequest,
       );
       return state.preview;
     },

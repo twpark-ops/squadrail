@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildDefaultTeamBlueprintPreviewRequest } from "@squadrail/shared";
 import {
   buildPortableTeamBlueprintDefinition,
   buildTeamBlueprintExportBundle,
@@ -30,6 +31,14 @@ describe("team blueprints", () => {
       supportsPm: true,
       supportsQa: true,
       supportsCto: true,
+      editors: {
+        projectCount: {
+          label: "Project slots",
+        },
+        engineerPairsPerProject: {
+          label: "Engineer pair(s) per project",
+        },
+      },
     });
   });
 
@@ -83,9 +92,45 @@ describe("team blueprints", () => {
       projectCount: 3,
       engineerPairsPerProject: 2,
       includePm: true,
-      includeQa: true,
+      includeQa: false,
       includeCto: false,
     });
+  });
+
+  it("uses saved default preview request values as the initial parameter baseline", () => {
+    const blueprint = listTeamBlueprints()[2]!;
+    const defaults = buildDefaultTeamBlueprintPreviewRequest(blueprint, {
+      projectCount: 3,
+      engineerPairsPerProject: 2,
+      includePm: true,
+      includeQa: false,
+      includeCto: false,
+    });
+
+    expect(defaults).toEqual({
+      projectCount: 3,
+      engineerPairsPerProject: 2,
+      includePm: true,
+      includeQa: false,
+      includeCto: false,
+    });
+  });
+
+  it("keeps non-editable toggle parameters fixed even when request overrides them", () => {
+    const blueprint = structuredClone(listTeamBlueprints()[2]!);
+    blueprint.parameterHints.editors!.includeQa.editable = false;
+
+    const parameters = resolveTeamBlueprintPreviewParameters(
+      blueprint,
+      {
+        includeQa: true,
+      },
+      {
+        includeQa: false,
+      },
+    );
+
+    expect(parameters.includeQa).toBe(false);
   });
 
   it("builds preview diff with readiness warnings and missing roles", () => {

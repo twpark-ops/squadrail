@@ -16,9 +16,14 @@ import { MarkdownBody } from "../components/MarkdownBody";
 import { MarkdownDiffView } from "../components/MarkdownDiffView";
 import { RoleSimulationConsole } from "../components/RoleSimulationConsole";
 import { SupportMetricCard } from "../components/SupportMetricCard";
+import {
+  TeamBlueprintParameterEditor,
+  describeTeamBlueprintParameterChanges,
+} from "../components/TeamBlueprintParameterEditor";
 import { Field, ToggleField, HintIcon } from "../components/agent-config-primitives";
 import { Layers3, SearchCheck, Settings, ShieldCheck } from "lucide-react";
 import {
+  buildDefaultTeamBlueprintPreviewRequest,
   WORKFLOW_TEMPLATE_ACTION_TYPES,
   ROLE_PACK_FILE_NAMES,
   type DoctorCheckStatus,
@@ -210,10 +215,12 @@ export function CompanySettings() {
   const [alertCooldownMinutes, setAlertCooldownMinutes] = useState("15");
   const [alertDestinations, setAlertDestinations] = useState<OperatingAlertDestinationConfig[]>([]);
   const [selectedTeamBlueprintKey, setSelectedTeamBlueprintKey] = useState<TeamBlueprintKey | null>(null);
+  const [teamBlueprintPreviewRequests, setTeamBlueprintPreviewRequests] = useState<Record<string, TeamBlueprintPreviewRequest>>({});
   const [teamBlueprintPreview, setTeamBlueprintPreview] = useState<TeamBlueprintPreviewResult | null>(null);
   const [teamBlueprintApplyResult, setTeamBlueprintApplyResult] = useState<TeamBlueprintApplyResult | null>(null);
   const [confirmTeamBlueprintApply, setConfirmTeamBlueprintApply] = useState(false);
   const [selectedSavedTeamBlueprintId, setSelectedSavedTeamBlueprintId] = useState<string | null>(null);
+  const [savedTeamBlueprintPreviewRequests, setSavedTeamBlueprintPreviewRequests] = useState<Record<string, TeamBlueprintPreviewRequest>>({});
   const [savedTeamBlueprintPreviewState, setSavedTeamBlueprintPreviewState] = useState<{
     savedBlueprintId: string;
     preview: TeamBlueprintPreviewResult;
@@ -304,8 +311,10 @@ export function CompanySettings() {
     setTeamBlueprintPreview(null);
     setTeamBlueprintApplyResult(null);
     setConfirmTeamBlueprintApply(false);
+    setTeamBlueprintPreviewRequests({});
     setSelectedSavedTeamBlueprintId(null);
     setSavedTeamBlueprintPreviewState(null);
+    setSavedTeamBlueprintPreviewRequests({});
     setTeamBlueprintImportPreview(null);
     setConfirmTeamBlueprintImport(false);
   }, [selectedCompanyId]);
@@ -782,8 +791,9 @@ export function CompanySettings() {
     mutationFn: async (input: {
       companyId: string;
       savedBlueprintId: string;
+      request?: TeamBlueprintPreviewRequest;
     }) =>
-      companiesApi.previewSavedTeamBlueprint(input.companyId, input.savedBlueprintId),
+      companiesApi.previewSavedTeamBlueprint(input.companyId, input.savedBlueprintId, input.request),
     onSuccess: (preview, variables) => {
       setSavedTeamBlueprintPreviewState({
         savedBlueprintId: variables.savedBlueprintId,
@@ -1004,15 +1014,38 @@ export function CompanySettings() {
     teamBlueprintPreview && selectedTeamBlueprint && teamBlueprintPreview.blueprint.key === selectedTeamBlueprint.key
       ? teamBlueprintPreview
       : null;
+  const selectedTeamBlueprintRequest = selectedTeamBlueprint
+    ? (teamBlueprintPreviewRequests[selectedTeamBlueprint.key] ?? buildDefaultTeamBlueprintPreviewRequest(selectedTeamBlueprint))
+    : undefined;
+  const selectedTeamBlueprintParameterChanges = selectedTeamBlueprint
+    ? describeTeamBlueprintParameterChanges(
+      selectedTeamBlueprint,
+      selectedTeamBlueprintPreview?.parameters ?? selectedTeamBlueprintRequest,
+    )
+    : [];
   const selectedSavedTeamBlueprint: CompanySavedTeamBlueprint | null = selectedSavedTeamBlueprintId
     ? savedTeamBlueprints.find((entry) => entry.id === selectedSavedTeamBlueprintId) ?? null
     : savedTeamBlueprints[0] ?? null;
+  const selectedSavedTeamBlueprintRequest = selectedSavedTeamBlueprint
+    ? (savedTeamBlueprintPreviewRequests[selectedSavedTeamBlueprint.id]
+      ?? buildDefaultTeamBlueprintPreviewRequest(
+        selectedSavedTeamBlueprint.definition,
+        selectedSavedTeamBlueprint.defaultPreviewRequest,
+      ))
+    : undefined;
   const selectedSavedTeamBlueprintPreview =
     savedTeamBlueprintPreviewState
     && selectedSavedTeamBlueprint
     && savedTeamBlueprintPreviewState.savedBlueprintId === selectedSavedTeamBlueprint.id
       ? savedTeamBlueprintPreviewState.preview
       : null;
+  const selectedSavedTeamBlueprintParameterChanges = selectedSavedTeamBlueprint
+    ? describeTeamBlueprintParameterChanges(
+      selectedSavedTeamBlueprint.definition,
+      selectedSavedTeamBlueprintPreview?.parameters ?? selectedSavedTeamBlueprintRequest,
+      selectedSavedTeamBlueprint.defaultPreviewRequest,
+    )
+    : [];
   const workflowTemplates = workflowTemplatesView?.templates ?? [];
   const companyWorkflowTemplates = workflowTemplatesView?.companyTemplates ?? [];
   const selectedWorkflowTemplate = selectedWorkflowTemplateId
@@ -1124,6 +1157,26 @@ export function CompanySettings() {
     });
   }
 
+  function handleUpdateSelectedTeamBlueprintRequest(next: TeamBlueprintPreviewRequest) {
+    if (!selectedTeamBlueprint) return;
+    setTeamBlueprintPreviewRequests((current) => ({
+      ...current,
+      [selectedTeamBlueprint.key]: next,
+    }));
+    setTeamBlueprintPreview(null);
+    setTeamBlueprintApplyResult(null);
+    setConfirmTeamBlueprintApply(false);
+  }
+
+  function handleUpdateSelectedSavedTeamBlueprintRequest(next: TeamBlueprintPreviewRequest) {
+    if (!selectedSavedTeamBlueprint) return;
+    setSavedTeamBlueprintPreviewRequests((current) => ({
+      ...current,
+      [selectedSavedTeamBlueprint.id]: next,
+    }));
+    setSavedTeamBlueprintPreviewState(null);
+  }
+
   function handlePreviewImportedTeamBlueprint() {
     if (!selectedCompanyId || !teamBlueprintImportBundleParse.bundle || teamBlueprintImportPreviewMutation.isPending) return;
     teamBlueprintImportPreviewMutation.mutate({
@@ -1177,7 +1230,7 @@ export function CompanySettings() {
                 teamBlueprintPreviewMutation.mutate({
                   companyId: selectedCompanyId,
                   blueprintKey: selectedTeamBlueprint.key,
-                  request: {},
+                  request: selectedTeamBlueprintRequest,
                 });
               }}
             >
@@ -1296,10 +1349,18 @@ export function CompanySettings() {
                         </div>
                       ))}
                     </div>
-                    <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                  <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
                       Recommended first quick request: {selectedTeamBlueprint.readiness.recommendedFirstQuickRequest}
                     </div>
                   </div>
+
+                  <TeamBlueprintParameterEditor
+                    blueprint={selectedTeamBlueprint}
+                    value={selectedTeamBlueprintRequest}
+                    onChange={handleUpdateSelectedTeamBlueprintRequest}
+                    disabled={teamBlueprintPreviewMutation.isPending || teamBlueprintApplyMutation.isPending}
+                    description="Adjust the reusable team shape before generating the preview diff or applying it."
+                  />
 
                   <div className="space-y-3 rounded-md border border-border px-4 py-4">
                     <div className="text-sm font-semibold">Readiness expectations</div>
@@ -1338,6 +1399,21 @@ export function CompanySettings() {
                     <div className="text-xs text-muted-foreground">
                       Projects {selectedTeamBlueprintPreview.summary.adoptedProjectCount} adopt / {selectedTeamBlueprintPreview.summary.createProjectCount} create
                     </div>
+                  </div>
+
+                  <div className="rounded-md border border-border bg-muted/20 px-3 py-3">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Parameter diff vs blueprint defaults</div>
+                    {selectedTeamBlueprintParameterChanges.length === 0 ? (
+                      <div className="mt-2 text-sm text-muted-foreground">This preview is using the blueprint defaults.</div>
+                    ) : (
+                      <ul className="mt-2 space-y-1 text-sm text-foreground">
+                        {selectedTeamBlueprintParameterChanges.map((change) => (
+                          <li key={change.key}>
+                            {change.label}: <span className="text-muted-foreground">{change.before}</span> → {change.after}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-3">
@@ -1684,6 +1760,7 @@ export function CompanySettings() {
                                 savedTeamBlueprintPreviewMutation.mutate({
                                   companyId: selectedCompanyId,
                                   savedBlueprintId: selectedSavedTeamBlueprint.id,
+                                  request: selectedSavedTeamBlueprintRequest,
                                 });
                               }}
                             >
@@ -1694,24 +1771,56 @@ export function CompanySettings() {
                             </span>
                           </div>
 
+                          <TeamBlueprintParameterEditor
+                            blueprint={selectedSavedTeamBlueprint.definition}
+                            value={selectedSavedTeamBlueprintRequest}
+                            defaultValue={selectedSavedTeamBlueprint.defaultPreviewRequest}
+                            onChange={handleUpdateSelectedSavedTeamBlueprintRequest}
+                            disabled={savedTeamBlueprintPreviewMutation.isPending}
+                            title="Saved blueprint preview parameters"
+                            description="Preview saved blueprint definitions with their stored default parameters, then compare edited values before apply support lands."
+                            compact
+                          />
+
                           {selectedSavedTeamBlueprintPreview && (
-                            <div className="grid gap-2 md:grid-cols-3">
-                              <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
-                                <div className="text-xs uppercase tracking-wide text-muted-foreground">Projects</div>
-                                <div className="mt-1 font-medium">
-                                  {selectedSavedTeamBlueprintPreview.summary.adoptedProjectCount} adopt / {selectedSavedTeamBlueprintPreview.summary.createProjectCount} create
+                            <div className="space-y-3">
+                              <div className="rounded-md border border-border bg-background px-3 py-3">
+                                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  Parameter diff vs blueprint defaults
                                 </div>
+                                {selectedSavedTeamBlueprintParameterChanges.length === 0 ? (
+                                  <div className="mt-2 text-sm text-muted-foreground">
+                                    This preview is using the saved blueprint defaults.
+                                  </div>
+                                ) : (
+                                  <ul className="mt-2 space-y-1 text-sm text-foreground">
+                                    {selectedSavedTeamBlueprintParameterChanges.map((change) => (
+                                      <li key={change.key}>
+                                        {change.label}: <span className="text-muted-foreground">{change.before}</span> → {change.after}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
-                              <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
-                                <div className="text-xs uppercase tracking-wide text-muted-foreground">Roles</div>
-                                <div className="mt-1 font-medium">
-                                  {selectedSavedTeamBlueprintPreview.summary.matchedRoleCount} matched / {selectedSavedTeamBlueprintPreview.summary.missingRoleCount} missing
+
+                              <div className="grid gap-2 md:grid-cols-3">
+                                <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Projects</div>
+                                  <div className="mt-1 font-medium">
+                                    {selectedSavedTeamBlueprintPreview.summary.adoptedProjectCount} adopt / {selectedSavedTeamBlueprintPreview.summary.createProjectCount} create
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
-                                <div className="text-xs uppercase tracking-wide text-muted-foreground">Warnings</div>
-                                <div className="mt-1 font-medium">
-                                  {selectedSavedTeamBlueprintPreview.warnings.length}
+                                <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Roles</div>
+                                  <div className="mt-1 font-medium">
+                                    {selectedSavedTeamBlueprintPreview.summary.matchedRoleCount} matched / {selectedSavedTeamBlueprintPreview.summary.missingRoleCount} missing
+                                  </div>
+                                </div>
+                                <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Warnings</div>
+                                  <div className="mt-1 font-medium">
+                                    {selectedSavedTeamBlueprintPreview.warnings.length}
+                                  </div>
                                 </div>
                               </div>
                             </div>
