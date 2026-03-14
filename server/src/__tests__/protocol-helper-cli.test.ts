@@ -565,6 +565,230 @@ describe("squadrail protocol helper CLI", () => {
     }
   });
 
+  it("supports reviewer-targeted blocker escalations when recipient-id is provided", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "implementing", currentReviewCycle: 0 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "engineer", title: "Engineer" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "escalate-blocker",
+          "--issue",
+          "issue-123",
+          "--blocker-code",
+          "needs_human_decision",
+          "--blocking-reason",
+          "Reviewer confirmation is required before implementation continues.",
+          "--requested-action",
+          "Confirm review scope and unblock the delivery loop.",
+          "--requested-from",
+          "reviewer",
+          "--recipient-id",
+          "reviewer-456",
+          "--summary",
+          "Escalate blocker for reviewer clarification.",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toMatchObject({
+        messageType: "ESCALATE_BLOCKER",
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-456",
+            role: "reviewer",
+          },
+        ],
+        payload: {
+          requestedFrom: "reviewer",
+        },
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("answers pending board clarifications through the helper command without agent auth", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "blocked", currentReviewCycle: 0 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/messages") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([
+          {
+            id: "ask-1",
+            messageType: "ASK_CLARIFICATION",
+            sender: {
+              actorType: "agent",
+              actorId: "eng-1",
+              role: "engineer",
+            },
+            payload: {
+              requestedFrom: "human_board",
+              questionType: "requirement",
+              question: "Can the scope stay inside the cloud export handoff only?",
+            },
+          },
+        ]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    const env = buildEnv();
+    env.SQUADRAIL_USER_ID = "autonomy-board";
+    env.SQUADRAIL_API_URL = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "answer-clarification",
+          "--issue",
+          "issue-123",
+          "--sender-role",
+          "human_board",
+          "--answer",
+          "Yes. Keep the delivery scoped to the cloud export handoff only.",
+          "--next-step",
+          "Resume implementation in the selected lane.",
+          "--summary",
+          "Board clarified the scope and resumed execution.",
+        ],
+        {
+          env,
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.headers.authorization).toBeUndefined();
+      expect(requests[0]?.body).toMatchObject({
+        messageType: "ANSWER_CLARIFICATION",
+        sender: {
+          actorType: "user",
+          actorId: "autonomy-board",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "blocked",
+        workflowStateAfter: "blocked",
+        causalMessageId: "ask-1",
+        payload: {
+          answer: "Yes. Keep the delivery scoped to the cloud export handoff only.",
+          nextStep: "Resume implementation in the selected lane.",
+        },
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("defaults TL-titled engineers to engineer sender-role for engineer-only commands", async () => {
     const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
     const server = http.createServer((req, res) => {

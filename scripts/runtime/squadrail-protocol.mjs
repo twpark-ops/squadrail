@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 const API_URL = process.env.SQUADRAIL_API_URL;
 const API_KEY = process.env.SQUADRAIL_API_KEY;
 const AGENT_ID = process.env.SQUADRAIL_AGENT_ID;
+const USER_ID = process.env.SQUADRAIL_USER_ID ?? "board";
 const RUN_ID = process.env.SQUADRAIL_RUN_ID;
 const COMPANY_ID = process.env.SQUADRAIL_COMPANY_ID;
 const DEFAULT_ISSUE_ID = process.env.SQUADRAIL_TASK_ID ?? null;
@@ -87,7 +88,7 @@ function tryInferSubmitForReviewArtifacts(changedFiles) {
 
 const COMMAND_HELP = {
   general:
-    "Usage: squadrail-protocol.mjs <resolve-agent|list-projects|get-brief|preview-intake-projection|apply-intake-projection|reassign-task|ack-assignment|escalate-blocker|ask-clarification|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
+    "Usage: squadrail-protocol.mjs <resolve-agent|list-projects|get-brief|preview-intake-projection|apply-intake-projection|reassign-task|ack-assignment|escalate-blocker|ask-clarification|answer-clarification|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
   "list-projects": [
     "Usage: squadrail-protocol.mjs list-projects",
     "",
@@ -125,9 +126,10 @@ const COMMAND_HELP = {
     "",
     "Supported options:",
     "  --requested-from <human_board|reviewer|tech_lead>  (default: human_board)",
+    "  --recipient-id <agentId>                           required when requested-from is not human_board",
     "  --related-issues \"issue1||issue2\"",
     "  --related-identifiers \"CLO-1||CLO-2\"",
-    "  --payload <json>                                  blockerCode, blockingReason, requestedAction, requestedFrom, relatedIssueIds, relatedIssueIdentifiers, summary",
+    "  --payload <json>                                  blockerCode, blockingReason, requestedAction, requestedFrom, recipientId, relatedIssueIds, relatedIssueIdentifiers, summary",
   ].join("\n"),
   "ask-clarification": [
     "Usage: squadrail-protocol.mjs ask-clarification --issue <issueId> [--sender-role <role>] --question-type <type> --question <text> [options]",
@@ -140,6 +142,16 @@ const COMMAND_HELP = {
     "  --proposed-assumptions \"item1||item2\"",
     "  --related-artifacts \"item1||item2\"",
     "  --payload <json>                                  questionType, question, requestedFrom, blocking, resumeWorkflowState, proposedAssumptions, relatedArtifacts, summary",
+  ].join("\n"),
+  "answer-clarification": [
+    "Usage: squadrail-protocol.mjs answer-clarification --issue <issueId> [--sender-role <role>] --answer <text> [options]",
+    "",
+    "Supported options:",
+    "  --causal-message-id <messageId>                   optional; otherwise resolves the latest unanswered clarification for the sender role",
+    "  --next-step <text>",
+    "  --summary <text>",
+    "  --workflow-before <state>",
+    "  --payload <json>                                  answer, nextStep, summary, causalMessageId",
   ].join("\n"),
   "start-implementation": [
     "Usage: squadrail-protocol.mjs start-implementation --issue <issueId> [--sender-role <role>] --summary <text> [options]",
@@ -250,8 +262,6 @@ function requireEnv(name, value) {
 }
 
 requireEnv("SQUADRAIL_API_URL", API_URL);
-requireEnv("SQUADRAIL_API_KEY", API_KEY);
-requireEnv("SQUADRAIL_AGENT_ID", AGENT_ID);
 requireEnv("SQUADRAIL_COMPANY_ID", COMPANY_ID);
 
 function readArgs(argv) {
@@ -437,13 +447,16 @@ function parseListOptionOrPayload(options, names, payloadValue, { required = fal
 async function api(pathname, input = {}) {
   let response;
   try {
+    const headers = {
+      "Content-Type": "application/json",
+      ...(RUN_ID ? { "X-Squadrail-Run-Id": RUN_ID } : {}),
+      ...(input.headers ?? {}),
+    };
     response = await fetch(`${API_URL}${pathname}`, {
       method: input.method ?? "GET",
       headers: {
-        Authorization: `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-        ...(RUN_ID ? { "X-Squadrail-Run-Id": RUN_ID } : {}),
-        ...(input.headers ?? {}),
+        ...(API_KEY && !input.omitAuth ? { Authorization: `Bearer ${API_KEY}` } : {}),
+        ...headers,
       },
       body: input.body === undefined ? undefined : JSON.stringify(input.body),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -467,10 +480,11 @@ async function api(pathname, input = {}) {
   return body;
 }
 
-async function postProtocolMessage(issueId, body) {
+async function postProtocolMessage(issueId, body, options = {}) {
   const result = await api(`/api/issues/${issueId}/protocol/messages`, {
     method: "POST",
     body,
+    omitAuth: options.omitAuth,
     headers: {
       "X-Squadrail-Dispatch-Mode": DEFAULT_DISPATCH_MODE,
     },
@@ -478,8 +492,12 @@ async function postProtocolMessage(issueId, body) {
   printJson(result);
 }
 
-async function getIssueState(issueId) {
-  return api(`/api/issues/${issueId}/protocol/state`);
+async function getIssueState(issueId, options = {}) {
+  return api(`/api/issues/${issueId}/protocol/state`, options);
+}
+
+async function getProtocolMessages(issueId, options = {}) {
+  return api(`/api/issues/${issueId}/protocol/messages`, options);
 }
 
 async function listAgents() {
@@ -491,6 +509,7 @@ async function listProjects() {
 }
 
 async function getSelfAgent() {
+  requireEnv("SQUADRAIL_AGENT_ID", AGENT_ID);
   if (cachedSelfAgent) return cachedSelfAgent;
   const agents = await listAgents();
   const selfAgent = agents.find((agent) => agent.id === AGENT_ID);
@@ -616,6 +635,21 @@ function buildAgentRecipient(recipientId, role) {
   };
 }
 
+function buildSenderIdentity(senderRole) {
+  if (senderRole === "human_board") {
+    return {
+      actorType: "user",
+      actorId: USER_ID,
+      role: senderRole,
+    };
+  }
+  return {
+    actorType: "agent",
+    actorId: requireEnv("SQUADRAIL_AGENT_ID", AGENT_ID),
+    role: senderRole,
+  };
+}
+
 function buildClarificationRecipients(requestedFrom, recipientId) {
   if (requestedFrom === "human_board") {
     return [buildHumanBoardRecipient()];
@@ -624,6 +658,22 @@ function buildClarificationRecipients(requestedFrom, recipientId) {
     fail("--recipient-id is required when --requested-from is not human_board.");
   }
   return [buildAgentRecipient(recipientId, requestedFrom)];
+}
+
+function findLatestPendingClarification(messages, requestedFrom, causalMessageId = null) {
+  const answeredMessageIds = new Set(
+    messages
+      .filter((message) => message.messageType === "ANSWER_CLARIFICATION" && message.causalMessageId)
+      .map((message) => message.causalMessageId),
+  );
+  const pendingQuestions = messages.filter((message) => {
+    if (message.messageType !== "ASK_CLARIFICATION") return false;
+    if (causalMessageId && message.id !== causalMessageId) return false;
+    if ((message.payload?.requestedFrom ?? null) !== requestedFrom) return false;
+    if (answeredMessageIds.has(message.id)) return false;
+    return true;
+  });
+  return pendingQuestions.at(-1) ?? null;
 }
 
 function buildRequestChangesRecipients(state, senderRole) {
@@ -922,6 +972,11 @@ async function escalateBlockerCommand(options) {
     ["requested-from", "requestedFrom"],
     payloadPatch.requestedFrom ?? "human_board",
   );
+  const recipientId = readAliasedOption(
+    options,
+    ["recipient-id", "recipientId"],
+    payloadPatch.recipientId ?? null,
+  );
   const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? blockingReason);
   if (!summary) fail("Missing required option: --summary");
   const relatedIssueIds = parseListOptionOrPayload(
@@ -938,12 +993,8 @@ async function escalateBlockerCommand(options) {
 
   const body = {
     messageType: "ESCALATE_BLOCKER",
-    sender: {
-      actorType: "agent",
-      actorId: AGENT_ID,
-      role: senderRole,
-    },
-    recipients: buildClarificationRecipients(requestedFrom, null),
+    sender: buildSenderIdentity(senderRole),
+    recipients: buildClarificationRecipients(requestedFrom, recipientId),
     workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
     workflowStateAfter: "blocked",
     summary,
@@ -1022,11 +1073,7 @@ async function askClarificationCommand(options) {
 
   const body = {
     messageType: "ASK_CLARIFICATION",
-    sender: {
-      actorType: "agent",
-      actorId: AGENT_ID,
-      role: senderRole,
-    },
+    sender: buildSenderIdentity(senderRole),
     recipients: buildClarificationRecipients(requestedFrom, recipientId),
     workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
     workflowStateAfter: readOption(options, "workflow-after", state.workflowState),
@@ -1045,6 +1092,68 @@ async function askClarificationCommand(options) {
   };
 
   await postProtocolMessage(issueId, body);
+}
+
+async function answerClarificationCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("answer-clarification");
+    return;
+  }
+  const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
+  if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
+  const senderRole = await resolveSenderRole(options, "answer-clarification");
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const answer = readAliasedOption(options, ["answer"], payloadPatch.answer ?? null);
+  if (!answer) fail("Missing required option: --answer");
+  const nextStep = readAliasedOption(
+    options,
+    ["next-step", "nextStep"],
+    payloadPatch.nextStep ?? null,
+  );
+  const causalMessageId = readAliasedOption(
+    options,
+    ["causal-message-id", "causalMessageId"],
+    payloadPatch.causalMessageId ?? null,
+  );
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? answer);
+  if (!summary) fail("Missing required option: --summary");
+  const requestOptions = senderRole === "human_board" ? { omitAuth: true } : {};
+  const [state, messages] = await Promise.all([
+    getIssueState(issueId, requestOptions),
+    getProtocolMessages(issueId, requestOptions),
+  ]);
+  const clarification = findLatestPendingClarification(messages, senderRole, causalMessageId);
+  if (!clarification) {
+    fail(
+      causalMessageId
+        ? `Unable to resolve unanswered clarification ${causalMessageId} for role ${senderRole}.`
+        : `Unable to resolve an unanswered clarification for role ${senderRole}.`,
+    );
+  }
+
+  const body = {
+    messageType: "ANSWER_CLARIFICATION",
+    sender: buildSenderIdentity(senderRole),
+    recipients: [
+      {
+        recipientType: clarification.sender.actorType,
+        recipientId: clarification.sender.actorId,
+        role: clarification.sender.role,
+      },
+    ],
+    workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
+    workflowStateAfter: readOption(options, "workflow-after", state.workflowState),
+    summary,
+    causalMessageId: clarification.id,
+    requiresAck: false,
+    payload: {
+      answer,
+      ...(nextStep ? { nextStep } : {}),
+    },
+    artifacts: [],
+  };
+
+  await postProtocolMessage(issueId, body, requestOptions);
 }
 
 async function startImplementationCommand(options) {
@@ -1679,6 +1788,9 @@ async function main() {
       return;
     case "ask-clarification":
       await askClarificationCommand(options);
+      return;
+    case "answer-clarification":
+      await answerClarificationCommand(options);
       return;
     case "start-implementation":
       await startImplementationCommand(options);

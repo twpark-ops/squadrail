@@ -54,8 +54,14 @@
   - PM role pack 가이드를 projection-first flow로 갱신했다
   - bounded autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs`를 추가했다
   - live control plane에서 `projection preview/apply -> ACK_ASSIGNMENT -> START_IMPLEMENTATION -> ESCALATE_BLOCKER -> ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> review -> QA -> CLOSE_TASK` loop를 실제 통과시켰다
-  - runtime helper에 `ask-clarification`과 `escalate-blocker` 명령을 추가했다
-  - 다음은 deterministic kernel burn-in / autonomy burn-in 역할 분리와 blueprint portability follow-up이다
+  - runtime helper에 `ask-clarification`, `answer-clarification`, `escalate-blocker` 명령을 추가했다
+  - autonomy matrix runner `scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs`를 추가했다
+  - `baseline / multi_child_coordination / reviewer_clarification_policy` live autonomy variant를 통과시켰다
+  - E2E 실행 역할을 `kernel burn-in` vs `autonomy baseline/matrix`로 README/package script 수준에서 분리했다
+  - canonical `cloud-swiftsight` env에서 deterministic kernel full batch도 다시 green으로 확정했다
+    - `ok=true`, `scenarioCount=5`, `durationMs=3374196`
+    - `CLO-1..CLO-4=done`, coordinated root `CLO-5=cancelled`, child `CLO-6..CLO-8=done`
+  - 다음은 바로 Batch B `blueprint portability / import-export / parameter editing`이다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

@@ -111,9 +111,13 @@
    - `projection preview` shared/server/runtime helper는 완료
    - bounded autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs` 추가 완료
    - live control plane에서 `ACK_ASSIGNMENT -> START_IMPLEMENTATION -> ESCALATE_BLOCKER -> ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> review -> QA -> CLOSE_TASK` loop를 실제로 통과
-   - runtime helper `ask-clarification` / `escalate-blocker` 추가 완료
-   - 다음은 deterministic kernel burn-in과 autonomy burn-in 운영 역할 분리
-   - 그 다음 autonomy variant 확장과 blueprint portability/import-export follow-up
+   - runtime helper `ask-clarification` / `answer-clarification` / `escalate-blocker` 추가 완료
+   - autonomy matrix runner `scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs` 추가 완료
+   - `baseline / multi_child_coordination / reviewer_clarification_policy` live autonomy variant를 통과
+   - deterministic kernel burn-in과 autonomy burn-in 운영 역할 분리를 package script / README 수준으로 반영
+   - canonical `cloud-swiftsight` env에서 deterministic kernel full batch도 다시 green으로 확정했다
+   - latest kernel batch summary: `ok=true`, `scenarioCount=5`, `durationMs=3374196`, `CLO-1..CLO-4=done`, coordinated root `CLO-5=cancelled`, child `CLO-6..CLO-8=done`
+   - immediate next는 Batch B `blueprint portability / import-export / parameter editing`이다
 
 ## 2026-03-13 coverage threshold push
 
