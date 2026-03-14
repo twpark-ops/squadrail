@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@squadrail/db";
-import type { SetupProgressView } from "@squadrail/shared";
+import {
+  describeSavedTeamBlueprintVersionChanges,
+  resolveSavedTeamBlueprintLifecycleState,
+  type SetupProgressView,
+} from "@squadrail/shared";
 
 const {
   mockProjectList,
@@ -937,6 +941,63 @@ describe("team blueprint apply", () => {
       versionNote: "Double engineer coverage",
       lineageKey: baseVersion.savedBlueprint.sourceMetadata.lineageKey,
     });
+  });
+
+  it("publishes a saved blueprint version and supersedes the previous published lineage entry", async () => {
+    const harness = createApplyHarness();
+    const preview = await harness.service.preview("company-1", "small_delivery_team");
+    const baseVersion = await harness.service.saveBlueprint("company-1", "small_delivery_team", {
+      previewHash: preview.previewHash,
+      projectCount: preview.parameters.projectCount,
+      engineerPairsPerProject: preview.parameters.engineerPairsPerProject,
+      includePm: preview.parameters.includePm,
+      includeQa: preview.parameters.includeQa,
+      includeCto: preview.parameters.includeCto,
+      slug: "delivery-team",
+      label: "Delivery Team",
+      description: "Base library defaults",
+      versionNote: "Base company-local variant",
+    }, "Example Co");
+
+    const publishedBase = await harness.service.publishSavedBlueprint("company-1", baseVersion.savedBlueprint.id);
+    expect(resolveSavedTeamBlueprintLifecycleState(publishedBase.savedBlueprint)).toBe("published");
+    expect(publishedBase.supersededSavedBlueprintIds).toEqual([]);
+
+    const savedPreview = await harness.service.previewSavedBlueprint("company-1", baseVersion.savedBlueprint.id, {
+      projectCount: 2,
+      engineerPairsPerProject: 2,
+    });
+    const nextVersion = await harness.service.createSavedBlueprintVersion("company-1", baseVersion.savedBlueprint.id, {
+      previewHash: savedPreview.previewHash,
+      projectCount: savedPreview.parameters.projectCount,
+      engineerPairsPerProject: savedPreview.parameters.engineerPairsPerProject,
+      includePm: savedPreview.parameters.includePm,
+      includeQa: savedPreview.parameters.includeQa,
+      includeCto: savedPreview.parameters.includeCto,
+      versionNote: "Double engineer coverage",
+    }, "Example Co");
+
+    const publishedNext = await harness.service.publishSavedBlueprint("company-1", nextVersion.savedBlueprint.id);
+    expect(resolveSavedTeamBlueprintLifecycleState(publishedNext.savedBlueprint)).toBe("published");
+    expect(publishedNext.supersededSavedBlueprintIds).toEqual([baseVersion.savedBlueprint.id]);
+
+    const baseAfter = harness.state.savedBlueprints.find((entry) => entry.id === baseVersion.savedBlueprint.id);
+    expect(baseAfter?.sourceMetadata).toMatchObject({
+      lifecycleState: "superseded",
+    });
+    expect(describeSavedTeamBlueprintVersionChanges(
+      nextVersion.savedBlueprint,
+      baseVersion.savedBlueprint,
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "versionNote",
+        after: "Double engineer coverage",
+      }),
+      expect.objectContaining({
+        key: "engineerPairsPerProject",
+        after: "2",
+      }),
+    ]));
   });
 
   it("rolls back project and role-pack mutations when project creation fails mid-apply", async () => {

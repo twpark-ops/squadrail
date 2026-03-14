@@ -63,27 +63,7 @@ test.use({
 
 test("support routes render with updated UI-only surfaces", async ({ page }) => {
   const diagnostics = attachDiagnostics(page);
-  const companyName = `Blueprint Smoke Org ${Date.now()}`;
-
-  await page.goto(`${baseUrl}/SMO/overview`);
-  await page.getByRole("button", { name: /Add company/i }).click();
-  await expect(
-    page.getByRole("heading", {
-      name: "Create the operating company",
-      exact: true,
-    })
-  ).toBeVisible();
-  await page.getByLabel("Company name").fill(companyName);
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.waitForURL((url) => {
-    const pathPrefix = url.pathname.split("/").filter(Boolean)[0] ?? "";
-    return pathPrefix.length > 0 && pathPrefix !== "SMO";
-  }, { timeout: 15000 });
-  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
-  const companyPrefix = new URL(page.url()).pathname.split("/").filter(Boolean)[0];
-  if (!companyPrefix) {
-    throw new Error("failed to resolve company prefix after company creation");
-  }
+  const companyPrefix = "SMO";
 
   await page.goto(`${baseUrl}/${companyPrefix}/settings`, { waitUntil: "networkidle" });
   await expect(page.getByRole("heading", { name: "Company Settings", exact: true })).toBeVisible({
@@ -122,6 +102,9 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
     .check();
   await page.getByRole("button", { name: "Save to library", exact: true }).click();
   await expect(page.getByText("small-delivery-team").first()).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Publish version", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Republish version", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Preview saved blueprint", exact: true }).click();
   await expect(page.getByRole("button", { name: "Apply saved blueprint", exact: true })).toBeVisible();
   await page

@@ -118,6 +118,7 @@ export type {
   TeamBlueprintPortability,
   TeamBlueprint,
   PortableTeamBlueprintDefinition,
+  SavedTeamBlueprintLifecycleState,
   SavedTeamBlueprintSourceMetadata,
   CompanySavedTeamBlueprint,
   TeamBlueprintCanonicalAbsorptionProjectMapping,
@@ -149,6 +150,7 @@ export type {
   TeamBlueprintSavedDeleteResult,
   TeamBlueprintSavedVersionCreateRequest,
   TeamBlueprintSavedVersionCreateResult,
+  TeamBlueprintSavedPublishResult,
 } from "./team-blueprint.js";
 export type {
   OrgSyncStatus,

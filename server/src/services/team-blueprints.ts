@@ -6,6 +6,7 @@ import {
   buildNextSavedTeamBlueprintVersionLabel,
   buildNextSavedTeamBlueprintVersionSlug,
   companySavedTeamBlueprintSchema,
+  resolveSavedTeamBlueprintLifecycleState,
   normalizeAgentUrlKey,
   normalizeProjectUrlKey,
   portableTeamBlueprintDefinitionSchema,
@@ -15,6 +16,7 @@ import {
   type SetupProgressView,
   type CompanySavedTeamBlueprint,
   type PortableTeamBlueprintDefinition,
+  type SavedTeamBlueprintSourceMetadata,
   type TeamBlueprintApplyRequest,
   type TeamBlueprintApplyResult,
   type TeamBlueprint,
@@ -30,6 +32,7 @@ import {
   type TeamBlueprintSaveRequest,
   type TeamBlueprintSaveResult,
   type TeamBlueprintSavedDeleteResult,
+  type TeamBlueprintSavedPublishResult,
   type TeamBlueprintSavedUpdateRequest,
   type TeamBlueprintSavedVersionCreateRequest,
   type TeamBlueprintSavedVersionCreateResult,
@@ -1701,6 +1704,8 @@ function buildSavedBlueprintSourceMetadata(input: {
   version: number;
   parentSavedBlueprintId: string | null;
   versionNote: string | null;
+  lifecycleState?: SavedTeamBlueprintSourceMetadata["lifecycleState"];
+  publishedAt?: string | null;
   generatedAt?: string;
 }) {
   const normalizedCompanyId = input.companyId && companySavedTeamBlueprintSchema.shape.companyId.safeParse(input.companyId).success
@@ -1716,6 +1721,28 @@ function buildSavedBlueprintSourceMetadata(input: {
     version: input.version,
     parentSavedBlueprintId: input.parentSavedBlueprintId,
     versionNote: input.versionNote,
+    lifecycleState: input.lifecycleState ?? "draft",
+    publishedAt: input.publishedAt ?? null,
+  });
+}
+
+function mergeSavedBlueprintSourceMetadata(
+  blueprint: Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">,
+  patch: Partial<SavedTeamBlueprintSourceMetadata>,
+): SavedTeamBlueprintSourceMetadata {
+  const versionInfo = resolveSavedTeamBlueprintVersionInfo(blueprint);
+  const metadata = blueprint.sourceMetadata;
+  return savedTeamBlueprintSourceMetadataSchema.parse({
+    ...metadata,
+    lineageKey: patch.lineageKey === undefined ? (metadata.lineageKey ?? versionInfo.lineageKey) : patch.lineageKey,
+    version: patch.version === undefined ? (metadata.version ?? versionInfo.version) : patch.version,
+    parentSavedBlueprintId:
+      patch.parentSavedBlueprintId === undefined
+        ? (metadata.parentSavedBlueprintId ?? versionInfo.parentSavedBlueprintId)
+        : patch.parentSavedBlueprintId,
+    versionNote: patch.versionNote === undefined ? (metadata.versionNote ?? versionInfo.versionNote) : patch.versionNote,
+    lifecycleState: patch.lifecycleState === undefined ? (metadata.lifecycleState ?? "draft") : patch.lifecycleState,
+    publishedAt: patch.publishedAt === undefined ? (metadata.publishedAt ?? null) : patch.publishedAt,
   });
 }
 
@@ -1759,6 +1786,27 @@ async function insertSavedBlueprintDefinition(
   return serializeSavedBlueprintRow(row);
 }
 
+async function updateSavedBlueprintRow(
+  db: Db,
+  companyId: string,
+  savedBlueprintId: string,
+  values: Partial<SavedBlueprintInsert>,
+): Promise<CompanySavedTeamBlueprint> {
+  const store = getTeamBlueprintLibraryStore(db);
+  const row = store
+    ? await store.update(companyId, savedBlueprintId, values)
+    : (await db
+      .update(companyTeamBlueprints)
+      .set(values)
+      .where(and(
+        eq(companyTeamBlueprints.companyId, companyId),
+        eq(companyTeamBlueprints.id, savedBlueprintId),
+      ))
+      .returning())[0] ?? null;
+  if (!row) throw notFound("Saved team blueprint not found");
+  return serializeSavedBlueprintRow(row);
+}
+
 async function updateSavedBlueprintDefinition(
   db: Db,
   companyId: string,
@@ -1781,32 +1829,13 @@ async function updateSavedBlueprintDefinition(
     label,
     description,
   });
-  const now = new Date();
-  const store = getTeamBlueprintLibraryStore(db);
-  const row = store
-    ? await store.update(companyId, savedBlueprintId, {
-      slug,
-      label,
-      description,
-      definition: definition as unknown as Record<string, unknown>,
-      updatedAt: now,
-    })
-    : (await db
-      .update(companyTeamBlueprints)
-      .set({
-        slug,
-        label,
-        description,
-        definition: definition as unknown as Record<string, unknown>,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(companyTeamBlueprints.companyId, companyId),
-        eq(companyTeamBlueprints.id, savedBlueprintId),
-      ))
-      .returning())[0] ?? null;
-  if (!row) throw notFound("Saved team blueprint not found");
-  return serializeSavedBlueprintRow(row);
+  return updateSavedBlueprintRow(db, companyId, savedBlueprintId, {
+    slug,
+    label,
+    description,
+    definition: definition as unknown as Record<string, unknown>,
+    updatedAt: new Date(),
+  });
 }
 
 async function deleteSavedBlueprintDefinition(
@@ -1974,6 +2003,8 @@ export function teamBlueprintService(db?: Db) {
           companyName: request.source.bundle.source.companyName,
           blueprintKey: request.source.bundle.source.blueprintKey,
           generatedAt: request.source.bundle.generatedAt,
+          lifecycleState: "draft",
+          publishedAt: null,
         });
 
         if (preview.saveAction === "replace" && preview.existingSavedBlueprintId) {
@@ -2089,6 +2120,8 @@ export function teamBlueprintService(db?: Db) {
           version: 1,
           parentSavedBlueprintId: null,
           versionNote: request.versionNote?.trim() || null,
+          lifecycleState: "draft",
+          publishedAt: null,
         });
         const savedBlueprint = await insertSavedBlueprintDefinition(txDb, {
           companyId,
@@ -2185,6 +2218,8 @@ export function teamBlueprintService(db?: Db) {
           version: nextVersion,
           parentSavedBlueprintId: savedBlueprint.id,
           versionNote: request.versionNote?.trim() || null,
+          lifecycleState: "draft",
+          publishedAt: null,
         });
         const created = await insertSavedBlueprintDefinition(txDb, {
           companyId,
@@ -2193,6 +2228,50 @@ export function teamBlueprintService(db?: Db) {
           sourceMetadata: sourceMetadata as unknown as Record<string, unknown>,
         });
         return { savedBlueprint: created };
+      });
+    },
+    async publishSavedBlueprint(
+      companyId: string,
+      savedBlueprintId: string,
+    ): Promise<TeamBlueprintSavedPublishResult> {
+      if (!db) throw new Error("teamBlueprintService.publishSavedBlueprint requires a database handle");
+
+      return db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const savedBlueprint = await getSavedBlueprintById(txDb, companyId, savedBlueprintId);
+        const versionInfo = resolveSavedTeamBlueprintVersionInfo(savedBlueprint);
+        const allSavedBlueprints = await listSavedBlueprints(txDb, companyId);
+        const lineageEntries = allSavedBlueprints.filter((entry) =>
+          resolveSavedTeamBlueprintVersionInfo(entry).lineageKey === versionInfo.lineageKey);
+        const now = new Date();
+        const nowIso = now.toISOString();
+        const supersededSavedBlueprintIds: string[] = [];
+
+        for (const entry of lineageEntries) {
+          if (entry.id === savedBlueprint.id) continue;
+          if (resolveSavedTeamBlueprintLifecycleState(entry) !== "published") continue;
+          supersededSavedBlueprintIds.push(entry.id);
+          const supersededMetadata = mergeSavedBlueprintSourceMetadata(entry, {
+            lifecycleState: "superseded",
+          });
+          await updateSavedBlueprintRow(txDb, companyId, entry.id, {
+            sourceMetadata: supersededMetadata as unknown as Record<string, unknown>,
+            updatedAt: now,
+          });
+        }
+
+        const publishedMetadata = mergeSavedBlueprintSourceMetadata(savedBlueprint, {
+          lifecycleState: "published",
+          publishedAt: savedBlueprint.sourceMetadata.publishedAt ?? nowIso,
+        });
+        const publishedBlueprint = await updateSavedBlueprintRow(txDb, companyId, savedBlueprint.id, {
+          sourceMetadata: publishedMetadata as unknown as Record<string, unknown>,
+          updatedAt: now,
+        });
+        return {
+          savedBlueprint: publishedBlueprint,
+          supersededSavedBlueprintIds,
+        };
       });
     },
     async applySavedBlueprint(

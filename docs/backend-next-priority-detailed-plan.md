@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다.
+> 현재 다음 순차 작업은 `blueprint library governance/version authoring 심화(rollback/diff 확대) + migration helper provider 규칙 정리`다.
 
 ## 목적
 
@@ -134,7 +134,11 @@
     - built-in preview -> company library save, saved preview -> next version save, version lineage metadata, Company Settings version history UI 추가 완료
     - `local-ui-flow.sh` support-only + single Playwright grep mode 추가 완료
     - support-only smoke에서 saved lifecycle browser parity(`rename/delete/re-export/apply`) green 확인 완료
-  - immediate next는 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다
+  - governance/version authoring 1차 완료
+    - saved blueprint lifecycle state(`draft/published/superseded`) shared/server/UI 추가
+    - lineage publish action + published version supersede transition 추가
+    - Company Settings previous-version diff summary 추가
+  - immediate next는 `blueprint library governance/version authoring 심화(rollback/diff 확대) + migration helper provider 규칙 정리`다
 
 ## 2026-03-13 coverage threshold push
 

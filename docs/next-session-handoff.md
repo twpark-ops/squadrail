@@ -15,7 +15,7 @@ One-line startup rule:
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
   - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop, autonomy matrix variant까지 올라왔다.
-  - Batch B1 portability, Batch B2 import/export, Batch B3 parameter editing, helper discovery registry 일반화, saved blueprint library lifecycle hardening 1/2차까지 닫혔다.
+  - Batch B1 portability, Batch B2 import/export, Batch B3 parameter editing, helper discovery registry 일반화, saved blueprint library lifecycle hardening 1/2차, governance publish/diff 1차까지 닫혔다.
 
 ## Current Status
 
@@ -91,7 +91,7 @@ One-line startup rule:
     7. `local-ui-flow.sh`에 `SMOKE_SCOPE=support_only`와 단일 support Playwright grep 실행 모드를 추가해 검증 메모리 사용을 낮췄다
     8. support-only smoke에서 saved blueprint local authoring/versioning + rename/delete/re-export/apply browser parity를 green으로 고정했다
   - immediate next candidates:
-    1. blueprint library governance/version authoring 고도화(`diff/rollback/publish`)
+    1. blueprint library governance/version authoring 심화(`rollback`, diff 확대, publish policy)
     2. swiftsight 외 migration helper provider package 추가 규칙 정리
     3. 다음 제품 확장 트랙 선택
   - 해석:
