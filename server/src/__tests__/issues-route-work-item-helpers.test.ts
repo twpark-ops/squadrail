@@ -99,9 +99,7 @@ describe("issue route work item helpers", () => {
       agentsSvc,
       companyId: "company-1",
       assigneeAgentId: "lead-1",
-    })).resolves.toMatchObject({
-      protocolRole: "tech_lead",
-    });
+    })).rejects.toThrow("Assignee agent must support engineer protocol role");
     await expect(assertInternalWorkItemAssigneeHelper({
       agentsSvc,
       companyId: "company-1",

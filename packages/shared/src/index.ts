@@ -395,8 +395,12 @@ export type {
   SavedTeamBlueprintVersionChange,
 } from "./team-blueprint-library.js";
 export {
+  canDeleteSavedTeamBlueprint,
+  canReplaceSavedTeamBlueprintFromImport,
   buildNextSavedTeamBlueprintVersionLabel,
   buildNextSavedTeamBlueprintVersionSlug,
+  describeSavedTeamBlueprintDeleteRestriction,
+  describeSavedTeamBlueprintImportReplaceRestriction,
   describeSavedTeamBlueprintVersionChanges,
   resolveSavedTeamBlueprintLifecycleState,
   resolveSavedTeamBlueprintVersionInfo,

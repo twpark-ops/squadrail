@@ -176,6 +176,7 @@ vi.mock("../services/index.js", () => ({
   }),
 }));
 
+import { HttpError } from "../errors.js";
 import { companyRoutes } from "../routes/companies.js";
 
 type TestRequest = {
@@ -973,6 +974,100 @@ describe("company routes", () => {
     );
   });
 
+  it("returns conflicts when import tries to replace a protected saved blueprint", async () => {
+    mockTeamBlueprintsImport.mockRejectedValue(
+      new HttpError(
+        409,
+        "Replace is only allowed for draft saved blueprints. Published or superseded versions must be imported as a new library entry or saved as a new version.",
+      ),
+    );
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/import",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        previewHash: "import-preview-hash-1234567890",
+        source: {
+          type: "inline",
+          bundle: {
+            schemaVersion: 1,
+            generatedAt: "2026-03-14T00:00:00.000Z",
+            source: {
+              companyId: "11111111-1111-1111-1111-111111111111",
+              companyName: "Example Co",
+              blueprintKey: "small_delivery_team",
+              blueprintLabel: "Small Delivery Team",
+            },
+            definition: {
+              slug: "small_delivery_team",
+              label: "Small Delivery Team",
+              description: "Compact team",
+              sourceBlueprintKey: "small_delivery_team",
+              presetKey: "squadrail_default_v1",
+              projects: [
+                {
+                  key: "primary_product",
+                  label: "Primary Product",
+                  description: null,
+                  kind: "product",
+                  repositoryHint: null,
+                  defaultLeadRoleKey: "tech_lead",
+                },
+              ],
+              roles: [
+                {
+                  key: "tech_lead",
+                  label: "Tech Lead",
+                  role: "engineer",
+                  title: "Tech Lead",
+                  reportsToKey: null,
+                  projectBinding: "shared",
+                  preferredAdapterTypes: ["claude_local"],
+                  deliveryLane: "planning",
+                  capabilities: ["scoping"],
+                },
+              ],
+              parameterHints: {
+                supportsPm: false,
+                supportsQa: false,
+                supportsCto: false,
+                defaultProjectCount: 1,
+                defaultEngineerPairsPerProject: 1,
+              },
+              readiness: {
+                requiredWorkspaceCount: 1,
+                knowledgeRequired: true,
+                knowledgeSources: ["project_docs"],
+                approvalRequiredRoleKeys: [],
+                doctorSetupPrerequisites: ["workspace_connected"],
+                recommendedFirstQuickRequest: "Start small.",
+              },
+              portability: {
+                companyAgnostic: true,
+                workspaceModel: "single_workspace",
+                knowledgeModel: "required",
+                migrationHelperKeys: [],
+                notes: ["Portable"],
+              },
+            },
+            defaultPreviewRequest: {
+              projectCount: 1,
+            },
+          },
+        },
+        slug: "small-delivery-team",
+        collisionStrategy: "replace",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toEqual({
+      error: "Replace is only allowed for draft saved blueprints. Published or superseded versions must be imported as a new library entry or saved as a new version.",
+      details: undefined,
+    });
+  });
+
   it("previews a saved team blueprint for the requested company", async () => {
     mockTeamBlueprintsPreviewSaved.mockResolvedValue({
       companyId: "company-1",
@@ -1336,6 +1431,27 @@ describe("company routes", () => {
         }),
       }),
     );
+  });
+
+  it("returns conflicts when deleting a protected saved blueprint library entry", async () => {
+    mockTeamBlueprintsDeleteSaved.mockRejectedValue(
+      new HttpError(
+        409,
+        "Only draft saved blueprints can be deleted from the library. Published or superseded versions stay immutable to preserve version history.",
+      ),
+    );
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId",
+      method: "delete",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-1" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toEqual({
+      error: "Only draft saved blueprints can be deleted from the library. Published or superseded versions stay immutable to preserve version history.",
+      details: undefined,
+    });
   });
 
   it("publishes a saved team blueprint version for the requested company", async () => {

@@ -23,9 +23,11 @@ import {
 import { Field, ToggleField, HintIcon } from "../components/agent-config-primitives";
 import { Layers3, SearchCheck, Settings, ShieldCheck } from "lucide-react";
 import {
+  canDeleteSavedTeamBlueprint,
   buildNextSavedTeamBlueprintVersionLabel,
   buildNextSavedTeamBlueprintVersionSlug,
   buildDefaultTeamBlueprintPreviewRequest,
+  describeSavedTeamBlueprintDeleteRestriction,
   describeSavedTeamBlueprintVersionChanges,
   resolveSavedTeamBlueprintLifecycleState,
   resolveSavedTeamBlueprintVersionInfo,
@@ -1479,6 +1481,12 @@ export function CompanySettings() {
   const selectedSavedTeamBlueprintLifecycleState = selectedSavedTeamBlueprint
     ? resolveSavedTeamBlueprintLifecycleState(selectedSavedTeamBlueprint)
     : null;
+  const selectedSavedTeamBlueprintDeleteRestriction = selectedSavedTeamBlueprint
+    ? describeSavedTeamBlueprintDeleteRestriction(selectedSavedTeamBlueprint, selectedSavedTeamBlueprintLineage)
+    : null;
+  const canDeleteSelectedSavedTeamBlueprint = selectedSavedTeamBlueprint
+    ? canDeleteSavedTeamBlueprint(selectedSavedTeamBlueprint, selectedSavedTeamBlueprintLineage)
+    : false;
   const selectedSavedTeamBlueprintPreviousVersion = selectedSavedTeamBlueprint && selectedSavedTeamBlueprintVersionInfo
     ? selectedSavedTeamBlueprintLineage.find((entry) => entry.id === selectedSavedTeamBlueprintVersionInfo.parentSavedBlueprintId)
       ?? selectedSavedTeamBlueprintLineage.find((entry) =>
@@ -1800,7 +1808,14 @@ export function CompanySettings() {
   }
 
   function handleDeleteSelectedSavedTeamBlueprint() {
-    if (!selectedCompanyId || !selectedSavedTeamBlueprint || savedTeamBlueprintDeleteMutation.isPending) return;
+    if (
+      !selectedCompanyId
+      || !selectedSavedTeamBlueprint
+      || savedTeamBlueprintDeleteMutation.isPending
+      || !canDeleteSelectedSavedTeamBlueprint
+    ) {
+      return;
+    }
     const confirmed = window.confirm(
       `Delete saved blueprint ${selectedSavedTeamBlueprint.definition.label}?\n\n` +
       "This removes the library entry from the current company. Existing projects and agents remain unchanged.",
@@ -1841,6 +1856,7 @@ export function CompanySettings() {
       !selectedCompanyId
       || !teamBlueprintImportBundleParse.bundle
       || !teamBlueprintImportPreview
+      || teamBlueprintImportPreview.errors.length > 0
       || teamBlueprintImportMutation.isPending
     ) {
       return;
@@ -2322,7 +2338,10 @@ export function CompanySettings() {
                     </Field>
                   </div>
 
-                  <Field label="Collision strategy" hint="Rename keeps the existing library entry. Replace updates the matching slug in place.">
+                  <Field
+                    label="Collision strategy"
+                    hint="Rename keeps the existing library entry. Replace only works for draft imported entries; published, superseded, and versioned entries must be saved as a new library entry."
+                  >
                     <select
                       className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                       value={teamBlueprintImportCollisionStrategy}
@@ -2377,6 +2396,13 @@ export function CompanySettings() {
                           ))}
                         </ul>
                       )}
+                      {teamBlueprintImportPreview.errors.length > 0 && (
+                        <ul className="space-y-1 text-xs text-red-700">
+                          {teamBlueprintImportPreview.errors.map((error) => (
+                            <li key={error}>• {error}</li>
+                          ))}
+                        </ul>
+                      )}
                       <label className="flex items-start gap-3 text-sm">
                         <input
                           type="checkbox"
@@ -2400,7 +2426,12 @@ export function CompanySettings() {
                     </Button>
                     <Button
                       size="sm"
-                      disabled={!teamBlueprintImportPreview || !confirmTeamBlueprintImport || teamBlueprintImportMutation.isPending}
+                      disabled={
+                        !teamBlueprintImportPreview
+                        || teamBlueprintImportPreview.errors.length > 0
+                        || !confirmTeamBlueprintImport
+                        || teamBlueprintImportMutation.isPending
+                      }
                       onClick={handleSaveImportedTeamBlueprint}
                     >
                       {teamBlueprintImportMutation.isPending ? "Saving blueprint..." : "Save to library"}
@@ -2584,12 +2615,17 @@ export function CompanySettings() {
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={savedTeamBlueprintDeleteMutation.isPending}
+                              disabled={!canDeleteSelectedSavedTeamBlueprint || savedTeamBlueprintDeleteMutation.isPending}
                               onClick={handleDeleteSelectedSavedTeamBlueprint}
                             >
                               {savedTeamBlueprintDeleteMutation.isPending ? "Deleting..." : "Delete from library"}
                             </Button>
                           </div>
+                          {selectedSavedTeamBlueprintDeleteRestriction && (
+                            <div className="text-xs text-muted-foreground">
+                              Delete locked: {selectedSavedTeamBlueprintDeleteRestriction}
+                            </div>
+                          )}
                           <div className="flex flex-wrap items-center gap-2">
                             <Button
                               size="sm"

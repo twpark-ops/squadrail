@@ -395,7 +395,7 @@ describe("team blueprints", () => {
     });
   });
 
-  it("reuses the matching saved blueprint when collisionStrategy=replace", () => {
+  it("reuses the matching saved blueprint when collisionStrategy=replace targets a draft import entry", () => {
     const blueprint = listTeamBlueprints()[2]!;
     const bundle = buildTeamBlueprintExportBundle({
       companyId: "company-1",
@@ -415,11 +415,13 @@ describe("team blueprints", () => {
           },
           defaultPreviewRequest: bundle.defaultPreviewRequest,
           sourceMetadata: {
-            type: "builtin_export",
+            type: "import_bundle",
             companyId: "company-1",
             companyName: "Example Co",
             blueprintKey: "delivery_plus_qa",
             generatedAt: bundle.generatedAt,
+            lifecycleState: "draft",
+            publishedAt: null,
           },
           createdAt: "2026-03-14T00:00:00.000Z",
           updatedAt: "2026-03-14T00:00:00.000Z",
