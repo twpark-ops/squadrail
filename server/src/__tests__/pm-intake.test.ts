@@ -450,4 +450,213 @@ describe("pm intake helpers", () => {
       request: {},
     })).toThrow("No active engineer agent is available for PM intake projection");
   });
+
+  it("uses generic project selection hints to avoid report-only lanes for routing-policy requests", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Route segmentation artifacts to PACS A and B but physician report only to PACS A",
+        description: "## Human Intake Request\n\n같은 분석에서 segmentation artifact는 PACS A와 PACS B로 보내고, physician report는 PACS A에만 보내는 설정을 지원해줘.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-swiftcl",
+          companyId: "company-1",
+          name: "swiftcl",
+          urlKey: "swiftcl",
+          primaryWorkspace: {
+            repoRef: "swiftcl",
+            cwd: "/tmp/swiftcl",
+          },
+        },
+        {
+          id: "project-report",
+          companyId: "company-1",
+          name: "swiftsight-report-server",
+          urlKey: "swiftsight-report-server",
+          primaryWorkspace: {
+            repoRef: "swiftsight-report-server",
+            cwd: "/tmp/swiftsight-report-server",
+          },
+        },
+      ],
+      knowledgeDocuments: [
+        {
+          id: "doc-swiftcl",
+          companyId: "company-1",
+          projectId: "project-swiftcl",
+          sourceType: "adr",
+          authorityLevel: "canonical",
+          title: "Routing policy ownership",
+          path: "manual/domain/swiftcl-routing.md",
+          rawContent: "SwiftCL validates multi-destination routing policy before runtime execution.",
+          metadata: {
+            pmProjectSelection: {
+              ownerTags: ["artifact-routing", "pacs-destinations", "workflow-compiler"],
+            },
+          },
+        },
+        {
+          id: "doc-report",
+          companyId: "company-1",
+          projectId: "project-report",
+          sourceType: "runbook",
+          authorityLevel: "canonical",
+          title: "Report rendering boundary",
+          path: "manual/domain/report-server-boundary.md",
+          rawContent: "Report server renders physician PDF output and is not the primary owner for PACS destination policy.",
+          metadata: {
+            pmProjectSelection: {
+              ownerTags: ["physician-report", "report-rendering"],
+              avoidTags: ["artifact-routing", "pacs-destinations", "workflow-compiler"],
+            },
+          },
+        },
+      ] as any[],
+      agents: [
+        ...agents,
+        {
+          id: "swiftcl-eng",
+          companyId: "company-1",
+          name: "SwiftCL Engineer",
+          urlKey: "swiftcl-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ],
+      request: {
+        requiredKnowledgeTags: ["artifact-routing", "pacs-destinations", "workflow-compiler"],
+      },
+    });
+
+    expect(preview.selectedProjectName).toBe("swiftcl");
+    expect(preview.projectCandidates[0]?.projectName).toBe("swiftcl");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_owner_tags");
+  });
+
+  it("caps ambient document overlap so structured owner tags outrank noisy project docs", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Workflow mismatch diagnostics",
+        description:
+          "## Human Intake Request\n\n특정 MR study가 왜 workflow에 매칭되지 않았는지 운영자가 설명 가능하게 보여줘.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-cloud",
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+          urlKey: "swiftsight-cloud",
+          primaryWorkspace: {
+            repoRef: "swiftsight-cloud",
+            cwd: "/tmp/swiftsight-cloud",
+          },
+        },
+        {
+          id: "project-swiftcl",
+          companyId: "company-1",
+          name: "swiftcl",
+          urlKey: "swiftcl",
+          primaryWorkspace: {
+            repoRef: "swiftcl",
+            cwd: "/tmp/swiftcl",
+          },
+        },
+      ],
+      knowledgeDocuments: [
+        {
+          id: "doc-cloud-owner",
+          companyId: "company-1",
+          projectId: "project-cloud",
+          sourceType: "prd",
+          authorityLevel: "canonical",
+          title: "Operator workflow diagnostics boundary",
+          path: "manual/domain/cloud-routing.md",
+          rawContent: "Cloud is the operator-facing owner for workflow mismatch diagnostics and settings visibility.",
+          metadata: {
+            pmProjectSelection: {
+              ownerTags: ["workflow-matching", "operator-diagnostics"],
+            },
+            requiredKnowledgeTags: ["workflow-matching", "operator-diagnostics"],
+          },
+        },
+        {
+          id: "doc-swiftcl-support",
+          companyId: "company-1",
+          projectId: "project-swiftcl",
+          sourceType: "adr",
+          authorityLevel: "canonical",
+          title: "Workflow compiler support",
+          path: "manual/domain/swiftcl-support.md",
+          rawContent: "SwiftCL supports workflow matching rules and compile-time diagnostics.",
+          metadata: {
+            pmProjectSelection: {
+              supportTags: ["workflow-matching"],
+            },
+          },
+        },
+        ...Array.from({ length: 8 }, (_, index) => ({
+          id: `doc-swiftcl-noise-${index}`,
+          companyId: "company-1",
+          projectId: "project-swiftcl",
+          sourceType: "adr",
+          authorityLevel: "canonical",
+          title: `Workflow compiler note ${index}`,
+          path: `docs/swiftcl/workflow-note-${index}.md`,
+          rawContent:
+            "Workflow compilation, workflow validation, workflow diagnostics, and workflow rule processing.",
+          metadata: {},
+        })),
+      ] as any[],
+      agents: [
+        ...agents,
+        {
+          id: "cloud-reviewer",
+          companyId: "company-1",
+          name: "Cloud Reviewer",
+          urlKey: "cloud-reviewer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Reviewer",
+        },
+        {
+          id: "cloud-engineer",
+          companyId: "company-1",
+          name: "Cloud Engineer",
+          urlKey: "swiftsight-cloud-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+        {
+          id: "swiftcl-engineer",
+          companyId: "company-1",
+          name: "SwiftCL Engineer",
+          urlKey: "swiftcl-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ] as any[],
+      request: {
+        requiredKnowledgeTags: ["workflow-matching", "operator-diagnostics"],
+      },
+    });
+
+    expect(preview.selectedProjectName).toBe("swiftsight-cloud");
+    expect(preview.projectCandidates[0]?.projectName).toBe("swiftsight-cloud");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_owner_tags");
+  });
 });

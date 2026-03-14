@@ -348,6 +348,7 @@ export interface PmIntakeProjectionPreviewRequest {
   reviewerAgentId?: string | null;
   qaAgentId?: string | null;
   coordinationOnly?: boolean;
+  requiredKnowledgeTags?: string[];
 }
 
 export interface PmIntakeProjectionPreviewProjectCandidate {
