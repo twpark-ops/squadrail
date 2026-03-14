@@ -3,12 +3,12 @@ import type { Db } from "@squadrail/db";
 import {
   normalizeAgentUrlKey,
   normalizeProjectUrlKey,
-  type TeamBlueprintCanonicalAbsorptionPrep,
   type SetupProgressView,
   type TeamBlueprintApplyRequest,
   type TeamBlueprintApplyResult,
   type TeamBlueprint,
   type TeamBlueprintCatalogView,
+  type TeamBlueprintMigrationHelper,
   type TeamBlueprintPreviewParameters,
   type TeamBlueprintPreviewProjectDiff,
   type TeamBlueprintPreviewRequest,
@@ -89,6 +89,16 @@ const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
       doctorSetupPrerequisites: ["workspace_connected", "execution_engine_selected", "doctor_clean"],
       recommendedFirstQuickRequest:
         "Review the connected repository, confirm the workspace is healthy, and propose the first delivery slice with explicit acceptance criteria.",
+    },
+    portability: {
+      companyAgnostic: true,
+      workspaceModel: "single_workspace",
+      knowledgeModel: "required",
+      migrationHelperKeys: [],
+      notes: [
+        "Portable default for a single delivery workspace.",
+        "No company-specific migration helper is required before preview or apply.",
+      ],
     },
   },
   {
@@ -191,6 +201,16 @@ const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
       ],
       recommendedFirstQuickRequest:
         "Take one customer-visible request, let PM turn it into an execution-ready issue, and route it through app or backend TL ownership with reviewer evidence.",
+    },
+    portability: {
+      companyAgnostic: true,
+      workspaceModel: "per_project",
+      knowledgeModel: "required",
+      migrationHelperKeys: [],
+      notes: [
+        "Portable across product companies with app/service split delivery lanes.",
+        "Preview/apply should remain generic even when a migration helper exists for a legacy org.",
+      ],
     },
   },
   {
@@ -317,6 +337,16 @@ const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
       recommendedFirstQuickRequest:
         "Use a release-sensitive issue that requires PM clarification, TL delegation, reviewer evidence, and QA sign-off before closure.",
     },
+    portability: {
+      companyAgnostic: true,
+      workspaceModel: "per_project",
+      knowledgeModel: "required",
+      migrationHelperKeys: ["swiftsight_canonical_absorption"],
+      notes: [
+        "Portable default for multi-project delivery organizations with PM and QA coverage.",
+        "Legacy canonical migration helpers are optional and should not override the generic preview/apply path.",
+      ],
+    },
   },
 ];
 
@@ -383,6 +413,11 @@ function cloneBlueprint(blueprint: TeamBlueprint): TeamBlueprint {
       knowledgeSources: [...blueprint.readiness.knowledgeSources],
       approvalRequiredRoleKeys: [...blueprint.readiness.approvalRequiredRoleKeys],
       doctorSetupPrerequisites: [...blueprint.readiness.doctorSetupPrerequisites],
+    },
+    portability: {
+      ...blueprint.portability,
+      migrationHelperKeys: [...blueprint.portability.migrationHelperKeys],
+      notes: [...blueprint.portability.notes],
     },
   };
 }
@@ -1002,8 +1037,9 @@ export function listTeamBlueprints(): TeamBlueprint[] {
   return DEFAULT_TEAM_BLUEPRINTS.map((blueprint) => cloneBlueprint(blueprint));
 }
 
-function resolveCanonicalAbsorptionPrep(companyName: string | null | undefined): TeamBlueprintCanonicalAbsorptionPrep | null {
-  return canonicalTemplateForCompanyName(companyName)?.blueprintAbsorptionPrep ?? null;
+function resolveMigrationHelpers(companyName: string | null | undefined): TeamBlueprintMigrationHelper[] {
+  const helper = canonicalTemplateForCompanyName(companyName)?.blueprintAbsorptionPrep ?? null;
+  return helper ? [{ ...helper }] : [];
 }
 
 export function teamBlueprintService(db?: Db) {
@@ -1012,7 +1048,7 @@ export function teamBlueprintService(db?: Db) {
       return {
         companyId,
         blueprints: listTeamBlueprints(),
-        canonicalAbsorptionPrep: resolveCanonicalAbsorptionPrep(companyName),
+        migrationHelpers: resolveMigrationHelpers(companyName),
       };
     },
     async preview(

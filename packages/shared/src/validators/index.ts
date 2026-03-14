@@ -145,10 +145,12 @@ export {
 export {
   teamBlueprintCanonicalAbsorptionProjectMappingSchema,
   teamBlueprintCanonicalAbsorptionPrepSchema,
+  teamBlueprintMigrationHelperSchema,
   teamBlueprintProjectTemplateSchema,
   teamBlueprintRoleTemplateSchema,
   teamBlueprintParameterHintsSchema,
   teamBlueprintReadinessSchema,
+  teamBlueprintPortabilitySchema,
   teamBlueprintSchema,
   teamBlueprintCatalogViewSchema,
   teamBlueprintPreviewRequestSchema,

@@ -265,14 +265,7 @@ export function CompanySettings() {
 
   useEffect(() => {
     const catalogBlueprints = teamBlueprintCatalog?.blueprints ?? [];
-    const canonicalFirstBlueprint =
-      teamBlueprintCatalog?.canonicalAbsorptionPrep
-        ? catalogBlueprints.find(
-            (blueprint) =>
-              blueprint.key === teamBlueprintCatalog.canonicalAbsorptionPrep?.blueprintKey,
-          )?.key ?? null
-        : null;
-    const firstBlueprint = canonicalFirstBlueprint ?? catalogBlueprints[0]?.key ?? null;
+    const firstBlueprint = catalogBlueprints[0]?.key ?? null;
     if (!selectedTeamBlueprintKey && firstBlueprint) {
       setSelectedTeamBlueprintKey(firstBlueprint);
       return;
@@ -835,14 +828,14 @@ export function CompanySettings() {
     ? activeDoctorReport.checks.filter((check) => check.status === "fail").length
     : 0;
   const teamBlueprints = teamBlueprintCatalog?.blueprints ?? [];
-  const canonicalAbsorptionPrep = teamBlueprintCatalog?.canonicalAbsorptionPrep ?? null;
+  const migrationHelpers = teamBlueprintCatalog?.migrationHelpers ?? [];
   const selectedTeamBlueprint: TeamBlueprint | null = selectedTeamBlueprintKey
     ? teamBlueprints.find((blueprint) => blueprint.key === selectedTeamBlueprintKey) ?? null
     : teamBlueprints[0] ?? null;
-  const selectedTeamBlueprintPreviewRequest =
-    canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey
-      ? canonicalAbsorptionPrep.previewRequest
-      : undefined;
+  const selectedMigrationHelpers =
+    selectedTeamBlueprint
+      ? migrationHelpers.filter((helper) => helper.blueprintKey === selectedTeamBlueprint.key)
+      : [];
   const selectedTeamBlueprintPreview =
     teamBlueprintPreview && selectedTeamBlueprint && teamBlueprintPreview.blueprint.key === selectedTeamBlueprint.key
       ? teamBlueprintPreview
@@ -973,33 +966,36 @@ export function CompanySettings() {
                 teamBlueprintPreviewMutation.mutate({
                   companyId: selectedCompanyId,
                   blueprintKey: selectedTeamBlueprint.key,
-                  request: selectedTeamBlueprintPreviewRequest,
+                  request: {},
                 });
               }}
             >
               {teamBlueprintPreviewMutation.isPending
                 ? "Generating preview..."
-                : canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey
-                  ? "Preview recommended mapping"
-                  : "Preview team plan"}
+                : "Preview team plan"}
             </Button>
           </div>
 
-          {canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey && (
-            <div className="rounded-md border border-sky-300 bg-sky-50 px-3 py-3">
-              <div className="text-sm font-semibold text-sky-900">Canonical absorption guidance</div>
-              <p className="mt-1 text-xs text-sky-800">
-                This company matches the legacy Swiftsight canonical org. Preview will automatically use the recommended
-                expansion: {canonicalAbsorptionPrep.previewRequest.projectCount ?? 0} project slot(s),{" "}
-                {canonicalAbsorptionPrep.previewRequest.engineerPairsPerProject ?? 0} engineer pair(s) per project.
-              </p>
-              <ul className="mt-2 space-y-1 text-xs text-sky-800">
-                {canonicalAbsorptionPrep.projectMappings.map((mapping) => (
-                  <li key={mapping.canonicalProjectSlug}>
-                    • {mapping.canonicalProjectName} → {mapping.blueprintSlotKey}
-                  </li>
-                ))}
-              </ul>
+          {selectedMigrationHelpers.length > 0 && (
+            <div className="space-y-3">
+              {selectedMigrationHelpers.map((helper) => (
+                <div key={helper.key} className="rounded-md border border-sky-300 bg-sky-50 px-3 py-3">
+                  <div className="text-sm font-semibold text-sky-900">{helper.label}</div>
+                  <p className="mt-1 text-xs text-sky-800">
+                    {helper.description}
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs text-sky-800">
+                    {helper.projectMappings.map((mapping) => (
+                      <li key={`${helper.key}:${mapping.canonicalProjectSlug}`}>
+                        • {mapping.canonicalProjectName} → {mapping.blueprintSlotKey}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-2 text-xs text-sky-800">
+                    Generic preview/apply remains the default path. Use this mapping only as migration guidance.
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -1028,14 +1024,20 @@ export function CompanySettings() {
                       <p className="mt-2 text-xs text-muted-foreground">{blueprint.description}</p>
                       <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                         <span className="rounded-full border border-border px-2 py-0.5">
+                          {blueprint.portability.workspaceModel === "per_project" ? "per-project workspaces" : "single workspace"}
+                        </span>
+                        <span className="rounded-full border border-border px-2 py-0.5">
+                          {blueprint.portability.knowledgeModel} knowledge
+                        </span>
+                        <span className="rounded-full border border-border px-2 py-0.5">
                           default {blueprint.parameterHints.defaultProjectCount} project(s)
                         </span>
                         <span className="rounded-full border border-border px-2 py-0.5">
                           {blueprint.roles.length} role template(s)
                         </span>
-                        {canonicalAbsorptionPrep?.blueprintKey === blueprint.key && (
+                        {migrationHelpers.some((helper) => helper.blueprintKey === blueprint.key) && (
                           <span className="rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-sky-800">
-                            canonical guidance
+                            migration helper
                           </span>
                         )}
                       </div>
@@ -1046,12 +1048,23 @@ export function CompanySettings() {
 
               {selectedTeamBlueprint && (
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                  <div className="space-y-3 rounded-md border border-border px-4 py-4">
-                    <div>
-                      <div className="text-sm font-semibold">{selectedTeamBlueprint.label}</div>
-                      <p className="mt-1 text-sm text-muted-foreground">{selectedTeamBlueprint.description}</p>
-                    </div>
-                    <div className="grid gap-2 md:grid-cols-2">
+                <div className="space-y-3 rounded-md border border-border px-4 py-4">
+                  <div>
+                    <div className="text-sm font-semibold">{selectedTeamBlueprint.label}</div>
+                    <p className="mt-1 text-sm text-muted-foreground">{selectedTeamBlueprint.description}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                    <span className="rounded-full border border-border px-2 py-0.5">
+                      {selectedTeamBlueprint.portability.companyAgnostic ? "company-agnostic" : "company-bound"}
+                    </span>
+                    <span className="rounded-full border border-border px-2 py-0.5">
+                      {selectedTeamBlueprint.portability.workspaceModel === "per_project" ? "per-project workspaces" : "single workspace"}
+                    </span>
+                    <span className="rounded-full border border-border px-2 py-0.5">
+                      {selectedTeamBlueprint.portability.knowledgeModel} knowledge
+                    </span>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
                       {selectedTeamBlueprint.projects.map((project) => (
                         <div key={project.key} className="rounded-md border border-border px-3 py-3 text-sm">
                           <div className="font-medium">{project.label}</div>

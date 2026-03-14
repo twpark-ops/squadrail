@@ -34,9 +34,10 @@
 
 - quick request는 기본 입력 경로이자 onboarding first path까지 올라왔고, 상위 autonomy E2E도 live bounded loop까지 올라왔다
 - clarification loop는 공식 answer path와 shared pending contract까지 닫혔고, 질문 정책 기반 상위 시나리오도 live autonomy burn-in으로 검증됐다
-- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings/onboarding consumption까지 올라왔지만, legacy canonical을 완전히 registry 중심으로 흡수하는 마이그레이션은 아직 남아 있다
-- 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings/onboarding flow까지 올라왔지만, 회사 간 portability/import-export와 parameter editing은 아직 없다
-- 다음 immediate next는 `Phase 7 bounded autonomy E2E`다
+- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings/onboarding consumption까지 올라왔고, B1 portability 1차로 generic definition / portability metadata / migration helper 분리까지 끝났다
+- 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings/onboarding flow까지 올라왔고, 다음은 회사 간 portability를 실제 저장/이동 가능한 import/export와 parameter editing으로 확장하는 단계다
+- 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다. 즉 helper discovery 자체는 아직 완전히 portable하지 않고, follow-up에서 registry 기반으로 더 일반화해야 한다
+- 다음 immediate next는 `Batch B import/export`다
 
 ### 구현 체크포인트 2026-03-13
 
@@ -83,6 +84,12 @@
   - server test는 메모리 절약형 기본 실행으로 재구성했다.
     - `pnpm --filter @squadrail/server test` = `test:base(maxWorkers=2) + test:heavy(fileParallelism=false)`
     - `pnpm --filter @squadrail/server test:coverage` = 필요할 때만 별도 실행
+- `Batch B1` 1차 구현 완료
+  - shared `team blueprint` contract에 `portability` metadata와 `migrationHelpers[]` catalog shape를 추가했다.
+  - preview/apply 본경로는 generic blueprint definition만 읽도록 유지하고, `cloud-swiftsight` canonical helper는 migration helper 카드로만 노출되게 분리했다.
+  - `OnboardingWizard`와 `CompanySettings`는 canonical helper 자동 주입 없이 generic preview/apply path를 기본값으로 사용한다.
+  - UI는 blueprint별 migration helper를 단건이 아니라 list 기반으로 렌더링한다.
+  - 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다.
 
 ## 4. 제품 계약
 
@@ -480,12 +487,12 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. Batch B `generic blueprint portability`
-2. `import/export`
-3. `parameter editing`
+1. Batch B `import/export`
+2. `parameter editing`
+3. migration helper discovery registry 일반화
 
-즉 Batch A는 닫혔다.
+즉 Batch A는 닫혔고, Batch B1 portability 1차도 끝났다.
 
 - `pnpm e2e:cloud-swiftsight-kernel-burn-in`을 canonical `cloud-swiftsight` env에서 끝까지 다시 실행했고, `CLO-1..CLO-4 = done`, coordinated root `CLO-5 = cancelled`, child `CLO-6..CLO-8 = done`으로 마감됐다.
 - kernel batch summary: `ok=true`, `scenarioCount=5`, `durationMs=3374196`
-- autonomy baseline/matrix와 deterministic kernel 둘 다 green이므로 다음 제품 배치는 바로 `Batch B portability/import-export/parameter editing`이다.
+- autonomy baseline/matrix와 deterministic kernel 둘 다 green이고, B1 portability 1차도 generic-first path로 정리됐으므로 다음 제품 배치는 `Batch B import/export -> parameter editing`이다.

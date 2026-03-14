@@ -336,28 +336,34 @@ describe("company routes", () => {
     });
     mockTeamBlueprintsGetCatalog.mockReturnValue({
       companyId: "company-1",
-      canonicalAbsorptionPrep: {
-        canonicalTemplateKey: "cloud-swiftsight",
-        canonicalVersion: "cloud-swiftsight-18a-v1",
-        blueprintKey: "delivery_plus_qa",
-        previewRequest: {
-          projectCount: 5,
-          engineerPairsPerProject: 1,
-          includePm: true,
-          includeQa: true,
-          includeCto: true,
-        },
-        projectMappings: [
-          {
-            canonicalProjectSlug: "swiftsight-cloud",
-            canonicalProjectName: "swiftsight-cloud",
-            blueprintSlotKey: "app_surface",
-            blueprintTemplateKey: "app_surface",
-            expectedLeadRoleKey: "product_tech_lead",
+      migrationHelpers: [
+        {
+          key: "swiftsight_canonical_absorption",
+          kind: "canonical_absorption",
+          label: "Legacy Swiftsight Canonical Absorption",
+          description: "Migration helper",
+          canonicalTemplateKey: "cloud-swiftsight",
+          canonicalVersion: "cloud-swiftsight-18a-v1",
+          blueprintKey: "delivery_plus_qa",
+          previewRequest: {
+            projectCount: 5,
+            engineerPairsPerProject: 1,
+            includePm: true,
+            includeQa: true,
+            includeCto: true,
           },
-        ],
-        warnings: ["Use the recommended blueprint expansion before migrating canonical agents."],
-      },
+          projectMappings: [
+            {
+              canonicalProjectSlug: "swiftsight-cloud",
+              canonicalProjectName: "swiftsight-cloud",
+              blueprintSlotKey: "app_surface",
+              blueprintTemplateKey: "app_surface",
+              expectedLeadRoleKey: "product_tech_lead",
+            },
+          ],
+          warnings: ["Use the recommended blueprint expansion before migrating canonical agents."],
+        },
+      ],
       blueprints: [
         {
           key: "small_delivery_team",
@@ -403,6 +409,13 @@ describe("company routes", () => {
             recommendedFirstQuickRequest:
               "Audit the repo and define the first delivery slice.",
           },
+          portability: {
+            companyAgnostic: true,
+            workspaceModel: "single_workspace",
+            knowledgeModel: "required",
+            migrationHelperKeys: [],
+            notes: ["Portable default"],
+          },
         },
       ],
     });
@@ -416,12 +429,17 @@ describe("company routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toMatchObject({
       companyId: "company-1",
-      canonicalAbsorptionPrep: expect.objectContaining({
-        blueprintKey: "delivery_plus_qa",
-      }),
+      migrationHelpers: [
+        expect.objectContaining({
+          blueprintKey: "delivery_plus_qa",
+        }),
+      ],
       blueprints: [
         expect.objectContaining({
           key: "small_delivery_team",
+          portability: expect.objectContaining({
+            companyAgnostic: true,
+          }),
           readiness: expect.objectContaining({
             requiredWorkspaceCount: 1,
           }),
