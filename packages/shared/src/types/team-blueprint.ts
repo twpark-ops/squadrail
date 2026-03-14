@@ -136,7 +136,11 @@ export interface SavedTeamBlueprintSourceMetadata {
   version?: number | null;
   parentSavedBlueprintId?: string | null;
   versionNote?: string | null;
+  lifecycleState?: SavedTeamBlueprintLifecycleState | null;
+  publishedAt?: string | null;
 }
+
+export type SavedTeamBlueprintLifecycleState = "draft" | "published" | "superseded";
 
 export interface CompanySavedTeamBlueprint {
   id: string;
@@ -357,4 +361,9 @@ export interface TeamBlueprintSavedVersionCreateRequest extends TeamBlueprintApp
 
 export interface TeamBlueprintSavedVersionCreateResult {
   savedBlueprint: CompanySavedTeamBlueprint;
+}
+
+export interface TeamBlueprintSavedPublishResult {
+  savedBlueprint: CompanySavedTeamBlueprint;
+  supersededSavedBlueprintIds: string[];
 }

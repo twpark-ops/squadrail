@@ -45,7 +45,11 @@
   - saved preview -> next version save
   - version lineage metadata / version history UI
   - support-only smoke 기반 saved lifecycle browser parity
-- 다음 immediate next는 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다
+- `blueprint library governance/version authoring` 1차도 완료됐다.
+  - saved blueprint lifecycle state(`draft/published/superseded`) shared/server/UI를 추가했다.
+  - lineage 단위 publish action과 기존 published version supersede 전이를 추가했다.
+  - Company Settings에서 이전 버전 대비 metadata/default parameter diff 요약을 표시한다.
+- 다음 immediate next는 `blueprint library governance/version authoring 심화(rollback/diff 확대) + migration helper provider 규칙 정리`다
 
 ### 구현 체크포인트 2026-03-13
 

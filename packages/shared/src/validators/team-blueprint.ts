@@ -152,6 +152,8 @@ export const savedTeamBlueprintSourceMetadataSchema = z.object({
   version: z.number().int().min(1).max(1_000).nullable().optional(),
   parentSavedBlueprintId: z.string().uuid().nullable().optional(),
   versionNote: z.string().trim().max(500).nullable().optional(),
+  lifecycleState: z.enum(["draft", "published", "superseded"]).nullable().optional(),
+  publishedAt: z.string().datetime().nullable().optional(),
 }).strict();
 
 export const companySavedTeamBlueprintSchema = z.object({
@@ -332,4 +334,9 @@ export const teamBlueprintSavedVersionCreateRequestSchema = teamBlueprintApplyRe
 
 export const teamBlueprintSavedVersionCreateResultSchema = z.object({
   savedBlueprint: companySavedTeamBlueprintSchema,
+}).strict();
+
+export const teamBlueprintSavedPublishResultSchema = z.object({
+  savedBlueprint: companySavedTeamBlueprintSchema,
+  supersededSavedBlueprintIds: z.array(z.string().uuid()).max(50),
 }).strict();

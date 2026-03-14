@@ -24,6 +24,7 @@ const {
   mockTeamBlueprintsPreviewSaved,
   mockTeamBlueprintsUpdateSaved,
   mockTeamBlueprintsCreateSavedVersion,
+  mockTeamBlueprintsPublishSaved,
   mockTeamBlueprintsDeleteSaved,
   mockTeamBlueprintsApplySaved,
   mockTeamBlueprintsPreview,
@@ -73,6 +74,7 @@ const {
   mockTeamBlueprintsPreviewSaved: vi.fn(),
   mockTeamBlueprintsUpdateSaved: vi.fn(),
   mockTeamBlueprintsCreateSavedVersion: vi.fn(),
+  mockTeamBlueprintsPublishSaved: vi.fn(),
   mockTeamBlueprintsDeleteSaved: vi.fn(),
   mockTeamBlueprintsApplySaved: vi.fn(),
   mockTeamBlueprintsPreview: vi.fn(),
@@ -151,6 +153,7 @@ vi.mock("../services/index.js", () => ({
     previewSavedBlueprint: mockTeamBlueprintsPreviewSaved,
     updateSavedBlueprint: mockTeamBlueprintsUpdateSaved,
     createSavedBlueprintVersion: mockTeamBlueprintsCreateSavedVersion,
+    publishSavedBlueprint: mockTeamBlueprintsPublishSaved,
     deleteSavedBlueprint: mockTeamBlueprintsDeleteSaved,
     applySavedBlueprint: mockTeamBlueprintsApplySaved,
     preview: mockTeamBlueprintsPreview,
@@ -1330,6 +1333,98 @@ describe("company routes", () => {
         action: "company.saved_team_blueprint_deleted",
         details: expect.objectContaining({
           savedBlueprintId: "saved-blueprint-1",
+        }),
+      }),
+    );
+  });
+
+  it("publishes a saved team blueprint version for the requested company", async () => {
+    mockTeamBlueprintsPublishSaved.mockResolvedValue({
+      savedBlueprint: {
+        id: "saved-blueprint-2",
+        companyId: "company-1",
+        definition: {
+          slug: "delivery-team-v2",
+          label: "Delivery Team v2",
+          description: "Expanded staffing defaults",
+          sourceBlueprintKey: "small_delivery_team",
+          presetKey: "squadrail_default_v1",
+          projects: [],
+          roles: [],
+          parameterHints: {
+            supportsPm: false,
+            supportsQa: false,
+            supportsCto: false,
+            defaultProjectCount: 1,
+            defaultEngineerPairsPerProject: 1,
+          },
+          readiness: {
+            requiredWorkspaceCount: 1,
+            knowledgeRequired: true,
+            knowledgeSources: ["project_docs"],
+            approvalRequiredRoleKeys: [],
+            doctorSetupPrerequisites: ["workspace_connected"],
+            recommendedFirstQuickRequest: "Start small.",
+          },
+          portability: {
+            companyAgnostic: true,
+            workspaceModel: "single_workspace",
+            knowledgeModel: "required",
+            migrationHelperKeys: [],
+            notes: ["Portable"],
+          },
+        },
+        defaultPreviewRequest: {
+          projectCount: 2,
+          engineerPairsPerProject: 2,
+          includePm: false,
+          includeQa: false,
+          includeCto: false,
+        },
+        sourceMetadata: {
+          type: "saved_blueprint_version",
+          companyId: "company-1",
+          companyName: "cloud-swiftsight",
+          blueprintKey: "small_delivery_team",
+          generatedAt: "2026-03-15T02:00:00.000Z",
+          lineageKey: "company-blueprint-lineage",
+          version: 2,
+          parentSavedBlueprintId: "saved-blueprint-1",
+          versionNote: "Double engineer coverage",
+          lifecycleState: "published",
+          publishedAt: "2026-03-15T03:00:00.000Z",
+        },
+        createdAt: "2026-03-15T02:00:00.000Z",
+        updatedAt: "2026-03-15T03:00:00.000Z",
+      },
+      supersededSavedBlueprintIds: ["saved-blueprint-1"],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId/publish",
+      method: "post",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-2" },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toMatchObject({
+      savedBlueprint: {
+        id: "saved-blueprint-2",
+        sourceMetadata: {
+          lifecycleState: "published",
+        },
+      },
+      supersededSavedBlueprintIds: ["saved-blueprint-1"],
+    });
+    expect(mockTeamBlueprintsPublishSaved).toHaveBeenCalledWith("company-1", "saved-blueprint-2");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.saved_team_blueprint_published",
+        details: expect.objectContaining({
+          savedBlueprintId: "saved-blueprint-2",
+          supersededSavedBlueprintIds: ["saved-blueprint-1"],
+          version: 2,
         }),
       }),
     );

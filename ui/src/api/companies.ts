@@ -27,6 +27,7 @@ import type {
   TeamBlueprintSaveRequest,
   TeamBlueprintSaveResult,
   TeamBlueprintSavedDeleteResult,
+  TeamBlueprintSavedPublishResult,
   TeamBlueprintSavedUpdateRequest,
   TeamBlueprintSavedUpdateResult,
   TeamBlueprintSavedVersionCreateRequest,
@@ -140,6 +141,11 @@ export const companiesApi = {
     savedBlueprintId: string,
   ) =>
     api.delete<TeamBlueprintSavedDeleteResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}`),
+  publishSavedTeamBlueprint: (
+    companyId: string,
+    savedBlueprintId: string,
+  ) =>
+    api.post<TeamBlueprintSavedPublishResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}/publish`, {}),
   applySavedTeamBlueprint: (
     companyId: string,
     savedBlueprintId: string,

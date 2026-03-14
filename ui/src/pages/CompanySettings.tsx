@@ -26,6 +26,8 @@ import {
   buildNextSavedTeamBlueprintVersionLabel,
   buildNextSavedTeamBlueprintVersionSlug,
   buildDefaultTeamBlueprintPreviewRequest,
+  describeSavedTeamBlueprintVersionChanges,
+  resolveSavedTeamBlueprintLifecycleState,
   resolveSavedTeamBlueprintVersionInfo,
   WORKFLOW_TEMPLATE_ACTION_TYPES,
   ROLE_PACK_FILE_NAMES,
@@ -36,6 +38,7 @@ import {
   type RolePackFileName,
   type RolePackPresetDescriptor,
   type RolePackPresetKey,
+  type SavedTeamBlueprintLifecycleState,
   type TeamBlueprint,
   type TeamBlueprintApplyResult,
   type TeamBlueprintImportPreviewResult,
@@ -84,6 +87,18 @@ function blueprintStatusTone(status: "ready" | "warning" | "missing" | "partial"
   if (status === "warning") return "border-amber-300 bg-amber-50 text-amber-700";
   if (status === "partial") return "border-amber-300 bg-amber-50 text-amber-700";
   return "border-red-300 bg-red-50 text-red-700";
+}
+
+function savedBlueprintLifecycleTone(state: SavedTeamBlueprintLifecycleState) {
+  if (state === "published") return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  if (state === "superseded") return "border-slate-300 bg-slate-100 text-slate-700";
+  return "border-amber-300 bg-amber-50 text-amber-700";
+}
+
+function formatSavedBlueprintLifecycleLabel(state: SavedTeamBlueprintLifecycleState) {
+  if (state === "published") return "Published";
+  if (state === "superseded") return "Superseded";
+  return "Draft";
 }
 
 function previewRolePackFile(rolePack: RolePackWithLatestRevision, filename: string) {
@@ -1135,6 +1150,38 @@ export function CompanySettings() {
     },
   });
 
+  const savedTeamBlueprintPublishMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      savedBlueprintId: string;
+    }) => companiesApi.publishSavedTeamBlueprint(input.companyId, input.savedBlueprintId),
+    onSuccess: async (result, variables) => {
+      setSelectedSavedTeamBlueprintId(result.savedBlueprint.id);
+      setSavedTeamBlueprintPreviewState((current) =>
+        current && current.savedBlueprintId === result.savedBlueprint.id ? null : current);
+      setSavedTeamBlueprintApplyResult((current) =>
+        current && current.savedBlueprintId === result.savedBlueprint.id ? null : current);
+      setConfirmSavedTeamBlueprintApply(false);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(variables.companyId) });
+      pushToast({
+        tone: "success",
+        title: `Published ${result.savedBlueprint.definition.label}`,
+        body: result.supersededSavedBlueprintIds.length > 0
+          ? `Promoted this version and superseded ${result.supersededSavedBlueprintIds.length} published version(s).`
+          : "Promoted this saved blueprint version as the current published entry.",
+        dedupeKey: `saved-team-blueprint-publish:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Publish failed",
+        body: error instanceof Error ? error.message : "Failed to publish saved blueprint version",
+        dedupeKey: `saved-team-blueprint-publish-error:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
+    },
+  });
+
   const createCustomRoleMutation = useMutation({
     mutationFn: () =>
       companiesApi.createCustomRolePack(selectedCompanyId!, {
@@ -1428,6 +1475,22 @@ export function CompanySettings() {
     ? savedTeamBlueprints
       .filter((entry) => resolveSavedTeamBlueprintVersionInfo(entry).lineageKey === selectedSavedTeamBlueprintVersionInfo.lineageKey)
       .sort((left, right) => resolveSavedTeamBlueprintVersionInfo(right).version - resolveSavedTeamBlueprintVersionInfo(left).version)
+    : [];
+  const selectedSavedTeamBlueprintLifecycleState = selectedSavedTeamBlueprint
+    ? resolveSavedTeamBlueprintLifecycleState(selectedSavedTeamBlueprint)
+    : null;
+  const selectedSavedTeamBlueprintPreviousVersion = selectedSavedTeamBlueprint && selectedSavedTeamBlueprintVersionInfo
+    ? selectedSavedTeamBlueprintLineage.find((entry) => entry.id === selectedSavedTeamBlueprintVersionInfo.parentSavedBlueprintId)
+      ?? selectedSavedTeamBlueprintLineage.find((entry) =>
+        entry.id !== selectedSavedTeamBlueprint.id
+        && resolveSavedTeamBlueprintVersionInfo(entry).version < selectedSavedTeamBlueprintVersionInfo.version)
+      ?? null
+    : null;
+  const selectedSavedTeamBlueprintVersionChanges = selectedSavedTeamBlueprint
+    ? describeSavedTeamBlueprintVersionChanges(
+      selectedSavedTeamBlueprint,
+      selectedSavedTeamBlueprintPreviousVersion,
+    )
     : [];
   const selectedSavedTeamBlueprintMetadataDirty = selectedSavedTeamBlueprint && selectedSavedTeamBlueprintMetadataDraft
     ? (
@@ -1744,6 +1807,19 @@ export function CompanySettings() {
     );
     if (!confirmed) return;
     savedTeamBlueprintDeleteMutation.mutate({
+      companyId: selectedCompanyId,
+      savedBlueprintId: selectedSavedTeamBlueprint.id,
+    });
+  }
+
+  function handlePublishSelectedSavedTeamBlueprint() {
+    if (!selectedCompanyId || !selectedSavedTeamBlueprint || savedTeamBlueprintPublishMutation.isPending) return;
+    const confirmed = window.confirm(
+      `Publish saved blueprint ${selectedSavedTeamBlueprint.definition.label}?\n\n` +
+      "This promotes the selected version as the published lineage entry for this company library.",
+    );
+    if (!confirmed) return;
+    savedTeamBlueprintPublishMutation.mutate({
       companyId: selectedCompanyId,
       savedBlueprintId: selectedSavedTeamBlueprint.id,
     });
@@ -2365,6 +2441,11 @@ export function CompanySettings() {
                                   <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
                                     v{resolveSavedTeamBlueprintVersionInfo(savedBlueprint).version}
                                   </span>
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${savedBlueprintLifecycleTone(resolveSavedTeamBlueprintLifecycleState(savedBlueprint))}`}
+                                  >
+                                    {formatSavedBlueprintLifecycleLabel(resolveSavedTeamBlueprintLifecycleState(savedBlueprint))}
+                                  </span>
                                 </div>
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
@@ -2385,6 +2466,13 @@ export function CompanySettings() {
                                   v{selectedSavedTeamBlueprintVersionInfo.version}
                                 </span>
                               )}
+                              {selectedSavedTeamBlueprintLifecycleState && (
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[11px] ${savedBlueprintLifecycleTone(selectedSavedTeamBlueprintLifecycleState)}`}
+                                >
+                                  {formatSavedBlueprintLifecycleLabel(selectedSavedTeamBlueprintLifecycleState)}
+                                </span>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground">
                               Source: {selectedSavedTeamBlueprint.sourceMetadata.type} · {selectedSavedTeamBlueprint.sourceMetadata.companyName ?? "unknown company"}
@@ -2392,6 +2480,11 @@ export function CompanySettings() {
                             {selectedSavedTeamBlueprintVersionInfo?.versionNote && (
                               <div className="mt-1 text-xs text-muted-foreground">
                                 Version note: {selectedSavedTeamBlueprintVersionInfo.versionNote}
+                              </div>
+                            )}
+                            {selectedSavedTeamBlueprint.sourceMetadata.publishedAt && (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Published: {new Date(selectedSavedTeamBlueprint.sourceMetadata.publishedAt).toLocaleString()}
                               </div>
                             )}
                           </div>
@@ -2408,11 +2501,31 @@ export function CompanySettings() {
                                       onClick={() => setSelectedSavedTeamBlueprintId(entry.id)}
                                       className={`rounded-full border px-2 py-1 text-[11px] ${entry.id === selectedSavedTeamBlueprint.id ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}
                                     >
-                                      v{versionInfo.version} · {entry.definition.label}
+                                      v{versionInfo.version} · {entry.definition.label} · {formatSavedBlueprintLifecycleLabel(resolveSavedTeamBlueprintLifecycleState(entry))}
                                     </button>
                                   );
                                 })}
                               </div>
+                            </div>
+                          )}
+                          {selectedSavedTeamBlueprintPreviousVersion && (
+                            <div className="rounded-md border border-border bg-background px-3 py-3">
+                              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                Changes vs previous version
+                              </div>
+                              {selectedSavedTeamBlueprintVersionChanges.length === 0 ? (
+                                <div className="mt-2 text-sm text-muted-foreground">
+                                  No library metadata or default parameter changes compared to the previous saved version.
+                                </div>
+                              ) : (
+                                <ul className="mt-2 space-y-1 text-sm text-foreground">
+                                  {selectedSavedTeamBlueprintVersionChanges.map((change) => (
+                                    <li key={change.key}>
+                                      {change.label}: <span className="text-muted-foreground">{change.before}</span> → {change.after}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
                           )}
                           <div className="grid gap-3 md:grid-cols-2">
@@ -2451,6 +2564,18 @@ export function CompanySettings() {
                             <Button
                               size="sm"
                               variant="outline"
+                              disabled={savedTeamBlueprintPublishMutation.isPending}
+                              onClick={handlePublishSelectedSavedTeamBlueprint}
+                            >
+                              {savedTeamBlueprintPublishMutation.isPending
+                                ? "Publishing..."
+                                : selectedSavedTeamBlueprintLifecycleState === "published"
+                                  ? "Republish version"
+                                  : "Publish version"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
                               disabled={savedTeamBlueprintExportMutation.isPending}
                               onClick={handleExportSelectedSavedTeamBlueprint}
                             >
@@ -2474,6 +2599,7 @@ export function CompanySettings() {
                                 || savedTeamBlueprintApplyMutation.isPending
                                 || savedTeamBlueprintUpdateMutation.isPending
                                 || savedTeamBlueprintDeleteMutation.isPending
+                                || savedTeamBlueprintPublishMutation.isPending
                               }
                               onClick={() => {
                                 if (!selectedCompanyId) return;
@@ -2500,6 +2626,7 @@ export function CompanySettings() {
                               savedTeamBlueprintPreviewMutation.isPending
                               || savedTeamBlueprintUpdateMutation.isPending
                               || savedTeamBlueprintDeleteMutation.isPending
+                              || savedTeamBlueprintPublishMutation.isPending
                             }
                             title="Saved blueprint preview parameters"
                             description="Preview saved blueprint definitions with their stored default parameters, compare edited values, and apply the resulting team plan once the diff is reviewed."

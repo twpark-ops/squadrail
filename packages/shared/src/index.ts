@@ -252,11 +252,13 @@ export type {
   TeamBlueprintImportResult,
   TeamBlueprintSaveRequest,
   TeamBlueprintSaveResult,
+  SavedTeamBlueprintLifecycleState,
   TeamBlueprintSavedUpdateRequest,
   TeamBlueprintSavedUpdateResult,
   TeamBlueprintSavedDeleteResult,
   TeamBlueprintSavedVersionCreateRequest,
   TeamBlueprintSavedVersionCreateResult,
+  TeamBlueprintSavedPublishResult,
   OperatingAlertIntent,
   OperatingAlertReason,
   OperatingAlertDestinationConfig,
@@ -388,10 +390,15 @@ export type {
   SecretProviderDescriptor,
 } from "./types/index.js";
 
-export type { SavedTeamBlueprintVersionInfo } from "./team-blueprint-library.js";
+export type {
+  SavedTeamBlueprintVersionInfo,
+  SavedTeamBlueprintVersionChange,
+} from "./team-blueprint-library.js";
 export {
   buildNextSavedTeamBlueprintVersionLabel,
   buildNextSavedTeamBlueprintVersionSlug,
+  describeSavedTeamBlueprintVersionChanges,
+  resolveSavedTeamBlueprintLifecycleState,
   resolveSavedTeamBlueprintVersionInfo,
 } from "./team-blueprint-library.js";
 

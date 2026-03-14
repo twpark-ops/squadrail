@@ -80,7 +80,11 @@
     - built-in preview -> company library save, saved preview -> next version save, version lineage metadata, version history UI를 추가했다
     - `local-ui-flow.sh`에 `SMOKE_SCOPE=support_only`와 단일 support Playwright grep 실행 모드를 추가했다
     - support-only smoke에서 saved lifecycle browser parity(`rename/delete/re-export/apply`)를 다시 green으로 고정했다
-  - 다음은 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다
+  - `blueprint library governance/version authoring` 1차를 추가로 닫았다
+    - saved blueprint lifecycle state(`draft/published/superseded`) shared/server/UI 추가
+    - lineage publish action + published version supersede transition 추가
+    - Company Settings previous-version diff summary 추가
+  - 다음은 `blueprint library governance/version authoring 심화(rollback/diff 확대) + migration helper provider 규칙 정리`다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

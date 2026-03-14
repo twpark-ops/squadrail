@@ -294,6 +294,31 @@ export function companyRoutes(
     res.status(201).json(result);
   });
 
+  router.post("/:companyId/team-blueprints/saved/:savedBlueprintId/publish", async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    const savedBlueprintId = req.params.savedBlueprintId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await teamBlueprints.publishSavedBlueprint(companyId, savedBlueprintId);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.saved_team_blueprint_published",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        savedBlueprintId,
+        supersededSavedBlueprintIds: result.supersededSavedBlueprintIds,
+        version: result.savedBlueprint.sourceMetadata.version ?? null,
+      },
+    });
+    res.status(201).json(result);
+  });
+
   router.delete("/:companyId/team-blueprints/saved/:savedBlueprintId", async (req, res) => {
     assertBoard(req);
     const companyId = req.params.companyId as string;
