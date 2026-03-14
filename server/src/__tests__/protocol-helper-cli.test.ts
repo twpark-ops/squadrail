@@ -436,7 +436,7 @@ describe("squadrail protocol helper CLI", () => {
       expect(requests[0]?.body).toMatchObject({
         messageType: "ASK_CLARIFICATION",
         workflowStateBefore: "assigned",
-        workflowStateAfter: "blocked",
+        workflowStateAfter: "assigned",
         recipients: [
           {
             recipientType: "role_group",
@@ -454,6 +454,110 @@ describe("squadrail protocol helper CLI", () => {
             "Keep the change in the cloud lane only",
             "Focused verification is enough",
           ],
+        },
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("posts blocker escalations through the helper command", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "implementing", currentReviewCycle: 0 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "engineer", title: "Engineer" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "escalate-blocker",
+          "--issue",
+          "issue-123",
+          "--blocker-code",
+          "needs_human_decision",
+          "--blocking-reason",
+          "Board confirmation is required before implementation continues.",
+          "--requested-action",
+          "Confirm the scope boundary and let implementation resume.",
+          "--requested-from",
+          "human_board",
+          "--summary",
+          "Escalate blocker for board clarification.",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toMatchObject({
+        messageType: "ESCALATE_BLOCKER",
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "blocked",
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        payload: {
+          blockerCode: "needs_human_decision",
+          blockingReason: "Board confirmation is required before implementation continues.",
+          requestedAction: "Confirm the scope boundary and let implementation resume.",
+          requestedFrom: "human_board",
         },
       });
     } finally {

@@ -63,6 +63,26 @@ describe("pm intake helpers", () => {
     expect(resolved.reviewerAgent.id).toBe("rev-1");
   });
 
+  it("accepts a title-based reviewer identity for intake routing", () => {
+    const resolved = resolvePmIntakeAgents({
+      agents: [
+        agents[0],
+        {
+          id: "rev-1",
+          companyId: "company-1",
+          name: "App Surface Reviewer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "qa-1",
+          title: "Reviewer",
+          urlKey: "app-surface-reviewer",
+        },
+      ] as any[],
+    });
+
+    expect(resolved.reviewerAgent.id).toBe("rev-1");
+  });
+
   it("derives a title from the request when one is not supplied", () => {
     expect(derivePmIntakeIssueTitle({
       request: "   Build a bulk export flow for cloud studies.\nNeed audit logs too.",
@@ -264,7 +284,19 @@ describe("pm intake helpers", () => {
           name: "swiftsight-cloud",
         },
       ],
-      agents,
+      agents: [
+        ...agents,
+        {
+          id: "eng-1",
+          companyId: "company-1",
+          name: "Cloud Engineer",
+          urlKey: "swiftsight-cloud-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ],
       request: {},
     });
 
@@ -272,5 +304,150 @@ describe("pm intake helpers", () => {
     expect(preview.draft.root.openQuestions).toContain(
       "Confirm the intended project if the selected preview does not match the request.",
     );
+  });
+
+  it("prefers dedicated reviewer and engineer titles from a delivery_plus_qa-style roster", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Tighten export handoff before release",
+        description: "## Human Intake Request\n\nTighten export handoff before release.\n- keep audit evidence explicit\n",
+        priority: "high",
+        projectId: "project-app",
+      },
+      projects: [
+        {
+          id: "project-app",
+          companyId: "company-1",
+          name: "App Surface",
+          urlKey: "app-surface",
+        },
+      ],
+      agents: [
+        {
+          id: "pm-1",
+          companyId: "company-1",
+          name: "PM",
+          role: "pm",
+          status: "running",
+          reportsTo: "cto-1",
+          title: "PM",
+        },
+        {
+          id: "qa-1",
+          companyId: "company-1",
+          name: "QA Lead",
+          role: "qa",
+          status: "idle",
+          reportsTo: "cto-1",
+          title: "QA Lead",
+        },
+        {
+          id: "tl-product",
+          companyId: "company-1",
+          name: "App Surface Product Tech Lead",
+          role: "engineer",
+          status: "idle",
+          reportsTo: "pm-1",
+          title: "Tech Lead",
+          urlKey: "app-surface-product-tech-lead",
+        },
+        {
+          id: "tl-platform",
+          companyId: "company-1",
+          name: "App Surface Platform Tech Lead",
+          role: "engineer",
+          status: "running",
+          reportsTo: "pm-1",
+          title: "Tech Lead",
+          urlKey: "app-surface-platform-tech-lead",
+        },
+        {
+          id: "rev-1",
+          companyId: "company-1",
+          name: "App Surface Reviewer",
+          role: "engineer",
+          status: "idle",
+          reportsTo: "qa-1",
+          title: "Reviewer",
+          urlKey: "app-surface-reviewer",
+        },
+        {
+          id: "eng-1",
+          companyId: "company-1",
+          name: "App Surface Engineer",
+          role: "engineer",
+          status: "idle",
+          reportsTo: "tl-product",
+          title: "Engineer",
+          urlKey: "app-surface-engineer",
+        },
+        {
+          id: "cto-1",
+          companyId: "company-1",
+          name: "CTO",
+          role: "cto",
+          status: "idle",
+          reportsTo: null,
+          title: "CTO",
+        },
+      ] as any[],
+      request: {},
+    });
+
+    expect(preview.staffing.reviewerAgentId).toBe("rev-1");
+    expect(preview.staffing.qaAgentId).toBe("qa-1");
+    expect(preview.staffing.implementationAssigneeAgentId).toBe("eng-1");
+    expect(preview.draft.workItems[0]).toMatchObject({
+      reviewerAgentId: "rev-1",
+      qaAgentId: "qa-1",
+      assigneeAgentId: "eng-1",
+    });
+  });
+
+  it("does not use manager tech leads as implementation assignees when no engineer exists", () => {
+    expect(() => buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Route a bounded autonomy change",
+        description: "## Human Intake Request\n\nRoute a bounded autonomy change.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-cloud",
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+          urlKey: "swiftsight-cloud",
+        },
+      ],
+      agents: [
+        ...agents,
+        {
+          id: "mgr-tl-1",
+          companyId: "company-1",
+          name: "Cloud Tech Lead",
+          urlKey: "swiftsight-cloud-tl",
+          role: "manager",
+          status: "active",
+          reportsTo: null,
+          title: "Tech Lead",
+        },
+        {
+          id: "rev-1",
+          companyId: "company-1",
+          name: "Cloud Reviewer",
+          urlKey: "cloud-reviewer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "mgr-tl-1",
+          title: "Reviewer",
+        },
+      ],
+      request: {},
+    })).toThrow("No active engineer agent is available for PM intake projection");
   });
 });

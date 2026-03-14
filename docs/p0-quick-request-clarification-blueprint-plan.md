@@ -32,8 +32,8 @@
 
 아직 부족한 것:
 
-- quick request는 기본 입력 경로이자 onboarding first path까지 올라왔지만, 상위 autonomy E2E는 아직 없다
-- clarification loop는 공식 answer path와 shared pending contract까지 닫혔고 operator surface도 올라왔지만, 질문 정책 기반 상위 시나리오 검증은 아직 없다
+- quick request는 기본 입력 경로이자 onboarding first path까지 올라왔고, 상위 autonomy E2E도 live bounded loop까지 올라왔다
+- clarification loop는 공식 answer path와 shared pending contract까지 닫혔고, 질문 정책 기반 상위 시나리오도 live autonomy burn-in으로 검증됐다
 - `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings/onboarding consumption까지 올라왔지만, legacy canonical을 완전히 registry 중심으로 흡수하는 마이그레이션은 아직 남아 있다
 - 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings/onboarding flow까지 올라왔지만, 회사 간 portability/import-export와 parameter editing은 아직 없다
 - 다음 immediate next는 `Phase 7 bounded autonomy E2E`다
@@ -442,14 +442,15 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - projected work items exist when decomposition is needed
 - review / QA / close semantics stay valid
 
-### 2026-03-14 kickoff 상태
+### 2026-03-14 live bounded autonomy 상태
 
 - `projection preview` shared/server/runtime helper contract를 추가했다.
 - PM helper CLI가 `list-projects`, `preview-intake-projection`, `apply-intake-projection`를 지원한다.
 - PM role pack guide를 projection-first flow로 업데이트했다.
-- kickoff harness [`scripts/e2e/cloud-swiftsight-autonomy-org.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-autonomy-org.mjs)를 추가했다.
-  - 현재 kickoff invariant는 `human intake -> projection preview -> projection apply -> child clarification ask/answer -> resumed execution`이다.
-  - 아직 live control plane에서 full `execution / review / QA / close` burn-in까지는 실행하지 않았다.
+- bounded autonomy harness [`scripts/e2e/cloud-swiftsight-autonomy-org.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-autonomy-org.mjs)를 추가했다.
+  - 현재 invariant는 `human intake -> projection preview/apply -> ACK_ASSIGNMENT -> START_IMPLEMENTATION -> ESCALATE_BLOCKER -> ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> SUBMIT_FOR_REVIEW -> reviewer review -> QA review -> CLOSE_TASK`다.
+  - live control plane 실행까지 통과했고, `cloud-swiftsight`가 없을 때는 generic `delivery_plus_qa` bootstrap company를 자동 적용한다.
+  - runtime helper는 `ask-clarification`과 `escalate-blocker`를 함께 지원한다.
 
 ## 7. 권장 실행 순서
 
@@ -465,8 +466,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. kickoff autonomy script를 live control plane에서 실제 실행하고 invariant를 고정
-2. downstream `execution / review / QA / close`까지 상위 burn-in을 확장
-3. deterministic kernel burn-in과 autonomy burn-in의 운영 목적을 더 분리
+1. deterministic kernel burn-in과 autonomy burn-in의 운영 목적 / 실행 경로 / 문서 표현을 더 분리
+2. autonomy burn-in에 추가 clarification policy variants와 multi-child invariants를 확장
+3. blueprint portability / import-export / parameter editing으로 일반화 축을 이어가기
 
 즉 다음 배치는 `Phase 7 bounded autonomy E2E`다.

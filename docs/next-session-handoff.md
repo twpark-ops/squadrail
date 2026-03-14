@@ -10,11 +10,11 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `Phase 7 bounded autonomy E2E kickoff`
+- open this handoff first, then continue immediately with `Phase 7 bounded autonomy E2E follow-through`
   - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
-  - Phase 7 kickoff에서 `projection preview/helper` 계약과 autonomy kickoff harness, clarification resume invariant까지 올라왔다.
+  - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop까지 올라왔다.
 
 ## Current Status
 
@@ -56,13 +56,14 @@ One-line startup rule:
     26. `projection preview` shared/server/runtime helper contract 추가
     27. PM helper CLI에 `list-projects`, `preview-intake-projection`, `apply-intake-projection` 추가
     28. PM role pack를 projection-first flow로 갱신
-    29. kickoff autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs` 추가
-    30. autonomy harness에 `ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> implementing resume` invariant 추가
-    31. runtime helper에 `ask-clarification` 명령 추가
+    29. bounded autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs` 추가
+    30. autonomy harness에 `ACK_ASSIGNMENT -> START_IMPLEMENTATION -> ESCALATE_BLOCKER -> ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> review -> QA -> CLOSE_TASK` invariant 추가
+    31. runtime helper에 `ask-clarification` / `escalate-blocker` 명령 추가
+    32. live control plane에서 bounded autonomy burn-in을 실제 실행해 `delivery loop closed done`까지 고정
   - immediate next:
-    1. kickoff autonomy harness를 live control plane에서 실행하고 invariant를 고정
-    2. downstream `execution / review / QA / close`까지 상위 burn-in 확장
-    3. deterministic kernel burn-in과 autonomy burn-in 운영 역할 분리
+    1. deterministic kernel burn-in과 autonomy burn-in 운영 역할 분리
+    2. autonomy burn-in에 추가 clarification policy / multi-child invariants 확장
+    3. blueprint portability / import-export / parameter editing follow-up
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` 전용 canonical은 이후 phase에서 generic team blueprint registry로 일반화해야 한다.

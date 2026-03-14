@@ -78,9 +78,16 @@ export function getProtocolRole(agentRole: string): string {
 export function getAllowedProtocolRoles(agent: {
   role: string;
   title?: string | null;
+  urlKey?: string | null;
 }) {
   const allowed = new Set<string>([agent.role, getProtocolRole(agent.role)]);
   if (agent.role === "qa") {
+    allowed.add("reviewer");
+  }
+  if (typeof agent.title === "string" && /reviewer/i.test(agent.title)) {
+    allowed.add("reviewer");
+  }
+  if (typeof agent.urlKey === "string" && /(?:^|-)(reviewer)(?:-|$)/i.test(agent.urlKey)) {
     allowed.add("reviewer");
   }
   if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) {
@@ -351,13 +358,10 @@ export async function assertInternalWorkItemAssigneeHelper(input: {
     label: "Assignee",
   });
   const allowedRoles = getAllowedProtocolRoles(assignee);
-  if (allowedRoles.has("tech_lead")) {
-    return { agent: assignee, protocolRole: "tech_lead" as const };
-  }
   if (allowedRoles.has("engineer")) {
     return { agent: assignee, protocolRole: "engineer" as const };
   }
-  throw unprocessable("Assignee agent must support engineer or tech_lead protocol role");
+  throw unprocessable("Assignee agent must support engineer protocol role");
 }
 
 export async function assertInternalWorkItemReviewerHelper(input: {
