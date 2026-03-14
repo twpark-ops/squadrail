@@ -10,8 +10,8 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `Phase 6 onboarding / Company Settings reframe + swiftsight canonical absorption follow-through`
-  - Phase 5 `apply contract -> confirmation gate -> semantics test -> Company Settings apply flow`는 이미 닫혔다.
+- open this handoff first, then continue immediately with `Phase 7 bounded autonomy E2E kickoff`
+  - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
 
@@ -43,10 +43,19 @@ One-line startup rule:
     17. blueprint apply를 outer transaction으로 감싸 partial org/team 잔존을 막음
     18. `standard_product_squad`에서 per-project TL slot expansion과 project lead wiring을 실제 apply test로 고정
     19. project create / agent update 중간 실패 시 role-pack seed까지 rollback되는 failure injection test를 추가
+  - 이번 배치 추가 완료:
+    20. `OnboardingWizard`를 `회사 생성 -> blueprint 선택/preview/apply -> workspace 연결 -> 첫 quick request` 기준으로 재편
+    21. 기존 `CEO 생성 -> 첫 일반 이슈 생성` onboarding path 제거
+    22. `CompanySettings` hierarchy를 role-pack studio보다 team builder / blueprint / apply가 먼저 보이도록 재정렬
+    23. `swiftsight canonical absorption prep`을 onboarding / Company Settings preview guidance에서 실제로 소비하게 연결
+    24. browser smoke에서 onboarding full happy path와 Company Settings preview/apply confirmation gate를 끝까지 고정
+    25. server test를 메모리 절약형 기본 실행으로 재구성
+       - `pnpm --filter @squadrail/server test` = `test:base(maxWorkers=2) + test:heavy(fileParallelism=false)`
+       - `pnpm --filter @squadrail/server test:coverage`는 별도 실행
   - immediate next:
-    1. `OnboardingWizard`를 `회사 생성 -> blueprint 선택 -> workspace 연결 -> 첫 quick request` 기준으로 재편
-    2. `CompanySettings`에서 role-pack studio보다 team builder가 먼저 보이는 hierarchy로 재정렬
-    3. `swiftsight canonical` absorption prep metadata를 실제 generic blueprint apply/onboarding 흐름과 연결
+    1. `Phase 7 bounded autonomy E2E` kickoff
+    2. structured-but-short request invariant 고정
+    3. clarification ask/answer 포함 상위 burn-in 추가
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` 전용 canonical은 이후 phase에서 generic team blueprint registry로 일반화해야 한다.

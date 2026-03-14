@@ -3,6 +3,7 @@ import type { Db } from "@squadrail/db";
 import {
   normalizeAgentUrlKey,
   normalizeProjectUrlKey,
+  type TeamBlueprintCanonicalAbsorptionPrep,
   type SetupProgressView,
   type TeamBlueprintApplyRequest,
   type TeamBlueprintApplyResult,
@@ -19,6 +20,7 @@ import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
 import { rolePackService } from "./role-packs.js";
 import { setupProgressService } from "./setup-progress.js";
+import { canonicalTemplateForCompanyName } from "./swiftsight-org-canonical.js";
 
 const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
   {
@@ -1000,12 +1002,17 @@ export function listTeamBlueprints(): TeamBlueprint[] {
   return DEFAULT_TEAM_BLUEPRINTS.map((blueprint) => cloneBlueprint(blueprint));
 }
 
+function resolveCanonicalAbsorptionPrep(companyName: string | null | undefined): TeamBlueprintCanonicalAbsorptionPrep | null {
+  return canonicalTemplateForCompanyName(companyName)?.blueprintAbsorptionPrep ?? null;
+}
+
 export function teamBlueprintService(db?: Db) {
   return {
-    getCatalog(companyId: string): TeamBlueprintCatalogView {
+    getCatalog(companyId: string, companyName?: string | null): TeamBlueprintCatalogView {
       return {
         companyId,
         blueprints: listTeamBlueprints(),
+        canonicalAbsorptionPrep: resolveCanonicalAbsorptionPrep(companyName),
       };
     },
     async preview(

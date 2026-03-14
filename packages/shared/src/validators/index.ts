@@ -141,6 +141,8 @@ export {
   type UpdateWorkflowTemplates,
 } from "./workflow-template.js";
 export {
+  teamBlueprintCanonicalAbsorptionProjectMappingSchema,
+  teamBlueprintCanonicalAbsorptionPrepSchema,
   teamBlueprintProjectTemplateSchema,
   teamBlueprintRoleTemplateSchema,
   teamBlueprintParameterHintsSchema,

@@ -59,9 +59,33 @@ export const teamBlueprintSchema = z.object({
   readiness: teamBlueprintReadinessSchema,
 }).strict();
 
+export const teamBlueprintCanonicalAbsorptionProjectMappingSchema = z.object({
+  canonicalProjectSlug: blueprintKeySchema,
+  canonicalProjectName: z.string().trim().min(1).max(200),
+  blueprintSlotKey: blueprintKeySchema,
+  blueprintTemplateKey: blueprintKeySchema,
+  expectedLeadRoleKey: blueprintKeySchema.nullable(),
+}).strict();
+
+export const teamBlueprintCanonicalAbsorptionPrepSchema = z.object({
+  canonicalTemplateKey: blueprintKeySchema,
+  canonicalVersion: z.string().trim().min(1).max(160),
+  blueprintKey: z.enum(TEAM_BLUEPRINT_KEYS),
+  previewRequest: z.object({
+    projectCount: z.number().int().min(1).max(20).nullable().optional(),
+    engineerPairsPerProject: z.number().int().min(1).max(10).nullable().optional(),
+    includePm: z.boolean().nullable().optional(),
+    includeQa: z.boolean().nullable().optional(),
+    includeCto: z.boolean().nullable().optional(),
+  }).strict(),
+  projectMappings: z.array(teamBlueprintCanonicalAbsorptionProjectMappingSchema).min(1).max(20),
+  warnings: z.array(z.string().trim().min(1).max(500)).max(20),
+}).strict();
+
 export const teamBlueprintCatalogViewSchema = z.object({
   companyId: z.string().uuid(),
   blueprints: z.array(teamBlueprintSchema).min(1).max(20),
+  canonicalAbsorptionPrep: teamBlueprintCanonicalAbsorptionPrepSchema.nullable(),
 }).strict();
 
 export const teamBlueprintPreviewRequestSchema = z.object({

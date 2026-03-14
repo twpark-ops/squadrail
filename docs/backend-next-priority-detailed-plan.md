@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `Phase 6 onboarding / Company Settings 재편 + swiftsight canonical absorption follow-through`다.
+> 현재 다음 순차 작업은 `Phase 7 bounded autonomy E2E kickoff`다.
 
 ## 목적
 
@@ -88,18 +88,29 @@
 
 ### New Immediate Next Slice
 
-1. `Phase 6 onboarding / Company Settings reframe kickoff`
-   - onboarding flow를 `회사 생성 -> blueprint 선택 -> workspace 연결 -> 첫 quick request` 기준으로 재배치
-   - Company Settings에서 role-pack studio보다 team builder가 먼저 보이게 hierarchy 재정렬
-2. `swiftsight canonical absorption follow-through`
+1. `Phase 6 onboarding kickoff`: 완료
+   - onboarding flow를 `회사 생성 -> blueprint 선택/preview/apply -> workspace 연결 -> 첫 quick request` 기준으로 재배치
+   - 기존 `CEO 생성 -> 첫 일반 이슈 생성` path를 제거
+   - browser smoke에서 onboarding -> blueprint selection 흐름을 고정
+2. `Company Settings hierarchy reframe`: 완료
+   - Company Settings에서 role-pack studio보다 team builder가 먼저 보이게 hierarchy를 재정렬
+3. `swiftsight canonical absorption follow-through`: 완료
    - absorption prep metadata를 실제 generic blueprint apply onboarding 흐름과 연결
    - canonical-only specialization gap을 company guidance/warning으로 정리
-3. `Focused validation`
+4. `Focused validation`: 완료
    - onboarding/company settings UI build + route/service regression
+   - browser smoke에서 onboarding full happy path와 Company Settings preview/apply confirmation gate를 고정
+5. `Server test memory profile`: 완료
+   - 기본 test는 `maxWorkers=2`
+   - 무거운 integration test는 `fileParallelism=false`
+   - coverage는 별도 config로만 실행
 
 ### Follow-up Slices
 
 4. `Bounded autonomy E2E`
+   - structured-but-short request invariant 정의
+   - clarification ask/answer 포함 상위 burn-in 추가
+   - 기존 deterministic kernel burn-in과 역할 분리
 
 ## 2026-03-13 coverage threshold push
 

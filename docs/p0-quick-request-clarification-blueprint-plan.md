@@ -32,11 +32,11 @@
 
 아직 부족한 것:
 
-- quick request는 기본 입력 경로가 됐지만 onboarding/company-wide first path까지는 아직 올라오지 않음
-- clarification loop는 공식 answer path와 shared pending contract까지 닫혔지만, Company Settings/onboarding consumption이 아직 없다
-- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings operator surface까지는 올라왔지만, onboarding first path와 canonical 완전 흡수는 아직 남아 있다
-- 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings apply flow까지 올라왔지만, onboarding first path 재편은 아직 없다
-- onboarding / company settings가 위 흐름 기준으로 재편되지 않음
+- quick request는 기본 입력 경로이자 onboarding first path까지 올라왔지만, 상위 autonomy E2E는 아직 없다
+- clarification loop는 공식 answer path와 shared pending contract까지 닫혔고 operator surface도 올라왔지만, 질문 정책 기반 상위 시나리오 검증은 아직 없다
+- `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings/onboarding consumption까지 올라왔지만, legacy canonical을 완전히 registry 중심으로 흡수하는 마이그레이션은 아직 남아 있다
+- 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings/onboarding flow까지 올라왔지만, 회사 간 portability/import-export와 parameter editing은 아직 없다
+- 다음 immediate next는 `Phase 7 bounded autonomy E2E`다
 
 ### 구현 체크포인트 2026-03-13
 
@@ -72,6 +72,17 @@
   - apply 성공 후 `setup/doctor/agent/project/orgSync/knowledgeSetup/activity/sidebar badges` invalidate와 success toast를 연결했다.
   - `swiftsight-org-canonical`에 generic blueprint parameter-map 흡수 준비 메타를 추가했다.
   - 남은 immediate next는 `Phase 6 onboarding / company settings reframe + swiftsight absorption follow-through`다.
+- `Phase 6` 1차 구현 완료
+  - `OnboardingWizard`를 `회사 생성 -> blueprint 선택/preview/apply -> workspace 연결 -> 첫 quick request` 흐름으로 재편했다.
+  - 기존 `CEO 생성 -> 첫 일반 이슈 생성` onboarding path를 제거했다.
+  - browser smoke에서 onboarding이 blueprint 선택 단계까지 실제로 열리는지 고정했다.
+- `Phase 6` 2차 구현 완료
+  - `CompanySettings` hierarchy를 role-pack studio보다 team builder / blueprint / apply가 먼저 보이도록 재정렬했다.
+  - `swiftsight` canonical absorption prep metadata를 onboarding / Company Settings preview guidance에서 실제로 소비하게 연결했다.
+  - browser smoke에서 `onboarding company -> blueprint preview/apply -> workspace -> quick request` happy path와 `Company Settings preview/apply confirmation gate`를 끝까지 고정했다.
+  - server test는 메모리 절약형 기본 실행으로 재구성했다.
+    - `pnpm --filter @squadrail/server test` = `test:base(maxWorkers=2) + test:heavy(fileParallelism=false)`
+    - `pnpm --filter @squadrail/server test:coverage` = 필요할 때만 별도 실행
 
 ## 4. 제품 계약
 
@@ -356,7 +367,7 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - preview/apply route tests
 - company setup invalidation regression
 
-## Phase 6. Onboarding / Company Settings 재편 [다음 시작점]
+## Phase 6. Onboarding / Company Settings 재편 [완료]
 
 ### 목표
 
@@ -384,11 +395,16 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - 새 회사 생성 후 “첫 팀 구성”이 명확한 기본 경로를 가진다
 - role-pack/custom-role는 secondary admin surface로 남는다
 - first quick request까지 이어지는 path가 단일 흐름으로 보인다
+- onboarding이 `회사 -> blueprint -> workspace -> quick request`를 실제로 보여준다
+- Company Settings가 `team builder -> blueprint preview/apply -> setup readiness` 중심 hierarchy를 가진다
+- canonical absorption guidance가 onboarding / Company Settings에서 실제 preview request로 연결된다
 
 ### 테스트
 
 - onboarding UI flow tests
 - company settings team builder mutation tests
+- browser smoke onboarding regression
+- browser smoke company settings preview/apply confirmation regression
 
 ## Phase 7. Bounded Autonomy E2E
 
@@ -436,8 +452,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. `Company Settings`에서 preview -> apply로 이어지는 operator flow를 시작한다
-2. apply 후 setup/doctor/agent/project invalidate와 success trace를 연결한다
-3. 마지막에 `swiftsight canonical` metadata를 generic blueprint parameter map으로 흡수할 준비를 한다
+1. `Phase 7 bounded autonomy E2E` kickoff
+2. structured-but-short request invariant 정의
+3. clarification ask/answer 포함 상위 burn-in 추가
 
-즉 다음 배치는 `Phase 5 Company Settings apply flow`다.
+즉 다음 배치는 `Phase 7 bounded autonomy E2E`다.

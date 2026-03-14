@@ -30,6 +30,7 @@ import {
   type TeamBlueprint,
   type TeamBlueprintApplyResult,
   type TeamBlueprintKey,
+  type TeamBlueprintPreviewRequest,
   type TeamBlueprintPreviewResult,
   type RolePackWithLatestRevision,
   type WorkflowTemplate,
@@ -263,18 +264,26 @@ export function CompanySettings() {
   }, [selectedCompanyId]);
 
   useEffect(() => {
-    const firstBlueprint = teamBlueprintCatalog?.blueprints[0]?.key ?? null;
+    const catalogBlueprints = teamBlueprintCatalog?.blueprints ?? [];
+    const canonicalFirstBlueprint =
+      teamBlueprintCatalog?.canonicalAbsorptionPrep
+        ? catalogBlueprints.find(
+            (blueprint) =>
+              blueprint.key === teamBlueprintCatalog.canonicalAbsorptionPrep?.blueprintKey,
+          )?.key ?? null
+        : null;
+    const firstBlueprint = canonicalFirstBlueprint ?? catalogBlueprints[0]?.key ?? null;
     if (!selectedTeamBlueprintKey && firstBlueprint) {
       setSelectedTeamBlueprintKey(firstBlueprint);
       return;
     }
     if (
       selectedTeamBlueprintKey
-      && !teamBlueprintCatalog?.blueprints.some((blueprint) => blueprint.key === selectedTeamBlueprintKey)
+      && !catalogBlueprints.some((blueprint) => blueprint.key === selectedTeamBlueprintKey)
     ) {
       setSelectedTeamBlueprintKey(firstBlueprint);
     }
-  }, [selectedTeamBlueprintKey, teamBlueprintCatalog?.blueprints]);
+  }, [selectedTeamBlueprintKey, teamBlueprintCatalog]);
 
   useEffect(() => {
     setConfirmTeamBlueprintApply(false);
@@ -568,8 +577,12 @@ export function CompanySettings() {
   });
 
   const teamBlueprintPreviewMutation = useMutation({
-    mutationFn: async ({ companyId, blueprintKey }: { companyId: string; blueprintKey: TeamBlueprintKey }) =>
-      companiesApi.previewTeamBlueprint(companyId, blueprintKey),
+    mutationFn: async (input: {
+      companyId: string;
+      blueprintKey: TeamBlueprintKey;
+      request?: TeamBlueprintPreviewRequest;
+    }) =>
+      companiesApi.previewTeamBlueprint(input.companyId, input.blueprintKey, input.request),
     onSuccess: (preview) => {
       setSelectedTeamBlueprintKey(preview.blueprint.key);
       setTeamBlueprintPreview(preview);
@@ -822,9 +835,14 @@ export function CompanySettings() {
     ? activeDoctorReport.checks.filter((check) => check.status === "fail").length
     : 0;
   const teamBlueprints = teamBlueprintCatalog?.blueprints ?? [];
+  const canonicalAbsorptionPrep = teamBlueprintCatalog?.canonicalAbsorptionPrep ?? null;
   const selectedTeamBlueprint: TeamBlueprint | null = selectedTeamBlueprintKey
     ? teamBlueprints.find((blueprint) => blueprint.key === selectedTeamBlueprintKey) ?? null
     : teamBlueprints[0] ?? null;
+  const selectedTeamBlueprintPreviewRequest =
+    canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey
+      ? canonicalAbsorptionPrep.previewRequest
+      : undefined;
   const selectedTeamBlueprintPreview =
     teamBlueprintPreview && selectedTeamBlueprint && teamBlueprintPreview.blueprint.key === selectedTeamBlueprint.key
       ? teamBlueprintPreview
@@ -932,299 +950,18 @@ export function CompanySettings() {
     });
   }
 
-  function handleCreateWorkflowTemplate() {
-    const template = createWorkflowTemplateDraft(newWorkflowTemplateAction);
-    const nextCompanyTemplates = [...companyWorkflowTemplates, template];
-    setSelectedWorkflowTemplateId(template.id);
-    setWorkflowTemplateLabel(template.label);
-    setWorkflowTemplateDescription(template.description ?? "");
-    setWorkflowTemplateSummary(template.summary ?? "");
-    setWorkflowTemplateFieldsText(stringifyWorkflowTemplateFields(template.fields));
-    workflowTemplatesMutation.mutate(nextCompanyTemplates);
-  }
-
-  function handleSaveWorkflowTemplate() {
-    if (!selectedWorkflowTemplate || !workflowTemplateFieldsParse.fields) return;
-    const nextTemplate: WorkflowTemplate = {
-      id: selectedWorkflowTemplate.scope === "company"
-        ? selectedWorkflowTemplate.id
-        : `company-${selectedWorkflowTemplate.actionType.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}`,
-      actionType: selectedWorkflowTemplate.actionType,
-      label: workflowTemplateLabel.trim(),
-      description: workflowTemplateDescription.trim() || null,
-      summary: workflowTemplateSummary.trim() || null,
-      fields: workflowTemplateFieldsParse.fields,
-      scope: "company",
-    };
-    const withoutCurrent = companyWorkflowTemplates.filter((template) => template.id !== nextTemplate.id);
-    const nextCompanyTemplates = [...withoutCurrent, nextTemplate];
-    setSelectedWorkflowTemplateId(nextTemplate.id);
-    workflowTemplatesMutation.mutate(nextCompanyTemplates);
-  }
-
-  function handleDeleteWorkflowTemplate() {
-    if (!selectedWorkflowTemplate || selectedWorkflowTemplate.scope !== "company") return;
-    const nextCompanyTemplates = companyWorkflowTemplates.filter((template) => template.id !== selectedWorkflowTemplate.id);
-    setSelectedWorkflowTemplateId(nextCompanyTemplates[0]?.id ?? workflowTemplates.find((template) => template.scope === "default")?.id ?? null);
-    workflowTemplatesMutation.mutate(nextCompanyTemplates);
-  }
-
-  return (
-    <div className="max-w-5xl space-y-8">
-      <HeroSection
-        title="Company Settings"
-        subtitle="Tune setup readiness, role packs, retrieval policy, and operating defaults without leaving the company workspace."
-        eyebrow={selectedCompany.name}
-        actions={
-          <div className="flex items-center gap-3">
-            <div className="rounded-[1rem] border border-border/80 bg-background/80 p-1.5">
-              <CompanyPatternIcon
-                companyName={companyName || selectedCompany.name}
-                brandColor={brandColor || null}
-                className="h-10 w-10 rounded-[0.9rem]"
-              />
-            </div>
-          </div>
-        }
-      />
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SupportMetricCard
-          icon={Settings}
-          label="Setup progress"
-          value={readinessTotalSteps > 0 ? `${readinessStepCount}/${readinessTotalSteps}` : "0/0"}
-          detail="Completed setup checkpoints for this company workspace."
-          tone="accent"
-        />
-        <SupportMetricCard
-          icon={SearchCheck}
-          label="Doctor failures"
-          value={doctorFailCount}
-          detail="Doctor checks currently failing in the latest visible report."
-          tone={doctorFailCount > 0 ? "warning" : "default"}
-        />
-        <SupportMetricCard
-          icon={Layers3}
-          label="Role packs"
-          value={rolePacks.length}
-          detail="Configured role pack sets available for this company."
-        />
-        <SupportMetricCard
-          icon={ShieldCheck}
-          label="Retrieval policies"
-          value={retrievalPolicies.length}
-          detail="Knowledge retrieval rules currently scoped to this company."
-        />
-      </div>
-
-      {/* General */}
+  function renderTeamBuilderSection() {
+    return (
       <div className="space-y-4">
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          General
-        </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
-          <Field label="Company name" hint="The display name for your company.">
-            <input
-              className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
-              type="text"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-            />
-          </Field>
-          <Field label="Description" hint="Optional description shown in the company profile.">
-            <input
-              className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
-              type="text"
-              value={description}
-              placeholder="Optional company description"
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </Field>
-        </div>
-      </div>
-
-      {/* Appearance */}
-      <div className="space-y-4">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Appearance
-        </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
-          <div className="flex items-start gap-4">
-            <div className="shrink-0">
-              <CompanyPatternIcon
-                companyName={companyName || selectedCompany.name}
-                brandColor={brandColor || null}
-                className="rounded-[14px]"
-              />
-            </div>
-            <div className="flex-1 space-y-2">
-              <Field label="Brand color" hint="Sets the hue for the company icon. Leave empty for auto-generated color.">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={brandColor || "#6366f1"}
-                    onChange={(e) => setBrandColor(e.target.value)}
-                    className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0"
-                  />
-                  <input
-                    type="text"
-                    value={brandColor}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "" || /^#[0-9a-fA-F]{0,6}$/.test(v)) {
-                        setBrandColor(v);
-                      }
-                    }}
-                    placeholder="Auto"
-                    className="w-28 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm font-mono outline-none"
-                  />
-                  {brandColor && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setBrandColor("")}
-                      className="text-xs text-muted-foreground"
-                    >
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              </Field>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Save button for General + Appearance */}
-      {generalDirty && (
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={handleSaveGeneral}
-            disabled={generalMutation.isPending || !companyName.trim()}
-          >
-            {generalMutation.isPending ? "Saving..." : "Save changes"}
-          </Button>
-          {generalMutation.isSuccess && (
-            <span className="text-xs text-muted-foreground">Saved</span>
-          )}
-          {generalMutation.isError && (
-            <span className="text-xs text-destructive">
-              {generalMutation.error instanceof Error
-                ? generalMutation.error.message
-                : "Failed to save"}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Hiring */}
-      <div className="space-y-4">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Hiring
-        </div>
-        <div className="rounded-md border border-border px-4 py-3">
-          <ToggleField
-            label="Require board approval for new hires"
-            hint="New agent hires stay pending until approved by board."
-            checked={!!selectedCompany.requireBoardApprovalForNewAgents}
-            onChange={(v) => settingsMutation.mutate(v)}
-          />
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Setup Readiness
-        </div>
-        <div className="space-y-4 rounded-md border border-border px-4 py-4">
-          <div className="grid gap-2 md:grid-cols-3">
-            {setupProgress && Object.entries(setupProgress.steps).map(([key, done]) => (
-              <div
-                key={key}
-                className={`rounded-md border px-3 py-2 text-xs ${done ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-border bg-muted/30 text-muted-foreground"}`}
-              >
-                <div className="font-medium">{formatSetupStepLabel(key)}</div>
-                <div>{done ? "Ready" : "Pending"}</div>
-              </div>
-            ))}
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Execution engine" hint="Squadrail is being narrowed to Claude Code and Codex.">
-              <select
-                className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
-                value={setupEngine}
-                onChange={(event) => setSetupEngine(event.target.value)}
-              >
-                <option value="">Select an engine</option>
-                {ENGINE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Primary workspace" hint="Used by import, retrieval bootstrap, and doctor checks.">
-              <select
-                className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
-                value={setupWorkspaceId}
-                onChange={(event) => setSetupWorkspaceId(event.target.value)}
-              >
-                <option value="">Select a workspace</option>
-                {workspaces.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.projectName} / {workspace.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              onClick={() => setupMutation.mutate()}
-              disabled={!setupDirty || setupMutation.isPending}
-            >
-              {setupMutation.isPending ? "Saving..." : "Save setup"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => refetchDoctor()}
-              disabled={doctorFetching}
-            >
-              {doctorFetching ? "Refreshing..." : "Refresh doctor"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => deepDoctorMutation.mutate()}
-              disabled={deepDoctorMutation.isPending || !setupEngine}
-            >
-              {deepDoctorMutation.isPending ? "Running deep check..." : "Run deep check"}
-            </Button>
-            {setupProgress && (
-              <span className="text-xs text-muted-foreground">
-                Current status: <span className="font-medium text-foreground">{setupProgress.status}</span>
-              </span>
-            )}
-          </div>
-          {setupMutation.isError && (
-            <p className="text-sm text-destructive">
-              {setupMutation.error instanceof Error ? setupMutation.error.message : "Failed to save setup"}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Team Blueprints
+          Team Builder
         </div>
         <div className="space-y-4 rounded-md border border-border px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
               <div className="text-sm font-semibold">Reusable delivery team starting points</div>
               <p className="text-xs text-muted-foreground">
-                Preview and apply a reusable delivery team shape to this company with explicit diff confirmation.
+                Start here: pick the team shape, review the diff, and apply it before runtime setup or role-pack tuning.
               </p>
             </div>
             <Button
@@ -1236,12 +973,35 @@ export function CompanySettings() {
                 teamBlueprintPreviewMutation.mutate({
                   companyId: selectedCompanyId,
                   blueprintKey: selectedTeamBlueprint.key,
+                  request: selectedTeamBlueprintPreviewRequest,
                 });
               }}
             >
-              {teamBlueprintPreviewMutation.isPending ? "Generating preview..." : "Preview team plan"}
+              {teamBlueprintPreviewMutation.isPending
+                ? "Generating preview..."
+                : canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey
+                  ? "Preview recommended mapping"
+                  : "Preview team plan"}
             </Button>
           </div>
+
+          {canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey && (
+            <div className="rounded-md border border-sky-300 bg-sky-50 px-3 py-3">
+              <div className="text-sm font-semibold text-sky-900">Canonical absorption guidance</div>
+              <p className="mt-1 text-xs text-sky-800">
+                This company matches the legacy Swiftsight canonical org. Preview will automatically use the recommended
+                expansion: {canonicalAbsorptionPrep.previewRequest.projectCount ?? 0} project slot(s),{" "}
+                {canonicalAbsorptionPrep.previewRequest.engineerPairsPerProject ?? 0} engineer pair(s) per project.
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-sky-800">
+                {canonicalAbsorptionPrep.projectMappings.map((mapping) => (
+                  <li key={mapping.canonicalProjectSlug}>
+                    • {mapping.canonicalProjectName} → {mapping.blueprintSlotKey}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {teamBlueprints.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
@@ -1273,6 +1033,11 @@ export function CompanySettings() {
                         <span className="rounded-full border border-border px-2 py-0.5">
                           {blueprint.roles.length} role template(s)
                         </span>
+                        {canonicalAbsorptionPrep?.blueprintKey === blueprint.key && (
+                          <span className="rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-sky-800">
+                            canonical guidance
+                          </span>
+                        )}
                       </div>
                     </button>
                   );
@@ -1511,6 +1276,293 @@ export function CompanySettings() {
                 </div>
               )}
             </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function handleCreateWorkflowTemplate() {
+    const template = createWorkflowTemplateDraft(newWorkflowTemplateAction);
+    const nextCompanyTemplates = [...companyWorkflowTemplates, template];
+    setSelectedWorkflowTemplateId(template.id);
+    setWorkflowTemplateLabel(template.label);
+    setWorkflowTemplateDescription(template.description ?? "");
+    setWorkflowTemplateSummary(template.summary ?? "");
+    setWorkflowTemplateFieldsText(stringifyWorkflowTemplateFields(template.fields));
+    workflowTemplatesMutation.mutate(nextCompanyTemplates);
+  }
+
+  function handleSaveWorkflowTemplate() {
+    if (!selectedWorkflowTemplate || !workflowTemplateFieldsParse.fields) return;
+    const nextTemplate: WorkflowTemplate = {
+      id: selectedWorkflowTemplate.scope === "company"
+        ? selectedWorkflowTemplate.id
+        : `company-${selectedWorkflowTemplate.actionType.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}`,
+      actionType: selectedWorkflowTemplate.actionType,
+      label: workflowTemplateLabel.trim(),
+      description: workflowTemplateDescription.trim() || null,
+      summary: workflowTemplateSummary.trim() || null,
+      fields: workflowTemplateFieldsParse.fields,
+      scope: "company",
+    };
+    const withoutCurrent = companyWorkflowTemplates.filter((template) => template.id !== nextTemplate.id);
+    const nextCompanyTemplates = [...withoutCurrent, nextTemplate];
+    setSelectedWorkflowTemplateId(nextTemplate.id);
+    workflowTemplatesMutation.mutate(nextCompanyTemplates);
+  }
+
+  function handleDeleteWorkflowTemplate() {
+    if (!selectedWorkflowTemplate || selectedWorkflowTemplate.scope !== "company") return;
+    const nextCompanyTemplates = companyWorkflowTemplates.filter((template) => template.id !== selectedWorkflowTemplate.id);
+    setSelectedWorkflowTemplateId(nextCompanyTemplates[0]?.id ?? workflowTemplates.find((template) => template.scope === "default")?.id ?? null);
+    workflowTemplatesMutation.mutate(nextCompanyTemplates);
+  }
+
+  return (
+    <div className="max-w-5xl space-y-8">
+      <HeroSection
+        title="Company Settings"
+        subtitle="Tune setup readiness, role packs, retrieval policy, and operating defaults without leaving the company workspace."
+        eyebrow={selectedCompany.name}
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="rounded-[1rem] border border-border/80 bg-background/80 p-1.5">
+              <CompanyPatternIcon
+                companyName={companyName || selectedCompany.name}
+                brandColor={brandColor || null}
+                className="h-10 w-10 rounded-[0.9rem]"
+              />
+            </div>
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SupportMetricCard
+          icon={Settings}
+          label="Setup progress"
+          value={readinessTotalSteps > 0 ? `${readinessStepCount}/${readinessTotalSteps}` : "0/0"}
+          detail="Completed setup checkpoints for this company workspace."
+          tone="accent"
+        />
+        <SupportMetricCard
+          icon={SearchCheck}
+          label="Doctor failures"
+          value={doctorFailCount}
+          detail="Doctor checks currently failing in the latest visible report."
+          tone={doctorFailCount > 0 ? "warning" : "default"}
+        />
+        <SupportMetricCard
+          icon={Layers3}
+          label="Role packs"
+          value={rolePacks.length}
+          detail="Configured role pack sets available for this company."
+        />
+        <SupportMetricCard
+          icon={ShieldCheck}
+          label="Retrieval policies"
+          value={retrievalPolicies.length}
+          detail="Knowledge retrieval rules currently scoped to this company."
+        />
+      </div>
+
+      {/* General */}
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          General
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <Field label="Company name" hint="The display name for your company.">
+            <input
+              className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+            />
+          </Field>
+          <Field label="Description" hint="Optional description shown in the company profile.">
+            <input
+              className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+              type="text"
+              value={description}
+              placeholder="Optional company description"
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </Field>
+        </div>
+      </div>
+
+      {/* Appearance */}
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Appearance
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <div className="flex items-start gap-4">
+            <div className="shrink-0">
+              <CompanyPatternIcon
+                companyName={companyName || selectedCompany.name}
+                brandColor={brandColor || null}
+                className="rounded-[14px]"
+              />
+            </div>
+            <div className="flex-1 space-y-2">
+              <Field label="Brand color" hint="Sets the hue for the company icon. Leave empty for auto-generated color.">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={brandColor || "#6366f1"}
+                    onChange={(e) => setBrandColor(e.target.value)}
+                    className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0"
+                  />
+                  <input
+                    type="text"
+                    value={brandColor}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "" || /^#[0-9a-fA-F]{0,6}$/.test(v)) {
+                        setBrandColor(v);
+                      }
+                    }}
+                    placeholder="Auto"
+                    className="w-28 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm font-mono outline-none"
+                  />
+                  {brandColor && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setBrandColor("")}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </Field>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Save button for General + Appearance */}
+      {generalDirty && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleSaveGeneral}
+            disabled={generalMutation.isPending || !companyName.trim()}
+          >
+            {generalMutation.isPending ? "Saving..." : "Save changes"}
+          </Button>
+          {generalMutation.isSuccess && (
+            <span className="text-xs text-muted-foreground">Saved</span>
+          )}
+          {generalMutation.isError && (
+            <span className="text-xs text-destructive">
+              {generalMutation.error instanceof Error
+                ? generalMutation.error.message
+                : "Failed to save"}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Hiring */}
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Hiring
+        </div>
+        <div className="rounded-md border border-border px-4 py-3">
+          <ToggleField
+            label="Require board approval for new hires"
+            hint="New agent hires stay pending until approved by board."
+            checked={!!selectedCompany.requireBoardApprovalForNewAgents}
+            onChange={(v) => settingsMutation.mutate(v)}
+          />
+        </div>
+      </div>
+
+      {renderTeamBuilderSection()}
+
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Setup Readiness
+        </div>
+        <div className="space-y-4 rounded-md border border-border px-4 py-4">
+          <div className="grid gap-2 md:grid-cols-3">
+            {setupProgress && Object.entries(setupProgress.steps).map(([key, done]) => (
+              <div
+                key={key}
+                className={`rounded-md border px-3 py-2 text-xs ${done ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-border bg-muted/30 text-muted-foreground"}`}
+              >
+                <div className="font-medium">{formatSetupStepLabel(key)}</div>
+                <div>{done ? "Ready" : "Pending"}</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Execution engine" hint="Squadrail is being narrowed to Claude Code and Codex.">
+              <select
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                value={setupEngine}
+                onChange={(event) => setSetupEngine(event.target.value)}
+              >
+                <option value="">Select an engine</option>
+                {ENGINE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Primary workspace" hint="Used by import, retrieval bootstrap, and doctor checks.">
+              <select
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-2 text-sm outline-none"
+                value={setupWorkspaceId}
+                onChange={(event) => setSetupWorkspaceId(event.target.value)}
+              >
+                <option value="">Select a workspace</option>
+                {workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.projectName} / {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => setupMutation.mutate()}
+              disabled={!setupDirty || setupMutation.isPending}
+            >
+              {setupMutation.isPending ? "Saving..." : "Save setup"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetchDoctor()}
+              disabled={doctorFetching}
+            >
+              {doctorFetching ? "Refreshing..." : "Refresh doctor"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => deepDoctorMutation.mutate()}
+              disabled={deepDoctorMutation.isPending || !setupEngine}
+            >
+              {deepDoctorMutation.isPending ? "Running deep check..." : "Run deep check"}
+            </Button>
+            {setupProgress && (
+              <span className="text-xs text-muted-foreground">
+                Current status: <span className="font-medium text-foreground">{setupProgress.status}</span>
+              </span>
+            )}
+          </div>
+          {setupMutation.isError && (
+            <p className="text-sm text-destructive">
+              {setupMutation.error instanceof Error ? setupMutation.error.message : "Failed to save setup"}
+            </p>
           )}
         </div>
       </div>

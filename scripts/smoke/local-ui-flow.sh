@@ -7,6 +7,7 @@ PORT="${PORT:-3311}"
 SQUADRAIL_HOME="${SQUADRAIL_HOME:-}"
 SMOKE_ENGINE="${SMOKE_ENGINE:-codex_local}"
 SMOKE_PRESET_KEY="${SMOKE_PRESET_KEY:-squadrail_default_v1}"
+RESET_SMOKE_HOME="${RESET_SMOKE_HOME:-true}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,6 +42,19 @@ if [[ -z "$SQUADRAIL_HOME" ]]; then
   SQUADRAIL_HOME="$(mktemp -d /tmp/squadrail-smoke-ui.XXXXXX)"
 fi
 
+if [[ -d "$SQUADRAIL_HOME" && "$RESET_SMOKE_HOME" == "true" ]]; then
+  case "$SQUADRAIL_HOME" in
+    /tmp/squadrail-*|/var/tmp/squadrail-*)
+      rm -rf "$SQUADRAIL_HOME"
+      ;;
+    *)
+      echo "refusing to reset non-smoke directory: $SQUADRAIL_HOME" >&2
+      echo "set RESET_SMOKE_HOME=false to reuse an existing directory explicitly" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 BASE_URL="http://${HOST}:${PORT}"
 SERVER_LOG="${SERVER_LOG:-$SQUADRAIL_HOME/local-ui-flow.log}"
 SCREENSHOT_PATH="${SCREENSHOT_PATH:-$SQUADRAIL_HOME/local-ui-flow.png}"
@@ -54,6 +68,7 @@ RUNS_DOM_PATH="${RUNS_DOM_PATH:-$SQUADRAIL_HOME/runs.dom.html}"
 TEAM_DOM_PATH="${TEAM_DOM_PATH:-$SQUADRAIL_HOME/team.dom.html}"
 KNOWLEDGE_DOM_PATH="${KNOWLEDGE_DOM_PATH:-$SQUADRAIL_HOME/knowledge.dom.html}"
 CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-$SQUADRAIL_HOME/chrome-profile}"
+CHROME_DUMP_PROFILE_DIR="${CHROME_DUMP_PROFILE_DIR:-$SQUADRAIL_HOME/chrome-dump-profile}"
 RUN_SUPPORT_PLAYWRIGHT_SPEC="${RUN_SUPPORT_PLAYWRIGHT_SPEC:-false}"
 
 mkdir -p "$SQUADRAIL_HOME"
@@ -90,6 +105,29 @@ resolve_browser_bin() {
 CHROME_BIN="$(resolve_browser_bin)" || {
   echo "missing required browser command: google-chrome | chromium-browser | chromium" >&2
   exit 1
+}
+
+dump_dom_page() {
+  local url="$1"
+  local output_path="$2"
+  local attempt tmp
+
+  for attempt in 1 2; do
+    tmp="$(mktemp "${SQUADRAIL_HOME}/dump-dom.XXXXXX.html")"
+    if "$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_DUMP_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$url" >"$tmp" 2>/dev/null; then
+      mv "$tmp" "$output_path"
+      return 0
+    fi
+    if [[ -s "$tmp" ]]; then
+      mv "$tmp" "$output_path"
+      return 0
+    fi
+    rm -f "$tmp"
+    sleep 1
+  done
+
+  echo "failed to dump DOM for ${url}" >&2
+  return 1
 }
 
 cleanup() {
@@ -461,8 +499,7 @@ TEAM_URL="${BASE_URL}/${COMPANY_PREFIX}/team"
 KNOWLEDGE_URL="${BASE_URL}/${COMPANY_PREFIX}/knowledge"
 
 echo "==> verifying settings page"
-SETTINGS_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$SETTINGS_URL")"
-printf '%s' "$SETTINGS_DOM" >"$SETTINGS_DOM_PATH"
+dump_dom_page "$SETTINGS_URL" "$SETTINGS_DOM_PATH"
 grep -q "Role Studio" "$SETTINGS_DOM_PATH"
 grep -q "Side-by-side diff" "$SETTINGS_DOM_PATH"
 grep -q "Protocol integrity" "$SETTINGS_DOM_PATH"
@@ -477,13 +514,11 @@ if [[ "$RUN_SUPPORT_PLAYWRIGHT_SPEC" == "true" ]]; then
 fi
 
 echo "==> verifying work list page"
-WORK_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$WORK_URL")"
-printf '%s' "$WORK_DOM" >"$WORK_DOM_PATH"
+dump_dom_page "$WORK_URL" "$WORK_DOM_PATH"
 grep -q "Smoke protocol issue" "$WORK_DOM_PATH"
 
 echo "==> verifying work detail page"
-WORK_DETAIL_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$WORK_DETAIL_URL")"
-printf '%s' "$WORK_DETAIL_DOM" >"$WORK_DETAIL_DOM_PATH"
+dump_dom_page "$WORK_DETAIL_URL" "$WORK_DETAIL_DOM_PATH"
 grep -q "Smoke protocol issue" "$WORK_DETAIL_DOM_PATH"
 grep -q "Smoke Engineer" "$WORK_DETAIL_DOM_PATH"
 grep -q "GET /issues/${ISSUE_IDENTIFIER}/protocol/briefs 200" "$SERVER_LOG"
@@ -492,8 +527,7 @@ grep -q "GET /issues/${ISSUE_IDENTIFIER}/protocol/messages 200" "$SERVER_LOG"
 grep -q "GET /issues/${ISSUE_IDENTIFIER}/runs 200" "$SERVER_LOG"
 
 echo "==> verifying overview page"
-OVERVIEW_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$OVERVIEW_URL")"
-printf '%s' "$OVERVIEW_DOM" >"$OVERVIEW_DOM_PATH"
+dump_dom_page "$OVERVIEW_URL" "$OVERVIEW_DOM_PATH"
 grep -q "Execution queue" "$OVERVIEW_DOM_PATH"
 grep -q "Review backlog" "$OVERVIEW_DOM_PATH"
 grep -q "Live operations" "$OVERVIEW_DOM_PATH"
@@ -501,34 +535,29 @@ grep -q "Protocol queues" "$OVERVIEW_DOM_PATH"
 grep -q "Smoke protocol issue" "$OVERVIEW_DOM_PATH"
 
 echo "==> verifying changes page"
-CHANGES_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$CHANGES_URL")"
-printf '%s' "$CHANGES_DOM" >"$CHANGES_DOM_PATH"
+dump_dom_page "$CHANGES_URL" "$CHANGES_DOM_PATH"
 grep -q "Changes · Squadrail" "$CHANGES_DOM_PATH"
 grep -q "GET /companies/${COMPANY_ID}/dashboard/protocol-queue?limit=20 200" "$SERVER_LOG"
 
 echo "==> verifying change detail page"
-CHANGE_DETAIL_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$CHANGE_DETAIL_URL")"
-printf '%s' "$CHANGE_DETAIL_DOM" >"$CHANGE_DETAIL_DOM_PATH"
+dump_dom_page "$CHANGE_DETAIL_URL" "$CHANGE_DETAIL_DOM_PATH"
 grep -q "GET /issues/${ISSUE_IDENTIFIER}/change-surface 200" "$SERVER_LOG"
 grep -q "GET /issues/${ISSUE_IDENTIFIER}/protocol/messages 200" "$SERVER_LOG"
 
 echo "==> verifying runs page"
-RUNS_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$RUNS_URL")"
-printf '%s' "$RUNS_DOM" >"$RUNS_DOM_PATH"
+dump_dom_page "$RUNS_URL" "$RUNS_DOM_PATH"
 grep -q "Runs" "$RUNS_DOM_PATH"
 grep -q "Recovery Queue" "$RUNS_DOM_PATH"
 grep -q "Recent Heartbeats" "$RUNS_DOM_PATH"
 
 echo "==> verifying team page"
-TEAM_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$TEAM_URL")"
-printf '%s' "$TEAM_DOM" >"$TEAM_DOM_PATH"
+dump_dom_page "$TEAM_URL" "$TEAM_DOM_PATH"
 grep -q "Team" "$TEAM_DOM_PATH"
 grep -q "Operating Lanes" "$TEAM_DOM_PATH"
 grep -q "Execution Mix" "$TEAM_DOM_PATH"
 
 echo "==> verifying knowledge page"
-KNOWLEDGE_DOM="$("$CHROME_BIN" --headless=new --disable-gpu --user-data-dir="$CHROME_PROFILE_DIR" --virtual-time-budget=5000 --dump-dom "$KNOWLEDGE_URL")"
-printf '%s' "$KNOWLEDGE_DOM" >"$KNOWLEDGE_DOM_PATH"
+dump_dom_page "$KNOWLEDGE_URL" "$KNOWLEDGE_DOM_PATH"
 grep -q "Knowledge Base" "$KNOWLEDGE_DOM_PATH"
 grep -q "Retrieval posture" "$KNOWLEDGE_DOM_PATH"
 grep -q "Recent Retrieval Loops" "$KNOWLEDGE_DOM_PATH"

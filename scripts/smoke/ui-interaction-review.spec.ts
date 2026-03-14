@@ -306,7 +306,19 @@ test("add company onboarding opens and closes with updated shell", async ({
     page.getByText("Company identity", { exact: true })
   ).toBeVisible();
   await expect(
-    page.getByText("What gets created now", { exact: true })
+    page.getByText("What this flow will do", { exact: true })
+  ).toBeVisible();
+
+  await page.getByLabel("Company name").fill("UI Review Org");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Select the starting team blueprint",
+      exact: true,
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Preview blueprint", exact: true })
   ).toBeVisible();
 
   await page.screenshot({

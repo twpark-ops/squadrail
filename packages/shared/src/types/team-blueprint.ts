@@ -46,6 +46,23 @@ export interface TeamBlueprintReadiness {
   recommendedFirstQuickRequest: string;
 }
 
+export interface TeamBlueprintCanonicalAbsorptionProjectMapping {
+  canonicalProjectSlug: string;
+  canonicalProjectName: string;
+  blueprintSlotKey: string;
+  blueprintTemplateKey: string;
+  expectedLeadRoleKey: string | null;
+}
+
+export interface TeamBlueprintCanonicalAbsorptionPrep {
+  canonicalTemplateKey: string;
+  canonicalVersion: string;
+  blueprintKey: TeamBlueprintKey;
+  previewRequest: TeamBlueprintPreviewRequest;
+  projectMappings: TeamBlueprintCanonicalAbsorptionProjectMapping[];
+  warnings: string[];
+}
+
 export interface TeamBlueprint {
   key: TeamBlueprintKey;
   label: string;
@@ -60,6 +77,7 @@ export interface TeamBlueprint {
 export interface TeamBlueprintCatalogView {
   companyId: string;
   blueprints: TeamBlueprint[];
+  canonicalAbsorptionPrep: TeamBlueprintCanonicalAbsorptionPrep | null;
 }
 
 export interface TeamBlueprintPreviewRequest {
