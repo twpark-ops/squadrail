@@ -1,4 +1,4 @@
-import { eq, count } from "drizzle-orm";
+import { eq, count, like, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import {
   companies,
@@ -62,36 +62,36 @@ export function companyService(db: Db) {
     return "A".repeat(attempt - 1);
   }
 
-  function isIssuePrefixConflict(error: unknown) {
-    const constraint = typeof error === "object" && error !== null && "constraint" in error
-      ? (error as { constraint?: string }).constraint
-      : typeof error === "object" && error !== null && "constraint_name" in error
-        ? (error as { constraint_name?: string }).constraint_name
-        : undefined;
-    return typeof error === "object"
-      && error !== null
-      && "code" in error
-      && (error as { code?: string }).code === "23505"
-      && constraint === "companies_issue_prefix_idx";
+  async function allocateIssuePrefix(base: string) {
+    // Serialize allocation per base prefix so company creation remains safe inside
+    // the request-scoped transaction used by the API.
+    await db.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`companies.issue_prefix.${base}`}))`,
+    );
+
+    const rows = await db
+      .select({ issuePrefix: companies.issuePrefix })
+      .from(companies)
+      .where(like(companies.issuePrefix, `${base}%`));
+
+    const pattern = new RegExp(`^${base}A*$`);
+    let maxSuffixLength = -1;
+    for (const row of rows) {
+      if (!pattern.test(row.issuePrefix)) continue;
+      maxSuffixLength = Math.max(maxSuffixLength, row.issuePrefix.length - base.length);
+    }
+
+    return `${base}${suffixForAttempt(maxSuffixLength + 2)}`;
   }
 
   async function createCompanyWithUniquePrefix(data: typeof companies.$inferInsert) {
     const base = deriveIssuePrefixBase(data.name);
-    let suffix = 1;
-    while (suffix < 10000) {
-      const candidate = `${base}${suffixForAttempt(suffix)}`;
-      try {
-        const rows = await db
-          .insert(companies)
-          .values({ ...data, issuePrefix: candidate })
-          .returning();
-        return rows[0];
-      } catch (error) {
-        if (!isIssuePrefixConflict(error)) throw error;
-      }
-      suffix += 1;
-    }
-    throw new Error("Unable to allocate unique issue prefix");
+    const candidate = await allocateIssuePrefix(base);
+    const rows = await db
+      .insert(companies)
+      .values({ ...data, issuePrefix: candidate })
+      .returning();
+    return rows[0];
   }
 
   return {

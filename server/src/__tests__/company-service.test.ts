@@ -76,6 +76,7 @@ function createCompanyDbMock(input: {
 
   const db = {
     select: () => createResolvedChain(selectQueue.shift() ?? []),
+    execute: async () => [],
     insert: (table: unknown) => ({
       values: (value: unknown) => {
         insertValues.push({ table, value });
@@ -116,20 +117,17 @@ function createCompanyDbMock(input: {
 }
 
 describe("company service", () => {
-  it("retries issue prefix allocation when the first prefix collides", async () => {
-    const duplicatePrefixError = Object.assign(new Error("duplicate key"), {
-      code: "23505",
-      constraint: "companies_issue_prefix_idx",
-    });
+  it("allocates the next available issue prefix without relying on conflict retries", async () => {
     const { db, insertValues } = createCompanyDbMock({
-      insertResults: [
-        duplicatePrefixError,
-        [{
-          id: "company-1",
-          name: "Acme Labs",
-          issuePrefix: "ACMA",
-        }],
-      ],
+      selectResults: [[
+        { issuePrefix: "ACM" },
+        { issuePrefix: "ACMA" },
+      ]],
+      insertResults: [[{
+        id: "company-1",
+        name: "Acme Labs",
+        issuePrefix: "ACMAA",
+      }]],
     });
     const service = companyService(db as never);
 
@@ -141,21 +139,14 @@ describe("company service", () => {
 
     expect(created).toMatchObject({
       id: "company-1",
-      issuePrefix: "ACMA",
+      issuePrefix: "ACMAA",
     });
     expect(insertValues).toEqual([
       {
         table: companies,
         value: expect.objectContaining({
           name: "Acme Labs",
-          issuePrefix: "ACM",
-        }),
-      },
-      {
-        table: companies,
-        value: expect.objectContaining({
-          name: "Acme Labs",
-          issuePrefix: "ACMA",
+          issuePrefix: "ACMAA",
         }),
       },
     ]);
