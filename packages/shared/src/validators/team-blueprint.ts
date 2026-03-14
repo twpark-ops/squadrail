@@ -48,6 +48,14 @@ export const teamBlueprintReadinessSchema = z.object({
   recommendedFirstQuickRequest: z.string().trim().min(1).max(2_000),
 }).strict();
 
+export const teamBlueprintPortabilitySchema = z.object({
+  companyAgnostic: z.boolean(),
+  workspaceModel: z.enum(["single_workspace", "per_project"]),
+  knowledgeModel: z.enum(["optional", "recommended", "required"]),
+  migrationHelperKeys: z.array(blueprintKeySchema).max(20),
+  notes: z.array(z.string().trim().min(1).max(500)).max(20),
+}).strict();
+
 export const teamBlueprintSchema = z.object({
   key: z.enum(TEAM_BLUEPRINT_KEYS),
   label: z.string().trim().min(1).max(160),
@@ -57,6 +65,7 @@ export const teamBlueprintSchema = z.object({
   roles: z.array(teamBlueprintRoleTemplateSchema).min(1).max(40),
   parameterHints: teamBlueprintParameterHintsSchema,
   readiness: teamBlueprintReadinessSchema,
+  portability: teamBlueprintPortabilitySchema,
 }).strict();
 
 export const teamBlueprintCanonicalAbsorptionProjectMappingSchema = z.object({
@@ -82,10 +91,17 @@ export const teamBlueprintCanonicalAbsorptionPrepSchema = z.object({
   warnings: z.array(z.string().trim().min(1).max(500)).max(20),
 }).strict();
 
+export const teamBlueprintMigrationHelperSchema = teamBlueprintCanonicalAbsorptionPrepSchema.extend({
+  key: blueprintKeySchema,
+  kind: z.literal("canonical_absorption"),
+  label: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(2_000),
+}).strict();
+
 export const teamBlueprintCatalogViewSchema = z.object({
   companyId: z.string().uuid(),
   blueprints: z.array(teamBlueprintSchema).min(1).max(20),
-  canonicalAbsorptionPrep: teamBlueprintCanonicalAbsorptionPrepSchema.nullable(),
+  migrationHelpers: z.array(teamBlueprintMigrationHelperSchema).max(20),
 }).strict();
 
 export const teamBlueprintPreviewRequestSchema = z.object({

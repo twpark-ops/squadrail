@@ -35,20 +35,26 @@ describe("team blueprints", () => {
 
     expect(view).toMatchObject({
       companyId: "company-1",
-      canonicalAbsorptionPrep: null,
+      migrationHelpers: [],
     });
     expect(view.blueprints).toHaveLength(3);
+    expect(view.blueprints[0]?.portability).toMatchObject({
+      companyAgnostic: true,
+      workspaceModel: "single_workspace",
+    });
 
     view.blueprints[0]!.projects[0]!.label = "Mutated";
     const second = service.getCatalog("company-1");
     expect(second.blueprints[0]!.projects[0]!.label).toBe("Primary Product");
   });
 
-  it("includes canonical absorption guidance for the swiftsight company name", () => {
+  it("includes migration helper guidance for the swiftsight company name", () => {
     const service = teamBlueprintService();
     const view = service.getCatalog("company-1", "cloud-swiftsight");
 
-    expect(view.canonicalAbsorptionPrep).toMatchObject({
+    expect(view.migrationHelpers[0]).toMatchObject({
+      key: "swiftsight_canonical_absorption",
+      kind: "canonical_absorption",
       blueprintKey: "delivery_plus_qa",
       previewRequest: {
         projectCount: 5,
@@ -58,7 +64,7 @@ describe("team blueprints", () => {
         includeCto: true,
       },
     });
-    expect(view.canonicalAbsorptionPrep?.projectMappings).toHaveLength(5);
+    expect(view.migrationHelpers[0]?.projectMappings).toHaveLength(5);
   });
 
   it("derives preview parameters from blueprint defaults and request overrides", () => {

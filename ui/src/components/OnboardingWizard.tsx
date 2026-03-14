@@ -254,7 +254,7 @@ export function OnboardingWizard() {
   });
 
   const teamBlueprints = teamBlueprintCatalog?.blueprints ?? [];
-  const canonicalAbsorptionPrep = teamBlueprintCatalog?.canonicalAbsorptionPrep ?? null;
+  const migrationHelpers = teamBlueprintCatalog?.migrationHelpers ?? [];
   const onboardingTeamBlueprints = useMemo(
     () => teamBlueprints.filter((blueprint) => blueprint.parameterHints.supportsPm),
     [teamBlueprints]
@@ -268,14 +268,7 @@ export function OnboardingWizard() {
       setSelectedTeamBlueprintKey(null);
       return;
     }
-    const canonicalFirstBlueprint =
-      canonicalAbsorptionPrep
-        ? onboardingTeamBlueprints.find(
-            (blueprint) => blueprint.key === canonicalAbsorptionPrep.blueprintKey,
-          )?.key ?? null
-        : null;
-    const defaultBlueprintKey =
-      canonicalFirstBlueprint ?? onboardingTeamBlueprints[0]!.key;
+    const defaultBlueprintKey = onboardingTeamBlueprints[0]!.key;
     if (!selectedTeamBlueprintKey) {
       setSelectedTeamBlueprintKey(defaultBlueprintKey);
       return;
@@ -287,7 +280,7 @@ export function OnboardingWizard() {
     ) {
       setSelectedTeamBlueprintKey(defaultBlueprintKey);
     }
-  }, [canonicalAbsorptionPrep, onboardingTeamBlueprints, selectedTeamBlueprintKey]);
+  }, [onboardingTeamBlueprints, selectedTeamBlueprintKey]);
 
   useEffect(() => {
     if (!selectedTeamBlueprint || quickRequestTouched) return;
@@ -302,13 +295,13 @@ export function OnboardingWizard() {
     setupReadyFromExistingState && hasActivePmAgent;
   const canContinueBlueprintStep =
     Boolean(teamBlueprintApplyResult) || quickRequestReadyFromExistingState;
+  const selectedMigrationHelpers =
+    selectedTeamBlueprint
+      ? migrationHelpers.filter((helper) => helper.blueprintKey === selectedTeamBlueprint.key)
+      : [];
 
   const currentProject =
     projects.find((project) => project.id === selectedProjectId) ?? null;
-  const selectedTeamBlueprintPreviewRequest =
-    canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey
-      ? canonicalAbsorptionPrep.previewRequest
-      : undefined;
   const currentProjectWorkspaces = currentProject?.workspaces ?? [];
   const selectedWorkspace =
     currentProjectWorkspaces.find((workspace) => workspace.id === workspaceSelectionId) ??
@@ -592,7 +585,7 @@ export function OnboardingWizard() {
       await teamBlueprintPreviewMutation.mutateAsync({
         companyId: createdCompanyId,
         blueprintKey: selectedTeamBlueprintKey,
-        request: selectedTeamBlueprintPreviewRequest,
+        request: {},
       });
     } catch (err) {
       setError(
@@ -1163,29 +1156,33 @@ export function OnboardingWizard() {
                             >
                               {teamBlueprintPreviewMutation.isPending
                                 ? "Generating preview..."
-                                : canonicalAbsorptionPrep &&
-                                    selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey
-                                  ? "Preview recommended mapping"
-                                  : "Preview blueprint"}
+                                : "Preview blueprint"}
                             </Button>
                           </div>
 
-                          {canonicalAbsorptionPrep && selectedTeamBlueprint?.key === canonicalAbsorptionPrep.blueprintKey && (
-                            <div className="mt-5 rounded-[1rem] border border-sky-300/70 bg-sky-50/80 px-4 py-4 text-sm text-sky-900">
-                              <div className="font-semibold">Canonical absorption guidance</div>
-                              <div className="mt-1 leading-6">
-                                This company matches the legacy Swiftsight canonical org. Preview will use the recommended
-                                blueprint expansion automatically: {canonicalAbsorptionPrep.previewRequest.projectCount ?? 0}
-                                {" "}project slots and {canonicalAbsorptionPrep.previewRequest.engineerPairsPerProject ?? 0}
-                                {" "}engineer pair(s) per project.
-                              </div>
-                              <ul className="mt-3 space-y-1 text-xs text-sky-800">
-                                {canonicalAbsorptionPrep.projectMappings.map((mapping) => (
-                                  <li key={mapping.canonicalProjectSlug}>
-                                    • {mapping.canonicalProjectName} → {mapping.blueprintSlotKey}
-                                  </li>
-                                ))}
-                              </ul>
+                          {selectedMigrationHelpers.length > 0 && (
+                            <div className="mt-5 space-y-3">
+                              {selectedMigrationHelpers.map((helper) => (
+                                <div
+                                  key={helper.key}
+                                  className="rounded-[1rem] border border-sky-300/70 bg-sky-50/80 px-4 py-4 text-sm text-sky-900"
+                                >
+                                  <div className="font-semibold">{helper.label}</div>
+                                  <div className="mt-1 leading-6">
+                                    {helper.description}
+                                  </div>
+                                  <ul className="mt-3 space-y-1 text-xs text-sky-800">
+                                    {helper.projectMappings.map((mapping) => (
+                                      <li key={`${helper.key}:${mapping.canonicalProjectSlug}`}>
+                                        • {mapping.canonicalProjectName} → {mapping.blueprintSlotKey}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  <div className="mt-3 text-xs text-sky-800">
+                                    Generic preview/apply remains the default path. Treat this helper as migration guidance only.
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           )}
 
@@ -1231,11 +1228,22 @@ export function OnboardingWizard() {
                                         PM-ready
                                       </span>
                                       <span className="rounded-full border border-border px-2 py-0.5">
+                                        {blueprint.portability.workspaceModel === "per_project" ? "per-project workspaces" : "single workspace"}
+                                      </span>
+                                      <span className="rounded-full border border-border px-2 py-0.5">
+                                        {blueprint.portability.knowledgeModel} knowledge
+                                      </span>
+                                      <span className="rounded-full border border-border px-2 py-0.5">
                                         default {blueprint.parameterHints.defaultProjectCount} project(s)
                                       </span>
                                       <span className="rounded-full border border-border px-2 py-0.5">
                                         {blueprint.roles.length} role template(s)
                                       </span>
+                                      {migrationHelpers.some((helper) => helper.blueprintKey === blueprint.key) && (
+                                        <span className="rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-sky-800">
+                                          migration helper
+                                        </span>
+                                      )}
                                     </div>
                                   </button>
                                 );
@@ -1252,6 +1260,17 @@ export function OnboardingWizard() {
                               </div>
                               <div className="mt-2 text-sm leading-6 text-muted-foreground">
                                 {selectedTeamBlueprint.description}
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                <span className="rounded-full border border-border px-2 py-0.5">
+                                  {selectedTeamBlueprint.portability.companyAgnostic ? "company-agnostic" : "company-bound"}
+                                </span>
+                                <span className="rounded-full border border-border px-2 py-0.5">
+                                  {selectedTeamBlueprint.portability.workspaceModel === "per_project" ? "per-project workspaces" : "single workspace"}
+                                </span>
+                                <span className="rounded-full border border-border px-2 py-0.5">
+                                  {selectedTeamBlueprint.portability.knowledgeModel} knowledge
+                                </span>
                               </div>
                               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                                 {selectedTeamBlueprint.projects.map((project) => (

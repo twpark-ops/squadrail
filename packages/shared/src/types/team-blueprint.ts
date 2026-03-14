@@ -46,6 +46,14 @@ export interface TeamBlueprintReadiness {
   recommendedFirstQuickRequest: string;
 }
 
+export interface TeamBlueprintPortability {
+  companyAgnostic: boolean;
+  workspaceModel: "single_workspace" | "per_project";
+  knowledgeModel: "optional" | "recommended" | "required";
+  migrationHelperKeys: string[];
+  notes: string[];
+}
+
 export interface TeamBlueprintCanonicalAbsorptionProjectMapping {
   canonicalProjectSlug: string;
   canonicalProjectName: string;
@@ -63,6 +71,13 @@ export interface TeamBlueprintCanonicalAbsorptionPrep {
   warnings: string[];
 }
 
+export interface TeamBlueprintMigrationHelper extends TeamBlueprintCanonicalAbsorptionPrep {
+  key: string;
+  kind: "canonical_absorption";
+  label: string;
+  description: string;
+}
+
 export interface TeamBlueprint {
   key: TeamBlueprintKey;
   label: string;
@@ -72,12 +87,13 @@ export interface TeamBlueprint {
   roles: TeamBlueprintRoleTemplate[];
   parameterHints: TeamBlueprintParameterHints;
   readiness: TeamBlueprintReadiness;
+  portability: TeamBlueprintPortability;
 }
 
 export interface TeamBlueprintCatalogView {
   companyId: string;
   blueprints: TeamBlueprint[];
-  canonicalAbsorptionPrep: TeamBlueprintCanonicalAbsorptionPrep | null;
+  migrationHelpers: TeamBlueprintMigrationHelper[];
 }
 
 export interface TeamBlueprintPreviewRequest {

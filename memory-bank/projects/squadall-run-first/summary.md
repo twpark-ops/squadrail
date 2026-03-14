@@ -64,7 +64,10 @@
   - canonical `cloud-swiftsight` env에서 deterministic kernel full batch도 다시 green으로 확정했다
     - `ok=true`, `scenarioCount=5`, `durationMs=3374196`
     - `CLO-1..CLO-4=done`, coordinated root `CLO-5=cancelled`, child `CLO-6..CLO-8=done`
-  - 다음은 바로 Batch B `blueprint portability / import-export / parameter editing`이다
+  - Batch B1 portability 1차로 shared portability metadata, generic-first preview/apply path, migration helper list surface를 추가했다
+  - `cloud-swiftsight` canonical helper는 preview/apply 본경로가 아니라 migration helper 카드로만 남겼다
+  - 남은 portability 제한은 helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup 기반이라는 점이다
+  - 다음은 바로 Batch B `import/export -> parameter editing`이다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

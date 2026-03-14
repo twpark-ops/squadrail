@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `Phase 7 bounded autonomy E2E live burn-in`이다.
+> 현재 다음 순차 작업은 `Batch B import/export kickoff`다.
 
 ## 목적
 
@@ -120,7 +120,9 @@
      - strict kernel burn-in: recovery disabled fail-fast lower-kernel gate
    - canonical `cloud-swiftsight` env에서 deterministic kernel full batch도 다시 green으로 확정했다
    - latest kernel batch summary: `ok=true`, `scenarioCount=5`, `durationMs=3374196`, `CLO-1..CLO-4=done`, coordinated root `CLO-5=cancelled`, child `CLO-6..CLO-8=done`
-   - immediate next는 Batch B `blueprint portability / import-export / parameter editing`이다
+   - Batch B1 portability 1차로 shared portability metadata, generic-first preview/apply path, migration helper list surface를 반영했다
+   - 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다
+   - immediate next는 Batch B `import/export -> parameter editing`이다
 
 ## 2026-03-13 coverage threshold push
 

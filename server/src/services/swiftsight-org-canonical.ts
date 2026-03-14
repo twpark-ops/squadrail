@@ -1,6 +1,6 @@
 import type {
   AgentAdapterType,
-  TeamBlueprintCanonicalAbsorptionPrep,
+  TeamBlueprintMigrationHelper,
   TeamBlueprintKey,
   TeamBlueprintPreviewRequest,
 } from "@squadrail/shared";
@@ -269,7 +269,7 @@ export function buildCanonicalLookupMaps() {
   };
 }
 
-export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): TeamBlueprintCanonicalAbsorptionPrep {
+export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): TeamBlueprintMigrationHelper {
   const blueprintKey: TeamBlueprintKey = "delivery_plus_qa";
   const previewRequest: TeamBlueprintPreviewRequest = {
     projectCount: PROJECTS.length,
@@ -300,6 +300,11 @@ export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): TeamBlueprint
   });
 
   return {
+    key: "swiftsight_canonical_absorption",
+    kind: "canonical_absorption",
+    label: "Legacy Swiftsight Canonical Absorption",
+    description:
+      "Migration helper for mapping the legacy cloud-swiftsight canonical org shape onto the generic delivery_plus_qa blueprint. This helper is informational and should not override the default generic preview/apply path.",
     canonicalTemplateKey: SWIFTSIGHT_CANONICAL_TEMPLATE_KEY,
     canonicalVersion: SWIFTSIGHT_CANONICAL_VERSION,
     blueprintKey,
