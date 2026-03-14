@@ -317,3 +317,18 @@ export interface TeamBlueprintImportResult {
   previewHash: string;
   warnings: string[];
 }
+
+export interface TeamBlueprintSavedUpdateRequest {
+  slug: string;
+  label: string;
+  description: string | null;
+}
+
+export interface TeamBlueprintSavedUpdateResult {
+  savedBlueprint: CompanySavedTeamBlueprint;
+}
+
+export interface TeamBlueprintSavedDeleteResult {
+  ok: true;
+  deletedSavedBlueprintId: string;
+}

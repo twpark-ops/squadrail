@@ -24,6 +24,9 @@ import type {
   TeamBlueprintImportPreviewResult,
   TeamBlueprintImportRequest,
   TeamBlueprintImportResult,
+  TeamBlueprintSavedDeleteResult,
+  TeamBlueprintSavedUpdateRequest,
+  TeamBlueprintSavedUpdateResult,
   TeamBlueprintPreviewRequest,
   TeamBlueprintPreviewResult,
   CreateCustomRolePack,
@@ -102,12 +105,25 @@ export const companiesApi = {
     data: TeamBlueprintImportRequest,
   ) =>
     api.post<TeamBlueprintImportResult>(`/companies/${companyId}/team-blueprints/import`, data),
+  exportSavedTeamBlueprint: (companyId: string, savedBlueprintId: string) =>
+    api.get<TeamBlueprintExportResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}/export`),
   previewSavedTeamBlueprint: (
     companyId: string,
     savedBlueprintId: string,
     data: TeamBlueprintPreviewRequest = {},
   ) =>
     api.post<TeamBlueprintPreviewResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}/preview`, data),
+  updateSavedTeamBlueprint: (
+    companyId: string,
+    savedBlueprintId: string,
+    data: TeamBlueprintSavedUpdateRequest,
+  ) =>
+    api.patch<TeamBlueprintSavedUpdateResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}`, data),
+  deleteSavedTeamBlueprint: (
+    companyId: string,
+    savedBlueprintId: string,
+  ) =>
+    api.delete<TeamBlueprintSavedDeleteResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}`),
   applySavedTeamBlueprint: (
     companyId: string,
     savedBlueprintId: string,

@@ -24,6 +24,8 @@ import {
   type TeamBlueprintImportRequest,
   type TeamBlueprintImportResult,
   type TeamBlueprintMigrationHelper,
+  type TeamBlueprintSavedDeleteResult,
+  type TeamBlueprintSavedUpdateRequest,
   type TeamBlueprintPreviewParameters,
   type TeamBlueprintPreviewProjectDiff,
   type TeamBlueprintPreviewRequest,
@@ -51,10 +53,19 @@ type TeamBlueprintLibraryStore = {
     savedBlueprintId: string,
     values: Partial<SavedBlueprintInsert>,
   ): Promise<SavedBlueprintRow | null>;
+  delete(companyId: string, savedBlueprintId: string): Promise<SavedBlueprintRow | null>;
 };
 
 type TeamBlueprintMockDb = Db & {
   __teamBlueprintLibraryStore?: TeamBlueprintLibraryStore;
+};
+
+type TeamBlueprintMigrationHelperResolver = {
+  key: string;
+  resolve(input: {
+    currentProjects: PreviewProjectLike[];
+    currentAgents: PreviewAgentLike[];
+  }): TeamBlueprintMigrationHelper[];
 };
 
 const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
@@ -640,6 +651,28 @@ function buildDefaultPreviewRequestForBlueprint(
   return buildDefaultTeamBlueprintPreviewRequest(blueprint);
 }
 
+function buildPortableTeamBlueprintExportBundle(input: {
+  companyId: string;
+  companyName: string | null;
+  definition: PortableTeamBlueprintDefinition;
+  defaultPreviewRequest: TeamBlueprintPreviewRequest;
+}): TeamBlueprintExportBundle {
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    source: {
+      companyId: input.companyId,
+      companyName: input.companyName,
+      blueprintKey: input.definition.sourceBlueprintKey,
+      blueprintLabel: input.definition.label,
+    },
+    definition: clonePortableTeamBlueprintDefinition(input.definition),
+    defaultPreviewRequest: {
+      ...(input.defaultPreviewRequest ?? {}),
+    },
+  };
+}
+
 function normalizeBlueprintSlug(input: string | null | undefined, fallback: string) {
   return normalizeProjectUrlKey(input) ?? normalizeProjectUrlKey(fallback) ?? "team-blueprint";
 }
@@ -665,18 +698,12 @@ export function buildTeamBlueprintExportBundle(input: {
   companyName: string | null;
   blueprint: TeamBlueprint;
 }): TeamBlueprintExportBundle {
-  return {
-    schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
-    source: {
-      companyId: input.companyId,
-      companyName: input.companyName,
-      blueprintKey: input.blueprint.key,
-      blueprintLabel: input.blueprint.label,
-    },
+  return buildPortableTeamBlueprintExportBundle({
+    companyId: input.companyId,
+    companyName: input.companyName,
     definition: buildPortableTeamBlueprintDefinition(input.blueprint),
     defaultPreviewRequest: buildDefaultPreviewRequestForBlueprint(input.blueprint),
-  };
+  });
 }
 
 export function resolveImportedPortableTeamBlueprintDefinition(input: {
@@ -1648,6 +1675,78 @@ async function getSavedBlueprintById(
   return serializeSavedBlueprintRow(row);
 }
 
+async function updateSavedBlueprintDefinition(
+  db: Db,
+  companyId: string,
+  savedBlueprintId: string,
+  request: TeamBlueprintSavedUpdateRequest,
+): Promise<CompanySavedTeamBlueprint> {
+  const existing = await getSavedBlueprintById(db, companyId, savedBlueprintId);
+  const slug = normalizeBlueprintSlug(request.slug, request.label);
+  const label = request.label.trim();
+  const description = request.description?.trim() || null;
+  const duplicate = (await listSavedBlueprints(db, companyId)).find((entry) =>
+    entry.id !== savedBlueprintId && entry.definition.slug === slug);
+  if (duplicate) {
+    throw conflict("Saved blueprint slug already exists in this company library");
+  }
+
+  const definition = portableTeamBlueprintDefinitionSchema.parse({
+    ...existing.definition,
+    slug,
+    label,
+    description,
+  });
+  const now = new Date();
+  const store = getTeamBlueprintLibraryStore(db);
+  const row = store
+    ? await store.update(companyId, savedBlueprintId, {
+      slug,
+      label,
+      description,
+      definition: definition as unknown as Record<string, unknown>,
+      updatedAt: now,
+    })
+    : (await db
+      .update(companyTeamBlueprints)
+      .set({
+        slug,
+        label,
+        description,
+        definition: definition as unknown as Record<string, unknown>,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(companyTeamBlueprints.companyId, companyId),
+        eq(companyTeamBlueprints.id, savedBlueprintId),
+      ))
+      .returning())[0] ?? null;
+  if (!row) throw notFound("Saved team blueprint not found");
+  return serializeSavedBlueprintRow(row);
+}
+
+async function deleteSavedBlueprintDefinition(
+  db: Db,
+  companyId: string,
+  savedBlueprintId: string,
+): Promise<TeamBlueprintSavedDeleteResult> {
+  const store = getTeamBlueprintLibraryStore(db);
+  const row = store
+    ? await store.delete(companyId, savedBlueprintId)
+    : (await db
+      .delete(companyTeamBlueprints)
+      .where(and(
+        eq(companyTeamBlueprints.companyId, companyId),
+        eq(companyTeamBlueprints.id, savedBlueprintId),
+      ))
+      .returning())[0] ?? null;
+  if (!row) throw notFound("Saved team blueprint not found");
+  return {
+    ok: true,
+    deletedSavedBlueprintId: row.id,
+  };
+}
+
 export function listTeamBlueprints(): TeamBlueprint[] {
   return DEFAULT_TEAM_BLUEPRINTS.map((blueprint) => cloneBlueprint(blueprint));
 }
@@ -1656,14 +1755,29 @@ export function resolveMigrationHelpers(input: {
   currentProjects: PreviewProjectLike[];
   currentAgents: PreviewAgentLike[];
 }): TeamBlueprintMigrationHelper[] {
-  const helper = resolveSwiftsightCanonicalMigrationHelper({
-    projectUrlKeys: input.currentProjects.map((project) => project.urlKey),
-    agents: input.currentAgents.map((agent) => ({
-      urlKey: agent.urlKey,
-      metadata: agent.metadata,
-    })),
-  });
-  return helper ? [{ ...helper }] : [];
+  const providers: TeamBlueprintMigrationHelperResolver[] = [
+    {
+      key: "swiftsight_canonical_absorption",
+      resolve(current) {
+        const helper = resolveSwiftsightCanonicalMigrationHelper({
+          projectUrlKeys: current.currentProjects.map((project) => project.urlKey),
+          agents: current.currentAgents.map((agent) => ({
+            urlKey: agent.urlKey,
+            metadata: agent.metadata,
+          })),
+        });
+        return helper ? [{ ...helper }] : [];
+      },
+    },
+  ];
+
+  const resolved = new Map<string, TeamBlueprintMigrationHelper>();
+  for (const provider of providers) {
+    for (const helper of provider.resolve(input)) {
+      resolved.set(`${provider.key}:${helper.key}`, { ...helper });
+    }
+  }
+  return [...resolved.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
 export function teamBlueprintService(db?: Db) {
@@ -1693,6 +1807,23 @@ export function teamBlueprintService(db?: Db) {
           companyId,
           companyName: companyName ?? null,
           blueprint,
+        }),
+        warnings: [],
+      };
+    },
+    async exportSavedBlueprint(
+      companyId: string,
+      savedBlueprintId: string,
+      companyName?: string | null,
+    ): Promise<TeamBlueprintExportResult> {
+      if (!db) throw new Error("teamBlueprintService.exportSavedBlueprint requires a database handle");
+      const savedBlueprint = await getSavedBlueprintById(db, companyId, savedBlueprintId);
+      return {
+        bundle: buildPortableTeamBlueprintExportBundle({
+          companyId,
+          companyName: companyName ?? null,
+          definition: savedBlueprint.definition,
+          defaultPreviewRequest: savedBlueprint.defaultPreviewRequest,
         }),
         warnings: [],
       };
@@ -1852,6 +1983,23 @@ export function teamBlueprintService(db?: Db) {
         savedBlueprint.defaultPreviewRequest,
       );
       return state.preview;
+    },
+    async updateSavedBlueprint(
+      companyId: string,
+      savedBlueprintId: string,
+      request: TeamBlueprintSavedUpdateRequest,
+    ): Promise<CompanySavedTeamBlueprint> {
+      if (!db) throw new Error("teamBlueprintService.updateSavedBlueprint requires a database handle");
+      return db.transaction(async (tx) =>
+        updateSavedBlueprintDefinition(tx as unknown as Db, companyId, savedBlueprintId, request));
+    },
+    async deleteSavedBlueprint(
+      companyId: string,
+      savedBlueprintId: string,
+    ): Promise<TeamBlueprintSavedDeleteResult> {
+      if (!db) throw new Error("teamBlueprintService.deleteSavedBlueprint requires a database handle");
+      return db.transaction(async (tx) =>
+        deleteSavedBlueprintDefinition(tx as unknown as Db, companyId, savedBlueprintId));
     },
     async applySavedBlueprint(
       companyId: string,

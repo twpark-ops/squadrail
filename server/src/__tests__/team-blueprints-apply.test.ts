@@ -186,6 +186,12 @@ function createMockDb(state: HarnessState): Db {
         row.updatedAt = (values.updatedAt as Date | undefined) ?? new Date("2026-03-14T00:00:00.000Z");
         return row;
       },
+      async delete(companyId: string, savedBlueprintId: string) {
+        const index = state.savedBlueprints.findIndex((entry) => entry.companyScope === companyId && entry.id === savedBlueprintId);
+        if (index < 0) return null;
+        const [row] = state.savedBlueprints.splice(index, 1);
+        return row ?? null;
+      },
     },
   } as Db;
   return db;
@@ -708,6 +714,124 @@ describe("team blueprint apply", () => {
       includeQa: false,
       includeCto: false,
     });
+  });
+
+  it("re-exports a saved blueprint with its stored default preview request", async () => {
+    const harness = createApplyHarness();
+    const blueprint = listTeamBlueprints()[0]!;
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: buildMockUuid(9100),
+      companyName: "Example Co",
+      blueprint,
+    });
+    bundle.defaultPreviewRequest = {
+      projectCount: 2,
+      engineerPairsPerProject: 1,
+      includePm: false,
+      includeQa: false,
+      includeCto: false,
+    };
+
+    const importPreview = await harness.service.previewImport("company-1", {
+      source: { type: "inline", bundle },
+      collisionStrategy: "rename",
+    });
+    const importResult = await harness.service.importBlueprint("company-1", {
+      source: { type: "inline", bundle },
+      collisionStrategy: "rename",
+      previewHash: importPreview.previewHash,
+    });
+
+    const exported = await harness.service.exportSavedBlueprint("company-1", importResult.savedBlueprint.id, "Example Co");
+
+    expect(exported.bundle.definition.slug).toBe(importResult.savedBlueprint.definition.slug);
+    expect(exported.bundle.defaultPreviewRequest).toEqual(bundle.defaultPreviewRequest);
+    expect(exported.bundle.source).toMatchObject({
+      companyName: "Example Co",
+      blueprintLabel: importResult.savedBlueprint.definition.label,
+    });
+  });
+
+  it("updates saved blueprint metadata and prevents duplicate slugs", async () => {
+    const harness = createApplyHarness();
+    const firstBundle = buildTeamBlueprintExportBundle({
+      companyId: buildMockUuid(9101),
+      companyName: "Example Co",
+      blueprint: listTeamBlueprints()[0]!,
+    });
+    const secondBundle = buildTeamBlueprintExportBundle({
+      companyId: buildMockUuid(9102),
+      companyName: "Example Co",
+      blueprint: listTeamBlueprints()[1]!,
+    });
+
+    const firstPreview = await harness.service.previewImport("company-1", {
+      source: { type: "inline", bundle: firstBundle },
+      collisionStrategy: "rename",
+    });
+    const firstResult = await harness.service.importBlueprint("company-1", {
+      source: { type: "inline", bundle: firstBundle },
+      collisionStrategy: "rename",
+      previewHash: firstPreview.previewHash,
+    });
+    const secondPreview = await harness.service.previewImport("company-1", {
+      source: { type: "inline", bundle: secondBundle },
+      collisionStrategy: "rename",
+    });
+    const secondResult = await harness.service.importBlueprint("company-1", {
+      source: { type: "inline", bundle: secondBundle },
+      collisionStrategy: "rename",
+      previewHash: secondPreview.previewHash,
+    });
+
+    const updated = await harness.service.updateSavedBlueprint("company-1", firstResult.savedBlueprint.id, {
+      slug: "delivery-team-v2",
+      label: "Delivery Team v2",
+      description: "Renamed library entry",
+    });
+
+    expect(updated.definition).toMatchObject({
+      slug: "delivery-team-v2",
+      label: "Delivery Team v2",
+      description: "Renamed library entry",
+    });
+
+    await expect(
+      harness.service.updateSavedBlueprint("company-1", secondResult.savedBlueprint.id, {
+        slug: "delivery-team-v2",
+        label: "Duplicate Slug",
+        description: null,
+      }),
+    ).rejects.toThrow("Saved blueprint slug already exists in this company library");
+  });
+
+  it("deletes saved blueprints from the company library", async () => {
+    const harness = createApplyHarness();
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: buildMockUuid(9103),
+      companyName: "Example Co",
+      blueprint: listTeamBlueprints()[2]!,
+    });
+
+    const preview = await harness.service.previewImport("company-1", {
+      source: { type: "inline", bundle },
+      collisionStrategy: "rename",
+    });
+    const imported = await harness.service.importBlueprint("company-1", {
+      source: { type: "inline", bundle },
+      collisionStrategy: "rename",
+      previewHash: preview.previewHash,
+    });
+
+    const result = await harness.service.deleteSavedBlueprint("company-1", imported.savedBlueprint.id);
+
+    expect(result).toEqual({
+      ok: true,
+      deletedSavedBlueprintId: imported.savedBlueprint.id,
+    });
+    await expect(
+      harness.service.previewSavedBlueprint("company-1", imported.savedBlueprint.id),
+    ).rejects.toThrow("Saved team blueprint not found");
   });
 
   it("rolls back project and role-pack mutations when project creation fails mid-apply", async () => {

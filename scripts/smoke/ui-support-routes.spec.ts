@@ -109,6 +109,12 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await expect(page.getByText("small-delivery-team").first()).toBeVisible();
   await page.getByRole("button", { name: "Preview saved blueprint", exact: true }).click();
   await expect(page.getByRole("button", { name: "Apply saved blueprint", exact: true })).toBeVisible();
+  await page
+    .getByLabel("I reviewed this saved blueprint preview diff and want to apply it to this company.")
+    .check();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Apply saved blueprint", exact: true }).click();
+  await expect(page.getByText(/Applied preview hash/i).first()).toBeVisible();
 
   await page.goto(`${baseUrl}/${companyPrefix}/agents/all`);
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();

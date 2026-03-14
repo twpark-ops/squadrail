@@ -292,3 +292,18 @@ export const teamBlueprintImportResultSchema = z.object({
   previewHash: z.string().trim().min(16).max(256),
   warnings: z.array(z.string().trim().min(1).max(500)).max(50),
 }).strict();
+
+export const teamBlueprintSavedUpdateRequestSchema = z.object({
+  slug: blueprintKeySchema,
+  label: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(2_000).nullable(),
+}).strict();
+
+export const teamBlueprintSavedUpdateResultSchema = z.object({
+  savedBlueprint: companySavedTeamBlueprintSchema,
+}).strict();
+
+export const teamBlueprintSavedDeleteResultSchema = z.object({
+  ok: z.literal(true),
+  deletedSavedBlueprintId: z.string().uuid(),
+}).strict();
