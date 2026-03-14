@@ -2,10 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { companyTeamBlueprints, type Db } from "@squadrail/db";
 import {
+  canDeleteSavedTeamBlueprint,
+  canReplaceSavedTeamBlueprintFromImport,
   buildDefaultTeamBlueprintPreviewRequest,
   buildNextSavedTeamBlueprintVersionLabel,
   buildNextSavedTeamBlueprintVersionSlug,
   companySavedTeamBlueprintSchema,
+  describeSavedTeamBlueprintDeleteRestriction,
+  describeSavedTeamBlueprintImportReplaceRestriction,
   resolveSavedTeamBlueprintLifecycleState,
   normalizeAgentUrlKey,
   normalizeProjectUrlKey,
@@ -733,16 +737,26 @@ export function resolveImportedPortableTeamBlueprintDefinition(input: {
   let slug = requestedSlug;
   let saveAction: "create" | "replace" = "create";
   let existingSavedBlueprintId: string | null = null;
+  const warnings: string[] = [];
+  const errors: string[] = [];
 
   if (existingSavedBlueprint) {
     if (collisionStrategy === "replace") {
-      saveAction = "replace";
-      existingSavedBlueprintId = existingSavedBlueprint.id;
+      if (canReplaceSavedTeamBlueprintFromImport(existingSavedBlueprint)) {
+        saveAction = "replace";
+        existingSavedBlueprintId = existingSavedBlueprint.id;
+      } else {
+        errors.push(
+          describeSavedTeamBlueprintImportReplaceRestriction(existingSavedBlueprint)
+          ?? "Replace is not allowed for this saved blueprint.",
+        );
+      }
     } else {
       slug = uniqueBlueprintSlug(
         requestedSlug,
         new Set(input.existingSavedBlueprints.map((entry) => entry.definition.slug)),
       );
+      warnings.push(`Slug ${requestedSlug} already exists. Import preview will create ${slug} instead.`);
     }
   }
 
@@ -755,6 +769,8 @@ export function resolveImportedPortableTeamBlueprintDefinition(input: {
     collisionStrategy,
     saveAction,
     existingSavedBlueprintId,
+    warnings,
+    errors,
   };
 }
 
@@ -1843,6 +1859,16 @@ async function deleteSavedBlueprintDefinition(
   companyId: string,
   savedBlueprintId: string,
 ): Promise<TeamBlueprintSavedDeleteResult> {
+  const savedBlueprint = await getSavedBlueprintById(db, companyId, savedBlueprintId);
+  const versionInfo = resolveSavedTeamBlueprintVersionInfo(savedBlueprint);
+  const lineageEntries = (await listSavedBlueprints(db, companyId)).filter((entry) =>
+    resolveSavedTeamBlueprintVersionInfo(entry).lineageKey === versionInfo.lineageKey);
+  if (!canDeleteSavedTeamBlueprint(savedBlueprint, lineageEntries)) {
+    throw conflict(
+      describeSavedTeamBlueprintDeleteRestriction(savedBlueprint, lineageEntries)
+      ?? "Saved blueprint cannot be deleted.",
+    );
+  }
   const store = getTeamBlueprintLibraryStore(db);
   const row = store
     ? await store.delete(companyId, savedBlueprintId)
@@ -1975,8 +2001,8 @@ export function teamBlueprintService(db?: Db) {
         existingSavedBlueprintId: resolved.existingSavedBlueprintId,
         collisionStrategy: resolved.collisionStrategy,
         preview,
-        warnings: [] as string[],
-        errors: [] as string[],
+        warnings: [...resolved.warnings] as string[],
+        errors: [...resolved.errors] as string[],
       };
       return {
         ...previewBase,
@@ -1994,6 +2020,9 @@ export function teamBlueprintService(db?: Db) {
         const preview = await teamBlueprintService(txDb).previewImport(companyId, request);
         if (preview.previewHash !== request.previewHash) {
           throw conflict("Imported blueprint preview is stale. Refresh preview before saving.");
+        }
+        if (preview.errors.length > 0) {
+          throw conflict(preview.errors[0] ?? "Imported blueprint preview contains blocking errors.");
         }
 
         const now = new Date();

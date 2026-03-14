@@ -838,6 +838,101 @@ describe("team blueprint apply", () => {
     ).rejects.toThrow("Saved team blueprint not found");
   });
 
+  it("blocks import replace when the matching saved blueprint is already published", async () => {
+    const harness = createApplyHarness();
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: buildMockUuid(9104),
+      companyName: "Example Co",
+      blueprint: listTeamBlueprints()[0]!,
+    });
+
+    const initialPreview = await harness.service.previewImport("company-1", {
+      source: { type: "inline", bundle },
+      collisionStrategy: "rename",
+    });
+    const imported = await harness.service.importBlueprint("company-1", {
+      source: { type: "inline", bundle },
+      collisionStrategy: "rename",
+      previewHash: initialPreview.previewHash,
+    });
+    await harness.service.publishSavedBlueprint("company-1", imported.savedBlueprint.id);
+
+    const replacePreview = await harness.service.previewImport("company-1", {
+      source: { type: "inline", bundle },
+      collisionStrategy: "replace",
+    });
+
+    expect(replacePreview.saveAction).toBe("create");
+    expect(replacePreview.errors).toEqual([
+      "Replace is only allowed for draft saved blueprints. Published or superseded versions must be imported as a new library entry or saved as a new version.",
+    ]);
+
+    await expect(
+      harness.service.importBlueprint("company-1", {
+        source: { type: "inline", bundle },
+        collisionStrategy: "replace",
+        previewHash: replacePreview.previewHash,
+      }),
+    ).rejects.toThrow("Replace is only allowed for draft saved blueprints.");
+  });
+
+  it("blocks deleting a draft saved blueprint that already has child versions", async () => {
+    const harness = createApplyHarness();
+    const preview = await harness.service.preview("company-1", "small_delivery_team");
+    const baseVersion = await harness.service.saveBlueprint("company-1", "small_delivery_team", {
+      previewHash: preview.previewHash,
+      projectCount: preview.parameters.projectCount,
+      engineerPairsPerProject: preview.parameters.engineerPairsPerProject,
+      includePm: preview.parameters.includePm,
+      includeQa: preview.parameters.includeQa,
+      includeCto: preview.parameters.includeCto,
+      slug: "delivery-team",
+      label: "Delivery Team",
+      description: "Base library defaults",
+      versionNote: "Base company-local variant",
+    }, "Example Co");
+
+    const savedPreview = await harness.service.previewSavedBlueprint("company-1", baseVersion.savedBlueprint.id, {
+      projectCount: 2,
+      engineerPairsPerProject: 2,
+    });
+    await harness.service.createSavedBlueprintVersion("company-1", baseVersion.savedBlueprint.id, {
+      previewHash: savedPreview.previewHash,
+      projectCount: savedPreview.parameters.projectCount,
+      engineerPairsPerProject: savedPreview.parameters.engineerPairsPerProject,
+      includePm: savedPreview.parameters.includePm,
+      includeQa: savedPreview.parameters.includeQa,
+      includeCto: savedPreview.parameters.includeCto,
+      versionNote: "Second draft version",
+    }, "Example Co");
+
+    await expect(
+      harness.service.deleteSavedBlueprint("company-1", baseVersion.savedBlueprint.id),
+    ).rejects.toThrow("Cannot delete a saved blueprint that already has child versions.");
+  });
+
+  it("blocks deleting published saved blueprints to preserve version history", async () => {
+    const harness = createApplyHarness();
+    const preview = await harness.service.preview("company-1", "small_delivery_team");
+    const baseVersion = await harness.service.saveBlueprint("company-1", "small_delivery_team", {
+      previewHash: preview.previewHash,
+      projectCount: preview.parameters.projectCount,
+      engineerPairsPerProject: preview.parameters.engineerPairsPerProject,
+      includePm: preview.parameters.includePm,
+      includeQa: preview.parameters.includeQa,
+      includeCto: preview.parameters.includeCto,
+      slug: "delivery-team",
+      label: "Delivery Team",
+      description: "Base library defaults",
+      versionNote: "Base company-local variant",
+    }, "Example Co");
+    await harness.service.publishSavedBlueprint("company-1", baseVersion.savedBlueprint.id);
+
+    await expect(
+      harness.service.deleteSavedBlueprint("company-1", baseVersion.savedBlueprint.id),
+    ).rejects.toThrow("Only draft saved blueprints can be deleted from the library.");
+  });
+
   it("saves a built-in preview as a company-local blueprint library entry", async () => {
     const harness = createApplyHarness();
     const preview = await harness.service.preview("company-1", "standard_product_squad", {

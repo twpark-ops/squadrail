@@ -19,6 +19,53 @@ export type SavedTeamBlueprintVersionChange = {
   after: string;
 };
 
+export function canReplaceSavedTeamBlueprintFromImport(
+  blueprint: Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">,
+): boolean {
+  const lifecycleState = resolveSavedTeamBlueprintLifecycleState(blueprint);
+  const metadata = blueprint.sourceMetadata as SavedTeamBlueprintSourceMetadata;
+  return lifecycleState === "draft" && metadata.type === "import_bundle";
+}
+
+export function describeSavedTeamBlueprintImportReplaceRestriction(
+  blueprint: Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">,
+): string | null {
+  if (canReplaceSavedTeamBlueprintFromImport(blueprint)) return null;
+  const lifecycleState = resolveSavedTeamBlueprintLifecycleState(blueprint);
+  if (lifecycleState !== "draft") {
+    return "Replace is only allowed for draft saved blueprints. Published or superseded versions must be imported as a new library entry or saved as a new version.";
+  }
+  return "Replace is only allowed for imported draft saved blueprints. Company-authored or versioned entries must be imported as a new library entry or saved as a new version.";
+}
+
+export function canDeleteSavedTeamBlueprint(
+  blueprint: Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">,
+  lineageEntries: Array<Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">>,
+): boolean {
+  if (resolveSavedTeamBlueprintLifecycleState(blueprint) !== "draft") return false;
+  return !lineageEntries.some((entry) => {
+    const versionInfo = resolveSavedTeamBlueprintVersionInfo(entry as Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">);
+    return versionInfo.parentSavedBlueprintId === blueprint.id;
+  });
+}
+
+export function describeSavedTeamBlueprintDeleteRestriction(
+  blueprint: Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">,
+  lineageEntries: Array<Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">>,
+): string | null {
+  const lifecycleState = resolveSavedTeamBlueprintLifecycleState(blueprint);
+  if (lifecycleState !== "draft") {
+    return "Only draft saved blueprints can be deleted from the library. Published or superseded versions stay immutable to preserve version history.";
+  }
+  if (lineageEntries.some((entry) => {
+    const versionInfo = resolveSavedTeamBlueprintVersionInfo(entry as Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">);
+    return versionInfo.parentSavedBlueprintId === blueprint.id;
+  })) {
+    return "Cannot delete a saved blueprint that already has child versions. Create a new draft or prune descendants first.";
+  }
+  return null;
+}
+
 export function resolveSavedTeamBlueprintVersionInfo(
   blueprint: Pick<CompanySavedTeamBlueprint, "id" | "sourceMetadata">,
 ): SavedTeamBlueprintVersionInfo {
