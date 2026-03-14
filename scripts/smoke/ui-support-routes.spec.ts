@@ -11,6 +11,10 @@ type BrowserDiagnostics = {
   badResponses: string[];
 };
 
+function isIgnorableBrowserNoise(message: string) {
+  return message.includes("favicon.ico") || message === "Failed to load resource: the server responded with a status of 404 (Not Found)";
+}
+
 function attachDiagnostics(page: { on: (event: string, listener: (...args: any[]) => void) => void }): BrowserDiagnostics {
   const diagnostics: BrowserDiagnostics = {
     consoleErrors: [],
@@ -20,7 +24,11 @@ function attachDiagnostics(page: { on: (event: string, listener: (...args: any[]
   };
 
   page.on("console", (message: { type: () => string; text: () => string }) => {
-    if (message.type() === "error") diagnostics.consoleErrors.push(message.text());
+    if (message.type() === "error") {
+      const text = message.text();
+      if (isIgnorableBrowserNoise(text)) return;
+      diagnostics.consoleErrors.push(text);
+    }
   });
   page.on("pageerror", (error: Error) => {
     diagnostics.pageErrors.push(error.message);
@@ -32,6 +40,7 @@ function attachDiagnostics(page: { on: (event: string, listener: (...args: any[]
   });
   page.on("response", (response: { status: () => number; url: () => string; request: () => { method: () => string } }) => {
     if (response.status() >= 400) {
+      if (response.url().endsWith("/favicon.ico")) return;
       diagnostics.badResponses.push(`${response.request().method()} ${response.url()} :: ${response.status()}`);
     }
   });
@@ -66,14 +75,20 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   ).toBeVisible();
   await page.getByLabel("Company name").fill(companyName);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.waitForURL((url) => {
+    const pathPrefix = url.pathname.split("/").filter(Boolean)[0] ?? "";
+    return pathPrefix.length > 0 && pathPrefix !== "SMO";
+  }, { timeout: 15000 });
   await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
   const companyPrefix = new URL(page.url()).pathname.split("/").filter(Boolean)[0];
   if (!companyPrefix) {
     throw new Error("failed to resolve company prefix after company creation");
   }
 
-  await page.goto(`${baseUrl}/${companyPrefix}/settings`);
-  await expect(page.getByRole("heading", { name: "Company Settings", exact: true })).toBeVisible();
+  await page.goto(`${baseUrl}/${companyPrefix}/settings`, { waitUntil: "networkidle" });
+  await expect(page.getByRole("heading", { name: "Company Settings", exact: true })).toBeVisible({
+    timeout: 15000,
+  });
   await expect(page.getByText("Setup progress").first()).toBeVisible();
   await page.getByLabel("Project slots").fill("2");
   await page.getByRole("button", { name: "Preview team plan", exact: true }).click();
@@ -304,6 +319,73 @@ test("onboarding wizard completes blueprint to quick-request happy path", async 
 
   await page.waitForURL(/\/[^/]+\/work\/[^/]+$/);
   await expect(page.getByText(quickRequestTitle).first()).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("saved blueprint library supports local authoring, versioning, and lifecycle actions", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const diagnostics = attachDiagnostics(page);
+  const companyName = `Blueprint Library Smoke ${Date.now()}`;
+
+  const createResponse = await request.post(`${baseUrl}/api/companies`, {
+    data: { name: companyName },
+  });
+  expect(createResponse.ok()).toBeTruthy();
+  const createdCompany = await createResponse.json() as { issuePrefix?: string | null };
+  const companyPrefix = createdCompany.issuePrefix?.trim() ?? "";
+  if (!companyPrefix) throw new Error("failed to resolve company prefix from company create response");
+
+  await page.goto(`${baseUrl}/${companyPrefix}/settings`, { waitUntil: "networkidle" });
+  await expect(page.getByRole("heading", { name: "Company Settings", exact: true })).toBeVisible({
+    timeout: 15000,
+  });
+  await page.getByRole("button", { name: "Preview team plan", exact: true }).click();
+  await expect(page.getByText("Preview diff").first()).toBeVisible();
+
+  const savePreviewCard = page.locator("div.rounded-md").filter({
+    has: page.getByText("Save preview to company library", { exact: true }),
+  }).first();
+  await savePreviewCard.getByRole("textbox").nth(0).fill("Saved Small Delivery Team");
+  await savePreviewCard.getByRole("textbox").nth(1).fill("saved-small-delivery-team");
+  await savePreviewCard.getByRole("textbox").nth(2).fill("Reusable compact delivery defaults for smoke validation.");
+  await savePreviewCard.getByRole("textbox").nth(3).fill("Initial company-local baseline");
+  await savePreviewCard.getByRole("button", { name: "Save to library", exact: true }).first().click();
+  await expect(page.getByText("Saved Small Delivery Team").first()).toBeVisible();
+
+  const savedLibraryPane = page.locator("div.rounded-md").filter({
+    has: page.getByText("Saved blueprint library", { exact: true }),
+  }).first();
+  await savedLibraryPane.locator('input[value="Saved Small Delivery Team"]').last().fill("Saved Small Delivery Team Base");
+  await savedLibraryPane.locator('input[value="saved-small-delivery-team"]').last().fill("saved-small-delivery-team-base");
+  await savedLibraryPane.getByRole("button", { name: "Save library details", exact: true }).click();
+  await expect(page.getByText("Saved Small Delivery Team Base").first()).toBeVisible();
+
+  const savedExportDownload = page.waitForEvent("download");
+  await savedLibraryPane.getByRole("button", { name: "Re-export JSON", exact: true }).click();
+  const savedBundle = await savedExportDownload;
+  const savedBundlePath = await savedBundle.path();
+  if (!savedBundlePath) {
+    throw new Error("failed to resolve saved blueprint export path");
+  }
+  const savedBundleText = await readFile(savedBundlePath, "utf8");
+  expect(savedBundleText).toContain("saved-small-delivery-team-base");
+
+  await savedLibraryPane.getByRole("button", { name: "Preview saved blueprint", exact: true }).click();
+  const nextVersionCard = savedLibraryPane.locator("div.rounded-md").filter({
+    has: page.getByText("Save preview as next version", { exact: true }),
+  }).first();
+  await expect(nextVersionCard.getByText("Save preview as next version", { exact: true })).toBeVisible();
+  await nextVersionCard.getByRole("textbox").nth(0).fill("Saved Small Delivery Team Base v2");
+  await nextVersionCard.getByRole("textbox").nth(1).fill("saved-small-delivery-team-v2");
+  await nextVersionCard.getByRole("textbox").nth(3).fill("Increase saved engineer coverage");
+  await nextVersionCard.getByRole("button", { name: "Save as next version", exact: true }).click();
+  await expect(page.getByText("Saved blueprint preview was stored as the next company-local version.").first()).toBeVisible();
+  await expect(savedLibraryPane.getByRole("button").filter({ hasText: /v2 ·/ }).first()).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await savedLibraryPane.getByRole("button", { name: "Delete from library", exact: true }).click();
+  await expect(page.getByText("Saved blueprint deleted").first()).toBeVisible();
 
   expectHealthyDiagnostics(diagnostics);
 });

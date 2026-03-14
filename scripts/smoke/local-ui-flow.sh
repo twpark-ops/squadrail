@@ -70,6 +70,8 @@ KNOWLEDGE_DOM_PATH="${KNOWLEDGE_DOM_PATH:-$SQUADRAIL_HOME/knowledge.dom.html}"
 CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-$SQUADRAIL_HOME/chrome-profile}"
 CHROME_DUMP_PROFILE_DIR="${CHROME_DUMP_PROFILE_DIR:-$SQUADRAIL_HOME/chrome-dump-profile}"
 RUN_SUPPORT_PLAYWRIGHT_SPEC="${RUN_SUPPORT_PLAYWRIGHT_SPEC:-false}"
+SUPPORT_PLAYWRIGHT_GREP="${SUPPORT_PLAYWRIGHT_GREP:-}"
+SMOKE_SCOPE="${SMOKE_SCOPE:-full}"
 
 mkdir -p "$SQUADRAIL_HOME"
 
@@ -509,8 +511,17 @@ if [[ "$RUN_SUPPORT_PLAYWRIGHT_SPEC" == "true" ]]; then
   echo "==> verifying Company Settings blueprint apply flow with Playwright"
   (
     cd "$REPO_ROOT"
-    UI_REVIEW_BASE_URL="$BASE_URL" pnpm exec playwright test scripts/smoke/ui-support-routes.spec.ts --reporter=line
+    if [[ -n "$SUPPORT_PLAYWRIGHT_GREP" ]]; then
+      UI_REVIEW_BASE_URL="$BASE_URL" pnpm exec playwright test scripts/smoke/ui-support-routes.spec.ts --reporter=line -g "$SUPPORT_PLAYWRIGHT_GREP"
+    else
+      UI_REVIEW_BASE_URL="$BASE_URL" pnpm exec playwright test scripts/smoke/ui-support-routes.spec.ts --reporter=line
+    fi
   )
+fi
+
+if [[ "$SMOKE_SCOPE" == "support_only" ]]; then
+  echo "==> support-only smoke succeeded"
+  exit 0
 fi
 
 echo "==> verifying work list page"
