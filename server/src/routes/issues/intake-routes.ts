@@ -2,12 +2,22 @@ import { validate } from "../../middleware/validate.js";
 import {
   createPmIntakeIssueSchema,
   createPmIntakeProjectionSchema,
+  previewPmIntakeProjectionSchema,
   type CreateIssueProtocolMessage,
 } from "@squadrail/shared";
 import { assertCompanyAccess, getActorInfo } from "../authz.js";
 import { logActivity } from "../../services/index.js";
 import { conflict, forbidden, unprocessable } from "../../errors.js";
 import type { IssueRouteContext } from "./context.js";
+
+function isPmIntakeRootIssue(issue: {
+  description?: string | null;
+  labels?: Array<{ name?: string | null }> | null;
+}) {
+  const description = typeof issue.description === "string" ? issue.description : "";
+  if (/## Human Intake Request\b/i.test(description)) return true;
+  return (issue.labels ?? []).some((label) => label?.name === "workflow:intake");
+}
 
 export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
   const { router, db } = ctx;
@@ -27,6 +37,7 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
     derivePmIntakeIssueTitle,
     buildPmIntakeIssueDescription,
     buildPmIntakeAssignment,
+    buildPmIntakeProjectionPreview,
   } = ctx.helpers;
   const { pmIntakeLabelSpecs } = ctx.constants;
 
@@ -197,6 +208,9 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
     if (rootIssue.parentId || rootIssue.hiddenAt) {
       throw unprocessable("PM intake projection can only run on visible root issues");
     }
+    if (!isPmIntakeRootIssue(rootIssue)) {
+      throw unprocessable("PM intake projection can only run on visible root intake issues");
+    }
 
     const actor = getActorInfo(req);
     const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
@@ -334,5 +348,70 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
         coordinationOnly: req.body.coordinationOnly ?? false,
       },
     });
+  });
+
+  router.post("/issues/:id/intake/projection-preview", validate(previewPmIntakeProjectionSchema), async (req, res) => {
+    const issueId = req.params.id as string;
+    const rootIssue = await svc.getById(issueId);
+    if (!rootIssue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+
+    assertCompanyAccess(req, rootIssue.companyId);
+    await assertCanAssignTasks(req, rootIssue.companyId);
+    if (rootIssue.parentId || rootIssue.hiddenAt) {
+      throw unprocessable("PM intake projection preview can only run on visible root issues");
+    }
+    if (!isPmIntakeRootIssue(rootIssue)) {
+      throw unprocessable("PM intake projection preview can only run on visible root intake issues");
+    }
+
+    const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);
+    if (sender.role !== "pm" && sender.role !== "cto" && sender.role !== "human_board") {
+      throw forbidden("Only PM, CTO, or board actors can preview intake projection");
+    }
+
+    const [companyAgents, companyProjects] = await Promise.all([
+      agentsSvc.list(rootIssue.companyId),
+      projectsSvc.list(rootIssue.companyId),
+    ]);
+
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: rootIssue.id,
+        companyId: rootIssue.companyId,
+        title: rootIssue.title,
+        description: rootIssue.description,
+        priority: rootIssue.priority as "low" | "medium" | "high" | "critical",
+        projectId: rootIssue.projectId ?? null,
+      },
+      projects: companyProjects.map((project) => ({
+        id: project.id,
+        companyId: project.companyId,
+        name: project.name,
+        urlKey: project.urlKey ?? null,
+        primaryWorkspace: project.primaryWorkspace
+          ? {
+              cwd: project.primaryWorkspace.cwd,
+              repoUrl: project.primaryWorkspace.repoUrl ?? null,
+              repoRef: project.primaryWorkspace.repoRef,
+            }
+          : null,
+      })),
+      agents: companyAgents.map((agent) => ({
+        id: agent.id,
+        companyId: agent.companyId,
+        name: agent.name,
+        urlKey: agent.urlKey ?? null,
+        role: agent.role,
+        status: agent.status,
+        reportsTo: agent.reportsTo,
+        title: agent.title ?? null,
+      })),
+      request: req.body,
+    });
+
+    res.json(preview);
   });
 }

@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `Phase 7 bounded autonomy E2E kickoff`다.
+> 현재 다음 순차 작업은 `Phase 7 bounded autonomy E2E live burn-in`이다.
 
 ## 목적
 
@@ -108,8 +108,11 @@
 ### Follow-up Slices
 
 4. `Bounded autonomy E2E`
-   - structured-but-short request invariant 정의
+   - `projection preview` shared/server/runtime helper kickoff는 완료
+   - kickoff harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs` 추가 완료
+   - 다음은 live control plane에서 kickoff harness를 실제 실행하고 invariant를 고정
    - clarification ask/answer 포함 상위 burn-in 추가
+   - downstream `execution / review / QA / close`까지 확장
    - 기존 deterministic kernel burn-in과 역할 분리
 
 ## 2026-03-13 coverage threshold push

@@ -44,6 +44,16 @@ export const createPmIntakeIssueSchema = z.object({
 
 export type CreatePmIntakeIssue = z.infer<typeof createPmIntakeIssueSchema>;
 
+export const previewPmIntakeProjectionSchema = z.object({
+  projectId: z.string().uuid().nullable().optional(),
+  techLeadAgentId: z.string().uuid().nullable().optional(),
+  reviewerAgentId: z.string().uuid().nullable().optional(),
+  qaAgentId: z.string().uuid().nullable().optional(),
+  coordinationOnly: z.boolean().optional().default(false),
+}).strict();
+
+export type PreviewPmIntakeProjection = z.infer<typeof previewPmIntakeProjectionSchema>;
+
 const createInternalWorkItemBaseSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(10_000).optional().nullable(),

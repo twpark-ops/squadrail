@@ -14,6 +14,7 @@ One-line startup rule:
   - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
+  - Phase 7 kickoff에서 `projection preview/helper` 계약과 autonomy kickoff harness까지 올라왔다.
 
 ## Current Status
 
@@ -52,10 +53,14 @@ One-line startup rule:
     25. server test를 메모리 절약형 기본 실행으로 재구성
        - `pnpm --filter @squadrail/server test` = `test:base(maxWorkers=2) + test:heavy(fileParallelism=false)`
        - `pnpm --filter @squadrail/server test:coverage`는 별도 실행
+    26. `projection preview` shared/server/runtime helper contract 추가
+    27. PM helper CLI에 `list-projects`, `preview-intake-projection`, `apply-intake-projection` 추가
+    28. PM role pack를 projection-first flow로 갱신
+    29. kickoff autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs` 추가
   - immediate next:
-    1. `Phase 7 bounded autonomy E2E` kickoff
-    2. structured-but-short request invariant 고정
-    3. clarification ask/answer 포함 상위 burn-in 추가
+    1. kickoff autonomy harness를 live control plane에서 실행하고 invariant를 고정
+    2. clarification ask/answer를 autonomy harness에 포함
+    3. downstream `execution / review / QA / close`까지 상위 burn-in 확장
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` 전용 canonical은 이후 phase에서 generic team blueprint registry로 일반화해야 한다.

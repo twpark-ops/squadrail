@@ -74,6 +74,194 @@ describe("squadrail protocol helper CLI", () => {
     expect(stdout).toContain("--understood-scope");
   });
 
+  it("lists company projects for PM routing helpers", async () => {
+    const server = http.createServer((req, res) => {
+      if (req.method === "GET" && req.url === "/api/companies/company-123/projects") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([
+          { id: "project-1", name: "swiftsight-cloud" },
+        ]));
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync("node", [SCRIPT_PATH, "list-projects"], {
+        env: {
+          ...buildEnv(),
+          SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+        },
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+
+      expect(stdout).toContain("swiftsight-cloud");
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("previews PM intake projection drafts through the helper command", async () => {
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const server = http.createServer((req, res) => {
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/intake/projection-preview") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({
+            issueId: "issue-123",
+            draft: { reason: "Route to TL lane", workItems: [] },
+          }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "preview-intake-projection",
+          "--issue",
+          "issue-123",
+          "--project-id",
+          "project-1",
+          "--coordination-only",
+          "false",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain("Route to TL lane");
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toEqual({
+        projectId: "project-1",
+        coordinationOnly: false,
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("applies PM intake projection drafts from preview-json", async () => {
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const server = http.createServer((req, res) => {
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/intake/projection") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const previewJson = JSON.stringify({
+        draft: {
+          reason: "Route to TL lane",
+          techLeadAgentId: "tl-1",
+          reviewerAgentId: "reviewer-1",
+          qaAgentId: null,
+          coordinationOnly: false,
+          root: {
+            executionSummary: "summary",
+            acceptanceCriteria: ["one"],
+            definitionOfDone: ["done"],
+          },
+          workItems: [],
+        },
+      });
+
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "apply-intake-projection",
+          "--issue",
+          "issue-123",
+          "--preview-json",
+          previewJson,
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain("\"ok\": true");
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toMatchObject({
+        reason: "Route to TL lane",
+        techLeadAgentId: "tl-1",
+        reviewerAgentId: "reviewer-1",
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("accepts camelCase ack-assignment aliases used by live TL loops", async () => {
     const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
     const server = http.createServer((req, res) => {

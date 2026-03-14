@@ -1,13 +1,44 @@
+import type {
+  PmIntakeProjectionPreviewRequest,
+  PmIntakeProjectionPreviewResult,
+} from "@squadrail/shared";
 import { conflict, unprocessable } from "../errors.js";
 
 export interface PmIntakeAgent {
   id: string;
   companyId: string;
   name: string;
+  urlKey?: string | null;
   role: string;
   status: string;
   reportsTo: string | null;
   title?: string | null;
+}
+
+export interface PmIntakeProjectCandidate {
+  id: string;
+  companyId: string;
+  name: string;
+  urlKey?: string | null;
+  primaryWorkspace?: {
+    cwd?: string | null;
+    repoUrl?: string | null;
+    repoRef?: string | null;
+  } | null;
+}
+
+interface BuildPmIntakeProjectionPreviewInput {
+  issue: {
+    id: string;
+    companyId: string;
+    title: string;
+    description: string | null;
+    priority: "critical" | "high" | "medium" | "low";
+    projectId: string | null;
+  };
+  projects: PmIntakeProjectCandidate[];
+  agents: PmIntakeAgent[];
+  request: PmIntakeProjectionPreviewRequest;
 }
 
 const ACTIVE_INTAKE_AGENT_STATUSES = new Set(["active", "idle", "running"]);
@@ -28,16 +59,32 @@ function isActiveForIntake(agent: PmIntakeAgent) {
 }
 
 function canActAsReviewer(agent: PmIntakeAgent) {
+  if (agent.role === "reviewer") return true;
   if (agent.role === "qa") return true;
   if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return true;
   return false;
 }
 
+function canActAsTechLead(agent: PmIntakeAgent) {
+  if (agent.role === "manager" || agent.role === "tech_lead") return true;
+  if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return true;
+  return /(?:^|-)(tl|tech-lead)(?:-|$)/i.test(agent.urlKey ?? "");
+}
+
+function canActAsEngineer(agent: PmIntakeAgent) {
+  return agent.role === "engineer" || canActAsTechLead(agent);
+}
+
+function canActAsQa(agent: PmIntakeAgent) {
+  return agent.role === "qa";
+}
+
 function intakeAgentSortWeight(agent: PmIntakeAgent) {
   if (agent.role === "pm" && !agent.reportsTo) return 0;
   if (agent.role === "pm") return 10;
-  if (agent.role === "qa" && /lead/i.test(agent.title ?? "")) return 0;
-  if (agent.role === "qa") return 10;
+  if (agent.role === "reviewer") return 0;
+  if (agent.role === "qa" && /lead/i.test(agent.title ?? "")) return 10;
+  if (agent.role === "qa") return 20;
   if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return 20;
   return 100;
 }
@@ -49,6 +96,133 @@ function sortAgents(left: PmIntakeAgent, right: PmIntakeAgent) {
   return left.name.localeCompare(right.name);
 }
 
+function compactLine(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function tokenize(value: string | null | undefined) {
+  if (!value) return [];
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => (typeof value === "string" ? value.trim() : "")).filter(Boolean))];
+}
+
+function extractHumanRequest(description: string | null | undefined) {
+  const source = typeof description === "string" ? description : "";
+  if (!source.trim()) return "";
+  const match = source.match(/## Human Intake Request\s+([\s\S]*?)\n## /i);
+  if (match?.[1]) return match[1].trim();
+  return source.trim();
+}
+
+function extractBulletItems(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line))
+    .map((line) => line.replace(/^[-*]\s+/, "").replace(/^\d+\.\s+/, "").trim())
+    .filter(Boolean);
+}
+
+function buildProjectSearchTerms(project: PmIntakeProjectCandidate) {
+  const cwd = project.primaryWorkspace?.cwd ?? null;
+  return uniqueStrings([
+    project.name,
+    project.urlKey ?? null,
+    project.primaryWorkspace?.repoRef ?? null,
+    project.primaryWorkspace?.repoUrl ?? null,
+    cwd,
+    cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() ?? null : null,
+  ]);
+}
+
+function scoreProjectCandidate(project: PmIntakeProjectCandidate, requestText: string, issueProjectId: string | null) {
+  if (issueProjectId && issueProjectId === project.id) {
+    return {
+      score: 100,
+      reasons: ["matches_issue_project"],
+    };
+  }
+
+  const requestLower = requestText.toLowerCase();
+  const requestTokens = new Set(tokenize(requestText));
+  const reasons: string[] = [];
+  let score = 0;
+
+  for (const term of buildProjectSearchTerms(project)) {
+    const normalized = compactLine(term).toLowerCase();
+    if (!normalized) continue;
+    if (requestLower.includes(normalized)) {
+      score += 10;
+      reasons.push(`mentions:${normalized}`);
+    }
+    const overlap = tokenize(normalized).filter((token) => requestTokens.has(token)).length;
+    if (overlap > 0) {
+      score += overlap * 3;
+      reasons.push(`token_overlap:${normalized}`);
+    }
+  }
+
+  return { score, reasons };
+}
+
+function buildAgentMatchTerms(agent: PmIntakeAgent) {
+  return uniqueStrings([agent.name, agent.title ?? null, agent.urlKey ?? null]);
+}
+
+function scoreAgentCandidate(agent: PmIntakeAgent, selectedProject: PmIntakeProjectCandidate | null) {
+  if (!selectedProject) return 0;
+  const projectTokens = new Set(tokenize(buildProjectSearchTerms(selectedProject).join(" ")));
+  return buildAgentMatchTerms(agent)
+    .flatMap((value) => tokenize(value))
+    .filter((token) => projectTokens.has(token))
+    .length;
+}
+
+function pickBestAgent(input: {
+  agents: PmIntakeAgent[];
+  selectedProject: PmIntakeProjectCandidate | null;
+  predicate: (agent: PmIntakeAgent) => boolean;
+  preferredId?: string | null;
+  excludedIds?: string[];
+  roleBonus?: (agent: PmIntakeAgent) => number;
+  notFoundMessage: string;
+  invalidPreferredMessage: string;
+}) {
+  const excludedIds = new Set(input.excludedIds ?? []);
+  const activeAgents = input.agents
+    .filter(isActiveForIntake)
+    .filter((agent) => !excludedIds.has(agent.id))
+    .filter(input.predicate);
+
+  if (input.preferredId) {
+    const preferred = activeAgents.find((agent) => agent.id === input.preferredId) ?? null;
+    if (!preferred) {
+      throw unprocessable(input.invalidPreferredMessage);
+    }
+    return preferred;
+  }
+
+  const ranked = [...activeAgents].sort((left, right) => {
+    const leftScore = scoreAgentCandidate(left, input.selectedProject) + (input.roleBonus?.(left) ?? 0);
+    const rightScore = scoreAgentCandidate(right, input.selectedProject) + (input.roleBonus?.(right) ?? 0);
+    if (leftScore !== rightScore) return rightScore - leftScore;
+    return sortAgents(left, right);
+  });
+
+  const selected = ranked[0] ?? null;
+  if (!selected) {
+    throw conflict(input.notFoundMessage);
+  }
+  return selected;
+}
+
 export function resolvePmIntakeAgents(input: ResolvePmIntakeAgentsInput): ResolvePmIntakeAgentsResult {
   const activeAgents = input.agents.filter(isActiveForIntake);
 
@@ -56,7 +230,7 @@ export function resolvePmIntakeAgents(input: ResolvePmIntakeAgentsInput): Resolv
     .filter((agent) => agent.role === "pm")
     .sort(sortAgents);
 
-  let pmAgent = input.pmAgentId
+  const pmAgent = input.pmAgentId
     ? activeAgents.find((agent) => agent.id === input.pmAgentId) ?? null
     : pmCandidates[0] ?? null;
 
@@ -72,23 +246,19 @@ export function resolvePmIntakeAgents(input: ResolvePmIntakeAgentsInput): Resolv
     .filter((agent) => agent.id !== pmAgent.id && canActAsReviewer(agent))
     .sort(sortAgents);
 
-  let reviewerAgent = input.reviewerAgentId
+  const reviewerAgent = input.reviewerAgentId
     ? activeAgents.find((agent) => agent.id === input.reviewerAgentId) ?? null
     : reviewerCandidates[0] ?? null;
 
   if (input.reviewerAgentId && (!reviewerAgent || !canActAsReviewer(reviewerAgent) || reviewerAgent.id === pmAgent.id)) {
-    throw unprocessable("Selected reviewer agent must be an active QA or Tech Lead and different from the PM");
+    throw unprocessable("Selected reviewer agent must be an active reviewer-capable agent and different from the PM");
   }
 
   if (!reviewerAgent) {
-    throw conflict("No active reviewer-capable QA or Tech Lead agent is available for PM intake");
+    throw conflict("No active reviewer-capable agent is available for PM intake");
   }
 
   return { pmAgent, reviewerAgent };
-}
-
-function compactLine(value: string) {
-  return value.replace(/\s+/g, " ").trim();
 }
 
 export function derivePmIntakeIssueTitle(input: {
@@ -165,5 +335,197 @@ export function buildPmIntakeAssignment(input: {
       relatedIssueIds: input.relatedIssueIds,
       requiredKnowledgeTags: input.requiredKnowledgeTags,
     },
+  };
+}
+
+export function buildPmIntakeProjectionPreview(
+  input: BuildPmIntakeProjectionPreviewInput,
+): PmIntakeProjectionPreviewResult {
+  const companyProjects = input.projects.filter((project) => project.companyId === input.issue.companyId);
+  if (companyProjects.length === 0) {
+    throw conflict("PM intake projection preview requires at least one company project");
+  }
+
+  const selectedProjectOverride = input.request.projectId
+    ? companyProjects.find((project) => project.id === input.request.projectId) ?? null
+    : null;
+
+  if (input.request.projectId && !selectedProjectOverride) {
+    throw unprocessable("Selected project must belong to the same company");
+  }
+
+  const requestText = extractHumanRequest(input.issue.description) || input.issue.title;
+  const projectCandidates = companyProjects
+    .map((project) => {
+      const scored = scoreProjectCandidate(project, requestText, input.issue.projectId);
+      return {
+        project,
+        ...scored,
+      };
+    })
+    .sort((left, right) => {
+      if (left.score !== right.score) return right.score - left.score;
+      return left.project.name.localeCompare(right.project.name);
+    });
+
+  const warnings: string[] = [];
+  const selectedProject =
+    selectedProjectOverride
+    ?? projectCandidates.find((candidate) => candidate.score > 0)?.project
+    ?? companyProjects[0]
+    ?? null;
+
+  if (!selectedProjectOverride && projectCandidates[0] && projectCandidates[0].score <= 0) {
+    warnings.push("project_match_low_confidence");
+  }
+
+  const techLead = pickBestAgent({
+    agents: input.agents,
+    selectedProject,
+    predicate: canActAsTechLead,
+    preferredId: input.request.techLeadAgentId ?? null,
+    notFoundMessage: "No active tech lead-capable agent is available for PM intake projection",
+    invalidPreferredMessage: "Selected tech lead agent must support tech_lead protocol role",
+  });
+
+  const reviewer = pickBestAgent({
+    agents: input.agents,
+    selectedProject,
+    predicate: canActAsReviewer,
+    preferredId: input.request.reviewerAgentId ?? null,
+    excludedIds: [techLead.id],
+    roleBonus: (agent) => (agent.role === "reviewer" ? 100 : agent.role === "qa" ? 50 : 0),
+    notFoundMessage: "No active reviewer-capable agent is available for PM intake projection",
+    invalidPreferredMessage: "Selected reviewer agent must support reviewer protocol role",
+  });
+
+  let qaAgent: PmIntakeAgent | null = null;
+  if (input.request.qaAgentId) {
+    qaAgent = pickBestAgent({
+      agents: input.agents,
+      selectedProject,
+      predicate: canActAsQa,
+      preferredId: input.request.qaAgentId,
+      excludedIds: [techLead.id, reviewer.id],
+      notFoundMessage: "No active QA agent is available for PM intake projection",
+      invalidPreferredMessage: "Selected QA agent must support qa protocol role",
+    });
+  } else {
+    const qaCandidates = input.agents
+      .filter(isActiveForIntake)
+      .filter((agent) => agent.id !== techLead.id && agent.id !== reviewer.id)
+      .filter(canActAsQa);
+    if (qaCandidates.length > 0) {
+      qaAgent = pickBestAgent({
+        agents: input.agents,
+        selectedProject,
+        predicate: canActAsQa,
+        excludedIds: [techLead.id, reviewer.id],
+        notFoundMessage: "No active QA agent is available for PM intake projection",
+        invalidPreferredMessage: "Selected QA agent must support qa protocol role",
+      });
+    }
+  }
+
+  const implementationAssignee = pickBestAgent({
+    agents: input.agents,
+    selectedProject,
+    predicate: canActAsEngineer,
+    excludedIds: [reviewer.id, ...(qaAgent ? [qaAgent.id] : [])],
+    roleBonus: (agent) => (agent.role === "engineer" ? 20 : 0),
+    notFoundMessage: "No active engineer-capable agent is available for PM intake projection",
+    invalidPreferredMessage: "Selected implementation assignee must support engineer or tech_lead protocol role",
+  });
+
+  const structuredTitle = compactLine(input.issue.title).slice(0, 200) || "Structured intake request";
+  const bulletItems = extractBulletItems(requestText);
+  const executionSummary = compactLine(requestText.split(/\r?\n/)[0] ?? requestText).slice(0, 500) || structuredTitle;
+  const acceptanceCriteria = (
+    bulletItems.length > 0
+      ? bulletItems
+      : [
+          `Implement the requested change inside ${selectedProject?.name ?? "the selected project"} without widening scope.`,
+          "Capture focused validation evidence in protocol messages before review.",
+          "Keep reviewer and QA ownership explicit through close.",
+        ]
+  ).slice(0, 6);
+  const definitionOfDone = [
+    `The ${selectedProject?.name ?? "selected"} TL lane owns the execution path.`,
+    "At least one execution work item is ready for implementation with explicit reviewer and QA owners.",
+    "Open risks or clarification debt stay visible in protocol history.",
+  ];
+  const openQuestions = warnings.includes("project_match_low_confidence")
+    ? ["Confirm the intended project if the selected preview does not match the request."]
+    : [];
+  const documentationDebt = requestText.toLowerCase().includes("docs")
+    ? ["Confirm whether documentation updates belong in the same delivery slice."]
+    : [];
+  const coordinationOnly = input.request.coordinationOnly ?? false;
+  const workItemKind: "plan" | "implementation" =
+    /\b(plan|design|scope|triage|investigate)\b/i.test(requestText)
+      ? "plan"
+      : "implementation";
+  const workItems = [
+    {
+      title: structuredTitle,
+      description: requestText.slice(0, 10_000),
+      kind: workItemKind,
+      projectId: selectedProject?.id ?? null,
+      priority: input.issue.priority,
+      assigneeAgentId: implementationAssignee.id,
+      reviewerAgentId: reviewer.id,
+      qaAgentId: qaAgent?.id ?? null,
+      goal: executionSummary,
+      acceptanceCriteria,
+      definitionOfDone,
+      watchLead: true,
+      watchReviewer: true,
+    },
+  ];
+
+  return {
+    companyId: input.issue.companyId,
+    issueId: input.issue.id,
+    selectedProjectId: selectedProject?.id ?? null,
+    selectedProjectName: selectedProject?.name ?? null,
+    projectCandidates: projectCandidates.map((candidate) => ({
+      projectId: candidate.project.id,
+      projectName: candidate.project.name,
+      score: candidate.score,
+      selected: candidate.project.id === selectedProject?.id,
+      reasons: candidate.reasons,
+    })),
+    staffing: {
+      techLeadAgentId: techLead.id,
+      techLeadName: techLead.name,
+      reviewerAgentId: reviewer.id,
+      reviewerName: reviewer.name,
+      qaAgentId: qaAgent?.id ?? null,
+      qaName: qaAgent?.name ?? null,
+      implementationAssigneeAgentId: implementationAssignee.id,
+      implementationAssigneeName: implementationAssignee.name,
+    },
+    draft: {
+      reason: coordinationOnly
+        ? `Structure ${structuredTitle} into coordinated child delivery for ${selectedProject?.name ?? "the selected delivery lane"} without reassigning the root lane.`
+        : `Structure ${structuredTitle} into ${selectedProject?.name ?? "the selected delivery lane"} and route execution through ${techLead.name}.`,
+      techLeadAgentId: techLead.id,
+      reviewerAgentId: reviewer.id,
+      qaAgentId: qaAgent?.id ?? null,
+      coordinationOnly,
+      root: {
+        structuredTitle,
+        projectId: selectedProject?.id ?? null,
+        priority: input.issue.priority,
+        executionSummary,
+        acceptanceCriteria,
+        definitionOfDone,
+        risks: warnings.length > 0 ? ["Project match confidence is low and should be confirmed during PM review."] : [],
+        openQuestions,
+        documentationDebt,
+      },
+      workItems,
+    },
+    warnings,
   };
 }

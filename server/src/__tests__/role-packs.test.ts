@@ -80,6 +80,16 @@ describe("role pack defaults", () => {
     expect(qaFiles.find((file) => file.filename === "REVIEW.md")?.content).toContain("Approval requires acceptance criteria coverage");
   });
 
+  it("teaches the PM pack to use projection preview/apply helpers before repository inspection", () => {
+    const pmFiles = buildDefaultRolePackFiles("pm", "example_large_org_v1");
+    const role = pmFiles.find((file) => file.filename === "ROLE.md");
+
+    expect(role?.content).toContain("project-intake preview/apply helper flow");
+    expect(role?.content).toContain("list-projects");
+    expect(role?.content).toContain("preview-intake-projection");
+    expect(role?.content).toContain("apply-intake-projection");
+  });
+
   it("creates custom role packs by inheriting the base role contract", () => {
     const files = buildCustomRolePackFiles({
       roleName: "Release Captain",

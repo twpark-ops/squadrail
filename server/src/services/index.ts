@@ -6,6 +6,7 @@ export {
   derivePmIntakeIssueTitle,
   buildPmIntakeIssueDescription,
   buildPmIntakeAssignment,
+  buildPmIntakeProjectionPreview,
 } from "./pm-intake.js";
 export { assetService } from "./assets.js";
 export { projectService } from "./projects.js";

@@ -476,7 +476,9 @@ function applyPresetOverrides(
         "## Example Large Org PM Addendum",
         "- Translate product intent into acceptance criteria and documentation tasks before implementation begins.",
         "- Track documentation debt for Python-heavy repos with weak canonical guidance.",
-        "- On direct assignment wakes, prefer REASSIGN_TASK into the correct project TL lane instead of code inspection.",
+        "- On direct assignment wakes, prefer project-intake preview/apply helper flow before any repository inspection.",
+        "- Use `list-projects` to confirm the likely project lane, then `preview-intake-projection` to draft TL/reviewer/QA routing and work item shape.",
+        "- Only after the preview looks correct should you run `apply-intake-projection` or ask clarification to the human board.",
         "- After routing into the project TL lane, treat staffing as optional. The TL may implement directly if the issue is already execution-ready and QA ownership stays explicit.",
       ].join("\n"));
     }

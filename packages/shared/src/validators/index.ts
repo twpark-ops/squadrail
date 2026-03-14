@@ -65,6 +65,7 @@ export {
 export {
   createIssueSchema,
   createPmIntakeIssueSchema,
+  previewPmIntakeProjectionSchema,
   createPmIntakeProjectionSchema,
   createInternalWorkItemSchema,
   createIssueLabelSchema,
@@ -76,6 +77,7 @@ export {
   createIssueAttachmentMetadataSchema,
   type CreateIssue,
   type CreatePmIntakeIssue,
+  type PreviewPmIntakeProjection,
   type CreatePmIntakeProjection,
   type CreateInternalWorkItem,
   type CreateIssueLabel,
