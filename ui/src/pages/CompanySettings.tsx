@@ -23,7 +23,10 @@ import {
 import { Field, ToggleField, HintIcon } from "../components/agent-config-primitives";
 import { Layers3, SearchCheck, Settings, ShieldCheck } from "lucide-react";
 import {
+  buildNextSavedTeamBlueprintVersionLabel,
+  buildNextSavedTeamBlueprintVersionSlug,
   buildDefaultTeamBlueprintPreviewRequest,
+  resolveSavedTeamBlueprintVersionInfo,
   WORKFLOW_TEMPLATE_ACTION_TYPES,
   ROLE_PACK_FILE_NAMES,
   type DoctorCheckStatus,
@@ -218,6 +221,12 @@ export function CompanySettings() {
   const [teamBlueprintPreviewRequests, setTeamBlueprintPreviewRequests] = useState<Record<string, TeamBlueprintPreviewRequest>>({});
   const [teamBlueprintPreview, setTeamBlueprintPreview] = useState<TeamBlueprintPreviewResult | null>(null);
   const [teamBlueprintApplyResult, setTeamBlueprintApplyResult] = useState<TeamBlueprintApplyResult | null>(null);
+  const [teamBlueprintLibraryDrafts, setTeamBlueprintLibraryDrafts] = useState<Record<string, {
+    slug: string;
+    label: string;
+    description: string;
+    versionNote: string;
+  }>>({});
   const [confirmTeamBlueprintApply, setConfirmTeamBlueprintApply] = useState(false);
   const [selectedSavedTeamBlueprintId, setSelectedSavedTeamBlueprintId] = useState<string | null>(null);
   const [savedTeamBlueprintPreviewRequests, setSavedTeamBlueprintPreviewRequests] = useState<Record<string, TeamBlueprintPreviewRequest>>({});
@@ -225,6 +234,12 @@ export function CompanySettings() {
     slug: string;
     label: string;
     description: string;
+  }>>({});
+  const [savedTeamBlueprintVersionDrafts, setSavedTeamBlueprintVersionDrafts] = useState<Record<string, {
+    slug: string;
+    label: string;
+    description: string;
+    versionNote: string;
   }>>({});
   const [savedTeamBlueprintPreviewState, setSavedTeamBlueprintPreviewState] = useState<{
     savedBlueprintId: string;
@@ -691,6 +706,65 @@ export function CompanySettings() {
     },
   });
 
+  const teamBlueprintSaveMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      blueprintKey: TeamBlueprintKey;
+      preview: TeamBlueprintPreviewResult;
+      slug: string;
+      label: string;
+      description: string | null;
+      versionNote: string | null;
+    }) =>
+      companiesApi.saveTeamBlueprint(input.companyId, input.blueprintKey, {
+        previewHash: input.preview.previewHash,
+        projectCount: input.preview.parameters.projectCount,
+        engineerPairsPerProject: input.preview.parameters.engineerPairsPerProject,
+        includePm: input.preview.parameters.includePm,
+        includeQa: input.preview.parameters.includeQa,
+        includeCto: input.preview.parameters.includeCto,
+        slug: input.slug,
+        label: input.label,
+        description: input.description,
+        versionNote: input.versionNote,
+      }),
+    onSuccess: async (result, variables) => {
+      setSelectedSavedTeamBlueprintId(result.savedBlueprint.id);
+      setSavedTeamBlueprintMetadataDrafts((current) => ({
+        ...current,
+        [result.savedBlueprint.id]: {
+          slug: result.savedBlueprint.definition.slug,
+          label: result.savedBlueprint.definition.label,
+          description: result.savedBlueprint.definition.description ?? "",
+        },
+      }));
+      setSavedTeamBlueprintPreviewRequests((current) => ({
+        ...current,
+        [result.savedBlueprint.id]: result.savedBlueprint.defaultPreviewRequest,
+      }));
+      setSavedTeamBlueprintVersionDrafts((current) => {
+        const next = { ...current };
+        delete next[result.savedBlueprint.id];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(variables.companyId) });
+      pushToast({
+        tone: "success",
+        title: `Saved ${result.savedBlueprint.definition.label}`,
+        body: "Preview defaults were stored in the company blueprint library.",
+        dedupeKey: `team-blueprint-save:${variables.companyId}:${result.savedBlueprint.id}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Library save failed",
+        body: error instanceof Error ? error.message : "Failed to save blueprint defaults to the company library",
+        dedupeKey: `team-blueprint-save-error:${variables.companyId}:${variables.blueprintKey}`,
+      });
+    },
+  });
+
   const teamBlueprintApplyMutation = useMutation({
     mutationFn: async (input: { companyId: string; preview: TeamBlueprintPreviewResult }) =>
       companiesApi.applyTeamBlueprint(input.companyId, input.preview.blueprint.key, {
@@ -840,6 +914,11 @@ export function CompanySettings() {
           description: result.savedBlueprint.definition.description ?? "",
         },
       }));
+      setSavedTeamBlueprintVersionDrafts((current) => {
+        const next = { ...current };
+        delete next[result.savedBlueprint.id];
+        return next;
+      });
       setSavedTeamBlueprintPreviewState(null);
       setTeamBlueprintImportPreview(null);
       setConfirmTeamBlueprintImport(false);
@@ -911,6 +990,11 @@ export function CompanySettings() {
         current && current.savedBlueprintId === result.savedBlueprint.id ? null : current);
       setSavedTeamBlueprintApplyResult((current) =>
         current && current.savedBlueprintId === result.savedBlueprint.id ? null : current);
+      setSavedTeamBlueprintVersionDrafts((current) => {
+        const next = { ...current };
+        delete next[result.savedBlueprint.id];
+        return next;
+      });
       setConfirmSavedTeamBlueprintApply(false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(variables.companyId) });
       pushToast({
@@ -942,6 +1026,11 @@ export function CompanySettings() {
         return next;
       });
       setSavedTeamBlueprintPreviewRequests((current) => {
+        const next = { ...current };
+        delete next[result.deletedSavedBlueprintId];
+        return next;
+      });
+      setSavedTeamBlueprintVersionDrafts((current) => {
         const next = { ...current };
         delete next[result.deletedSavedBlueprintId];
         return next;
@@ -986,6 +1075,63 @@ export function CompanySettings() {
       });
       setSavedTeamBlueprintApplyResult(null);
       setConfirmSavedTeamBlueprintApply(false);
+    },
+  });
+
+  const savedTeamBlueprintCreateVersionMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      savedBlueprintId: string;
+      preview: TeamBlueprintPreviewResult;
+      slug?: string | null;
+      label?: string | null;
+      description?: string | null;
+      versionNote?: string | null;
+    }) =>
+      companiesApi.createSavedTeamBlueprintVersion(input.companyId, input.savedBlueprintId, {
+        previewHash: input.preview.previewHash,
+        projectCount: input.preview.parameters.projectCount,
+        engineerPairsPerProject: input.preview.parameters.engineerPairsPerProject,
+        includePm: input.preview.parameters.includePm,
+        includeQa: input.preview.parameters.includeQa,
+        includeCto: input.preview.parameters.includeCto,
+        slug: input.slug ?? null,
+        label: input.label ?? null,
+        description: input.description ?? null,
+        versionNote: input.versionNote ?? null,
+      }),
+    onSuccess: async (result, variables) => {
+      setSelectedSavedTeamBlueprintId(result.savedBlueprint.id);
+      setSavedTeamBlueprintMetadataDrafts((current) => ({
+        ...current,
+        [result.savedBlueprint.id]: {
+          slug: result.savedBlueprint.definition.slug,
+          label: result.savedBlueprint.definition.label,
+          description: result.savedBlueprint.definition.description ?? "",
+        },
+      }));
+      setSavedTeamBlueprintPreviewRequests((current) => ({
+        ...current,
+        [result.savedBlueprint.id]: result.savedBlueprint.defaultPreviewRequest,
+      }));
+      setSavedTeamBlueprintPreviewState(null);
+      setSavedTeamBlueprintApplyResult(null);
+      setConfirmSavedTeamBlueprintApply(false);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(variables.companyId) });
+      pushToast({
+        tone: "success",
+        title: `Created ${result.savedBlueprint.definition.label}`,
+        body: "Saved blueprint preview was stored as the next company-local version.",
+        dedupeKey: `saved-team-blueprint-version:${variables.companyId}:${result.savedBlueprint.id}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Version save failed",
+        body: error instanceof Error ? error.message : "Failed to save the next blueprint version",
+        dedupeKey: `saved-team-blueprint-version-error:${variables.companyId}:${variables.savedBlueprintId}`,
+      });
     },
   });
 
@@ -1210,9 +1356,23 @@ export function CompanySettings() {
       selectedTeamBlueprintPreview?.parameters ?? selectedTeamBlueprintRequest,
     )
     : [];
+  const selectedTeamBlueprintLibraryDraft = selectedTeamBlueprint
+    ? (teamBlueprintLibraryDrafts[selectedTeamBlueprint.key] ?? {
+      slug: selectedTeamBlueprint.key,
+      label: selectedTeamBlueprint.label,
+      description: selectedTeamBlueprint.description,
+      versionNote: "",
+    })
+    : null;
+  const selectedTeamBlueprintLibraryDraftValid = selectedTeamBlueprintLibraryDraft
+    ? selectedTeamBlueprintLibraryDraft.slug.trim().length > 0 && selectedTeamBlueprintLibraryDraft.label.trim().length > 0
+    : false;
   const selectedSavedTeamBlueprint: CompanySavedTeamBlueprint | null = selectedSavedTeamBlueprintId
     ? savedTeamBlueprints.find((entry) => entry.id === selectedSavedTeamBlueprintId) ?? null
     : savedTeamBlueprints[0] ?? null;
+  const selectedSavedTeamBlueprintVersionInfo = selectedSavedTeamBlueprint
+    ? resolveSavedTeamBlueprintVersionInfo(selectedSavedTeamBlueprint)
+    : null;
   const selectedSavedTeamBlueprintMetadataDraft = selectedSavedTeamBlueprint
     ? (savedTeamBlueprintMetadataDrafts[selectedSavedTeamBlueprint.id] ?? {
       slug: selectedSavedTeamBlueprint.definition.slug,
@@ -1245,6 +1405,29 @@ export function CompanySettings() {
       selectedSavedTeamBlueprintPreview?.parameters ?? selectedSavedTeamBlueprintRequest,
       selectedSavedTeamBlueprint.defaultPreviewRequest,
     )
+    : [];
+  const selectedSavedTeamBlueprintVersionDraft = selectedSavedTeamBlueprint && selectedSavedTeamBlueprintVersionInfo
+    ? (savedTeamBlueprintVersionDrafts[selectedSavedTeamBlueprint.id] ?? {
+      slug: buildNextSavedTeamBlueprintVersionSlug(
+        selectedSavedTeamBlueprint.definition.slug,
+        selectedSavedTeamBlueprintVersionInfo.version + 1,
+      ),
+      label: buildNextSavedTeamBlueprintVersionLabel(
+        selectedSavedTeamBlueprint.definition.label,
+        selectedSavedTeamBlueprintVersionInfo.version + 1,
+      ),
+      description: selectedSavedTeamBlueprint.definition.description ?? "",
+      versionNote: "",
+    })
+    : null;
+  const selectedSavedTeamBlueprintVersionDraftValid = selectedSavedTeamBlueprintVersionDraft
+    ? selectedSavedTeamBlueprintVersionDraft.slug.trim().length > 0
+      && selectedSavedTeamBlueprintVersionDraft.label.trim().length > 0
+    : false;
+  const selectedSavedTeamBlueprintLineage = selectedSavedTeamBlueprint && selectedSavedTeamBlueprintVersionInfo
+    ? savedTeamBlueprints
+      .filter((entry) => resolveSavedTeamBlueprintVersionInfo(entry).lineageKey === selectedSavedTeamBlueprintVersionInfo.lineageKey)
+      .sort((left, right) => resolveSavedTeamBlueprintVersionInfo(right).version - resolveSavedTeamBlueprintVersionInfo(left).version)
     : [];
   const selectedSavedTeamBlueprintMetadataDirty = selectedSavedTeamBlueprint && selectedSavedTeamBlueprintMetadataDraft
     ? (
@@ -1384,6 +1567,43 @@ export function CompanySettings() {
     });
   }
 
+  function handleUpdateSelectedTeamBlueprintLibraryDraft(
+    patch: Partial<{ slug: string; label: string; description: string; versionNote: string }>,
+  ) {
+    if (!selectedTeamBlueprint) return;
+    setTeamBlueprintLibraryDrafts((current) => ({
+      ...current,
+      [selectedTeamBlueprint.key]: {
+        slug: current[selectedTeamBlueprint.key]?.slug ?? selectedTeamBlueprint.key,
+        label: current[selectedTeamBlueprint.key]?.label ?? selectedTeamBlueprint.label,
+        description: current[selectedTeamBlueprint.key]?.description ?? selectedTeamBlueprint.description,
+        versionNote: current[selectedTeamBlueprint.key]?.versionNote ?? "",
+        ...patch,
+      },
+    }));
+  }
+
+  function handleSaveSelectedTeamBlueprintToLibrary() {
+    if (
+      !selectedCompanyId
+      || !selectedTeamBlueprint
+      || !selectedTeamBlueprintPreview
+      || !selectedTeamBlueprintLibraryDraft
+      || teamBlueprintSaveMutation.isPending
+    ) {
+      return;
+    }
+    teamBlueprintSaveMutation.mutate({
+      companyId: selectedCompanyId,
+      blueprintKey: selectedTeamBlueprint.key,
+      preview: selectedTeamBlueprintPreview,
+      slug: selectedTeamBlueprintLibraryDraft.slug.trim(),
+      label: selectedTeamBlueprintLibraryDraft.label.trim(),
+      description: selectedTeamBlueprintLibraryDraft.description.trim() || null,
+      versionNote: selectedTeamBlueprintLibraryDraft.versionNote.trim() || null,
+    });
+  }
+
   function handleUpdateSelectedTeamBlueprintRequest(next: TeamBlueprintPreviewRequest) {
     if (!selectedTeamBlueprint) return;
     setTeamBlueprintPreviewRequests((current) => ({
@@ -1404,6 +1624,31 @@ export function CompanySettings() {
     setSavedTeamBlueprintPreviewState(null);
     setSavedTeamBlueprintApplyResult(null);
     setConfirmSavedTeamBlueprintApply(false);
+  }
+
+  function handleUpdateSelectedSavedTeamBlueprintVersionDraft(
+    patch: Partial<{ slug: string; label: string; description: string; versionNote: string }>,
+  ) {
+    if (!selectedSavedTeamBlueprint || !selectedSavedTeamBlueprintVersionInfo) return;
+    setSavedTeamBlueprintVersionDrafts((current) => ({
+      ...current,
+      [selectedSavedTeamBlueprint.id]: {
+        slug: current[selectedSavedTeamBlueprint.id]?.slug
+          ?? buildNextSavedTeamBlueprintVersionSlug(
+            selectedSavedTeamBlueprint.definition.slug,
+            selectedSavedTeamBlueprintVersionInfo.version + 1,
+          ),
+        label: current[selectedSavedTeamBlueprint.id]?.label
+          ?? buildNextSavedTeamBlueprintVersionLabel(
+            selectedSavedTeamBlueprint.definition.label,
+            selectedSavedTeamBlueprintVersionInfo.version + 1,
+          ),
+        description: current[selectedSavedTeamBlueprint.id]?.description
+          ?? (selectedSavedTeamBlueprint.definition.description ?? ""),
+        versionNote: current[selectedSavedTeamBlueprint.id]?.versionNote ?? "",
+        ...patch,
+      },
+    }));
   }
 
   function handleUpdateSelectedSavedTeamBlueprintMetadata(
@@ -1467,6 +1712,27 @@ export function CompanySettings() {
       slug: selectedSavedTeamBlueprintMetadataDraft.slug.trim(),
       label: selectedSavedTeamBlueprintMetadataDraft.label.trim(),
       description: selectedSavedTeamBlueprintMetadataDraft.description.trim() || null,
+    });
+  }
+
+  function handleCreateSavedTeamBlueprintVersion() {
+    if (
+      !selectedCompanyId
+      || !selectedSavedTeamBlueprint
+      || !selectedSavedTeamBlueprintPreview
+      || !selectedSavedTeamBlueprintVersionDraft
+      || savedTeamBlueprintCreateVersionMutation.isPending
+    ) {
+      return;
+    }
+    savedTeamBlueprintCreateVersionMutation.mutate({
+      companyId: selectedCompanyId,
+      savedBlueprintId: selectedSavedTeamBlueprint.id,
+      preview: selectedSavedTeamBlueprintPreview,
+      slug: selectedSavedTeamBlueprintVersionDraft.slug.trim() || null,
+      label: selectedSavedTeamBlueprintVersionDraft.label.trim() || null,
+      description: selectedSavedTeamBlueprintVersionDraft.description.trim() || null,
+      versionNote: selectedSavedTeamBlueprintVersionDraft.versionNote.trim() || null,
     });
   }
 
@@ -1813,6 +2079,62 @@ export function CompanySettings() {
                     </div>
                   )}
 
+                  {selectedTeamBlueprintLibraryDraft && (
+                    <div className="space-y-3 rounded-md border border-border bg-background px-3 py-3">
+                      <div>
+                        <div className="text-sm font-semibold">Save preview to company library</div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Turn this tuned built-in blueprint into a company-local reusable entry without round-tripping through JSON export/import.
+                        </p>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <Field label="Library label" hint="Operator-facing label for the saved company-local blueprint.">
+                          <input
+                            value={selectedTeamBlueprintLibraryDraft.label}
+                            onChange={(event) => handleUpdateSelectedTeamBlueprintLibraryDraft({ label: event.target.value })}
+                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                          />
+                        </Field>
+                        <Field label="Slug" hint="Stable company-scoped slug for this saved blueprint.">
+                          <input
+                            value={selectedTeamBlueprintLibraryDraft.slug}
+                            onChange={(event) => handleUpdateSelectedTeamBlueprintLibraryDraft({ slug: event.target.value })}
+                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Description" hint="Optional company-local note for when this saved blueprint should be reused.">
+                        <textarea
+                          rows={3}
+                          value={selectedTeamBlueprintLibraryDraft.description}
+                          onChange={(event) => handleUpdateSelectedTeamBlueprintLibraryDraft({ description: event.target.value })}
+                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        />
+                      </Field>
+                      <Field label="Version note" hint="Optional note describing why these preview defaults should be captured in the company library.">
+                        <input
+                          value={selectedTeamBlueprintLibraryDraft.versionNote}
+                          onChange={(event) => handleUpdateSelectedTeamBlueprintLibraryDraft({ versionNote: event.target.value })}
+                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                          placeholder="Initial company-local blueprint defaults"
+                        />
+                      </Field>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!selectedTeamBlueprintLibraryDraftValid || teamBlueprintSaveMutation.isPending}
+                          onClick={handleSaveSelectedTeamBlueprintToLibrary}
+                        >
+                          {teamBlueprintSaveMutation.isPending ? "Saving to library..." : "Save to library"}
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          Saves the current preview parameters as the default library baseline.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="rounded-md border border-border bg-muted/20 px-3 py-3">
                     <label className="flex items-start gap-3 text-sm">
                       <input
@@ -2036,9 +2358,14 @@ export function CompanySettings() {
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-sm font-semibold">{savedBlueprint.definition.label}</div>
-                                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
-                                  {savedBlueprint.definition.slug}
-                                </span>
+                                <div className="flex flex-wrap items-center justify-end gap-1">
+                                  <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    {savedBlueprint.definition.slug}
+                                  </span>
+                                  <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    v{resolveSavedTeamBlueprintVersionInfo(savedBlueprint).version}
+                                  </span>
+                                </div>
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
                                 {savedBlueprint.definition.portability.workspaceModel} · {savedBlueprint.definition.portability.knowledgeModel} knowledge
@@ -2051,11 +2378,43 @@ export function CompanySettings() {
                       {selectedSavedTeamBlueprint && (
                         <div className="space-y-3 rounded-md border border-border bg-muted/20 px-3 py-3">
                           <div>
-                            <div className="text-sm font-semibold">{selectedSavedTeamBlueprint.definition.label}</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold">{selectedSavedTeamBlueprint.definition.label}</div>
+                              {selectedSavedTeamBlueprintVersionInfo && (
+                                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                                  v{selectedSavedTeamBlueprintVersionInfo.version}
+                                </span>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground">
                               Source: {selectedSavedTeamBlueprint.sourceMetadata.type} · {selectedSavedTeamBlueprint.sourceMetadata.companyName ?? "unknown company"}
                             </div>
+                            {selectedSavedTeamBlueprintVersionInfo?.versionNote && (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Version note: {selectedSavedTeamBlueprintVersionInfo.versionNote}
+                              </div>
+                            )}
                           </div>
+                          {selectedSavedTeamBlueprintLineage.length > 1 && (
+                            <div className="rounded-md border border-border bg-background px-3 py-3">
+                              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Version history</div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {selectedSavedTeamBlueprintLineage.map((entry) => {
+                                  const versionInfo = resolveSavedTeamBlueprintVersionInfo(entry);
+                                  return (
+                                    <button
+                                      key={entry.id}
+                                      type="button"
+                                      onClick={() => setSelectedSavedTeamBlueprintId(entry.id)}
+                                      className={`rounded-full border px-2 py-1 text-[11px] ${entry.id === selectedSavedTeamBlueprint.id ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}
+                                    >
+                                      v{versionInfo.version} · {entry.definition.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                           <div className="grid gap-3 md:grid-cols-2">
                             <Field label="Library label" hint="Operator-facing label for this company-scoped blueprint entry.">
                               <input
@@ -2214,6 +2573,62 @@ export function CompanySettings() {
                                   )}
                                 </div>
                               </div>
+
+                              {selectedSavedTeamBlueprintVersionDraft && selectedSavedTeamBlueprintVersionInfo && (
+                                <div className="space-y-3 rounded-md border border-border bg-background px-3 py-3">
+                                  <div>
+                                    <div className="text-sm font-semibold">Save preview as next version</div>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      Store the current saved blueprint preview as v{selectedSavedTeamBlueprintVersionInfo.version + 1} in this company library.
+                                    </p>
+                                  </div>
+                                  <div className="grid gap-3 md:grid-cols-2">
+                                    <Field label="Next version label" hint="Operator-facing label for the next saved blueprint version.">
+                                      <input
+                                        value={selectedSavedTeamBlueprintVersionDraft.label}
+                                        onChange={(event) => handleUpdateSelectedSavedTeamBlueprintVersionDraft({ label: event.target.value })}
+                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                      />
+                                    </Field>
+                                    <Field label="Slug" hint="Stable company-scoped slug for the next saved version.">
+                                      <input
+                                        value={selectedSavedTeamBlueprintVersionDraft.slug}
+                                        onChange={(event) => handleUpdateSelectedSavedTeamBlueprintVersionDraft({ slug: event.target.value })}
+                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                      />
+                                    </Field>
+                                  </div>
+                                  <Field label="Description" hint="Optional library description for the next saved version.">
+                                    <textarea
+                                      rows={3}
+                                      value={selectedSavedTeamBlueprintVersionDraft.description}
+                                      onChange={(event) => handleUpdateSelectedSavedTeamBlueprintVersionDraft({ description: event.target.value })}
+                                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                    />
+                                  </Field>
+                                  <Field label="Version note" hint="Short note explaining what changed in this saved blueprint version.">
+                                    <input
+                                      value={selectedSavedTeamBlueprintVersionDraft.versionNote}
+                                      onChange={(event) => handleUpdateSelectedSavedTeamBlueprintVersionDraft({ versionNote: event.target.value })}
+                                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                      placeholder={`Why v${selectedSavedTeamBlueprintVersionInfo.version + 1} exists`}
+                                    />
+                                  </Field>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!selectedSavedTeamBlueprintVersionDraftValid || savedTeamBlueprintCreateVersionMutation.isPending}
+                                      onClick={handleCreateSavedTeamBlueprintVersion}
+                                    >
+                                      {savedTeamBlueprintCreateVersionMutation.isPending ? "Saving version..." : "Save as next version"}
+                                    </Button>
+                                    <span className="text-xs text-muted-foreground">
+                                      Uses the current saved preview hash and edited parameter defaults.
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

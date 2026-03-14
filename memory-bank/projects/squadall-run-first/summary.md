@@ -77,7 +77,10 @@
     - `CompanySettings` saved blueprint surface를 preview-only에서 preview/apply flow로 올렸다
     - saved blueprint lifecycle(`rename/delete/re-export`) route/service/UI를 추가했다
     - browser smoke에서 export -> import preview/save -> saved preview -> saved apply success path를 고정했다
-  - 다음은 `saved blueprint lifecycle browser parity 확대 + library authoring/versioning follow-up`이다
+    - built-in preview -> company library save, saved preview -> next version save, version lineage metadata, version history UI를 추가했다
+    - `local-ui-flow.sh`에 `SMOKE_SCOPE=support_only`와 단일 support Playwright grep 실행 모드를 추가했다
+    - support-only smoke에서 saved lifecycle browser parity(`rename/delete/re-export/apply`)를 다시 green으로 고정했다
+  - 다음은 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

@@ -40,7 +40,12 @@
   - migration helper discovery를 company footprint 기반 registry로 일반화했다.
   - built-in export -> import preview/save -> saved preview/apply roundtrip을 고정했다.
   - saved blueprint surface는 preview-only가 아니라 generic preview/apply flow를 사용한다.
-- 다음 immediate next는 `saved blueprint lifecycle browser parity 확대 + library authoring/versioning follow-up`다
+- `saved blueprint lifecycle browser parity + company-local authoring/versioning` follow-up도 닫혔다.
+  - built-in preview -> company library save
+  - saved preview -> next version save
+  - version lineage metadata / version history UI
+  - support-only smoke 기반 saved lifecycle browser parity
+- 다음 immediate next는 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다
 
 ### 구현 체크포인트 2026-03-13
 

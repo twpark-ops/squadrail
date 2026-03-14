@@ -17,11 +17,13 @@ const {
   mockWorkflowTemplatesGetView,
   mockTeamBlueprintsGetCatalog,
   mockTeamBlueprintsExport,
+  mockTeamBlueprintsSave,
   mockTeamBlueprintsExportSaved,
   mockTeamBlueprintsPreviewImport,
   mockTeamBlueprintsImport,
   mockTeamBlueprintsPreviewSaved,
   mockTeamBlueprintsUpdateSaved,
+  mockTeamBlueprintsCreateSavedVersion,
   mockTeamBlueprintsDeleteSaved,
   mockTeamBlueprintsApplySaved,
   mockTeamBlueprintsPreview,
@@ -64,11 +66,13 @@ const {
   mockWorkflowTemplatesGetView: vi.fn(),
   mockTeamBlueprintsGetCatalog: vi.fn(),
   mockTeamBlueprintsExport: vi.fn(),
+  mockTeamBlueprintsSave: vi.fn(),
   mockTeamBlueprintsExportSaved: vi.fn(),
   mockTeamBlueprintsPreviewImport: vi.fn(),
   mockTeamBlueprintsImport: vi.fn(),
   mockTeamBlueprintsPreviewSaved: vi.fn(),
   mockTeamBlueprintsUpdateSaved: vi.fn(),
+  mockTeamBlueprintsCreateSavedVersion: vi.fn(),
   mockTeamBlueprintsDeleteSaved: vi.fn(),
   mockTeamBlueprintsApplySaved: vi.fn(),
   mockTeamBlueprintsPreview: vi.fn(),
@@ -140,11 +144,13 @@ vi.mock("../services/index.js", () => ({
   teamBlueprintService: () => ({
     getCatalog: mockTeamBlueprintsGetCatalog,
     exportBlueprint: mockTeamBlueprintsExport,
+    saveBlueprint: mockTeamBlueprintsSave,
     exportSavedBlueprint: mockTeamBlueprintsExportSaved,
     previewImport: mockTeamBlueprintsPreviewImport,
     importBlueprint: mockTeamBlueprintsImport,
     previewSavedBlueprint: mockTeamBlueprintsPreviewSaved,
     updateSavedBlueprint: mockTeamBlueprintsUpdateSaved,
+    createSavedBlueprintVersion: mockTeamBlueprintsCreateSavedVersion,
     deleteSavedBlueprint: mockTeamBlueprintsDeleteSaved,
     applySavedBlueprint: mockTeamBlueprintsApplySaved,
     preview: mockTeamBlueprintsPreview,
@@ -547,6 +553,117 @@ describe("company routes", () => {
       },
     });
     expect(mockTeamBlueprintsExport).toHaveBeenCalledWith("company-1", "small_delivery_team", "cloud-swiftsight");
+  });
+
+  it("saves a built-in team blueprint preview to the company library", async () => {
+    mockCompanyGetById.mockResolvedValue({
+      id: "company-1",
+      name: "cloud-swiftsight",
+    });
+    mockTeamBlueprintsSave.mockResolvedValue({
+      savedBlueprint: {
+        id: "saved-blueprint-1",
+        companyId: "company-1",
+        definition: {
+          slug: "standard-product-squad-team",
+          label: "Standard Product Squad Team",
+          description: "Company-local defaults",
+          sourceBlueprintKey: "standard_product_squad",
+          presetKey: "example_product_squad_v1",
+          projects: [],
+          roles: [],
+          parameterHints: {
+            supportsPm: true,
+            supportsQa: true,
+            supportsCto: false,
+            defaultProjectCount: 2,
+            defaultEngineerPairsPerProject: 1,
+          },
+          readiness: {
+            requiredWorkspaceCount: 2,
+            knowledgeRequired: true,
+            knowledgeSources: ["project_docs"],
+            approvalRequiredRoleKeys: ["pm"],
+            doctorSetupPrerequisites: ["workspace_connected"],
+            recommendedFirstQuickRequest: "Start small.",
+          },
+          portability: {
+            companyAgnostic: true,
+            workspaceModel: "per_project",
+            knowledgeModel: "required",
+            migrationHelperKeys: [],
+            notes: ["Portable"],
+          },
+        },
+        defaultPreviewRequest: {
+          projectCount: 3,
+          engineerPairsPerProject: 2,
+          includePm: true,
+          includeQa: true,
+          includeCto: false,
+        },
+        sourceMetadata: {
+          type: "company_local_authoring",
+          companyId: "company-1",
+          companyName: "cloud-swiftsight",
+          blueprintKey: "standard_product_squad",
+          generatedAt: "2026-03-15T00:00:00.000Z",
+          lineageKey: "company-blueprint-lineage",
+          version: 1,
+          parentSavedBlueprintId: null,
+          versionNote: "Initial tuned defaults",
+        },
+        createdAt: "2026-03-15T00:00:00.000Z",
+        updatedAt: "2026-03-15T00:00:00.000Z",
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/:blueprintKey/save",
+      method: "post",
+      params: { companyId: "company-1", blueprintKey: "standard_product_squad" },
+      body: {
+        previewHash: "preview-hash-1234567890",
+        projectCount: 3,
+        engineerPairsPerProject: 2,
+        includePm: true,
+        includeQa: true,
+        includeCto: false,
+        slug: "standard-product-squad-team",
+        label: "Standard Product Squad Team",
+        description: "Company-local defaults",
+        versionNote: "Initial tuned defaults",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toMatchObject({
+      savedBlueprint: {
+        definition: {
+          slug: "standard-product-squad-team",
+          label: "Standard Product Squad Team",
+        },
+      },
+    });
+    expect(mockTeamBlueprintsSave).toHaveBeenCalledWith(
+      "company-1",
+      "standard_product_squad",
+      expect.objectContaining({
+        previewHash: "preview-hash-1234567890",
+        engineerPairsPerProject: 2,
+      }),
+      "cloud-swiftsight",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.team_blueprint_saved",
+        details: expect.objectContaining({
+          blueprintKey: "standard_product_squad",
+          savedBlueprintId: "saved-blueprint-1",
+        }),
+      }),
+    );
   });
 
   it("previews importing a blueprint bundle without applying it", async () => {
@@ -1073,6 +1190,117 @@ describe("company routes", () => {
         details: expect.objectContaining({
           savedBlueprintId: "saved-blueprint-1",
           slug: "delivery-team-v2",
+        }),
+      }),
+    );
+  });
+
+  it("creates the next saved team blueprint version from a reviewed preview", async () => {
+    mockCompanyGetById.mockResolvedValue({
+      id: "company-1",
+      name: "cloud-swiftsight",
+    });
+    mockTeamBlueprintsCreateSavedVersion.mockResolvedValue({
+      savedBlueprint: {
+        id: "saved-blueprint-2",
+        companyId: "company-1",
+        definition: {
+          slug: "delivery-team-v2",
+          label: "Delivery Team v2",
+          description: "Expanded staffing defaults",
+          sourceBlueprintKey: "small_delivery_team",
+          presetKey: "squadrail_default_v1",
+          projects: [],
+          roles: [],
+          parameterHints: {
+            supportsPm: false,
+            supportsQa: false,
+            supportsCto: false,
+            defaultProjectCount: 1,
+            defaultEngineerPairsPerProject: 1,
+          },
+          readiness: {
+            requiredWorkspaceCount: 1,
+            knowledgeRequired: true,
+            knowledgeSources: ["project_docs"],
+            approvalRequiredRoleKeys: [],
+            doctorSetupPrerequisites: ["workspace_connected"],
+            recommendedFirstQuickRequest: "Start small.",
+          },
+          portability: {
+            companyAgnostic: true,
+            workspaceModel: "single_workspace",
+            knowledgeModel: "required",
+            migrationHelperKeys: [],
+            notes: ["Portable"],
+          },
+        },
+        defaultPreviewRequest: {
+          projectCount: 2,
+          engineerPairsPerProject: 2,
+          includePm: false,
+          includeQa: false,
+          includeCto: false,
+        },
+        sourceMetadata: {
+          type: "saved_blueprint_version",
+          companyId: "company-1",
+          companyName: "cloud-swiftsight",
+          blueprintKey: "small_delivery_team",
+          generatedAt: "2026-03-15T02:00:00.000Z",
+          lineageKey: "company-blueprint-lineage",
+          version: 2,
+          parentSavedBlueprintId: "saved-blueprint-1",
+          versionNote: "Double engineer coverage",
+        },
+        createdAt: "2026-03-15T02:00:00.000Z",
+        updatedAt: "2026-03-15T02:00:00.000Z",
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId/versions",
+      method: "post",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-1" },
+      body: {
+        previewHash: "saved-preview-hash-1234567890",
+        projectCount: 2,
+        engineerPairsPerProject: 2,
+        includePm: false,
+        includeQa: false,
+        includeCto: false,
+        slug: "delivery-team-v2",
+        label: "Delivery Team v2",
+        description: "Expanded staffing defaults",
+        versionNote: "Double engineer coverage",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toMatchObject({
+      savedBlueprint: {
+        definition: {
+          slug: "delivery-team-v2",
+          label: "Delivery Team v2",
+        },
+      },
+    });
+    expect(mockTeamBlueprintsCreateSavedVersion).toHaveBeenCalledWith(
+      "company-1",
+      "saved-blueprint-1",
+      expect.objectContaining({
+        previewHash: "saved-preview-hash-1234567890",
+        engineerPairsPerProject: 2,
+      }),
+      "cloud-swiftsight",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.saved_team_blueprint_version_created",
+        details: expect.objectContaining({
+          savedBlueprintId: "saved-blueprint-1",
+          newSavedBlueprintId: "saved-blueprint-2",
         }),
       }),
     );

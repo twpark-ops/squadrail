@@ -1,12 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { companyTeamBlueprints, type Db } from "@squadrail/db";
 import {
   buildDefaultTeamBlueprintPreviewRequest,
+  buildNextSavedTeamBlueprintVersionLabel,
+  buildNextSavedTeamBlueprintVersionSlug,
   companySavedTeamBlueprintSchema,
   normalizeAgentUrlKey,
   normalizeProjectUrlKey,
   portableTeamBlueprintDefinitionSchema,
+  resolveSavedTeamBlueprintVersionInfo,
   resolveTeamBlueprintParameterEditors,
   savedTeamBlueprintSourceMetadataSchema,
   type SetupProgressView,
@@ -24,8 +27,12 @@ import {
   type TeamBlueprintImportRequest,
   type TeamBlueprintImportResult,
   type TeamBlueprintMigrationHelper,
+  type TeamBlueprintSaveRequest,
+  type TeamBlueprintSaveResult,
   type TeamBlueprintSavedDeleteResult,
   type TeamBlueprintSavedUpdateRequest,
+  type TeamBlueprintSavedVersionCreateRequest,
+  type TeamBlueprintSavedVersionCreateResult,
   type TeamBlueprintPreviewParameters,
   type TeamBlueprintPreviewProjectDiff,
   type TeamBlueprintPreviewRequest,
@@ -1675,6 +1682,83 @@ async function getSavedBlueprintById(
   return serializeSavedBlueprintRow(row);
 }
 
+function buildPreviewRequestFromParameters(parameters: TeamBlueprintPreviewParameters): TeamBlueprintPreviewRequest {
+  return {
+    projectCount: parameters.projectCount,
+    engineerPairsPerProject: parameters.engineerPairsPerProject,
+    includePm: parameters.includePm,
+    includeQa: parameters.includeQa,
+    includeCto: parameters.includeCto,
+  };
+}
+
+function buildSavedBlueprintSourceMetadata(input: {
+  type: "company_local_authoring" | "saved_blueprint_version" | "import_bundle";
+  companyId: string | null;
+  companyName: string | null;
+  blueprintKey: TeamBlueprint["key"] | null;
+  lineageKey: string;
+  version: number;
+  parentSavedBlueprintId: string | null;
+  versionNote: string | null;
+  generatedAt?: string;
+}) {
+  const normalizedCompanyId = input.companyId && companySavedTeamBlueprintSchema.shape.companyId.safeParse(input.companyId).success
+    ? input.companyId
+    : null;
+  return savedTeamBlueprintSourceMetadataSchema.parse({
+    type: input.type,
+    companyId: normalizedCompanyId,
+    companyName: input.companyName,
+    blueprintKey: input.blueprintKey,
+    generatedAt: input.generatedAt ?? new Date().toISOString(),
+    lineageKey: input.lineageKey,
+    version: input.version,
+    parentSavedBlueprintId: input.parentSavedBlueprintId,
+    versionNote: input.versionNote,
+  });
+}
+
+async function insertSavedBlueprintDefinition(
+  db: Db,
+  input: {
+    companyId: string;
+    definition: PortableTeamBlueprintDefinition;
+    defaultPreviewRequest: TeamBlueprintPreviewRequest;
+    sourceMetadata: Record<string, unknown>;
+  },
+): Promise<CompanySavedTeamBlueprint> {
+  const store = getTeamBlueprintLibraryStore(db);
+  const row = store
+    ? await store.insert({
+      companyId: input.companyId,
+      slug: input.definition.slug,
+      label: input.definition.label,
+      description: input.definition.description,
+      sourceBlueprintKey: input.definition.sourceBlueprintKey,
+      definition: input.definition as unknown as Record<string, unknown>,
+      defaultPreviewRequest: input.defaultPreviewRequest as unknown as Record<string, unknown>,
+      sourceMetadata: input.sourceMetadata,
+    })
+    : (await db
+      .insert(companyTeamBlueprints)
+      .values({
+        companyId: input.companyId,
+        slug: input.definition.slug,
+        label: input.definition.label,
+        description: input.definition.description,
+        sourceBlueprintKey: input.definition.sourceBlueprintKey,
+        definition: input.definition as unknown as Record<string, unknown>,
+        defaultPreviewRequest: input.defaultPreviewRequest as unknown as Record<string, unknown>,
+        sourceMetadata: input.sourceMetadata,
+      })
+      .returning())[0] ?? null;
+  if (!row) {
+    throw conflict("Failed to save team blueprint library entry");
+  }
+  return serializeSavedBlueprintRow(row);
+}
+
 async function updateSavedBlueprintDefinition(
   db: Db,
   companyId: string,
@@ -1967,6 +2051,54 @@ export function teamBlueprintService(db?: Db) {
         };
       });
     },
+    async saveBlueprint(
+      companyId: string,
+      blueprintKey: TeamBlueprint["key"],
+      request: TeamBlueprintSaveRequest,
+      companyName?: string | null,
+    ): Promise<TeamBlueprintSaveResult> {
+      if (!db) throw new Error("teamBlueprintService.saveBlueprint requires a database handle");
+
+      return db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const state = await loadPreviewState(txDb, companyId, blueprintKey, request);
+        if (state.preview.previewHash !== request.previewHash) {
+          throw conflict("Team blueprint preview is stale. Refresh preview before saving to the library.");
+        }
+
+        const slug = normalizeBlueprintSlug(request.slug, request.label);
+        const label = request.label.trim();
+        const description = request.description?.trim() || null;
+        const existingSavedBlueprints = await listSavedBlueprints(txDb, companyId);
+        if (existingSavedBlueprints.some((entry) => entry.definition.slug === slug)) {
+          throw conflict("Saved blueprint slug already exists in this company library");
+        }
+
+        const definition = portableTeamBlueprintDefinitionSchema.parse({
+          ...buildPortableTeamBlueprintDefinition(state.preview.blueprint),
+          slug,
+          label,
+          description,
+        });
+        const sourceMetadata = buildSavedBlueprintSourceMetadata({
+          type: "company_local_authoring",
+          companyId,
+          companyName: companyName ?? null,
+          blueprintKey,
+          lineageKey: randomUUID(),
+          version: 1,
+          parentSavedBlueprintId: null,
+          versionNote: request.versionNote?.trim() || null,
+        });
+        const savedBlueprint = await insertSavedBlueprintDefinition(txDb, {
+          companyId,
+          definition,
+          defaultPreviewRequest: buildPreviewRequestFromParameters(state.preview.parameters),
+          sourceMetadata: sourceMetadata as unknown as Record<string, unknown>,
+        });
+        return { savedBlueprint };
+      });
+    },
     async previewSavedBlueprint(
       companyId: string,
       savedBlueprintId: string,
@@ -2000,6 +2132,68 @@ export function teamBlueprintService(db?: Db) {
       if (!db) throw new Error("teamBlueprintService.deleteSavedBlueprint requires a database handle");
       return db.transaction(async (tx) =>
         deleteSavedBlueprintDefinition(tx as unknown as Db, companyId, savedBlueprintId));
+    },
+    async createSavedBlueprintVersion(
+      companyId: string,
+      savedBlueprintId: string,
+      request: TeamBlueprintSavedVersionCreateRequest,
+      companyName?: string | null,
+    ): Promise<TeamBlueprintSavedVersionCreateResult> {
+      if (!db) throw new Error("teamBlueprintService.createSavedBlueprintVersion requires a database handle");
+
+      return db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const savedBlueprint = await getSavedBlueprintById(txDb, companyId, savedBlueprintId);
+        const state = await loadPreviewStateForBlueprint(
+          txDb,
+          companyId,
+          materializePortableTeamBlueprint(savedBlueprint.definition),
+          request,
+          savedBlueprint.defaultPreviewRequest,
+        );
+        if (state.preview.previewHash !== request.previewHash) {
+          throw conflict("Saved blueprint preview is stale. Refresh preview before saving a new version.");
+        }
+
+        const allSavedBlueprints = await listSavedBlueprints(txDb, companyId);
+        const currentVersionInfo = resolveSavedTeamBlueprintVersionInfo(savedBlueprint);
+        const nextVersion = allSavedBlueprints
+          .filter((entry) => resolveSavedTeamBlueprintVersionInfo(entry).lineageKey === currentVersionInfo.lineageKey)
+          .reduce((maxVersion, entry) => Math.max(maxVersion, resolveSavedTeamBlueprintVersionInfo(entry).version), 0) + 1;
+        const slug = normalizeBlueprintSlug(
+          request.slug ?? buildNextSavedTeamBlueprintVersionSlug(savedBlueprint.definition.slug, nextVersion),
+          request.label?.trim() || buildNextSavedTeamBlueprintVersionLabel(savedBlueprint.definition.label, nextVersion),
+        );
+        const label = request.label?.trim() || buildNextSavedTeamBlueprintVersionLabel(savedBlueprint.definition.label, nextVersion);
+        const description = request.description?.trim() || savedBlueprint.definition.description || null;
+        if (allSavedBlueprints.some((entry) => entry.definition.slug === slug)) {
+          throw conflict("Saved blueprint slug already exists in this company library");
+        }
+
+        const definition = portableTeamBlueprintDefinitionSchema.parse({
+          ...clonePortableTeamBlueprintDefinition(savedBlueprint.definition),
+          slug,
+          label,
+          description,
+        });
+        const sourceMetadata = buildSavedBlueprintSourceMetadata({
+          type: "saved_blueprint_version",
+          companyId,
+          companyName: companyName ?? null,
+          blueprintKey: savedBlueprint.definition.sourceBlueprintKey,
+          lineageKey: currentVersionInfo.lineageKey,
+          version: nextVersion,
+          parentSavedBlueprintId: savedBlueprint.id,
+          versionNote: request.versionNote?.trim() || null,
+        });
+        const created = await insertSavedBlueprintDefinition(txDb, {
+          companyId,
+          definition,
+          defaultPreviewRequest: buildPreviewRequestFromParameters(state.preview.parameters),
+          sourceMetadata: sourceMetadata as unknown as Record<string, unknown>,
+        });
+        return { savedBlueprint: created };
+      });
     },
     async applySavedBlueprint(
       companyId: string,

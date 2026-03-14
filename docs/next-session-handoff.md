@@ -10,12 +10,12 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `saved blueprint lifecycle browser parity + library authoring/versioning follow-up`
+- open this handoff first, then continue with `post-Batch-B blueprint library governance/provider follow-up` or the next product expansion decision
   - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
   - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop, autonomy matrix variant까지 올라왔다.
-  - Batch B1 portability, Batch B2 import/export, Batch B3 parameter editing, helper discovery registry 일반화, saved blueprint library lifecycle hardening까지 닫혔다.
+  - Batch B1 portability, Batch B2 import/export, Batch B3 parameter editing, helper discovery registry 일반화, saved blueprint library lifecycle hardening 1/2차까지 닫혔다.
 
 ## Current Status
 
@@ -87,10 +87,13 @@ One-line startup rule:
     3. Company Settings saved blueprint surface를 preview-only에서 preview/apply 공식 flow로 올렸다
     4. saved blueprint lifecycle(`rename/delete/re-export`) route/service/UI를 추가했다
     5. browser smoke에서 export -> import preview/save -> saved preview -> saved apply success까지 다시 green으로 고정했다
-  - immediate next:
-    1. saved blueprint lifecycle browser parity를 `rename/delete/re-export`까지 확대
-    2. company-local blueprint authoring/versioning follow-up 설계
-    3. swiftsight 외 migration helper provider package 추가 규칙 정리
+    6. built-in preview -> company library save, saved preview -> next version save, version lineage metadata, Company Settings version history UI를 추가했다
+    7. `local-ui-flow.sh`에 `SMOKE_SCOPE=support_only`와 단일 support Playwright grep 실행 모드를 추가해 검증 메모리 사용을 낮췄다
+    8. support-only smoke에서 saved blueprint local authoring/versioning + rename/delete/re-export/apply browser parity를 green으로 고정했다
+  - immediate next candidates:
+    1. blueprint library governance/version authoring 고도화(`diff/rollback/publish`)
+    2. swiftsight 외 migration helper provider package 추가 규칙 정리
+    3. 다음 제품 확장 트랙 선택
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` canonical helper는 preview/apply 본경로에서 분리됐고, helper discovery도 company footprint registry로 일반화됐다.

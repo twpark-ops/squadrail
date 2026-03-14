@@ -143,11 +143,15 @@ export const teamBlueprintMigrationHelperSchema = teamBlueprintCanonicalAbsorpti
 }).strict();
 
 export const savedTeamBlueprintSourceMetadataSchema = z.object({
-  type: z.enum(["builtin_export", "import_bundle"]),
+  type: z.enum(["builtin_export", "import_bundle", "company_local_authoring", "saved_blueprint_version"]),
   companyId: z.string().uuid().nullable(),
   companyName: z.string().trim().min(1).max(160).nullable(),
   blueprintKey: z.enum(TEAM_BLUEPRINT_KEYS).nullable(),
   generatedAt: z.string().datetime(),
+  lineageKey: blueprintKeySchema.nullable().optional(),
+  version: z.number().int().min(1).max(1_000).nullable().optional(),
+  parentSavedBlueprintId: z.string().uuid().nullable().optional(),
+  versionNote: z.string().trim().max(500).nullable().optional(),
 }).strict();
 
 export const companySavedTeamBlueprintSchema = z.object({
@@ -306,4 +310,26 @@ export const teamBlueprintSavedUpdateResultSchema = z.object({
 export const teamBlueprintSavedDeleteResultSchema = z.object({
   ok: z.literal(true),
   deletedSavedBlueprintId: z.string().uuid(),
+}).strict();
+
+export const teamBlueprintSaveRequestSchema = teamBlueprintApplyRequestSchema.extend({
+  slug: blueprintKeySchema,
+  label: z.string().trim().min(1).max(160),
+  description: z.string().trim().max(2_000).nullable(),
+  versionNote: z.string().trim().max(500).nullable().optional(),
+}).strict();
+
+export const teamBlueprintSaveResultSchema = z.object({
+  savedBlueprint: companySavedTeamBlueprintSchema,
+}).strict();
+
+export const teamBlueprintSavedVersionCreateRequestSchema = teamBlueprintApplyRequestSchema.extend({
+  slug: blueprintKeySchema.nullable().optional(),
+  label: z.string().trim().min(1).max(160).nullable().optional(),
+  description: z.string().trim().max(2_000).nullable().optional(),
+  versionNote: z.string().trim().max(500).nullable().optional(),
+}).strict();
+
+export const teamBlueprintSavedVersionCreateResultSchema = z.object({
+  savedBlueprint: companySavedTeamBlueprintSchema,
 }).strict();

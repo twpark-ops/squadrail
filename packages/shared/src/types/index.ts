@@ -142,9 +142,13 @@ export type {
   TeamBlueprintImportPreviewResult,
   TeamBlueprintImportRequest,
   TeamBlueprintImportResult,
+  TeamBlueprintSaveRequest,
+  TeamBlueprintSaveResult,
   TeamBlueprintSavedUpdateRequest,
   TeamBlueprintSavedUpdateResult,
   TeamBlueprintSavedDeleteResult,
+  TeamBlueprintSavedVersionCreateRequest,
+  TeamBlueprintSavedVersionCreateResult,
 } from "./team-blueprint.js";
 export type {
   OrgSyncStatus,

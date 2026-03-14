@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `saved blueprint lifecycle browser parity + library authoring/versioning follow-up`이다.
+> 현재 다음 순차 작업은 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다.
 
 ## 목적
 
@@ -131,7 +131,10 @@
     - saved blueprint apply / parameter parity follow-up 완료
     - saved blueprint lifecycle(`rename/delete/re-export`) route/service/UI 추가 완료
     - browser smoke에서 saved apply success path까지 고정 완료
-  - immediate next는 `saved blueprint lifecycle browser parity 확대 + library authoring/versioning follow-up`이다
+    - built-in preview -> company library save, saved preview -> next version save, version lineage metadata, Company Settings version history UI 추가 완료
+    - `local-ui-flow.sh` support-only + single Playwright grep mode 추가 완료
+    - support-only smoke에서 saved lifecycle browser parity(`rename/delete/re-export/apply`) green 확인 완료
+  - immediate next는 `blueprint library governance/version authoring 고도화 + migration helper provider 규칙 정리`다
 
 ## 2026-03-13 coverage threshold push
 

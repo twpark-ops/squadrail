@@ -127,11 +127,15 @@ export interface PortableTeamBlueprintDefinition {
 }
 
 export interface SavedTeamBlueprintSourceMetadata {
-  type: "builtin_export" | "import_bundle";
+  type: "builtin_export" | "import_bundle" | "company_local_authoring" | "saved_blueprint_version";
   companyId: string | null;
   companyName: string | null;
   blueprintKey: TeamBlueprintKey | null;
   generatedAt: string;
+  lineageKey?: string | null;
+  version?: number | null;
+  parentSavedBlueprintId?: string | null;
+  versionNote?: string | null;
 }
 
 export interface CompanySavedTeamBlueprint {
@@ -331,4 +335,26 @@ export interface TeamBlueprintSavedUpdateResult {
 export interface TeamBlueprintSavedDeleteResult {
   ok: true;
   deletedSavedBlueprintId: string;
+}
+
+export interface TeamBlueprintSaveRequest extends TeamBlueprintApplyRequest {
+  slug: string;
+  label: string;
+  description: string | null;
+  versionNote?: string | null;
+}
+
+export interface TeamBlueprintSaveResult {
+  savedBlueprint: CompanySavedTeamBlueprint;
+}
+
+export interface TeamBlueprintSavedVersionCreateRequest extends TeamBlueprintApplyRequest {
+  slug?: string | null;
+  label?: string | null;
+  description?: string | null;
+  versionNote?: string | null;
+}
+
+export interface TeamBlueprintSavedVersionCreateResult {
+  savedBlueprint: CompanySavedTeamBlueprint;
 }

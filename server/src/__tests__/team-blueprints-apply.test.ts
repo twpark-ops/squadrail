@@ -834,6 +834,111 @@ describe("team blueprint apply", () => {
     ).rejects.toThrow("Saved team blueprint not found");
   });
 
+  it("saves a built-in preview as a company-local blueprint library entry", async () => {
+    const harness = createApplyHarness();
+    const preview = await harness.service.preview("company-1", "standard_product_squad", {
+      projectCount: 3,
+      engineerPairsPerProject: 2,
+      includePm: true,
+      includeQa: true,
+      includeCto: false,
+    });
+
+    const result = await harness.service.saveBlueprint("company-1", "standard_product_squad", {
+      previewHash: preview.previewHash,
+      projectCount: preview.parameters.projectCount,
+      engineerPairsPerProject: preview.parameters.engineerPairsPerProject,
+      includePm: preview.parameters.includePm,
+      includeQa: preview.parameters.includeQa,
+      includeCto: preview.parameters.includeCto,
+      slug: "standard-product-squad-team",
+      label: "Standard Product Squad Team",
+      description: "Company-local defaults",
+      versionNote: "Initial tuned defaults",
+    }, "Example Co");
+
+    expect(result.savedBlueprint.definition).toMatchObject({
+      slug: "standard-product-squad-team",
+      label: "Standard Product Squad Team",
+      description: "Company-local defaults",
+    });
+    expect(result.savedBlueprint.defaultPreviewRequest).toEqual({
+      projectCount: 3,
+      engineerPairsPerProject: 2,
+      includePm: true,
+      includeQa: false,
+      includeCto: false,
+    });
+    expect(result.savedBlueprint.sourceMetadata).toMatchObject({
+      type: "company_local_authoring",
+      companyName: "Example Co",
+      blueprintKey: "standard_product_squad",
+      version: 1,
+      parentSavedBlueprintId: null,
+      versionNote: "Initial tuned defaults",
+    });
+    expect(typeof result.savedBlueprint.sourceMetadata.lineageKey).toBe("string");
+  });
+
+  it("creates the next saved blueprint version from a reviewed preview", async () => {
+    const harness = createApplyHarness();
+    const preview = await harness.service.preview("company-1", "small_delivery_team", {
+      projectCount: 1,
+      engineerPairsPerProject: 1,
+      includePm: false,
+      includeQa: false,
+      includeCto: false,
+    });
+    const baseVersion = await harness.service.saveBlueprint("company-1", "small_delivery_team", {
+      previewHash: preview.previewHash,
+      projectCount: preview.parameters.projectCount,
+      engineerPairsPerProject: preview.parameters.engineerPairsPerProject,
+      includePm: preview.parameters.includePm,
+      includeQa: preview.parameters.includeQa,
+      includeCto: preview.parameters.includeCto,
+      slug: "delivery-team",
+      label: "Delivery Team",
+      description: "Base library defaults",
+      versionNote: "Base company-local variant",
+    }, "Example Co");
+
+    const savedPreview = await harness.service.previewSavedBlueprint("company-1", baseVersion.savedBlueprint.id, {
+      projectCount: 2,
+      engineerPairsPerProject: 2,
+      includePm: false,
+      includeQa: false,
+      includeCto: false,
+    });
+    const nextVersion = await harness.service.createSavedBlueprintVersion("company-1", baseVersion.savedBlueprint.id, {
+      previewHash: savedPreview.previewHash,
+      projectCount: savedPreview.parameters.projectCount,
+      engineerPairsPerProject: savedPreview.parameters.engineerPairsPerProject,
+      includePm: savedPreview.parameters.includePm,
+      includeQa: savedPreview.parameters.includeQa,
+      includeCto: savedPreview.parameters.includeCto,
+      versionNote: "Double engineer coverage",
+    }, "Example Co");
+
+    expect(nextVersion.savedBlueprint.definition.slug).toBe("delivery-team-v2");
+    expect(nextVersion.savedBlueprint.definition.label).toBe("Delivery Team v2");
+    expect(nextVersion.savedBlueprint.defaultPreviewRequest).toEqual({
+      projectCount: 2,
+      engineerPairsPerProject: 2,
+      includePm: false,
+      includeQa: false,
+      includeCto: false,
+    });
+    expect(nextVersion.savedBlueprint.sourceMetadata).toMatchObject({
+      type: "saved_blueprint_version",
+      companyName: "Example Co",
+      blueprintKey: "small_delivery_team",
+      version: 2,
+      parentSavedBlueprintId: baseVersion.savedBlueprint.id,
+      versionNote: "Double engineer coverage",
+      lineageKey: baseVersion.savedBlueprint.sourceMetadata.lineageKey,
+    });
+  });
+
   it("rolls back project and role-pack mutations when project creation fails mid-apply", async () => {
     const harness = createApplyHarness();
     let projectCreateCalls = 0;

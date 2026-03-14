@@ -250,9 +250,13 @@ export type {
   TeamBlueprintImportPreviewResult,
   TeamBlueprintImportRequest,
   TeamBlueprintImportResult,
+  TeamBlueprintSaveRequest,
+  TeamBlueprintSaveResult,
   TeamBlueprintSavedUpdateRequest,
   TeamBlueprintSavedUpdateResult,
   TeamBlueprintSavedDeleteResult,
+  TeamBlueprintSavedVersionCreateRequest,
+  TeamBlueprintSavedVersionCreateResult,
   OperatingAlertIntent,
   OperatingAlertReason,
   OperatingAlertDestinationConfig,
@@ -384,6 +388,13 @@ export type {
   SecretProviderDescriptor,
 } from "./types/index.js";
 
+export type { SavedTeamBlueprintVersionInfo } from "./team-blueprint-library.js";
+export {
+  buildNextSavedTeamBlueprintVersionLabel,
+  buildNextSavedTeamBlueprintVersionSlug,
+  resolveSavedTeamBlueprintVersionInfo,
+} from "./team-blueprint-library.js";
+
 export {
   createCompanySchema,
   updateCompanySchema,
@@ -499,9 +510,13 @@ export {
   teamBlueprintImportPreviewResultSchema,
   teamBlueprintImportRequestSchema,
   teamBlueprintImportResultSchema,
+  teamBlueprintSaveRequestSchema,
+  teamBlueprintSaveResultSchema,
   teamBlueprintSavedUpdateRequestSchema,
   teamBlueprintSavedUpdateResultSchema,
   teamBlueprintSavedDeleteResultSchema,
+  teamBlueprintSavedVersionCreateRequestSchema,
+  teamBlueprintSavedVersionCreateResultSchema,
   operatingAlertSeveritySchema,
   operatingAlertDestinationTypeSchema,
   operatingAlertDestinationConfigSchema,
