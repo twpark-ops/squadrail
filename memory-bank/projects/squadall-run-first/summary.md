@@ -58,6 +58,9 @@
   - autonomy matrix runner `scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs`를 추가했다
   - `baseline / multi_child_coordination / reviewer_clarification_policy` live autonomy variant를 통과시켰다
   - E2E 실행 역할을 `kernel burn-in` vs `autonomy baseline/matrix`로 README/package script 수준에서 분리했다
+  - kernel burn-in self-healing policy를 고정했다
+    - default kernel burn-in: bounded board recovery enabled
+    - strict kernel burn-in: recovery disabled fail-fast lower-kernel gate
   - canonical `cloud-swiftsight` env에서 deterministic kernel full batch도 다시 green으로 확정했다
     - `ok=true`, `scenarioCount=5`, `durationMs=3374196`
     - `CLO-1..CLO-4=done`, coordinated root `CLO-5=cancelled`, child `CLO-6..CLO-8=done`

@@ -1395,7 +1395,7 @@ async function waitForCompletion(issueId, scenario) {
       humanDecisionObservedAt = null;
     }
 
-    if (implementationRecoveryEligible) {
+    if (ALLOW_IMPLEMENTATION_RECOVERY && implementationRecoveryEligible) {
       if (implementationRecoveryObservedAt == null) {
         implementationRecoveryObservedAt = Date.now();
       } else if (

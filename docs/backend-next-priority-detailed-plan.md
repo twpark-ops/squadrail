@@ -115,6 +115,9 @@
    - autonomy matrix runner `scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs` 추가 완료
    - `baseline / multi_child_coordination / reviewer_clarification_policy` live autonomy variant를 통과
    - deterministic kernel burn-in과 autonomy burn-in 운영 역할 분리를 package script / README 수준으로 반영
+   - kernel burn-in self-healing policy를 고정했다
+     - default kernel burn-in: bounded board recovery enabled
+     - strict kernel burn-in: recovery disabled fail-fast lower-kernel gate
    - canonical `cloud-swiftsight` env에서 deterministic kernel full batch도 다시 green으로 확정했다
    - latest kernel batch summary: `ok=true`, `scenarioCount=5`, `durationMs=3374196`, `CLO-1..CLO-4=done`, coordinated root `CLO-5=cancelled`, child `CLO-6..CLO-8=done`
    - immediate next는 Batch B `blueprint portability / import-export / parameter editing`이다
