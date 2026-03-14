@@ -2,6 +2,19 @@
 
 작성일: 2026-03-12
 
+## 2026-03-15 operating rule: no direct DB/service bypass for product validation
+
+- 제품 동작 검증과 상태 변경은 **반드시 실제 API / CLI / UI 경로**로 수행한다.
+- DB 직접 조작이나 service direct call은 원인 분석/재현 용도로만 제한하고, 성공 검증으로 간주하지 않는다.
+- 회사 생성, import/export, issue/workflow, cleanup 모두 우선순위는 `UI -> CLI -> HTTP API`이고, DB 직접 변경은 금지한다.
+- 특히 portability/company import 검증은 `POST /api/companies/import` 실제 경로 green 없이는 완료로 보지 않는다.
+
+## 2026-03-15 generic domain-aware PM/RAG rule
+
+- domain-aware PM 개선은 `cloud-swiftsight` 전용 튜닝으로 닫지 않는다.
+- project selection, knowledge weighting, boundary hints, summary source는 **어떤 회사/도메인에도 재사용 가능한 generic contract**로 올린다.
+- 특정 회사 문서는 검증 fixture로만 사용하고, 제품 로직에는 회사명 하드코딩이나 전용 scoring shortcut을 넣지 않는다.
+
 ## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
 
 - lower delivery kernel은 제품 기준으로 이미 충분히 닫혔다.

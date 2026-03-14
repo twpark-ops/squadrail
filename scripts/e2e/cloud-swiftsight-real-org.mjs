@@ -28,6 +28,7 @@ const SCENARIO_FILTER = process.env.SWIFTSIGHT_E2E_SCENARIO?.trim() ?? "";
 const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
 const PRE_CLEANUP_ENABLED = process.env.SWIFTSIGHT_E2E_PRE_CLEANUP !== "0";
 const HIDE_COMPLETED_ISSUES = process.env.SWIFTSIGHT_E2E_HIDE_COMPLETED !== "0";
+const ALLOW_IMPLEMENTATION_RECOVERY = process.env.SWIFTSIGHT_E2E_ALLOW_IMPLEMENTATION_RECOVERY !== "0";
 const E2E_ACTOR_ID = process.env.SWIFTSIGHT_E2E_ACTOR_ID ?? "cloud-swiftsight-e2e-board";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 

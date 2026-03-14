@@ -27,6 +27,18 @@ export interface PmIntakeProjectCandidate {
   } | null;
 }
 
+export interface PmIntakeKnowledgeDocument {
+  id: string;
+  companyId: string;
+  projectId: string | null;
+  sourceType: string;
+  authorityLevel: string;
+  path?: string | null;
+  title?: string | null;
+  rawContent: string;
+  metadata?: Record<string, unknown> | null;
+}
+
 interface BuildPmIntakeProjectionPreviewInput {
   issue: {
     id: string;
@@ -38,6 +50,7 @@ interface BuildPmIntakeProjectionPreviewInput {
   };
   projects: PmIntakeProjectCandidate[];
   agents: PmIntakeAgent[];
+  knowledgeDocuments?: PmIntakeKnowledgeDocument[];
   request: PmIntakeProjectionPreviewRequest;
 }
 
@@ -120,6 +133,18 @@ function tokenize(value: string | null | undefined) {
     .filter((token) => token.length >= 2);
 }
 
+function readStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+}
+
+function readRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
 function uniqueStrings(values: Array<string | null | undefined>) {
   return [...new Set(values.map((value) => (typeof value === "string" ? value.trim() : "")).filter(Boolean))];
 }
@@ -147,13 +172,92 @@ function buildProjectSearchTerms(project: PmIntakeProjectCandidate) {
     project.name,
     project.urlKey ?? null,
     project.primaryWorkspace?.repoRef ?? null,
-    project.primaryWorkspace?.repoUrl ?? null,
-    cwd,
     cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() ?? null : null,
   ]);
 }
 
-function scoreProjectCandidate(project: PmIntakeProjectCandidate, requestText: string, issueProjectId: string | null) {
+function scoreTextAgainstRequest(text: string, requestLower: string, requestTokens: Set<string>) {
+  const normalized = compactLine(text).toLowerCase();
+  if (!normalized) return { score: 0, overlapCount: 0 };
+  let score = 0;
+  if (requestLower.includes(normalized)) {
+    score += 4;
+  }
+  const overlapCount = tokenize(normalized).filter((token) => requestTokens.has(token)).length;
+  score += overlapCount;
+  return { score, overlapCount };
+}
+
+function scoreKnowledgeDocumentForProject(input: {
+  document: PmIntakeKnowledgeDocument;
+  requestLower: string;
+  requestTokens: Set<string>;
+  requestKnowledgeTags: string[];
+}) {
+  const metadata = readRecord(input.document.metadata);
+  const projectSelection = readRecord(metadata.pmProjectSelection);
+  const ownerTags = readStringArray(projectSelection.ownerTags);
+  const supportTags = readStringArray(projectSelection.supportTags);
+  const avoidTags = readStringArray(projectSelection.avoidTags);
+  const documentTags = uniqueStrings([
+    ...readStringArray(metadata.tags),
+    ...readStringArray(metadata.requiredKnowledgeTags),
+  ]).map((tag) => tag.toLowerCase());
+
+  const normalizedKnowledgeTags = input.requestKnowledgeTags.map((tag) => tag.toLowerCase());
+  const ownerTagMatches = normalizedKnowledgeTags.filter((tag) => ownerTags.map((value) => value.toLowerCase()).includes(tag));
+  const supportTagMatches = normalizedKnowledgeTags.filter((tag) => supportTags.map((value) => value.toLowerCase()).includes(tag));
+  const avoidTagMatches = normalizedKnowledgeTags.filter((tag) => avoidTags.map((value) => value.toLowerCase()).includes(tag));
+  const genericTagMatches = normalizedKnowledgeTags.filter((tag) => documentTags.includes(tag));
+
+  const reasons: string[] = [];
+  let structuredScore = 0;
+  let ambientScore = 0;
+
+  if (ownerTagMatches.length > 0) {
+    structuredScore += ownerTagMatches.length * 12;
+    reasons.push(`knowledge_owner_tags:${ownerTagMatches.join(",")}`);
+  }
+  if (supportTagMatches.length > 0) {
+    structuredScore += supportTagMatches.length * 6;
+    reasons.push(`knowledge_support_tags:${supportTagMatches.join(",")}`);
+  }
+  if (avoidTagMatches.length > 0) {
+    structuredScore -= avoidTagMatches.length * 12;
+    reasons.push(`knowledge_avoid_tags:${avoidTagMatches.join(",")}`);
+  }
+  if (genericTagMatches.length > 0) {
+    structuredScore += genericTagMatches.length * 3;
+    reasons.push(`knowledge_tags:${genericTagMatches.join(",")}`);
+  }
+
+  for (const text of uniqueStrings([
+    input.document.title ?? null,
+    input.document.path ?? null,
+    input.document.rawContent.slice(0, 1_200),
+  ])) {
+    const textScore = scoreTextAgainstRequest(text, input.requestLower, input.requestTokens);
+    if (textScore.overlapCount > 0 && textScore.score > 0) {
+      ambientScore += Math.min(6, textScore.score);
+      reasons.push(`knowledge_match:${compactLine(text).slice(0, 80).toLowerCase()}`);
+    }
+  }
+
+  return {
+    structuredScore,
+    ambientScore,
+    score: structuredScore + ambientScore,
+    reasons,
+  };
+}
+
+function scoreProjectCandidate(
+  project: PmIntakeProjectCandidate,
+  requestText: string,
+  issueProjectId: string | null,
+  requestKnowledgeTags: string[],
+  knowledgeDocuments: PmIntakeKnowledgeDocument[],
+) {
   if (issueProjectId && issueProjectId === project.id) {
     return {
       score: 100,
@@ -165,20 +269,55 @@ function scoreProjectCandidate(project: PmIntakeProjectCandidate, requestText: s
   const requestTokens = new Set(tokenize(requestText));
   const reasons: string[] = [];
   let score = 0;
+  let knowledgeStructuredScore = 0;
+  const knowledgeAmbientSignals: Array<{ score: number; reasons: string[] }> = [];
 
   for (const term of buildProjectSearchTerms(project)) {
     const normalized = compactLine(term).toLowerCase();
     if (!normalized) continue;
+    const termScore = scoreTextAgainstRequest(normalized, requestLower, requestTokens);
     if (requestLower.includes(normalized)) {
-      score += 10;
+      score += 8;
       reasons.push(`mentions:${normalized}`);
     }
-    const overlap = tokenize(normalized).filter((token) => requestTokens.has(token)).length;
-    if (overlap > 0) {
-      score += overlap * 3;
+    if (termScore.overlapCount > 0) {
+      score += termScore.overlapCount * 2;
       reasons.push(`token_overlap:${normalized}`);
     }
   }
+
+  const projectKnowledgeDocuments = knowledgeDocuments.filter((document) => document.projectId === project.id);
+  for (const document of projectKnowledgeDocuments) {
+    const knowledgeScore = scoreKnowledgeDocumentForProject({
+      document,
+      requestLower,
+      requestTokens,
+      requestKnowledgeTags,
+    });
+    knowledgeStructuredScore += knowledgeScore.structuredScore;
+    if (knowledgeScore.structuredScore !== 0) {
+      reasons.push(...knowledgeScore.reasons.filter((reason) => !reason.startsWith("knowledge_match:")));
+    }
+    if (knowledgeScore.ambientScore > 0) {
+      knowledgeAmbientSignals.push({
+        score: knowledgeScore.ambientScore,
+        reasons: knowledgeScore.reasons.filter((reason) => reason.startsWith("knowledge_match:")),
+      });
+    }
+  }
+
+  score += knowledgeStructuredScore;
+  const ambientKnowledgeScore = knowledgeAmbientSignals
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3)
+    .reduce((sum, signal) => sum + signal.score, 0);
+  score += Math.min(12, ambientKnowledgeScore);
+  reasons.push(
+    ...knowledgeAmbientSignals
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 3)
+      .flatMap((signal) => signal.reasons.slice(0, 2)),
+  );
 
   return { score, reasons };
 }
@@ -353,6 +492,10 @@ export function buildPmIntakeProjectionPreview(
   input: BuildPmIntakeProjectionPreviewInput,
 ): PmIntakeProjectionPreviewResult {
   const companyProjects = input.projects.filter((project) => project.companyId === input.issue.companyId);
+  const companyKnowledgeDocuments = (input.knowledgeDocuments ?? [])
+    .filter((document) => document.companyId === input.issue.companyId)
+    .filter((document) => document.authorityLevel === "canonical")
+    .filter((document) => ["adr", "prd", "runbook", "code_summary", "symbol_summary"].includes(document.sourceType));
   if (companyProjects.length === 0) {
     throw conflict("PM intake projection preview requires at least one company project");
   }
@@ -366,9 +509,16 @@ export function buildPmIntakeProjectionPreview(
   }
 
   const requestText = extractHumanRequest(input.issue.description) || input.issue.title;
+  const requestKnowledgeTags = uniqueStrings(input.request.requiredKnowledgeTags ?? []);
   const projectCandidates = companyProjects
     .map((project) => {
-      const scored = scoreProjectCandidate(project, requestText, input.issue.projectId);
+      const scored = scoreProjectCandidate(
+        project,
+        requestText,
+        input.issue.projectId,
+        requestKnowledgeTags,
+        companyKnowledgeDocuments,
+      );
       return {
         project,
         ...scored,

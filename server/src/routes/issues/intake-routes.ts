@@ -21,7 +21,7 @@ function isPmIntakeRootIssue(issue: {
 
 export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
   const { router, db } = ctx;
-  const { svc, agentsSvc, projectsSvc, protocolSvc } = ctx.services;
+  const { svc, agentsSvc, knowledge, projectsSvc, protocolSvc } = ctx.services;
   const {
     assertCanAssignTasks,
     ensureIssueLabelsByName,
@@ -372,10 +372,38 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
       throw forbidden("Only PM, CTO, or board actors can preview intake projection");
     }
 
-    const [companyAgents, companyProjects] = await Promise.all([
+    const [companyAgents, companyProjects, knowledgeDocsByType] = await Promise.all([
       agentsSvc.list(rootIssue.companyId),
       projectsSvc.list(rootIssue.companyId),
+      Promise.all([
+        knowledge.listDocuments({
+          companyId: rootIssue.companyId,
+          sourceType: "adr",
+          limit: 500,
+        }),
+        knowledge.listDocuments({
+          companyId: rootIssue.companyId,
+          sourceType: "prd",
+          limit: 500,
+        }),
+        knowledge.listDocuments({
+          companyId: rootIssue.companyId,
+          sourceType: "runbook",
+          limit: 500,
+        }),
+        knowledge.listDocuments({
+          companyId: rootIssue.companyId,
+          sourceType: "code_summary",
+          limit: 500,
+        }),
+        knowledge.listDocuments({
+          companyId: rootIssue.companyId,
+          sourceType: "symbol_summary",
+          limit: 500,
+        }),
+      ]),
     ]);
+    const companyKnowledgeDocuments = knowledgeDocsByType.flat();
 
     const preview = buildPmIntakeProjectionPreview({
       issue: {
@@ -386,7 +414,7 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
         priority: rootIssue.priority as "low" | "medium" | "high" | "critical",
         projectId: rootIssue.projectId ?? null,
       },
-      projects: companyProjects.map((project) => ({
+      projects: companyProjects.map((project: Awaited<ReturnType<typeof projectsSvc.list>>[number]) => ({
         id: project.id,
         companyId: project.companyId,
         name: project.name,
@@ -399,7 +427,18 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
             }
           : null,
       })),
-      agents: companyAgents.map((agent) => ({
+      knowledgeDocuments: companyKnowledgeDocuments.map((document) => ({
+        id: document.id,
+        companyId: document.companyId,
+        projectId: document.projectId ?? null,
+        sourceType: document.sourceType,
+        authorityLevel: document.authorityLevel,
+        path: document.path ?? null,
+        title: document.title ?? null,
+        rawContent: document.rawContent,
+        metadata: document.metadata ?? {},
+      })),
+      agents: companyAgents.map((agent: Awaited<ReturnType<typeof agentsSvc.list>>[number]) => ({
         id: agent.id,
         companyId: agent.companyId,
         name: agent.name,

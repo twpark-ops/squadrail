@@ -1,0 +1,37 @@
+@startuml
+title Domain-Aware PM Evaluation for Cloud SwiftSight
+
+rectangle "Human Request" as Human
+rectangle "PM Structuring" as PM
+rectangle "Clarification Loop" as Clarify
+rectangle "Child Work Items" as Work
+rectangle "Review / QA Evidence" as Review
+
+package "Cloud SwiftSight Domain" {
+  rectangle "swiftsight-cloud\nBFF / Settings / Temporal / Registry" as Cloud
+  rectangle "swiftsight-agent\nDICOM / Upload / SEND / PACS" as Agent
+  rectangle "swiftcl\nWorkflow Match / DAG / Routing" as SwiftCL
+  rectangle "swiftsight-worker\nModel Execution / Provenance" as Worker
+}
+
+Human --> PM : short feature request
+PM --> Clarify : ask only missing info
+Clarify --> PM : bounded answer
+PM --> Work : project/lane split
+Work --> Review : acceptance criteria\nreview evidence
+
+PM ..> Cloud : settings/runtime context
+PM ..> Agent : delivery / PACS context
+PM ..> SwiftCL : workflow / routing context
+PM ..> Worker : execution provenance context
+
+note right of PM
+Evaluate:
+- correct project selection
+- useful clarification
+- executable work split
+- domain risk awareness
+- review/QA evidence
+end note
+
+@enduml

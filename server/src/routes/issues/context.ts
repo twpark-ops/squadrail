@@ -130,6 +130,22 @@ interface IssueRouteProtocolService {
 interface IssueRouteKnowledgeService {
   getLatestTaskBrief(issueId: string, scope: string): Promise<unknown | null>;
   listTaskBriefs(input: { issueId: string; briefScope?: string | null; limit: number }): Promise<unknown[]>;
+  listDocuments(input: {
+    companyId: string;
+    projectId?: string | null;
+    sourceType?: string | null;
+    limit?: number;
+  }): Promise<Array<{
+    id: string;
+    companyId: string;
+    projectId: string | null;
+    sourceType: string;
+    authorityLevel: string;
+    path: string | null;
+    title: string | null;
+    rawContent: string;
+    metadata: Record<string, unknown> | null;
+  }>>;
 }
 
 interface IssueRouteRetrievalPersonalizationService {
@@ -371,6 +387,17 @@ export interface IssueRouteContext {
         status: string;
         reportsTo: string | null;
         title?: string | null;
+      }>;
+      knowledgeDocuments?: Array<{
+        id: string;
+        companyId: string;
+        projectId: string | null;
+        sourceType: string;
+        authorityLevel: string;
+        path?: string | null;
+        title?: string | null;
+        rawContent: string;
+        metadata?: Record<string, unknown> | null;
       }>;
       request: PmIntakeProjectionPreviewRequest;
     }): PmIntakeProjectionPreviewResult;

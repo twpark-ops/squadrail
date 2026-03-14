@@ -50,6 +50,7 @@ export const previewPmIntakeProjectionSchema = z.object({
   reviewerAgentId: z.string().uuid().nullable().optional(),
   qaAgentId: z.string().uuid().nullable().optional(),
   coordinationOnly: z.boolean().optional().default(false),
+  requiredKnowledgeTags: stringListSchema.optional(),
 }).strict();
 
 export type PreviewPmIntakeProjection = z.infer<typeof previewPmIntakeProjectionSchema>;

@@ -13,6 +13,8 @@ const AUTONOMY_BOARD_ID = process.env.SWIFTSIGHT_AUTONOMY_BOARD_ID ?? "autonomy-
 const AUTONOMY_BOOTSTRAP_BLUEPRINT = process.env.SWIFTSIGHT_AUTONOMY_BLUEPRINT ?? "delivery_plus_qa";
 const AUTONOMY_VARIANT = process.env.SWIFTSIGHT_AUTONOMY_VARIANT ?? "baseline";
 const AUTONOMY_MULTI_CHILD_COUNT = Math.max(2, Number(process.env.SWIFTSIGHT_AUTONOMY_MULTI_CHILD_COUNT ?? 2));
+const AUTONOMY_EXISTING_ROOT_ISSUE_ID = process.env.SWIFTSIGHT_AUTONOMY_EXISTING_ROOT_ISSUE_ID ?? null;
+const AUTONOMY_PREVIEW_JSON = process.env.SWIFTSIGHT_AUTONOMY_PREVIEW_JSON ?? null;
 const DEFAULT_REQUEST = process.env.SWIFTSIGHT_AUTONOMY_REQUEST ?? [
   "Tighten the swiftsight-cloud export handoff before release.",
   "",
@@ -34,6 +36,16 @@ const VARIANT_DESCRIPTIONS = {
 
 function note(message = "") {
   process.stdout.write(`${message}\n`);
+}
+
+function parseJsonEnv(name, value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid JSON in ${name}: ${message}`);
+  }
 }
 
 function sleep(ms) {
@@ -999,35 +1011,67 @@ async function main() {
   note(`variant=${AUTONOMY_VARIANT}`);
   note(`variantDescription=${VARIANT_DESCRIPTIONS[AUTONOMY_VARIANT] ?? "custom"}`);
 
+  const externalPreview = parseJsonEnv("SWIFTSIGHT_AUTONOMY_PREVIEW_JSON", AUTONOMY_PREVIEW_JSON);
+  if (AUTONOMY_EXISTING_ROOT_ISSUE_ID) {
+    assert(externalPreview, "SWIFTSIGHT_AUTONOMY_PREVIEW_JSON is required when using an existing autonomy root issue");
+    assert(AUTONOMY_VARIANT !== "multi_child_coordination", "Existing-root autonomy execution does not support multi_child_coordination variant");
+  }
+
   const requiredProjectCount = AUTONOMY_VARIANT === "multi_child_coordination"
     ? AUTONOMY_MULTI_CHILD_COUNT
     : 1;
-  const context = await ensureCompanyContext(COMPANY_NAME, {
-    requiredProjectCount,
-  });
+  const context = AUTONOMY_EXISTING_ROOT_ISSUE_ID
+    ? {
+        company: await resolveCompanyByName(COMPANY_NAME),
+        bootstrapped: false,
+        expanded: false,
+        bootstrapProjectId: null,
+        bootstrapProjectName: null,
+      }
+    : await ensureCompanyContext(COMPANY_NAME, {
+        requiredProjectCount,
+      });
   const company = context.company;
   const variantFallbackProjectId = context.bootstrapProjectId
     ?? await resolveVariantFallbackProjectId(company.id, AUTONOMY_VARIANT);
-  const projects = await resolveProjects(
-    company.id,
-    PROJECT_HINT,
-    variantFallbackProjectId,
-    requiredProjectCount,
-  );
+  const projects = AUTONOMY_EXISTING_ROOT_ISSUE_ID
+    ? await resolveProjects(
+        company.id,
+        externalPreview?.selectedProjectId ?? externalPreview?.draft?.root?.projectId ?? PROJECT_HINT,
+        variantFallbackProjectId,
+        1,
+      )
+    : await resolveProjects(
+        company.id,
+        PROJECT_HINT,
+        variantFallbackProjectId,
+        requiredProjectCount,
+      );
   const project = projects[0];
-  if (context.bootstrapped) {
-    note(`bootstrapped company ${company.name}`);
-    note(`bootstrap project=${context.bootstrapProjectName ?? project.name}`);
-  } else if (context.expanded) {
-    note(`expanded company ${company.name} to ${requiredProjectCount} projects`);
+  if (!AUTONOMY_EXISTING_ROOT_ISSUE_ID) {
+    if (context.bootstrapped) {
+      note(`bootstrapped company ${company.name}`);
+      note(`bootstrap project=${context.bootstrapProjectName ?? project.name}`);
+    } else if (context.expanded) {
+      note(`expanded company ${company.name} to ${requiredProjectCount} projects`);
+    }
   }
 
-  const intakeIssue = await createPmIntakeIssue(
-    company.id,
-    AUTONOMY_VARIANT === "multi_child_coordination" ? null : project.id,
-    resolveVariantRequest(AUTONOMY_VARIANT),
+  const intakeIssue = AUTONOMY_EXISTING_ROOT_ISSUE_ID
+    ? {
+        id: AUTONOMY_EXISTING_ROOT_ISSUE_ID,
+        identifier: null,
+      }
+    : await createPmIntakeIssue(
+        company.id,
+        AUTONOMY_VARIANT === "multi_child_coordination" ? null : project.id,
+        resolveVariantRequest(AUTONOMY_VARIANT),
+      );
+  note(
+    AUTONOMY_EXISTING_ROOT_ISSUE_ID
+      ? `using existing intake root ${intakeIssue.id}`
+      : `created intake root ${intakeIssue.identifier ?? intakeIssue.id}`,
   );
-  note(`created intake root ${intakeIssue.identifier ?? intakeIssue.id}`);
   const childResults = [];
   let projection;
   let rootState;
@@ -1077,7 +1121,7 @@ async function main() {
       note(`child ${childIssue.identifier ?? childIssue.id} closed ${childResult.doneState.workflowState}`);
     }
   } else {
-    const preview = await previewProjection(intakeIssue.id, {
+    const preview = externalPreview ?? await previewProjection(intakeIssue.id, {
       projectId: project.id,
       coordinationOnly: false,
     });
