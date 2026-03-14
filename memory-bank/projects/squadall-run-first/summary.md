@@ -49,7 +49,11 @@
   - server test를 메모리 절약형 기본 실행으로 재구성했다
     - `pnpm --filter @squadrail/server test` = `test:base(maxWorkers=2) + test:heavy(fileParallelism=false)`
     - `pnpm --filter @squadrail/server test:coverage`는 필요할 때만 별도 실행
-  - 다음은 `Phase 7 bounded autonomy E2E kickoff`다
+  - `projection preview` shared/server/runtime helper contract를 추가했다
+  - PM helper CLI에 `list-projects`, `preview-intake-projection`, `apply-intake-projection`를 추가했다
+  - PM role pack 가이드를 projection-first flow로 갱신했다
+  - kickoff autonomy harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs`를 추가했다
+  - 다음은 kickoff autonomy harness live execution + clarification ask/answer + downstream burn-in 확장이다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

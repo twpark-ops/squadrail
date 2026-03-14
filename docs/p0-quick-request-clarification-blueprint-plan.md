@@ -424,11 +424,15 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 - `scripts/e2e/cloud-swiftsight-real-org.mjs` 유지
 - `scripts/e2e/*autonomy*.mjs` 신규
+- `scripts/runtime/squadrail-protocol.mjs` projection helper 확장
+- `server/src/routes/issues/intake-routes.ts` projection preview 계약 추가
+- `server/src/services/pm-intake.ts` preview heuristics / staffing selection
 
 ### 성공 조건
 
 - 기존 deterministic kernel burn-in은 그대로 유지된다
 - 새로운 autonomy E2E는 exact actor/file 고정 대신 invariant로 합격한다
+- PM/runtime helper가 `list-projects -> preview-intake-projection -> apply-intake-projection` 경로를 공식 지원한다
 
 ### 테스트 invariant
 
@@ -437,6 +441,15 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 - clarification can be asked and answered
 - projected work items exist when decomposition is needed
 - review / QA / close semantics stay valid
+
+### 2026-03-14 kickoff 상태
+
+- `projection preview` shared/server/runtime helper contract를 추가했다.
+- PM helper CLI가 `list-projects`, `preview-intake-projection`, `apply-intake-projection`를 지원한다.
+- PM role pack guide를 projection-first flow로 업데이트했다.
+- kickoff harness [`scripts/e2e/cloud-swiftsight-autonomy-org.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-autonomy-org.mjs)를 추가했다.
+  - 현재 kickoff invariant는 `human intake -> projection preview -> projection apply -> assigned child created`다.
+  - 아직 live control plane에서 full `execution / review / QA / close` burn-in까지는 실행하지 않았다.
 
 ## 7. 권장 실행 순서
 
@@ -452,8 +465,8 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. `Phase 7 bounded autonomy E2E` kickoff
-2. structured-but-short request invariant 정의
-3. clarification ask/answer 포함 상위 burn-in 추가
+1. kickoff autonomy script를 live control plane에서 실제 실행하고 invariant를 고정
+2. clarification ask/answer를 autonomy harness에 포함
+3. downstream `execution / review / QA / close`까지 상위 burn-in을 확장
 
 즉 다음 배치는 `Phase 7 bounded autonomy E2E`다.

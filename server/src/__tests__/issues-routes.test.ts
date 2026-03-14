@@ -29,6 +29,8 @@ const {
   mockDerivePmIntakeIssueTitle,
   mockBuildPmIntakeIssueDescription,
   mockBuildPmIntakeAssignment,
+  mockBuildPmIntakeProjectionPreview,
+  mockProjectList,
   mockProjectGetById,
   mockProtocolGetState,
   mockProtocolListMessages,
@@ -83,6 +85,8 @@ const {
   mockDerivePmIntakeIssueTitle: vi.fn(),
   mockBuildPmIntakeIssueDescription: vi.fn(),
   mockBuildPmIntakeAssignment: vi.fn(),
+  mockBuildPmIntakeProjectionPreview: vi.fn(),
+  mockProjectList: vi.fn(),
   mockProjectGetById: vi.fn(),
   mockProtocolGetState: vi.fn(),
   mockProtocolListMessages: vi.fn(),
@@ -164,6 +168,7 @@ vi.mock("../services/index.js", () => ({
   derivePmIntakeIssueTitle: mockDerivePmIntakeIssueTitle,
   buildPmIntakeIssueDescription: mockBuildPmIntakeIssueDescription,
   buildPmIntakeAssignment: mockBuildPmIntakeAssignment,
+  buildPmIntakeProjectionPreview: mockBuildPmIntakeProjectionPreview,
   retrievalPersonalizationService: () => ({
     recordProtocolFeedback: mockRetrievalPersonalizationRecordProtocolFeedback,
     recordManualFeedback: mockRetrievalPersonalizationRecordManualFeedback,
@@ -218,7 +223,7 @@ vi.mock("../services/index.js", () => ({
     listTaskBriefs: mockKnowledgeListTaskBriefs,
   }),
   projectService: () => ({
-    list: vi.fn(),
+    list: mockProjectList,
     getById: mockProjectGetById,
     listByIds: vi.fn(),
   }),
@@ -401,6 +406,7 @@ describe("issue routes wakeup handling", () => {
     });
     mockAgentGetById.mockResolvedValue(null);
     mockAgentList.mockResolvedValue([]);
+    mockProjectList.mockResolvedValue([]);
     mockHeartbeatGetRun.mockResolvedValue(null);
     mockHeartbeatCancelIssueScope.mockResolvedValue({
       cancelledWakeupCount: 0,
@@ -485,6 +491,63 @@ describe("issue routes wakeup handling", () => {
         relatedIssueIds: input.relatedIssueIds,
         requiredKnowledgeTags: input.requiredKnowledgeTags,
       },
+    }));
+    mockBuildPmIntakeProjectionPreview.mockImplementation((input: any) => ({
+      companyId: input.issue.companyId,
+      issueId: input.issue.id,
+      selectedProjectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+      selectedProjectName: "swiftsight-agent",
+      projectCandidates: [
+        {
+          projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+          projectName: "swiftsight-agent",
+          score: 10,
+          selected: true,
+          reasons: ["mentions:swiftsight-agent"],
+        },
+      ],
+      staffing: {
+        techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        techLeadName: "SwiftSight TL",
+        reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        reviewerName: "QA Lead",
+        qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        qaName: "QA Engineer",
+        implementationAssigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        implementationAssigneeName: "Engineer",
+      },
+      draft: {
+        reason: "Route to the agent TL lane.",
+        techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        coordinationOnly: false,
+        root: {
+          structuredTitle: input.issue.title,
+          projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+          priority: input.issue.priority,
+          executionSummary: "Execution-ready summary",
+          acceptanceCriteria: ["Clarify scope"],
+          definitionOfDone: ["Route to TL"],
+          risks: [],
+          openQuestions: [],
+          documentationDebt: [],
+        },
+        workItems: [
+          {
+            title: input.issue.title,
+            kind: "implementation",
+            projectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+            priority: input.issue.priority,
+            assigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            qaAgentId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            acceptanceCriteria: ["Clarify scope"],
+            definitionOfDone: ["Route to TL"],
+          },
+        ],
+      },
+      warnings: [],
     }));
     mockOrgMemoryIngestIssueSnapshot.mockResolvedValue({
       issueId: "11111111-1111-4111-8111-111111111111",
@@ -1035,6 +1098,169 @@ describe("issue routes wakeup handling", () => {
     });
   });
 
+  it("previews a PM intake projection draft before routing into a TL lane", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-151",
+      title: "Human intake issue",
+      description: "## Human Intake Request\n\nTighten the cloud export handoff.\n",
+      projectId: null,
+      status: "todo",
+      priority: "high",
+      parentId: null,
+      hiddenAt: null,
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "pm-1",
+      companyId: "company-1",
+      role: "pm",
+      status: "active",
+      title: "PM",
+      permissions: {},
+    });
+    mockProjectList.mockResolvedValue([
+      {
+        id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+        companyId: "company-1",
+        name: "swiftsight-agent",
+        urlKey: "swiftsight-agent",
+        primaryWorkspace: {
+          id: "workspace-1",
+          name: "Agent Repo",
+          cwd: "/tmp/swiftsight-agent",
+          repoRef: "swiftsight-agent",
+          repoUrl: "https://example.com/swiftsight-agent.git",
+        },
+      },
+    ]);
+    mockAgentList.mockResolvedValue([
+      {
+        id: "pm-1",
+        companyId: "company-1",
+        name: "SwiftSight PM",
+        urlKey: "swiftsight-pm",
+        role: "pm",
+        status: "active",
+        reportsTo: null,
+        title: "PM",
+      },
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        companyId: "company-1",
+        name: "SwiftSight TL",
+        urlKey: "swiftsight-agent-tl",
+        role: "manager",
+        status: "active",
+        reportsTo: null,
+        title: "Tech Lead",
+      },
+      {
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        companyId: "company-1",
+        name: "Engineer",
+        urlKey: "swiftsight-agent-engineer",
+        role: "engineer",
+        status: "active",
+        reportsTo: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        title: "Engineer",
+      },
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        companyId: "company-1",
+        name: "Reviewer",
+        urlKey: "swiftsight-reviewer",
+        role: "manager",
+        status: "active",
+        reportsTo: null,
+        title: "Tech Lead",
+      },
+      {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        companyId: "company-1",
+        name: "QA Engineer",
+        urlKey: "swiftsight-qa",
+        role: "qa",
+        status: "active",
+        reportsTo: null,
+        title: "QA Engineer",
+      },
+    ]);
+
+    const response = await invokeRoute({
+      path: "/issues/:id/intake/projection-preview",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("pm-1"),
+      body: {
+        coordinationOnly: false,
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(200);
+    expect(mockBuildPmIntakeProjectionPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issue: expect.objectContaining({
+          id: "11111111-1111-4111-8111-111111111111",
+          title: "Human intake issue",
+        }),
+        projects: [
+          expect.objectContaining({
+            id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+            name: "swiftsight-agent",
+          }),
+        ],
+        request: {
+          coordinationOnly: false,
+        },
+      }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        selectedProjectId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+        staffing: expect.objectContaining({
+          techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        }),
+        draft: expect.objectContaining({
+          coordinationOnly: false,
+          workItems: [
+            expect.objectContaining({
+              assigneeAgentId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("rejects PM intake projection preview on visible root issues that are not intake issues", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-151",
+      title: "Regular root issue",
+      description: "General project work without intake markers.",
+      projectId: null,
+      status: "todo",
+      priority: "high",
+      parentId: null,
+      hiddenAt: null,
+      labels: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/intake/projection-preview",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("pm-1"),
+      body: {},
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(mockBuildPmIntakeProjectionPreview).not.toHaveBeenCalled();
+  });
+
   it("projects a PM intake issue into a TL lane with child work items and QA gate ownership", async () => {
     mockIssueGetById
       .mockResolvedValueOnce({
@@ -1266,6 +1492,47 @@ describe("issue routes wakeup handling", () => {
     );
   });
 
+  it("rejects PM intake projection apply on visible root issues that are not intake issues", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-151",
+      title: "Regular root issue",
+      description: "General project work without intake markers.",
+      projectId: null,
+      status: "todo",
+      priority: "high",
+      parentId: null,
+      hiddenAt: null,
+      labels: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/intake/projection",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("pm-1"),
+      body: {
+        reason: "Structure and route this issue.",
+        techLeadAgentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        reviewerAgentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        coordinationOnly: false,
+        root: {
+          structuredTitle: "Regular root issue",
+          projectId: null,
+          executionSummary: "Prepare execution structure.",
+          acceptanceCriteria: ["Scope is explicit"],
+          definitionOfDone: ["Projection is ready"],
+        },
+        workItems: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(mockIssueUpdate).not.toHaveBeenCalled();
+    expect(mockIssueCreateInternalWorkItem).not.toHaveBeenCalled();
+  });
+
   it("projects coordinated intake issues without reassigning the root execution lane", async () => {
     mockAgentGetById.mockImplementation(async (agentId: string) => {
       if (agentId === "pm-1") {
@@ -1315,7 +1582,7 @@ describe("issue routes wakeup handling", () => {
       companyId: "company-1",
       identifier: "CLO-300",
       title: "Coordinated intake root",
-      description: "Human request",
+      description: "## Human Intake Request\n\nCoordinate child delivery only.\n",
       status: "todo",
       priority: "high",
       projectId: null,

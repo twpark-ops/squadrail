@@ -86,7 +86,30 @@ function tryInferSubmitForReviewArtifacts(changedFiles) {
 
 const COMMAND_HELP = {
   general:
-    "Usage: squadrail-protocol.mjs <resolve-agent|get-brief|reassign-task|ack-assignment|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
+    "Usage: squadrail-protocol.mjs <resolve-agent|list-projects|get-brief|preview-intake-projection|apply-intake-projection|reassign-task|ack-assignment|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
+  "list-projects": [
+    "Usage: squadrail-protocol.mjs list-projects",
+    "",
+    "Lists company projects with workspace hints so PM flows can choose a delivery lane before projection.",
+  ].join("\n"),
+  "preview-intake-projection": [
+    "Usage: squadrail-protocol.mjs preview-intake-projection --issue <issueId> [options]",
+    "",
+    "Supported options:",
+    "  --project-id <uuid>",
+    "  --tech-lead-id <uuid>",
+    "  --reviewer-id <uuid>",
+    "  --qa-id <uuid>",
+    "  --coordination-only <true|false>",
+    "  --payload <json>                                  projectId, techLeadAgentId, reviewerAgentId, qaAgentId, coordinationOnly",
+  ].join("\n"),
+  "apply-intake-projection": [
+    "Usage: squadrail-protocol.mjs apply-intake-projection --issue <issueId> (--payload <json> | --preview-json <json>)",
+    "",
+    "Supported options:",
+    "  --payload <json>                                  full PM intake projection payload",
+    "  --preview-json <json>                            output from preview-intake-projection; applies `.draft`",
+  ].join("\n"),
   "ack-assignment": [
     "Usage: squadrail-protocol.mjs ack-assignment --issue <issueId> [--sender-role <role>] --summary <text> --understood-scope <text> [options]",
     "",
@@ -441,6 +464,10 @@ async function listAgents() {
   return api(`/api/companies/${COMPANY_ID}/agents`);
 }
 
+async function listProjects() {
+  return api(`/api/companies/${COMPANY_ID}/projects`);
+}
+
 async function getSelfAgent() {
   if (cachedSelfAgent) return cachedSelfAgent;
   const agents = await listAgents();
@@ -620,6 +647,71 @@ async function resolveAgentCommand(slug) {
   const match = agents.find((agent) => agent.urlKey === slug);
   if (!match) fail(`Agent not found for urlKey=${slug}`);
   printJson(match);
+}
+
+async function listProjectsCommand() {
+  const projects = await listProjects();
+  printJson(projects);
+}
+
+async function previewIntakeProjectionCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("preview-intake-projection");
+    return;
+  }
+  const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
+  if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const body = {
+    ...(readAliasedOption(options, ["project-id", "projectId"], payloadPatch.projectId ?? null)
+      ? { projectId: readAliasedOption(options, ["project-id", "projectId"], payloadPatch.projectId ?? null) }
+      : {}),
+    ...(readAliasedOption(options, ["tech-lead-id", "techLeadId"], payloadPatch.techLeadAgentId ?? payloadPatch.techLeadId ?? null)
+      ? { techLeadAgentId: readAliasedOption(options, ["tech-lead-id", "techLeadId"], payloadPatch.techLeadAgentId ?? payloadPatch.techLeadId ?? null) }
+      : {}),
+    ...(readAliasedOption(options, ["reviewer-id", "reviewerId"], payloadPatch.reviewerAgentId ?? payloadPatch.reviewerId ?? null)
+      ? { reviewerAgentId: readAliasedOption(options, ["reviewer-id", "reviewerId"], payloadPatch.reviewerAgentId ?? payloadPatch.reviewerId ?? null) }
+      : {}),
+    ...(readAliasedOption(options, ["qa-id", "qaId"], payloadPatch.qaAgentId ?? payloadPatch.qaId ?? null)
+      ? { qaAgentId: readAliasedOption(options, ["qa-id", "qaId"], payloadPatch.qaAgentId ?? payloadPatch.qaId ?? null) }
+      : {}),
+    coordinationOnly: parseBool(
+      readAliasedOption(
+        options,
+        ["coordination-only", "coordinationOnly"],
+        payloadPatch.coordinationOnly == null ? "false" : String(payloadPatch.coordinationOnly),
+      ),
+      false,
+    ),
+  };
+
+  const result = await api(`/api/issues/${issueId}/intake/projection-preview`, {
+    method: "POST",
+    body,
+  });
+  printJson(result);
+}
+
+async function applyIntakeProjectionCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("apply-intake-projection");
+    return;
+  }
+  const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
+  if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
+
+  const previewJson = parseJsonOption(options, "preview-json");
+  const payloadPatch = parseJsonOption(options, "payload");
+  const body = payloadPatch ?? previewJson?.draft ?? null;
+  if (!body) {
+    fail("Missing required option: --payload");
+  }
+
+  const result = await api(`/api/issues/${issueId}/intake/projection`, {
+    method: "POST",
+    body,
+  });
+  printJson(result);
 }
 
 async function reassignTaskCommand(options) {
@@ -1375,8 +1467,17 @@ async function main() {
     case "resolve-agent":
       await resolveAgentCommand(positionals[1] ?? fail("Usage: resolve-agent <urlKey>"));
       return;
+    case "list-projects":
+      await listProjectsCommand();
+      return;
     case "get-brief":
       await getBriefCommand(options);
+      return;
+    case "preview-intake-projection":
+      await previewIntakeProjectionCommand(options);
+      return;
+    case "apply-intake-projection":
+      await applyIntakeProjectionCommand(options);
       return;
     case "reassign-task":
       await reassignTaskCommand(options);

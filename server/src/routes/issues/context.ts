@@ -4,6 +4,8 @@ import type { Db } from "@squadrail/db";
 import type {
   CreateIssueProtocolMessage,
   IssueChangeSurface,
+  PmIntakeProjectionPreviewRequest,
+  PmIntakeProjectionPreviewResult,
 } from "@squadrail/shared";
 import type { StorageService } from "../../storage/types.js";
 import type {
@@ -16,6 +18,7 @@ interface IssueRouteAgentRecord {
   id: string;
   companyId: string;
   name: string;
+  urlKey?: string | null;
   role: string;
   title?: string | null;
   status: string;
@@ -82,15 +85,30 @@ interface IssueRouteAgentService {
 }
 
 interface IssueRouteProjectService {
-  getById(projectId: string): Promise<{
+  list(companyId: string): Promise<Array<{
     id: string;
     companyId: string;
     name: string;
+    urlKey?: string | null;
     primaryWorkspace?: {
       id: string;
       name: string;
       cwd: string | null;
       repoRef: string | null;
+      repoUrl?: string | null;
+    } | null;
+  }>>;
+  getById(projectId: string): Promise<{
+    id: string;
+    companyId: string;
+    name: string;
+    urlKey?: string | null;
+    primaryWorkspace?: {
+      id: string;
+      name: string;
+      cwd: string | null;
+      repoRef: string | null;
+      repoUrl?: string | null;
     } | null;
   } | null>;
 }
@@ -324,6 +342,38 @@ export interface IssueRouteContext {
         deadlineAt?: string | null;
       };
     };
+    buildPmIntakeProjectionPreview(input: {
+      issue: {
+        id: string;
+        companyId: string;
+        title: string;
+        description: string | null;
+        priority: "low" | "medium" | "high" | "critical";
+        projectId: string | null;
+      };
+      projects: Array<{
+        id: string;
+        companyId: string;
+        name: string;
+        urlKey?: string | null;
+        primaryWorkspace?: {
+          cwd?: string | null;
+          repoUrl?: string | null;
+          repoRef?: string | null;
+        } | null;
+      }>;
+      agents: Array<{
+        id: string;
+        companyId: string;
+        name: string;
+        urlKey?: string | null;
+        role: string;
+        status: string;
+        reportsTo: string | null;
+        title?: string | null;
+      }>;
+      request: PmIntakeProjectionPreviewRequest;
+    }): PmIntakeProjectionPreviewResult;
     buildMergeAutomationPlan(input: {
       issue: {
         id: string;

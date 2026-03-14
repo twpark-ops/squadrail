@@ -341,3 +341,78 @@ export interface IssueChangeSurface {
   };
   mergeCandidate: IssueMergeCandidate | null;
 }
+
+export interface PmIntakeProjectionPreviewRequest {
+  projectId?: string | null;
+  techLeadAgentId?: string | null;
+  reviewerAgentId?: string | null;
+  qaAgentId?: string | null;
+  coordinationOnly?: boolean;
+}
+
+export interface PmIntakeProjectionPreviewProjectCandidate {
+  projectId: string;
+  projectName: string;
+  score: number;
+  selected: boolean;
+  reasons: string[];
+}
+
+export interface PmIntakeProjectionPreviewRoot {
+  structuredTitle?: string;
+  projectId?: string | null;
+  priority?: IssuePriority;
+  executionSummary: string;
+  acceptanceCriteria: string[];
+  definitionOfDone: string[];
+  risks?: string[];
+  openQuestions?: string[];
+  documentationDebt?: string[];
+}
+
+export interface PmIntakeProjectionPreviewWorkItem {
+  title: string;
+  description?: string | null;
+  kind: "plan" | "implementation" | "review" | "qa";
+  projectId?: string | null;
+  priority?: IssuePriority;
+  assigneeAgentId: string;
+  reviewerAgentId: string;
+  qaAgentId?: string | null;
+  goal?: string;
+  acceptanceCriteria: string[];
+  definitionOfDone: string[];
+  deadlineAt?: string | null;
+  requiredKnowledgeTags?: string[];
+  relatedIssueIds?: string[];
+  watchReviewer?: boolean;
+  watchLead?: boolean;
+}
+
+export interface PmIntakeProjectionPreviewResult {
+  companyId: string;
+  issueId: string;
+  selectedProjectId: string | null;
+  selectedProjectName: string | null;
+  projectCandidates: PmIntakeProjectionPreviewProjectCandidate[];
+  staffing: {
+    techLeadAgentId: string;
+    techLeadName: string;
+    reviewerAgentId: string;
+    reviewerName: string;
+    qaAgentId: string | null;
+    qaName: string | null;
+    implementationAssigneeAgentId: string;
+    implementationAssigneeName: string;
+  };
+  draft: {
+    reason: string;
+    techLeadAgentId: string;
+    reviewerAgentId: string;
+    qaAgentId: string | null;
+    coordinationOnly: boolean;
+    root: PmIntakeProjectionPreviewRoot;
+    workItems: PmIntakeProjectionPreviewWorkItem[];
+  };
+  warnings: string[];
+}
