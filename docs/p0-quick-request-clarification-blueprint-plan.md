@@ -458,8 +458,13 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
   세 variant를 순차 실행하고 consolidated summary를 남긴다.
 - E2E 실행 역할을 분리했다.
   - `pnpm e2e:cloud-swiftsight-kernel-burn-in`: deterministic lower-kernel regression
+  - `pnpm e2e:cloud-swiftsight-kernel-burn-in:strict`: recovery fallback 없이 lower-kernel을 fail-fast로 확인
   - `pnpm e2e:cloud-swiftsight-autonomy-org`: bounded autonomy baseline
   - `pnpm e2e:cloud-swiftsight-autonomy-burn-in`: bounded autonomy matrix
+- kernel burn-in self-healing policy도 고정했다.
+  - 기본 `kernel burn-in`은 canonical scripted batch를 운영 회귀 관점에서 계속 쓰기 위해 stale manager reroute에 대한 bounded board recovery를 유지한다.
+  - `strict` kernel burn-in은 같은 batch를 recovery 없이 태워 lower-kernel ownership drift를 즉시 실패로 본다.
+  - 즉 recovery 허용은 autonomy가 아니라 scripted canonical org 운영 회귀를 위한 bounded fallback이고, lower-kernel 자체를 엄격하게 볼 때는 strict 엔트리를 사용한다.
 
 ## 7. 권장 실행 순서
 

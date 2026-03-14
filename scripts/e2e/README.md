@@ -11,6 +11,9 @@
 - `kernel burn-in`
   - purpose: deterministic lower-kernel regression on the canonical cloud-swiftsight org model
   - primary command: `pnpm e2e:cloud-swiftsight-kernel-burn-in`
+  - current policy: default kernel burn-in keeps bounded board recovery enabled for stale manager reroute drift so the canonical scripted batch remains operationally useful
+  - strict command: `pnpm e2e:cloud-swiftsight-kernel-burn-in:strict`
+  - strict policy: disables implementation recovery and fails fast on ownership drift instead of healing it
 - `autonomy baseline`
   - purpose: validate a single bounded autonomy delivery loop on top of PM intake projection
   - primary command: `pnpm e2e:cloud-swiftsight-autonomy-org`

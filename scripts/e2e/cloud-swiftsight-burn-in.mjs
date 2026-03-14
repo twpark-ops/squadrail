@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 const BASE_URL = process.env.SQUADRAIL_BASE_URL ?? "http://127.0.0.1:3101";
 const BATCH_KEY = process.env.SWIFTSIGHT_BURN_IN_BATCH?.trim() || "batch1";
 const PROJECT_QUALITY_DAYS = Number(process.env.SWIFTSIGHT_BURN_IN_QUALITY_DAYS ?? 14);
+const ALLOW_IMPLEMENTATION_RECOVERY = process.env.SWIFTSIGHT_E2E_ALLOW_IMPLEMENTATION_RECOVERY !== "0";
 
 function note(message = "") {
   process.stdout.write(`${message}\n`);
@@ -105,6 +106,7 @@ async function main() {
   note(`batch=${BATCH_KEY}`);
   note(`scenarioCount=${scenarios.length}`);
   note(`scenarios=${scenarios.join(", ")}`);
+  note(`implementationRecovery=${ALLOW_IMPLEMENTATION_RECOVERY ? "enabled" : "strict-disabled"}`);
 
   section("Cleanup Lingering E2E Issues");
   const cleanup = await cleanupLingeringE2eIssues();
@@ -126,6 +128,7 @@ async function main() {
     ok: true,
     batch: BATCH_KEY,
     durationMs: run.durationMs,
+    implementationRecovery: ALLOW_IMPLEMENTATION_RECOVERY,
     scenarioCount: scenarios.length,
     results: enriched,
   }, null, 2));

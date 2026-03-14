@@ -63,6 +63,9 @@ One-line startup rule:
     33. autonomy matrix runner `scripts/e2e/cloud-swiftsight-autonomy-burn-in.mjs` 추가
     34. `baseline / multi_child_coordination / reviewer_clarification_policy` autonomy variant를 live control plane에서 통과
     35. E2E 실행 역할을 `kernel burn-in` vs `autonomy baseline/matrix`로 README/package script 수준에서 분리
+    36. kernel burn-in self-healing policy를 고정
+        - 기본 `pnpm e2e:cloud-swiftsight-kernel-burn-in`은 bounded board recovery enabled
+        - `pnpm e2e:cloud-swiftsight-kernel-burn-in:strict`는 recovery disabled fail-fast lower-kernel gate
   - immediate next:
     1. Batch B kickoff: blueprint portability
     2. import/export
