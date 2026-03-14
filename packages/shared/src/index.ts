@@ -602,6 +602,10 @@ export { API_PREFIX, API } from "./api.js";
 export { normalizeAgentUrlKey, deriveAgentUrlKey, isUuidLike } from "./agent-url-key.js";
 export { deriveProjectUrlKey, normalizeProjectUrlKey } from "./project-url-key.js";
 export {
+  buildDefaultTeamBlueprintPreviewRequest,
+  resolveTeamBlueprintParameterEditors,
+} from "./team-blueprint-parameters.js";
+export {
   PROJECT_MENTION_SCHEME,
   buildProjectMentionHref,
   parseProjectMentionHref,

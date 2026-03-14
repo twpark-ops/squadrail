@@ -35,6 +35,29 @@ export interface TeamBlueprintParameterHints {
   supportsCto: boolean;
   defaultProjectCount: number;
   defaultEngineerPairsPerProject: number;
+  editors?: TeamBlueprintParameterEditors;
+}
+
+export interface TeamBlueprintNumberParameterEditor {
+  label: string;
+  description: string;
+  min: number;
+  max: number;
+  step: number;
+}
+
+export interface TeamBlueprintToggleParameterEditor {
+  label: string;
+  description: string;
+  editable: boolean;
+}
+
+export interface TeamBlueprintParameterEditors {
+  projectCount: TeamBlueprintNumberParameterEditor;
+  engineerPairsPerProject: TeamBlueprintNumberParameterEditor;
+  includePm: TeamBlueprintToggleParameterEditor;
+  includeQa: TeamBlueprintToggleParameterEditor;
+  includeCto: TeamBlueprintToggleParameterEditor;
 }
 
 export interface TeamBlueprintReadiness {

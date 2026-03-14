@@ -45,7 +45,7 @@
 > - `13-Q. runtime bottleneck helper coverage uplift` 진행 중
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
-> 현재 다음 순차 작업은 `Batch B parameter editing kickoff`다.
+> 현재 다음 순차 작업은 `migration helper discovery registry generalization`이다.
 
 ## 목적
 
@@ -124,7 +124,9 @@
   - Batch B2 import/export 1차로 portable blueprint export bundle, company-scoped saved blueprint library, import preview/save, saved blueprint preview surface를 추가했다
   - fresh Playwright smoke에서 onboarding happy path와 Company Settings blueprint import/export surface를 다시 green으로 확인했다
   - 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다
-  - immediate next는 Batch B `parameter editing`이다
+  - Batch B3 parameter editing 1차로 shared/editor contract, Company Settings/Onboarding parameter UI, parameterized preview/apply parity test를 추가했다
+  - fresh Playwright smoke와 `local-ui-flow.sh`를 현재 parameter editing / generic fetch 패턴에 맞게 다시 green으로 확인했다
+  - immediate next는 `migration helper discovery registry 일반화`다
 
 ## 2026-03-13 coverage threshold push
 

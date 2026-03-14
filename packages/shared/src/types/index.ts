@@ -110,6 +110,9 @@ export type { WorkflowTemplate, WorkflowTemplatesView } from "./workflow-templat
 export type {
   TeamBlueprintProjectTemplate,
   TeamBlueprintRoleTemplate,
+  TeamBlueprintNumberParameterEditor,
+  TeamBlueprintToggleParameterEditor,
+  TeamBlueprintParameterEditors,
   TeamBlueprintParameterHints,
   TeamBlueprintReadiness,
   TeamBlueprintPortability,
