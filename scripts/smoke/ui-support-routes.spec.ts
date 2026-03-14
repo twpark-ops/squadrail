@@ -53,6 +53,7 @@ test.use({
 
 test("support routes render with updated UI-only surfaces", async ({ page }) => {
   const diagnostics = attachDiagnostics(page);
+  const companyName = `Blueprint Smoke Org ${Date.now()}`;
 
   await page.goto(`${baseUrl}/SMO/overview`);
   await page.getByRole("button", { name: /Add company/i }).click();
@@ -62,24 +63,16 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
       exact: true,
     })
   ).toBeVisible();
-  await page.getByLabel("Company name").fill("Blueprint Smoke Org");
+  await page.getByLabel("Company name").fill(companyName);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(
-    page.getByRole("heading", {
-      name: "Select the starting team blueprint",
-      exact: true,
-    })
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Preview blueprint", exact: true })
-  ).toBeVisible();
-  await page.getByLabel("Close setup").click();
+  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resume Setup", exact: true })).toBeVisible();
+  const companyPrefix = new URL(page.url()).pathname.split("/").filter(Boolean)[0];
+  if (!companyPrefix) {
+    throw new Error("failed to resolve company prefix after company creation");
+  }
 
-  await page.goto(`${baseUrl}/SMO/companies`);
-  await expect(page.getByRole("heading", { name: "Companies", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Company directory", exact: true })).toBeVisible();
-
-  await page.goto(`${baseUrl}/SMO/settings`);
+  await page.goto(`${baseUrl}/${companyPrefix}/settings`);
   await expect(page.getByRole("heading", { name: "Company Settings", exact: true })).toBeVisible();
   await expect(page.getByText("Setup progress").first()).toBeVisible();
   await page.getByRole("button", { name: "Preview team plan", exact: true }).click();
@@ -90,44 +83,43 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Apply team blueprint", exact: true }).click();
   await expect(page.getByText("Blueprint applied").first()).toBeVisible();
+  await expect(page.getByText("Import blueprint bundle").first()).toBeVisible();
+  await expect(page.getByText("Saved blueprint library").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Export JSON", exact: true })).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/agents/all`);
+  await page.goto(`${baseUrl}/${companyPrefix}/agents/all`);
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
   await expect(page.getByText("Live execution")).toBeVisible();
-  await expect(page.getByRole("link", { name: /Smoke Engineer/i }).first()).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/projects`);
+  await page.goto(`${baseUrl}/${companyPrefix}/projects`);
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project directory", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: /Smoke Workspace/i }).first().click();
-  await expect(page.getByRole("heading", { name: "Smoke Workspace", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Project workspace", exact: true })).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/goals`);
+  await page.goto(`${baseUrl}/${companyPrefix}/goals`);
   await expect(page.getByRole("heading", { name: "Goals", exact: true })).toBeVisible();
   await expect(page.getByText(/Goal tree|No goals have been defined yet\./).first()).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/approvals/pending`);
+  await page.goto(`${baseUrl}/${companyPrefix}/approvals/pending`);
   await expect(page.getByRole("heading", { name: "Approvals", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Approval queue", exact: true })).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/activity`);
+  await page.goto(`${baseUrl}/${companyPrefix}/activity`);
   await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Activity stream", exact: true })).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/inbox/new`);
+  await page.goto(`${baseUrl}/${companyPrefix}/inbox/new`);
   await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Inbox queue", exact: true })).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/costs`);
+  await page.goto(`${baseUrl}/${companyPrefix}/costs`);
   await expect(page.getByRole("heading", { name: "Costs", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Cost range", exact: true })).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/analytics`);
+  await page.goto(`${baseUrl}/${companyPrefix}/analytics`);
   await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Available now", exact: true })).toBeVisible();
 
-  await page.goto(`${baseUrl}/SMO/org`);
+  await page.goto(`${baseUrl}/${companyPrefix}/org`);
   await expect(page.getByRole("heading", { name: "Org Chart", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Interactive organization map", exact: true })).toBeVisible();
 

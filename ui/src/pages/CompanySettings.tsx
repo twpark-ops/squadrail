@@ -23,12 +23,14 @@ import {
   ROLE_PACK_FILE_NAMES,
   type DoctorCheckStatus,
   type OperatingAlertDestinationConfig,
+  type CompanySavedTeamBlueprint,
   type RolePackCustomBaseRoleKey,
   type RolePackFileName,
   type RolePackPresetDescriptor,
   type RolePackPresetKey,
   type TeamBlueprint,
   type TeamBlueprintApplyResult,
+  type TeamBlueprintImportPreviewResult,
   type TeamBlueprintKey,
   type TeamBlueprintPreviewRequest,
   type TeamBlueprintPreviewResult,
@@ -151,6 +153,16 @@ function stringifyWorkflowTemplateFields(fields: Record<string, string>) {
   return JSON.stringify(fields, null, 2);
 }
 
+function downloadJsonFile(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export function CompanySettings() {
   const { companies, selectedCompany, selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -201,6 +213,17 @@ export function CompanySettings() {
   const [teamBlueprintPreview, setTeamBlueprintPreview] = useState<TeamBlueprintPreviewResult | null>(null);
   const [teamBlueprintApplyResult, setTeamBlueprintApplyResult] = useState<TeamBlueprintApplyResult | null>(null);
   const [confirmTeamBlueprintApply, setConfirmTeamBlueprintApply] = useState(false);
+  const [selectedSavedTeamBlueprintId, setSelectedSavedTeamBlueprintId] = useState<string | null>(null);
+  const [savedTeamBlueprintPreviewState, setSavedTeamBlueprintPreviewState] = useState<{
+    savedBlueprintId: string;
+    preview: TeamBlueprintPreviewResult;
+  } | null>(null);
+  const [teamBlueprintImportText, setTeamBlueprintImportText] = useState("");
+  const [teamBlueprintImportSlug, setTeamBlueprintImportSlug] = useState("");
+  const [teamBlueprintImportLabel, setTeamBlueprintImportLabel] = useState("");
+  const [teamBlueprintImportCollisionStrategy, setTeamBlueprintImportCollisionStrategy] = useState<"rename" | "replace">("rename");
+  const [teamBlueprintImportPreview, setTeamBlueprintImportPreview] = useState<TeamBlueprintImportPreviewResult | null>(null);
+  const [confirmTeamBlueprintImport, setConfirmTeamBlueprintImport] = useState(false);
 
   // Sync local state from selected company
   useEffect(() => {
@@ -251,6 +274,26 @@ export function CompanySettings() {
     enabled: Boolean(selectedCompanyId),
   });
 
+  const teamBlueprintImportBundleParse = useMemo(() => {
+    if (teamBlueprintImportText.trim().length === 0) {
+      return {
+        bundle: null,
+        error: null,
+      };
+    }
+    try {
+      return {
+        bundle: JSON.parse(teamBlueprintImportText) as unknown,
+        error: null,
+      };
+    } catch (error) {
+      return {
+        bundle: null,
+        error: error instanceof Error ? error.message : "Invalid JSON",
+      };
+    }
+  }, [teamBlueprintImportText]);
+
   const { data: rolePacks = [] } = useQuery({
     queryKey: selectedCompanyId ? queryKeys.companies.rolePacks(selectedCompanyId) : ["companies", "__none__", "role-packs"],
     queryFn: () => companiesApi.listRolePacks(selectedCompanyId!),
@@ -261,6 +304,10 @@ export function CompanySettings() {
     setTeamBlueprintPreview(null);
     setTeamBlueprintApplyResult(null);
     setConfirmTeamBlueprintApply(false);
+    setSelectedSavedTeamBlueprintId(null);
+    setSavedTeamBlueprintPreviewState(null);
+    setTeamBlueprintImportPreview(null);
+    setConfirmTeamBlueprintImport(false);
   }, [selectedCompanyId]);
 
   useEffect(() => {
@@ -283,6 +330,20 @@ export function CompanySettings() {
     setTeamBlueprintApplyResult((current) =>
       current && current.blueprintKey === selectedTeamBlueprintKey ? current : null);
   }, [selectedTeamBlueprintKey]);
+
+  useEffect(() => {
+    const firstSavedBlueprint = teamBlueprintCatalog?.savedBlueprints?.[0]?.id ?? null;
+    if (!selectedSavedTeamBlueprintId && firstSavedBlueprint) {
+      setSelectedSavedTeamBlueprintId(firstSavedBlueprint);
+      return;
+    }
+    if (
+      selectedSavedTeamBlueprintId
+      && !teamBlueprintCatalog?.savedBlueprints?.some((entry) => entry.id === selectedSavedTeamBlueprintId)
+    ) {
+      setSelectedSavedTeamBlueprintId(firstSavedBlueprint);
+    }
+  }, [selectedSavedTeamBlueprintId, teamBlueprintCatalog]);
   const { data: rolePackPresets = [] } = useQuery({
     queryKey: queryKeys.companies.rolePackPresets,
     queryFn: () => companiesApi.listRolePackPresets(),
@@ -629,6 +690,108 @@ export function CompanySettings() {
     },
   });
 
+  const teamBlueprintExportMutation = useMutation({
+    mutationFn: async (input: { companyId: string; blueprintKey: TeamBlueprintKey }) =>
+      companiesApi.exportTeamBlueprint(input.companyId, input.blueprintKey),
+    onSuccess: (result, variables) => {
+      const filename = `${result.bundle.definition.slug || variables.blueprintKey}.team-blueprint.json`;
+      downloadJsonFile(filename, result.bundle);
+      pushToast({
+        tone: "success",
+        title: `Exported ${result.bundle.source.blueprintLabel}`,
+        body: `Downloaded ${filename}`,
+        dedupeKey: `team-blueprint-export:${variables.companyId}:${variables.blueprintKey}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Blueprint export failed",
+        body: error instanceof Error ? error.message : "Failed to export team blueprint",
+        dedupeKey: `team-blueprint-export-error:${variables.companyId}:${variables.blueprintKey}`,
+      });
+    },
+  });
+
+  const teamBlueprintImportPreviewMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      bundle: unknown;
+      slug?: string | null;
+      label?: string | null;
+      collisionStrategy: "rename" | "replace";
+    }) =>
+      companiesApi.previewTeamBlueprintImport(input.companyId, {
+        source: {
+          type: "inline",
+          bundle: input.bundle as never,
+        },
+        slug: input.slug ?? null,
+        label: input.label ?? null,
+        collisionStrategy: input.collisionStrategy,
+      }),
+    onSuccess: (preview) => {
+      setTeamBlueprintImportPreview(preview);
+      setConfirmTeamBlueprintImport(false);
+    },
+  });
+
+  const teamBlueprintImportMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      bundle: unknown;
+      slug?: string | null;
+      label?: string | null;
+      collisionStrategy: "rename" | "replace";
+      previewHash: string;
+    }) =>
+      companiesApi.importTeamBlueprint(input.companyId, {
+        previewHash: input.previewHash,
+        source: {
+          type: "inline",
+          bundle: input.bundle as never,
+        },
+        slug: input.slug ?? null,
+        label: input.label ?? null,
+        collisionStrategy: input.collisionStrategy,
+      }),
+    onSuccess: async (result, variables) => {
+      setSelectedSavedTeamBlueprintId(result.savedBlueprint.id);
+      setSavedTeamBlueprintPreviewState(null);
+      setTeamBlueprintImportPreview(null);
+      setConfirmTeamBlueprintImport(false);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.teamBlueprints(variables.companyId) });
+      pushToast({
+        tone: "success",
+        title: `Saved ${result.savedBlueprint.definition.label}`,
+        body: `${result.action === "created" ? "Created" : "Updated"} company blueprint library entry.`,
+        dedupeKey: `team-blueprint-import:${variables.companyId}:${result.savedBlueprint.id}`,
+      });
+    },
+    onError: (error, variables) => {
+      pushToast({
+        tone: "error",
+        title: "Blueprint import failed",
+        body: error instanceof Error ? error.message : "Failed to save imported team blueprint",
+        dedupeKey: `team-blueprint-import-error:${variables.companyId}:${variables.previewHash}`,
+      });
+    },
+  });
+
+  const savedTeamBlueprintPreviewMutation = useMutation({
+    mutationFn: async (input: {
+      companyId: string;
+      savedBlueprintId: string;
+    }) =>
+      companiesApi.previewSavedTeamBlueprint(input.companyId, input.savedBlueprintId),
+    onSuccess: (preview, variables) => {
+      setSavedTeamBlueprintPreviewState({
+        savedBlueprintId: variables.savedBlueprintId,
+        preview,
+      });
+    },
+  });
+
   const createCustomRoleMutation = useMutation({
     mutationFn: () =>
       companiesApi.createCustomRolePack(selectedCompanyId!, {
@@ -828,6 +991,7 @@ export function CompanySettings() {
     ? activeDoctorReport.checks.filter((check) => check.status === "fail").length
     : 0;
   const teamBlueprints = teamBlueprintCatalog?.blueprints ?? [];
+  const savedTeamBlueprints = teamBlueprintCatalog?.savedBlueprints ?? [];
   const migrationHelpers = teamBlueprintCatalog?.migrationHelpers ?? [];
   const selectedTeamBlueprint: TeamBlueprint | null = selectedTeamBlueprintKey
     ? teamBlueprints.find((blueprint) => blueprint.key === selectedTeamBlueprintKey) ?? null
@@ -839,6 +1003,15 @@ export function CompanySettings() {
   const selectedTeamBlueprintPreview =
     teamBlueprintPreview && selectedTeamBlueprint && teamBlueprintPreview.blueprint.key === selectedTeamBlueprint.key
       ? teamBlueprintPreview
+      : null;
+  const selectedSavedTeamBlueprint: CompanySavedTeamBlueprint | null = selectedSavedTeamBlueprintId
+    ? savedTeamBlueprints.find((entry) => entry.id === selectedSavedTeamBlueprintId) ?? null
+    : savedTeamBlueprints[0] ?? null;
+  const selectedSavedTeamBlueprintPreview =
+    savedTeamBlueprintPreviewState
+    && selectedSavedTeamBlueprint
+    && savedTeamBlueprintPreviewState.savedBlueprintId === selectedSavedTeamBlueprint.id
+      ? savedTeamBlueprintPreviewState.preview
       : null;
   const workflowTemplates = workflowTemplatesView?.templates ?? [];
   const companyWorkflowTemplates = workflowTemplatesView?.companyTemplates ?? [];
@@ -940,6 +1113,44 @@ export function CompanySettings() {
     teamBlueprintApplyMutation.mutate({
       companyId: selectedCompanyId!,
       preview: selectedTeamBlueprintPreview,
+    });
+  }
+
+  function handleExportTeamBlueprint() {
+    if (!selectedCompanyId || !selectedTeamBlueprint || teamBlueprintExportMutation.isPending) return;
+    teamBlueprintExportMutation.mutate({
+      companyId: selectedCompanyId,
+      blueprintKey: selectedTeamBlueprint.key,
+    });
+  }
+
+  function handlePreviewImportedTeamBlueprint() {
+    if (!selectedCompanyId || !teamBlueprintImportBundleParse.bundle || teamBlueprintImportPreviewMutation.isPending) return;
+    teamBlueprintImportPreviewMutation.mutate({
+      companyId: selectedCompanyId,
+      bundle: teamBlueprintImportBundleParse.bundle,
+      slug: teamBlueprintImportSlug.trim() || null,
+      label: teamBlueprintImportLabel.trim() || null,
+      collisionStrategy: teamBlueprintImportCollisionStrategy,
+    });
+  }
+
+  function handleSaveImportedTeamBlueprint() {
+    if (
+      !selectedCompanyId
+      || !teamBlueprintImportBundleParse.bundle
+      || !teamBlueprintImportPreview
+      || teamBlueprintImportMutation.isPending
+    ) {
+      return;
+    }
+    teamBlueprintImportMutation.mutate({
+      companyId: selectedCompanyId,
+      bundle: teamBlueprintImportBundleParse.bundle,
+      slug: teamBlueprintImportSlug.trim() || null,
+      label: teamBlueprintImportLabel.trim() || null,
+      collisionStrategy: teamBlueprintImportCollisionStrategy,
+      previewHash: teamBlueprintImportPreview.previewHash,
     });
   }
 
@@ -1049,9 +1260,19 @@ export function CompanySettings() {
               {selectedTeamBlueprint && (
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
                 <div className="space-y-3 rounded-md border border-border px-4 py-4">
-                  <div>
-                    <div className="text-sm font-semibold">{selectedTeamBlueprint.label}</div>
-                    <p className="mt-1 text-sm text-muted-foreground">{selectedTeamBlueprint.description}</p>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">{selectedTeamBlueprint.label}</div>
+                      <p className="mt-1 text-sm text-muted-foreground">{selectedTeamBlueprint.description}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={teamBlueprintExportMutation.isPending}
+                      onClick={handleExportTeamBlueprint}
+                    >
+                      {teamBlueprintExportMutation.isPending ? "Exporting..." : "Export JSON"}
+                    </Button>
                   </div>
                   <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                     <span className="rounded-full border border-border px-2 py-0.5">
@@ -1281,11 +1502,246 @@ export function CompanySettings() {
                 </div>
               )}
 
+              <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="space-y-3 rounded-md border border-border px-4 py-4">
+                  <div>
+                    <div className="text-sm font-semibold">Import blueprint bundle</div>
+                    <p className="text-xs text-muted-foreground">
+                      Paste an exported blueprint JSON, preview the company diff, then save it into this company&apos;s blueprint library.
+                    </p>
+                  </div>
+
+                  <Field
+                    label="Bundle JSON"
+                    hint="Use the JSON produced by Export JSON. Import only saves a company-scoped blueprint definition after preview."
+                  >
+                    <textarea
+                      className="min-h-[180px] w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono"
+                      value={teamBlueprintImportText}
+                      onChange={(event) => setTeamBlueprintImportText(event.target.value)}
+                      placeholder='{"schemaVersion":1,"source":{...},"definition":{...}}'
+                    />
+                  </Field>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Field label="Slug override" hint="Optional company-scoped slug. Leave empty to reuse the bundle slug.">
+                      <input
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        value={teamBlueprintImportSlug}
+                        onChange={(event) => setTeamBlueprintImportSlug(event.target.value)}
+                        placeholder="product-squad-v2"
+                      />
+                    </Field>
+                    <Field label="Label override" hint="Optional label shown in this company&apos;s blueprint library.">
+                      <input
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        value={teamBlueprintImportLabel}
+                        onChange={(event) => setTeamBlueprintImportLabel(event.target.value)}
+                        placeholder="Product Squad v2"
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label="Collision strategy" hint="Rename keeps the existing library entry. Replace updates the matching slug in place.">
+                    <select
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      value={teamBlueprintImportCollisionStrategy}
+                      onChange={(event) => setTeamBlueprintImportCollisionStrategy(event.target.value as "rename" | "replace")}
+                    >
+                      <option value="rename">rename</option>
+                      <option value="replace">replace</option>
+                    </select>
+                  </Field>
+
+                  {teamBlueprintImportBundleParse.error && (
+                    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-700">
+                      Invalid bundle JSON: {teamBlueprintImportBundleParse.error}
+                    </div>
+                  )}
+
+                  {teamBlueprintImportPreview && (
+                    <div className="space-y-3 rounded-md border border-border bg-muted/20 px-3 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold">Import preview</div>
+                          <div className="text-xs text-muted-foreground">
+                            {teamBlueprintImportPreview.definition.label} · slug {teamBlueprintImportPreview.definition.slug}
+                          </div>
+                        </div>
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {teamBlueprintImportPreview.saveAction === "replace" ? "replace existing" : "create new"}
+                        </span>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Projects</div>
+                          <div className="mt-1 font-medium">
+                            {teamBlueprintImportPreview.preview.summary.adoptedProjectCount} adopt / {teamBlueprintImportPreview.preview.summary.createProjectCount} create
+                          </div>
+                        </div>
+                        <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Roles</div>
+                          <div className="mt-1 font-medium">
+                            {teamBlueprintImportPreview.preview.summary.matchedRoleCount} matched / {teamBlueprintImportPreview.preview.summary.missingRoleCount} missing
+                          </div>
+                        </div>
+                        <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Preview hash</div>
+                          <div className="mt-1 font-medium">{teamBlueprintImportPreview.previewHash.slice(0, 12)}...</div>
+                        </div>
+                      </div>
+                      {teamBlueprintImportPreview.warnings.length > 0 && (
+                        <ul className="space-y-1 text-xs text-amber-700">
+                          {teamBlueprintImportPreview.warnings.map((warning) => (
+                            <li key={warning}>• {warning}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <label className="flex items-start gap-3 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={confirmTeamBlueprintImport}
+                          onChange={(event) => setConfirmTeamBlueprintImport(event.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-border"
+                        />
+                        <span>I reviewed the import preview and want to save this blueprint into the company library.</span>
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!teamBlueprintImportBundleParse.bundle || teamBlueprintImportPreviewMutation.isPending || Boolean(teamBlueprintImportBundleParse.error)}
+                      onClick={handlePreviewImportedTeamBlueprint}
+                    >
+                      {teamBlueprintImportPreviewMutation.isPending ? "Previewing import..." : "Preview import"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!teamBlueprintImportPreview || !confirmTeamBlueprintImport || teamBlueprintImportMutation.isPending}
+                      onClick={handleSaveImportedTeamBlueprint}
+                    >
+                      {teamBlueprintImportMutation.isPending ? "Saving blueprint..." : "Save to library"}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-md border border-border px-4 py-4">
+                  <div>
+                    <div className="text-sm font-semibold">Saved blueprint library</div>
+                    <p className="text-xs text-muted-foreground">
+                      Company-scoped blueprint definitions imported from reusable bundles. Preview uses the same generic diff path as built-in blueprints.
+                    </p>
+                  </div>
+
+                  {savedTeamBlueprints.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                      No saved blueprints yet. Export a built-in blueprint or import one from another company first.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        {savedTeamBlueprints.map((savedBlueprint) => {
+                          const active = savedBlueprint.id === selectedSavedTeamBlueprint?.id;
+                          return (
+                            <button
+                              key={savedBlueprint.id}
+                              type="button"
+                              onClick={() => setSelectedSavedTeamBlueprintId(savedBlueprint.id)}
+                              className={`w-full rounded-md border px-3 py-3 text-left transition ${active ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40 hover:bg-muted/20"}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm font-semibold">{savedBlueprint.definition.label}</div>
+                                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                                  {savedBlueprint.definition.slug}
+                                </span>
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {savedBlueprint.definition.portability.workspaceModel} · {savedBlueprint.definition.portability.knowledgeModel} knowledge
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {selectedSavedTeamBlueprint && (
+                        <div className="space-y-3 rounded-md border border-border bg-muted/20 px-3 py-3">
+                          <div>
+                            <div className="text-sm font-semibold">{selectedSavedTeamBlueprint.definition.label}</div>
+                            <div className="text-xs text-muted-foreground">
+                              Source: {selectedSavedTeamBlueprint.sourceMetadata.type} · {selectedSavedTeamBlueprint.sourceMetadata.companyName ?? "unknown company"}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={savedTeamBlueprintPreviewMutation.isPending}
+                              onClick={() => {
+                                if (!selectedCompanyId) return;
+                                savedTeamBlueprintPreviewMutation.mutate({
+                                  companyId: selectedCompanyId,
+                                  savedBlueprintId: selectedSavedTeamBlueprint.id,
+                                });
+                              }}
+                            >
+                              {savedTeamBlueprintPreviewMutation.isPending ? "Previewing..." : "Preview saved blueprint"}
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                              Saved preview stays read-only in B2. Apply continues to use built-in generic blueprints.
+                            </span>
+                          </div>
+
+                          {selectedSavedTeamBlueprintPreview && (
+                            <div className="grid gap-2 md:grid-cols-3">
+                              <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground">Projects</div>
+                                <div className="mt-1 font-medium">
+                                  {selectedSavedTeamBlueprintPreview.summary.adoptedProjectCount} adopt / {selectedSavedTeamBlueprintPreview.summary.createProjectCount} create
+                                </div>
+                              </div>
+                              <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground">Roles</div>
+                                <div className="mt-1 font-medium">
+                                  {selectedSavedTeamBlueprintPreview.summary.matchedRoleCount} matched / {selectedSavedTeamBlueprintPreview.summary.missingRoleCount} missing
+                                </div>
+                              </div>
+                              <div className="rounded-md border border-border bg-background px-3 py-3 text-sm">
+                                <div className="text-xs uppercase tracking-wide text-muted-foreground">Warnings</div>
+                                <div className="mt-1 font-medium">
+                                  {selectedSavedTeamBlueprintPreview.warnings.length}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
               {teamBlueprintPreviewMutation.isError && !selectedTeamBlueprintPreview && (
                 <div className="text-sm text-destructive">
                   {teamBlueprintPreviewMutation.error instanceof Error
                     ? teamBlueprintPreviewMutation.error.message
                     : "Failed to generate blueprint preview"}
+                </div>
+              )}
+              {teamBlueprintImportPreviewMutation.isError && (
+                <div className="text-sm text-destructive">
+                  {teamBlueprintImportPreviewMutation.error instanceof Error
+                    ? teamBlueprintImportPreviewMutation.error.message
+                    : "Failed to preview imported blueprint"}
+                </div>
+              )}
+              {savedTeamBlueprintPreviewMutation.isError && (
+                <div className="text-sm text-destructive">
+                  {savedTeamBlueprintPreviewMutation.error instanceof Error
+                    ? savedTeamBlueprintPreviewMutation.error.message
+                    : "Failed to preview saved blueprint"}
                 </div>
               )}
             </>

@@ -10,12 +10,12 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `Batch B import/export kickoff`
+- open this handoff first, then continue immediately with `Batch B parameter editing kickoff`
   - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
   - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop, autonomy matrix variant까지 올라왔다.
-  - Batch B1 portability 1차는 generic definition / portability metadata / migration helper 분리까지 올라왔고, 다음은 import/export다.
+  - Batch B1 portability 1차와 Batch B2 import/export 1차는 올라왔고, 다음은 parameter editing이다.
 
 ## Current Status
 
@@ -71,13 +71,19 @@ One-line startup rule:
     38. blueprint preview/apply 본경로를 generic-first로 유지하고 `cloud-swiftsight` canonical은 migration helper 카드로만 노출되게 분리
     39. `OnboardingWizard` / `CompanySettings`가 canonical helper 자동 주입 없이 generic preview/apply path를 기본으로 사용하도록 정리
     40. UI migration helper surface를 list 기반으로 바꿔 blueprint당 여러 helper를 표시 가능하게 정리
+    41. shared contract에 `PortableTeamBlueprintDefinition`, `CompanySavedTeamBlueprint`, `TeamBlueprintExportBundle`, `TeamBlueprintImportPreview/Import` shape를 추가
+    42. DB `company_team_blueprints` 테이블과 migration을 추가해 company-scoped blueprint library를 저장 가능하게 정리
+    43. built-in blueprint `export`, `import preview/save`, `saved blueprint preview` server route/service를 추가
+    44. `CompanySettings`에 `Export JSON`, `Import blueprint bundle`, `Saved blueprint library` surface를 추가
+    45. fresh Playwright smoke에서 onboarding happy path와 Company Settings blueprint import/export surface를 다시 green으로 고정
   - immediate next:
-    1. Batch B kickoff: import/export
-    2. parameter editing
-    3. migration helper discovery registry 일반화
+    1. Batch B kickoff: parameter editing
+    2. migration helper discovery registry 일반화
+    3. blueprint import/export roundtrip hardening
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` canonical helper는 preview/apply 본경로에서 분리됐지만, helper discovery 자체는 아직 `companyName -> canonicalTemplateForCompanyName()` lookup 기반이라 follow-up이 남아 있다.
+    - import/export는 company-scoped saved blueprint library까지 올라왔지만, saved blueprint apply와 parameter editing은 아직 다음 배치다.
     - Batch A 종료 게이트는 모두 통과했다.
       - bounded autonomy baseline/matrix green
       - canonical kernel full batch green (`scenarioCount=5`, `durationMs=3374196`)

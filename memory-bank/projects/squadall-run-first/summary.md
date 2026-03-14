@@ -66,8 +66,11 @@
     - `CLO-1..CLO-4=done`, coordinated root `CLO-5=cancelled`, child `CLO-6..CLO-8=done`
   - Batch B1 portability 1차로 shared portability metadata, generic-first preview/apply path, migration helper list surface를 추가했다
   - `cloud-swiftsight` canonical helper는 preview/apply 본경로가 아니라 migration helper 카드로만 남겼다
+  - Batch B2 import/export 1차로 portable blueprint export bundle, company-scoped saved blueprint library, import preview/save, saved blueprint preview surface를 추가했다
+  - `CompanySettings`에서 `Export JSON`, `Import blueprint bundle`, `Saved blueprint library`를 공식 surface로 올렸다
+  - fresh Playwright smoke에서 onboarding happy path와 Company Settings blueprint import/export surface를 다시 green으로 확인했다
   - 남은 portability 제한은 helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup 기반이라는 점이다
-  - 다음은 바로 Batch B `import/export -> parameter editing`이다
+  - 다음은 바로 Batch B `parameter editing`이다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

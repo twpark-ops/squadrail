@@ -19,6 +19,11 @@ import type {
   TeamBlueprintCatalogView,
   TeamBlueprintApplyRequest,
   TeamBlueprintApplyResult,
+  TeamBlueprintExportResult,
+  TeamBlueprintImportPreviewRequest,
+  TeamBlueprintImportPreviewResult,
+  TeamBlueprintImportRequest,
+  TeamBlueprintImportResult,
   TeamBlueprintPreviewRequest,
   TeamBlueprintPreviewResult,
   CreateCustomRolePack,
@@ -73,6 +78,8 @@ export const companiesApi = {
     api.get<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`),
   getTeamBlueprints: (companyId: string) =>
     api.get<TeamBlueprintCatalogView>(`/companies/${companyId}/team-blueprints`),
+  exportTeamBlueprint: (companyId: string, blueprintKey: TeamBlueprintKey) =>
+    api.get<TeamBlueprintExportResult>(`/companies/${companyId}/team-blueprints/${blueprintKey}/export`),
   previewTeamBlueprint: (
     companyId: string,
     blueprintKey: TeamBlueprintKey,
@@ -85,6 +92,22 @@ export const companiesApi = {
     data: TeamBlueprintApplyRequest,
   ) =>
     api.post<TeamBlueprintApplyResult>(`/companies/${companyId}/team-blueprints/${blueprintKey}/apply`, data),
+  previewTeamBlueprintImport: (
+    companyId: string,
+    data: TeamBlueprintImportPreviewRequest,
+  ) =>
+    api.post<TeamBlueprintImportPreviewResult>(`/companies/${companyId}/team-blueprints/import/preview`, data),
+  importTeamBlueprint: (
+    companyId: string,
+    data: TeamBlueprintImportRequest,
+  ) =>
+    api.post<TeamBlueprintImportResult>(`/companies/${companyId}/team-blueprints/import`, data),
+  previewSavedTeamBlueprint: (
+    companyId: string,
+    savedBlueprintId: string,
+    data: TeamBlueprintPreviewRequest = {},
+  ) =>
+    api.post<TeamBlueprintPreviewResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}/preview`, data),
   updateWorkflowTemplates: (companyId: string, data: UpdateWorkflowTemplates) =>
     api.patch<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`, data),
   getOperatingAlerts: (companyId: string) =>

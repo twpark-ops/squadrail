@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPortableTeamBlueprintDefinition,
+  buildTeamBlueprintExportBundle,
   buildTeamBlueprintPreview,
   listTeamBlueprints,
+  materializePortableTeamBlueprint,
   resolveTeamBlueprintPreviewParameters,
+  resolveImportedPortableTeamBlueprintDefinition,
   teamBlueprintService,
 } from "../services/team-blueprints.js";
 
@@ -29,9 +33,9 @@ describe("team blueprints", () => {
     });
   });
 
-  it("returns an isolated catalog view per company", () => {
+  it("returns an isolated catalog view per company", async () => {
     const service = teamBlueprintService();
-    const view = service.getCatalog("company-1");
+    const view = await service.getCatalog("company-1");
 
     expect(view).toMatchObject({
       companyId: "company-1",
@@ -44,13 +48,13 @@ describe("team blueprints", () => {
     });
 
     view.blueprints[0]!.projects[0]!.label = "Mutated";
-    const second = service.getCatalog("company-1");
+    const second = await service.getCatalog("company-1");
     expect(second.blueprints[0]!.projects[0]!.label).toBe("Primary Product");
   });
 
-  it("includes migration helper guidance for the swiftsight company name", () => {
+  it("includes migration helper guidance for the swiftsight company name", async () => {
     const service = teamBlueprintService();
-    const view = service.getCatalog("company-1", "cloud-swiftsight");
+    const view = await service.getCatalog("company-1", "cloud-swiftsight");
 
     expect(view.migrationHelpers[0]).toMatchObject({
       key: "swiftsight_canonical_absorption",
@@ -181,6 +185,139 @@ describe("team blueprints", () => {
         expect.stringContaining("Apply should be reviewed"),
       ]),
     );
+  });
+
+  it("exports a portable blueprint definition and can materialize it back to a previewable blueprint", () => {
+    const blueprint = listTeamBlueprints()[1]!;
+    const definition = buildPortableTeamBlueprintDefinition(blueprint);
+    const materialized = materializePortableTeamBlueprint(definition);
+
+    expect(definition).toMatchObject({
+      slug: "standard_product_squad",
+      sourceBlueprintKey: "standard_product_squad",
+      portability: expect.objectContaining({
+        companyAgnostic: true,
+      }),
+    });
+    expect(materialized).toMatchObject({
+      key: "standard_product_squad",
+      label: blueprint.label,
+      projects: blueprint.projects,
+    });
+  });
+
+  it("builds a portable export bundle with default preview parameters", () => {
+    const blueprint = listTeamBlueprints()[0]!;
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: "company-1",
+      companyName: "Example Co",
+      blueprint,
+    });
+
+    expect(bundle).toMatchObject({
+      schemaVersion: 1,
+      source: {
+        companyId: "company-1",
+        companyName: "Example Co",
+        blueprintKey: "small_delivery_team",
+      },
+      definition: {
+        slug: "small_delivery_team",
+      },
+      defaultPreviewRequest: {
+        projectCount: 1,
+        engineerPairsPerProject: 1,
+        includePm: false,
+        includeQa: false,
+        includeCto: false,
+      },
+    });
+  });
+
+  it("renames imported blueprint slugs on collision when collisionStrategy=rename", () => {
+    const blueprint = listTeamBlueprints()[0]!;
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: "company-1",
+      companyName: "Example Co",
+      blueprint,
+    });
+
+    const resolved = resolveImportedPortableTeamBlueprintDefinition({
+      bundle,
+      existingSavedBlueprints: [
+        {
+          id: "saved-1",
+          companyId: "company-2",
+          definition: {
+            ...bundle.definition,
+            slug: "small-delivery-team",
+          },
+          defaultPreviewRequest: bundle.defaultPreviewRequest,
+          sourceMetadata: {
+            type: "builtin_export",
+            companyId: "company-1",
+            companyName: "Example Co",
+            blueprintKey: "small_delivery_team",
+            generatedAt: bundle.generatedAt,
+          },
+          createdAt: "2026-03-14T00:00:00.000Z",
+          updatedAt: "2026-03-14T00:00:00.000Z",
+        },
+      ],
+      slug: "small delivery team",
+      collisionStrategy: "rename",
+    });
+
+    expect(resolved).toMatchObject({
+      saveAction: "create",
+      existingSavedBlueprintId: null,
+      definition: {
+        slug: "small-delivery-team-2",
+      },
+    });
+  });
+
+  it("reuses the matching saved blueprint when collisionStrategy=replace", () => {
+    const blueprint = listTeamBlueprints()[2]!;
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: "company-1",
+      companyName: "Example Co",
+      blueprint,
+    });
+
+    const resolved = resolveImportedPortableTeamBlueprintDefinition({
+      bundle,
+      existingSavedBlueprints: [
+        {
+          id: "saved-1",
+          companyId: "company-2",
+          definition: {
+            ...bundle.definition,
+            slug: "delivery-plus-qa",
+          },
+          defaultPreviewRequest: bundle.defaultPreviewRequest,
+          sourceMetadata: {
+            type: "builtin_export",
+            companyId: "company-1",
+            companyName: "Example Co",
+            blueprintKey: "delivery_plus_qa",
+            generatedAt: bundle.generatedAt,
+          },
+          createdAt: "2026-03-14T00:00:00.000Z",
+          updatedAt: "2026-03-14T00:00:00.000Z",
+        },
+      ],
+      slug: "delivery plus qa",
+      collisionStrategy: "replace",
+    });
+
+    expect(resolved).toMatchObject({
+      saveAction: "replace",
+      existingSavedBlueprintId: "saved-1",
+      definition: {
+        slug: "delivery-plus-qa",
+      },
+    });
   });
 
   it("does not adopt unrelated projects when no positive match exists", () => {

@@ -15,6 +15,8 @@ import {
   restoreRolePackRevisionSchema,
   seedDefaultRolePacksSchema,
   teamBlueprintApplyRequestSchema,
+  teamBlueprintImportPreviewRequestSchema,
+  teamBlueprintImportRequestSchema,
   teamBlueprintPreviewRequestSchema,
   updateWorkflowTemplatesSchema,
   updateOperatingAlertsConfigSchema,
@@ -143,8 +145,57 @@ export function companyRoutes(
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const company = await svc.getById(companyId);
-    const view = teamBlueprints.getCatalog(companyId, company?.name ?? null);
+    const view = await teamBlueprints.getCatalog(companyId, company?.name ?? null);
     res.json(view);
+  });
+
+  router.get("/:companyId/team-blueprints/:blueprintKey/export", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const blueprintKey = req.params.blueprintKey as TeamBlueprintKey;
+    assertCompanyAccess(req, companyId);
+    const company = await svc.getById(companyId);
+    const result = await teamBlueprints.exportBlueprint(companyId, blueprintKey, company?.name ?? null);
+    res.json(result);
+  });
+
+  router.post("/:companyId/team-blueprints/import/preview", validate(teamBlueprintImportPreviewRequestSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const result = await teamBlueprints.previewImport(companyId, req.body);
+    res.json(result);
+  });
+
+  router.post("/:companyId/team-blueprints/import", validate(teamBlueprintImportRequestSchema), async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    const result = await teamBlueprints.importBlueprint(companyId, req.body);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "company.team_blueprint_imported",
+      entityType: "company",
+      entityId: companyId,
+      details: {
+        savedBlueprintId: result.savedBlueprint.id,
+        slug: result.savedBlueprint.definition.slug,
+        action: result.action,
+        previewHash: result.previewHash,
+      },
+    });
+    res.status(201).json(result);
+  });
+
+  router.post("/:companyId/team-blueprints/saved/:savedBlueprintId/preview", validate(teamBlueprintPreviewRequestSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const savedBlueprintId = req.params.savedBlueprintId as string;
+    assertCompanyAccess(req, companyId);
+    const result = await teamBlueprints.previewSavedBlueprint(companyId, savedBlueprintId, req.body);
+    res.json(result);
   });
 
   router.post("/:companyId/team-blueprints/:blueprintKey/preview", validate(teamBlueprintPreviewRequestSchema), async (req, res) => {

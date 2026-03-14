@@ -37,7 +37,7 @@
 - `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings/onboarding consumption까지 올라왔고, B1 portability 1차로 generic definition / portability metadata / migration helper 분리까지 끝났다
 - 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings/onboarding flow까지 올라왔고, 다음은 회사 간 portability를 실제 저장/이동 가능한 import/export와 parameter editing으로 확장하는 단계다
 - 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다. 즉 helper discovery 자체는 아직 완전히 portable하지 않고, follow-up에서 registry 기반으로 더 일반화해야 한다
-- 다음 immediate next는 `Batch B import/export`다
+- 다음 immediate next는 `Batch B parameter editing`이다
 
 ### 구현 체크포인트 2026-03-13
 
@@ -90,6 +90,13 @@
   - `OnboardingWizard`와 `CompanySettings`는 canonical helper 자동 주입 없이 generic preview/apply path를 기본값으로 사용한다.
   - UI는 blueprint별 migration helper를 단건이 아니라 list 기반으로 렌더링한다.
   - 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다.
+- `Batch B2` 1차 구현 완료
+  - shared contract에 `PortableTeamBlueprintDefinition`, `CompanySavedTeamBlueprint`, `TeamBlueprintExportBundle`, `TeamBlueprintImportPreview/Import` shape를 추가했다.
+  - DB에 company-scoped blueprint library 저장용 `company_team_blueprints` 테이블과 migration을 추가했다.
+  - server `team-blueprints` service / `companies` route에 built-in blueprint export, import preview/save, saved blueprint preview를 추가했다.
+  - import는 apply를 수행하지 않고 preview hash gate를 거쳐 company library에만 저장한다.
+  - `CompanySettings`에 `Export JSON`, `Import blueprint bundle`, `Saved blueprint library` surface를 추가했고, saved blueprint preview는 B2 범위에서 read-only로 유지한다.
+  - fresh Playwright smoke에서 onboarding happy path와 Company Settings blueprint import/export surface를 함께 검증했다.
 
 ## 4. 제품 계약
 
@@ -487,12 +494,12 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. Batch B `import/export`
-2. `parameter editing`
-3. migration helper discovery registry 일반화
+1. Batch B `parameter editing`
+2. migration helper discovery registry 일반화
+3. blueprint import/export roundtrip hardening
 
-즉 Batch A는 닫혔고, Batch B1 portability 1차도 끝났다.
+즉 Batch A는 닫혔고, Batch B1 portability와 Batch B2 import/export 1차도 끝났다.
 
 - `pnpm e2e:cloud-swiftsight-kernel-burn-in`을 canonical `cloud-swiftsight` env에서 끝까지 다시 실행했고, `CLO-1..CLO-4 = done`, coordinated root `CLO-5 = cancelled`, child `CLO-6..CLO-8 = done`으로 마감됐다.
 - kernel batch summary: `ok=true`, `scenarioCount=5`, `durationMs=3374196`
-- autonomy baseline/matrix와 deterministic kernel 둘 다 green이고, B1 portability 1차도 generic-first path로 정리됐으므로 다음 제품 배치는 `Batch B import/export -> parameter editing`이다.
+- autonomy baseline/matrix와 deterministic kernel 둘 다 green이고, B1 portability와 B2 import/export 1차도 generic-first path 위에 올라왔으므로 다음 제품 배치는 `Batch B parameter editing`이다.

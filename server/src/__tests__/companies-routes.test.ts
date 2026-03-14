@@ -16,6 +16,10 @@ const {
   mockSetupUpdate,
   mockWorkflowTemplatesGetView,
   mockTeamBlueprintsGetCatalog,
+  mockTeamBlueprintsExport,
+  mockTeamBlueprintsPreviewImport,
+  mockTeamBlueprintsImport,
+  mockTeamBlueprintsPreviewSaved,
   mockTeamBlueprintsPreview,
   mockTeamBlueprintsApply,
   mockWorkflowTemplatesUpdateConfig,
@@ -55,6 +59,10 @@ const {
   mockSetupUpdate: vi.fn(),
   mockWorkflowTemplatesGetView: vi.fn(),
   mockTeamBlueprintsGetCatalog: vi.fn(),
+  mockTeamBlueprintsExport: vi.fn(),
+  mockTeamBlueprintsPreviewImport: vi.fn(),
+  mockTeamBlueprintsImport: vi.fn(),
+  mockTeamBlueprintsPreviewSaved: vi.fn(),
   mockTeamBlueprintsPreview: vi.fn(),
   mockTeamBlueprintsApply: vi.fn(),
   mockWorkflowTemplatesUpdateConfig: vi.fn(),
@@ -123,6 +131,10 @@ vi.mock("../services/index.js", () => ({
   }),
   teamBlueprintService: () => ({
     getCatalog: mockTeamBlueprintsGetCatalog,
+    exportBlueprint: mockTeamBlueprintsExport,
+    previewImport: mockTeamBlueprintsPreviewImport,
+    importBlueprint: mockTeamBlueprintsImport,
+    previewSavedBlueprint: mockTeamBlueprintsPreviewSaved,
     preview: mockTeamBlueprintsPreview,
     apply: mockTeamBlueprintsApply,
   }),
@@ -336,6 +348,7 @@ describe("company routes", () => {
     });
     mockTeamBlueprintsGetCatalog.mockReturnValue({
       companyId: "company-1",
+      savedBlueprints: [],
       migrationHelpers: [
         {
           key: "swiftsight_canonical_absorption",
@@ -447,6 +460,455 @@ describe("company routes", () => {
       ],
     });
     expect(mockTeamBlueprintsGetCatalog).toHaveBeenCalledWith("company-1", "cloud-swiftsight");
+  });
+
+  it("exports a builtin team blueprint bundle for the requested company", async () => {
+    mockCompanyGetById.mockResolvedValue({
+      id: "company-1",
+      name: "cloud-swiftsight",
+    });
+    mockTeamBlueprintsExport.mockResolvedValue({
+      bundle: {
+        schemaVersion: 1,
+        generatedAt: "2026-03-14T00:00:00.000Z",
+        source: {
+          companyId: "company-1",
+          companyName: "cloud-swiftsight",
+          blueprintKey: "small_delivery_team",
+          blueprintLabel: "Small Delivery Team",
+        },
+        definition: {
+          slug: "small_delivery_team",
+          label: "Small Delivery Team",
+          description: "Compact team",
+          sourceBlueprintKey: "small_delivery_team",
+          presetKey: "squadrail_default_v1",
+          projects: [],
+          roles: [],
+          parameterHints: {
+            supportsPm: false,
+            supportsQa: false,
+            supportsCto: false,
+            defaultProjectCount: 1,
+            defaultEngineerPairsPerProject: 1,
+          },
+          readiness: {
+            requiredWorkspaceCount: 1,
+            knowledgeRequired: true,
+            knowledgeSources: ["project_docs"],
+            approvalRequiredRoleKeys: [],
+            doctorSetupPrerequisites: ["workspace_connected"],
+            recommendedFirstQuickRequest: "Start small.",
+          },
+          portability: {
+            companyAgnostic: true,
+            workspaceModel: "single_workspace",
+            knowledgeModel: "required",
+            migrationHelperKeys: [],
+            notes: ["Portable"],
+          },
+        },
+        defaultPreviewRequest: {
+          projectCount: 1,
+          engineerPairsPerProject: 1,
+          includePm: false,
+          includeQa: false,
+          includeCto: false,
+        },
+      },
+      warnings: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/:blueprintKey/export",
+      method: "get",
+      params: { companyId: "company-1", blueprintKey: "small_delivery_team" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      bundle: {
+        source: {
+          blueprintKey: "small_delivery_team",
+          companyName: "cloud-swiftsight",
+        },
+      },
+    });
+    expect(mockTeamBlueprintsExport).toHaveBeenCalledWith("company-1", "small_delivery_team", "cloud-swiftsight");
+  });
+
+  it("previews importing a blueprint bundle without applying it", async () => {
+    mockTeamBlueprintsPreviewImport.mockResolvedValue({
+      previewHash: "import-preview-hash-1234567890",
+      targetCompanyId: "company-1",
+      definition: {
+        slug: "small-delivery-team",
+        label: "Small Delivery Team",
+        description: "Compact team",
+        sourceBlueprintKey: "small_delivery_team",
+        presetKey: "squadrail_default_v1",
+        projects: [],
+        roles: [],
+        parameterHints: {
+          supportsPm: false,
+          supportsQa: false,
+          supportsCto: false,
+          defaultProjectCount: 1,
+          defaultEngineerPairsPerProject: 1,
+        },
+        readiness: {
+          requiredWorkspaceCount: 1,
+          knowledgeRequired: true,
+          knowledgeSources: ["project_docs"],
+          approvalRequiredRoleKeys: [],
+          doctorSetupPrerequisites: ["workspace_connected"],
+          recommendedFirstQuickRequest: "Start small.",
+        },
+        portability: {
+          companyAgnostic: true,
+          workspaceModel: "single_workspace",
+          knowledgeModel: "required",
+          migrationHelperKeys: [],
+          notes: ["Portable"],
+        },
+      },
+      saveAction: "create",
+      existingSavedBlueprintId: null,
+      collisionStrategy: "rename",
+      preview: {
+        companyId: "company-1",
+        previewHash: "preview-hash-1234567890",
+        blueprint: expect.any(Object),
+        parameters: {
+          projectCount: 1,
+          engineerPairsPerProject: 1,
+          includePm: false,
+          includeQa: false,
+          includeCto: false,
+        },
+        summary: {
+          currentProjectCount: 0,
+          currentWorkspaceCount: 0,
+          currentAgentCount: 0,
+          adoptedProjectCount: 0,
+          createProjectCount: 1,
+          matchedRoleCount: 0,
+          missingRoleCount: 1,
+        },
+        projectDiff: [],
+        roleDiff: [],
+        readinessChecks: [],
+        warnings: [],
+      },
+      warnings: [],
+      errors: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/import/preview",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        source: {
+          type: "inline",
+          bundle: {
+            schemaVersion: 1,
+            generatedAt: "2026-03-14T00:00:00.000Z",
+            source: {
+              companyId: "11111111-1111-1111-1111-111111111111",
+              companyName: "Example Co",
+              blueprintKey: "small_delivery_team",
+              blueprintLabel: "Small Delivery Team",
+            },
+            definition: {
+              slug: "small_delivery_team",
+              label: "Small Delivery Team",
+              description: "Compact team",
+              sourceBlueprintKey: "small_delivery_team",
+              presetKey: "squadrail_default_v1",
+              projects: [
+                {
+                  key: "primary_product",
+                  label: "Primary Product",
+                  description: null,
+                  kind: "product",
+                  repositoryHint: null,
+                  defaultLeadRoleKey: "tech_lead",
+                },
+              ],
+              roles: [
+                {
+                  key: "tech_lead",
+                  label: "Tech Lead",
+                  role: "engineer",
+                  title: "Tech Lead",
+                  reportsToKey: null,
+                  projectBinding: "shared",
+                  preferredAdapterTypes: ["claude_local"],
+                  deliveryLane: "planning",
+                  capabilities: ["scoping"],
+                },
+              ],
+              parameterHints: {
+                supportsPm: false,
+                supportsQa: false,
+                supportsCto: false,
+                defaultProjectCount: 1,
+                defaultEngineerPairsPerProject: 1,
+              },
+              readiness: {
+                requiredWorkspaceCount: 1,
+                knowledgeRequired: true,
+                knowledgeSources: ["project_docs"],
+                approvalRequiredRoleKeys: [],
+                doctorSetupPrerequisites: ["workspace_connected"],
+                recommendedFirstQuickRequest: "Start small.",
+              },
+              portability: {
+                companyAgnostic: true,
+                workspaceModel: "single_workspace",
+                knowledgeModel: "required",
+                migrationHelperKeys: [],
+                notes: ["Portable"],
+              },
+            },
+            defaultPreviewRequest: {
+              projectCount: 1,
+            },
+          },
+        },
+        slug: "small-delivery-team",
+        collisionStrategy: "rename",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      previewHash: "import-preview-hash-1234567890",
+      saveAction: "create",
+    });
+    expect(mockTeamBlueprintsPreviewImport).toHaveBeenCalled();
+  });
+
+  it("imports a blueprint bundle after preview hash confirmation and records activity", async () => {
+    mockTeamBlueprintsImport.mockResolvedValue({
+      savedBlueprint: {
+        id: "saved-blueprint-1",
+        companyId: "company-1",
+        definition: {
+          slug: "small-delivery-team",
+          label: "Small Delivery Team",
+          description: "Compact team",
+          sourceBlueprintKey: "small_delivery_team",
+          presetKey: "squadrail_default_v1",
+          projects: [],
+          roles: [],
+          parameterHints: {
+            supportsPm: false,
+            supportsQa: false,
+            supportsCto: false,
+            defaultProjectCount: 1,
+            defaultEngineerPairsPerProject: 1,
+          },
+          readiness: {
+            requiredWorkspaceCount: 1,
+            knowledgeRequired: true,
+            knowledgeSources: ["project_docs"],
+            approvalRequiredRoleKeys: [],
+            doctorSetupPrerequisites: ["workspace_connected"],
+            recommendedFirstQuickRequest: "Start small.",
+          },
+          portability: {
+            companyAgnostic: true,
+            workspaceModel: "single_workspace",
+            knowledgeModel: "required",
+            migrationHelperKeys: [],
+            notes: ["Portable"],
+          },
+        },
+        defaultPreviewRequest: {
+          projectCount: 1,
+        },
+        sourceMetadata: {
+          type: "import_bundle",
+          companyId: "11111111-1111-1111-1111-111111111111",
+          companyName: "Example Co",
+          blueprintKey: "small_delivery_team",
+          generatedAt: "2026-03-14T00:00:00.000Z",
+        },
+        createdAt: "2026-03-14T01:00:00.000Z",
+        updatedAt: "2026-03-14T01:00:00.000Z",
+      },
+      action: "created",
+      previewHash: "import-preview-hash-1234567890",
+      warnings: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/import",
+      method: "post",
+      params: { companyId: "company-1" },
+      body: {
+        previewHash: "import-preview-hash-1234567890",
+        source: {
+          type: "inline",
+          bundle: {
+            schemaVersion: 1,
+            generatedAt: "2026-03-14T00:00:00.000Z",
+            source: {
+              companyId: "11111111-1111-1111-1111-111111111111",
+              companyName: "Example Co",
+              blueprintKey: "small_delivery_team",
+              blueprintLabel: "Small Delivery Team",
+            },
+            definition: {
+              slug: "small_delivery_team",
+              label: "Small Delivery Team",
+              description: "Compact team",
+              sourceBlueprintKey: "small_delivery_team",
+              presetKey: "squadrail_default_v1",
+              projects: [
+                {
+                  key: "primary_product",
+                  label: "Primary Product",
+                  description: null,
+                  kind: "product",
+                  repositoryHint: null,
+                  defaultLeadRoleKey: "tech_lead",
+                },
+              ],
+              roles: [
+                {
+                  key: "tech_lead",
+                  label: "Tech Lead",
+                  role: "engineer",
+                  title: "Tech Lead",
+                  reportsToKey: null,
+                  projectBinding: "shared",
+                  preferredAdapterTypes: ["claude_local"],
+                  deliveryLane: "planning",
+                  capabilities: ["scoping"],
+                },
+              ],
+              parameterHints: {
+                supportsPm: false,
+                supportsQa: false,
+                supportsCto: false,
+                defaultProjectCount: 1,
+                defaultEngineerPairsPerProject: 1,
+              },
+              readiness: {
+                requiredWorkspaceCount: 1,
+                knowledgeRequired: true,
+                knowledgeSources: ["project_docs"],
+                approvalRequiredRoleKeys: [],
+                doctorSetupPrerequisites: ["workspace_connected"],
+                recommendedFirstQuickRequest: "Start small.",
+              },
+              portability: {
+                companyAgnostic: true,
+                workspaceModel: "single_workspace",
+                knowledgeModel: "required",
+                migrationHelperKeys: [],
+                notes: ["Portable"],
+              },
+            },
+            defaultPreviewRequest: {
+              projectCount: 1,
+            },
+          },
+        },
+        slug: "small-delivery-team",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).toMatchObject({
+      action: "created",
+      savedBlueprint: {
+        id: "saved-blueprint-1",
+      },
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "company.team_blueprint_imported",
+        details: expect.objectContaining({
+          savedBlueprintId: "saved-blueprint-1",
+          slug: "small-delivery-team",
+        }),
+      }),
+    );
+  });
+
+  it("previews a saved team blueprint for the requested company", async () => {
+    mockTeamBlueprintsPreviewSaved.mockResolvedValue({
+      companyId: "company-1",
+      previewHash: "saved-preview-hash-1234567890",
+      blueprint: {
+        key: "small_delivery_team",
+        label: "Small Delivery Team",
+        description: "Compact team",
+        presetKey: "squadrail_default_v1",
+        projects: [],
+        roles: [],
+        parameterHints: {
+          supportsPm: false,
+          supportsQa: false,
+          supportsCto: false,
+          defaultProjectCount: 1,
+          defaultEngineerPairsPerProject: 1,
+        },
+        readiness: {
+          requiredWorkspaceCount: 1,
+          knowledgeRequired: true,
+          knowledgeSources: ["project_docs"],
+          approvalRequiredRoleKeys: [],
+          doctorSetupPrerequisites: ["workspace_connected"],
+          recommendedFirstQuickRequest: "Start small.",
+        },
+        portability: {
+          companyAgnostic: true,
+          workspaceModel: "single_workspace",
+          knowledgeModel: "required",
+          migrationHelperKeys: [],
+          notes: ["Portable"],
+        },
+      },
+      parameters: {
+        projectCount: 1,
+        engineerPairsPerProject: 1,
+        includePm: false,
+        includeQa: false,
+        includeCto: false,
+      },
+      summary: {
+        currentProjectCount: 0,
+        currentWorkspaceCount: 0,
+        currentAgentCount: 0,
+        adoptedProjectCount: 0,
+        createProjectCount: 1,
+        matchedRoleCount: 0,
+        missingRoleCount: 1,
+      },
+      projectDiff: [],
+      roleDiff: [],
+      readinessChecks: [],
+      warnings: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/:companyId/team-blueprints/saved/:savedBlueprintId/preview",
+      method: "post",
+      params: { companyId: "company-1", savedBlueprintId: "saved-blueprint-1" },
+      body: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      previewHash: "saved-preview-hash-1234567890",
+    });
+    expect(mockTeamBlueprintsPreviewSaved).toHaveBeenCalledWith("company-1", "saved-blueprint-1", {});
   });
 
   it("returns a team blueprint preview diff for the requested company", async () => {
