@@ -58,8 +58,19 @@ function isActiveForIntake(agent: PmIntakeAgent) {
   return ACTIVE_INTAKE_AGENT_STATUSES.has(agent.status);
 }
 
-function canActAsReviewer(agent: PmIntakeAgent) {
+function hasReviewerIdentity(agent: PmIntakeAgent) {
   if (agent.role === "reviewer") return true;
+  if (typeof agent.title === "string" && /reviewer/i.test(agent.title)) return true;
+  return /(?:^|-)(reviewer)(?:-|$)/i.test(agent.urlKey ?? "");
+}
+
+function hasDedicatedEngineerIdentity(agent: PmIntakeAgent) {
+  if (typeof agent.title === "string" && /\bengineer\b/i.test(agent.title)) return true;
+  return /(?:^|-)(engineer)(?:-|$)/i.test(agent.urlKey ?? "");
+}
+
+function canActAsReviewer(agent: PmIntakeAgent) {
+  if (hasReviewerIdentity(agent)) return true;
   if (agent.role === "qa") return true;
   if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return true;
   return false;
@@ -72,7 +83,7 @@ function canActAsTechLead(agent: PmIntakeAgent) {
 }
 
 function canActAsEngineer(agent: PmIntakeAgent) {
-  return agent.role === "engineer" || canActAsTechLead(agent);
+  return agent.role === "engineer";
 }
 
 function canActAsQa(agent: PmIntakeAgent) {
@@ -82,7 +93,7 @@ function canActAsQa(agent: PmIntakeAgent) {
 function intakeAgentSortWeight(agent: PmIntakeAgent) {
   if (agent.role === "pm" && !agent.reportsTo) return 0;
   if (agent.role === "pm") return 10;
-  if (agent.role === "reviewer") return 0;
+  if (hasReviewerIdentity(agent)) return 0;
   if (agent.role === "qa" && /lead/i.test(agent.title ?? "")) return 10;
   if (agent.role === "qa") return 20;
   if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return 20;
@@ -394,7 +405,7 @@ export function buildPmIntakeProjectionPreview(
     predicate: canActAsReviewer,
     preferredId: input.request.reviewerAgentId ?? null,
     excludedIds: [techLead.id],
-    roleBonus: (agent) => (agent.role === "reviewer" ? 100 : agent.role === "qa" ? 50 : 0),
+    roleBonus: (agent) => (hasReviewerIdentity(agent) ? 100 : agent.role === "qa" ? 50 : 0),
     notFoundMessage: "No active reviewer-capable agent is available for PM intake projection",
     invalidPreferredMessage: "Selected reviewer agent must support reviewer protocol role",
   });
@@ -432,9 +443,9 @@ export function buildPmIntakeProjectionPreview(
     selectedProject,
     predicate: canActAsEngineer,
     excludedIds: [reviewer.id, ...(qaAgent ? [qaAgent.id] : [])],
-    roleBonus: (agent) => (agent.role === "engineer" ? 20 : 0),
-    notFoundMessage: "No active engineer-capable agent is available for PM intake projection",
-    invalidPreferredMessage: "Selected implementation assignee must support engineer or tech_lead protocol role",
+    roleBonus: (agent) => (hasDedicatedEngineerIdentity(agent) ? 100 : agent.role === "engineer" ? 20 : 0),
+    notFoundMessage: "No active engineer agent is available for PM intake projection",
+    invalidPreferredMessage: "Selected implementation assignee must support engineer protocol role",
   });
 
   const structuredTitle = compactLine(input.issue.title).slice(0, 200) || "Structured intake request";

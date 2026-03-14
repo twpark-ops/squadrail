@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertInternalWorkItemAssigneeHelper,
   buildMentionProtocolContext,
   canBypassAssignPermissionForProtocolMessage,
   getAllowedProtocolRoles,
@@ -21,6 +22,12 @@ describe("issue route helpers", () => {
     expect(getAllowedProtocolRoles({ role: "qa" })).toEqual(new Set(["qa", "reviewer"]));
     expect(getAllowedProtocolRoles({ role: "engineer", title: "Tech Lead" })).toEqual(
       new Set(["engineer", "tech_lead", "reviewer"]),
+    );
+    expect(getAllowedProtocolRoles({ role: "engineer", title: "Reviewer" })).toEqual(
+      new Set(["engineer", "reviewer"]),
+    );
+    expect(getAllowedProtocolRoles({ role: "engineer", urlKey: "app-surface-reviewer" })).toEqual(
+      new Set(["engineer", "reviewer"]),
     );
   });
 
@@ -146,5 +153,23 @@ describe("issue route helpers", () => {
       protocolRecipientRole: "qa",
       protocolWorkflowStateAfter: "under_qa_review",
     });
+  });
+
+  it("requires implementation assignees to support the engineer protocol role", async () => {
+    const agentsSvc = {
+      getById: async () => ({
+        id: "lead-1",
+        companyId: "company-1",
+        role: "manager",
+        title: "Tech Lead",
+        status: "active",
+      }),
+    };
+
+    await expect(assertInternalWorkItemAssigneeHelper({
+      agentsSvc,
+      companyId: "company-1",
+      assigneeAgentId: "lead-1",
+    })).rejects.toThrow("Assignee agent must support engineer protocol role");
   });
 });

@@ -14,6 +14,7 @@ let cachedSelfAgent = null;
 
 const ENGINEER_SENDER_COMMANDS = new Set([
   "ack-assignment",
+  "escalate-blocker",
   "start-implementation",
   "report-progress",
   "submit-for-review",
@@ -86,7 +87,7 @@ function tryInferSubmitForReviewArtifacts(changedFiles) {
 
 const COMMAND_HELP = {
   general:
-    "Usage: squadrail-protocol.mjs <resolve-agent|list-projects|get-brief|preview-intake-projection|apply-intake-projection|reassign-task|ack-assignment|ask-clarification|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
+    "Usage: squadrail-protocol.mjs <resolve-agent|list-projects|get-brief|preview-intake-projection|apply-intake-projection|reassign-task|ack-assignment|escalate-blocker|ask-clarification|start-implementation|report-progress|submit-for-review|ack-change-request|start-review|request-changes|request-human-decision|approve-implementation|close-task> [...]",
   "list-projects": [
     "Usage: squadrail-protocol.mjs list-projects",
     "",
@@ -118,6 +119,15 @@ const COMMAND_HELP = {
     "  --initial-risks \"risk1||risk2\"",
     "  --workflow-before <state>",
     "  --payload <json>                                  understoodScope, initialRisks, accepted, summary",
+  ].join("\n"),
+  "escalate-blocker": [
+    "Usage: squadrail-protocol.mjs escalate-blocker --issue <issueId> [--sender-role <role>] --summary <text> --blocker-code <code> --blocking-reason <text> --requested-action <text> [options]",
+    "",
+    "Supported options:",
+    "  --requested-from <human_board|reviewer|tech_lead>  (default: human_board)",
+    "  --related-issues \"issue1||issue2\"",
+    "  --related-identifiers \"CLO-1||CLO-2\"",
+    "  --payload <json>                                  blockerCode, blockingReason, requestedAction, requestedFrom, relatedIssueIds, relatedIssueIdentifiers, summary",
   ].join("\n"),
   "ask-clarification": [
     "Usage: squadrail-protocol.mjs ask-clarification --issue <issueId> [--sender-role <role>] --question-type <type> --question <text> [options]",
@@ -880,6 +890,78 @@ async function ackAssignmentCommand(options) {
   await postProtocolMessage(issueId, body);
 }
 
+async function escalateBlockerCommand(options) {
+  if (isHelpRequested(options)) {
+    printHelp("escalate-blocker");
+    return;
+  }
+  const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
+  if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
+  const senderRole = await resolveSenderRole(options, "escalate-blocker");
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const blockerCode = readAliasedOption(
+    options,
+    ["blocker-code", "blockerCode"],
+    payloadPatch.blockerCode ?? null,
+  );
+  if (!blockerCode) fail("Missing required option: --blocker-code");
+  const blockingReason = readAliasedOption(
+    options,
+    ["blocking-reason", "blockingReason"],
+    payloadPatch.blockingReason ?? null,
+  );
+  if (!blockingReason) fail("Missing required option: --blocking-reason");
+  const requestedAction = readAliasedOption(
+    options,
+    ["requested-action", "requestedAction"],
+    payloadPatch.requestedAction ?? null,
+  );
+  if (!requestedAction) fail("Missing required option: --requested-action");
+  const requestedFrom = readAliasedOption(
+    options,
+    ["requested-from", "requestedFrom"],
+    payloadPatch.requestedFrom ?? "human_board",
+  );
+  const summary = readAnyOption(options, ["summary"], payloadPatch.summary ?? blockingReason);
+  if (!summary) fail("Missing required option: --summary");
+  const relatedIssueIds = parseListOptionOrPayload(
+    options,
+    ["related-issues", "relatedIssueIds"],
+    payloadPatch.relatedIssueIds,
+  );
+  const relatedIssueIdentifiers = parseListOptionOrPayload(
+    options,
+    ["related-identifiers", "relatedIssueIdentifiers"],
+    payloadPatch.relatedIssueIdentifiers,
+  );
+  const state = await getIssueState(issueId);
+
+  const body = {
+    messageType: "ESCALATE_BLOCKER",
+    sender: {
+      actorType: "agent",
+      actorId: AGENT_ID,
+      role: senderRole,
+    },
+    recipients: buildClarificationRecipients(requestedFrom, null),
+    workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
+    workflowStateAfter: "blocked",
+    summary,
+    requiresAck: false,
+    payload: {
+      blockerCode,
+      blockingReason,
+      requestedAction,
+      requestedFrom,
+      ...(relatedIssueIds.length > 0 ? { relatedIssueIds } : {}),
+      ...(relatedIssueIdentifiers.length > 0 ? { relatedIssueIdentifiers } : {}),
+    },
+    artifacts: [],
+  };
+
+  await postProtocolMessage(issueId, body);
+}
+
 async function askClarificationCommand(options) {
   if (isHelpRequested(options)) {
     printHelp("ask-clarification");
@@ -947,9 +1029,7 @@ async function askClarificationCommand(options) {
     },
     recipients: buildClarificationRecipients(requestedFrom, recipientId),
     workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
-    workflowStateAfter: blocking
-      ? readOption(options, "workflow-after", "blocked")
-      : readOption(options, "workflow-after", state.workflowState),
+    workflowStateAfter: readOption(options, "workflow-after", state.workflowState),
     summary,
     requiresAck: false,
     payload: {
@@ -1593,6 +1673,9 @@ async function main() {
       return;
     case "ack-assignment":
       await ackAssignmentCommand(options);
+      return;
+    case "escalate-blocker":
+      await escalateBlockerCommand(options);
       return;
     case "ask-clarification":
       await askClarificationCommand(options);
