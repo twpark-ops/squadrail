@@ -90,9 +90,41 @@ export interface TeamBlueprint {
   portability: TeamBlueprintPortability;
 }
 
+export interface PortableTeamBlueprintDefinition {
+  slug: string;
+  label: string;
+  description: string;
+  sourceBlueprintKey: TeamBlueprintKey | null;
+  presetKey: RolePackPresetKey;
+  projects: TeamBlueprintProjectTemplate[];
+  roles: TeamBlueprintRoleTemplate[];
+  parameterHints: TeamBlueprintParameterHints;
+  readiness: TeamBlueprintReadiness;
+  portability: TeamBlueprintPortability;
+}
+
+export interface SavedTeamBlueprintSourceMetadata {
+  type: "builtin_export" | "import_bundle";
+  companyId: string | null;
+  companyName: string | null;
+  blueprintKey: TeamBlueprintKey | null;
+  generatedAt: string;
+}
+
+export interface CompanySavedTeamBlueprint {
+  id: string;
+  companyId: string;
+  definition: PortableTeamBlueprintDefinition;
+  defaultPreviewRequest: TeamBlueprintPreviewRequest;
+  sourceMetadata: SavedTeamBlueprintSourceMetadata;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TeamBlueprintCatalogView {
   companyId: string;
   blueprints: TeamBlueprint[];
+  savedBlueprints: CompanySavedTeamBlueprint[];
   migrationHelpers: TeamBlueprintMigrationHelper[];
 }
 
@@ -204,5 +236,61 @@ export interface TeamBlueprintApplyResult {
   projectResults: TeamBlueprintApplyProjectResult[];
   roleResults: TeamBlueprintApplyRoleResult[];
   setupProgress: SetupProgressView;
+  warnings: string[];
+}
+
+export interface TeamBlueprintExportBundle {
+  schemaVersion: number;
+  generatedAt: string;
+  source: {
+    companyId: string;
+    companyName: string | null;
+    blueprintKey: TeamBlueprintKey | null;
+    blueprintLabel: string;
+  };
+  definition: PortableTeamBlueprintDefinition;
+  defaultPreviewRequest: TeamBlueprintPreviewRequest;
+}
+
+export interface TeamBlueprintExportResult {
+  bundle: TeamBlueprintExportBundle;
+  warnings: string[];
+}
+
+export type TeamBlueprintImportSource =
+  | {
+      type: "inline";
+      bundle: TeamBlueprintExportBundle;
+    };
+
+export type TeamBlueprintImportCollisionStrategy = "rename" | "replace";
+
+export interface TeamBlueprintImportPreviewRequest {
+  source: TeamBlueprintImportSource;
+  slug?: string | null;
+  label?: string | null;
+  collisionStrategy?: TeamBlueprintImportCollisionStrategy | null;
+}
+
+export interface TeamBlueprintImportPreviewResult {
+  previewHash: string;
+  targetCompanyId: string;
+  definition: PortableTeamBlueprintDefinition;
+  saveAction: "create" | "replace";
+  existingSavedBlueprintId: string | null;
+  collisionStrategy: TeamBlueprintImportCollisionStrategy;
+  preview: TeamBlueprintPreviewResult;
+  warnings: string[];
+  errors: string[];
+}
+
+export interface TeamBlueprintImportRequest extends TeamBlueprintImportPreviewRequest {
+  previewHash: string;
+}
+
+export interface TeamBlueprintImportResult {
+  savedBlueprint: CompanySavedTeamBlueprint;
+  action: "created" | "updated";
+  previewHash: string;
   warnings: string[];
 }
