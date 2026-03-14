@@ -110,8 +110,8 @@
 4. `Bounded autonomy E2E`
    - `projection preview` shared/server/runtime helper kickoff는 완료
    - kickoff harness `scripts/e2e/cloud-swiftsight-autonomy-org.mjs` 추가 완료
+   - kickoff harness에 `clarification ask -> answer -> implementing resume` invariant 추가 완료
    - 다음은 live control plane에서 kickoff harness를 실제 실행하고 invariant를 고정
-   - clarification ask/answer 포함 상위 burn-in 추가
    - downstream `execution / review / QA / close`까지 확장
    - 기존 deterministic kernel burn-in과 역할 분리
 
