@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "@squadrail/adapter-utils";
@@ -20,6 +19,7 @@ import {
   runChildProcess,
 } from "@squadrail/adapter-utils/server-utils";
 import { parseCodexJsonl, isCodexUnknownSessionError } from "./parse.js";
+import { pathExists, prepareScopedCodexHome, resolveCodexHomeDir } from "./codex-home.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const SQUADRAIL_SKILLS_CANDIDATES = [
@@ -64,10 +64,18 @@ function resolveCodexBillingType(env: Record<string, string>): "api" | "subscrip
   return hasNonEmptyEnvValue(env, "OPENAI_API_KEY") ? "api" : "subscription";
 }
 
-function codexHomeDir(): string {
-  const fromEnv = process.env.CODEX_HOME;
-  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) return fromEnv.trim();
-  return path.join(os.homedir(), ".codex");
+function resolveCodexScopeKey(input: {
+  workspaceId: string;
+  workspaceCwd: string;
+  workspaceSource: string;
+  configuredCwd: string;
+}): string | null {
+  if (input.workspaceId.trim().length > 0) return input.workspaceId.trim();
+  if (input.workspaceCwd.trim().length > 0) return `cwd:${path.resolve(input.workspaceCwd)}`;
+  if (input.workspaceSource === "agent_home" && input.configuredCwd.trim().length > 0) {
+    return `agent-home:${path.resolve(input.configuredCwd)}`;
+  }
+  return null;
 }
 
 async function resolveSquadrailSkillsDir(): Promise<string | null> {
@@ -78,11 +86,46 @@ async function resolveSquadrailSkillsDir(): Promise<string | null> {
   return null;
 }
 
-async function ensureCodexSkillsInjected(onLog: AdapterExecutionContext["onLog"]) {
+async function isLikelySquadrailRepoRoot(candidate: string): Promise<boolean> {
+  const [hasWorkspace, hasPackageJson, hasServerDir, hasAdapterUtilsDir] = await Promise.all([
+    pathExists(path.join(candidate, "pnpm-workspace.yaml")),
+    pathExists(path.join(candidate, "package.json")),
+    pathExists(path.join(candidate, "server")),
+    pathExists(path.join(candidate, "packages", "adapter-utils")),
+  ]);
+
+  return hasWorkspace && hasPackageJson && hasServerDir && hasAdapterUtilsDir;
+}
+
+async function isLikelySquadrailRuntimeSkillSource(candidate: string, skillName: string): Promise<boolean> {
+  if (path.basename(candidate) !== skillName) return false;
+  const skillsRoot = path.dirname(candidate);
+  if (path.basename(skillsRoot) !== "skills") return false;
+  if (!(await pathExists(path.join(candidate, "SKILL.md")))) return false;
+
+  let cursor = path.dirname(skillsRoot);
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (await isLikelySquadrailRepoRoot(cursor)) return true;
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+
+  return false;
+}
+
+type EnsureCodexSkillsInjectedOptions = {
+  skillsHome?: string;
+};
+
+export async function ensureCodexSkillsInjected(
+  onLog: AdapterExecutionContext["onLog"],
+  options: EnsureCodexSkillsInjectedOptions = {},
+) {
   const skillsDir = await resolveSquadrailSkillsDir();
   if (!skillsDir) return;
 
-  const skillsHome = path.join(codexHomeDir(), "skills");
+  const skillsHome = options.skillsHome ?? path.join(resolveCodexHomeDir(process.env), "skills");
   await fs.mkdir(skillsHome, { recursive: true });
   const entries = await fs.readdir(skillsDir, { withFileTypes: true });
   for (const entry of entries) {
@@ -92,6 +135,10 @@ async function ensureCodexSkillsInjected(onLog: AdapterExecutionContext["onLog"]
     const existing = await fs.lstat(target).catch(() => null);
     if (existing) {
       if (existing.isSymbolicLink()) {
+        const linkedPath = await fs.readlink(target).catch(() => null);
+        const resolvedLinkedPath = linkedPath
+          ? path.resolve(path.dirname(target), linkedPath)
+          : null;
         const resolves = await fs.realpath(target).then(() => true).catch(() => false);
         if (!resolves) {
           await fs.rm(target, { force: true });
@@ -99,6 +146,18 @@ async function ensureCodexSkillsInjected(onLog: AdapterExecutionContext["onLog"]
             "stderr",
             `[squadrail] Removed broken Codex skill link "${entry.name}" from ${skillsHome}\n`,
           );
+        } else if (
+          resolvedLinkedPath &&
+          resolvedLinkedPath !== source &&
+          (await isLikelySquadrailRuntimeSkillSource(resolvedLinkedPath, entry.name))
+        ) {
+          await fs.unlink(target);
+          await fs.symlink(source, target);
+          await onLog(
+            "stderr",
+            `[squadrail] Repaired Codex skill "${entry.name}" into ${skillsHome}\n`,
+          );
+          continue;
         } else {
           continue;
         }
@@ -161,12 +220,34 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
   const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
   const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
-  await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
-  await ensureCodexSkillsInjected(onLog);
   const envConfig = parseObject(config.env);
+  const configuredCodexHome =
+    typeof envConfig.CODEX_HOME === "string" && envConfig.CODEX_HOME.trim().length > 0
+      ? resolveCodexHomeDir({
+        ...process.env,
+        CODEX_HOME: envConfig.CODEX_HOME.trim(),
+      } as NodeJS.ProcessEnv)
+      : null;
+  const codexScopeKey = resolveCodexScopeKey({
+    workspaceId,
+    workspaceCwd: effectiveWorkspaceCwd || workspaceCwd || "",
+    workspaceSource,
+    configuredCwd,
+  });
+  await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
+  const preparedScopedCodexHome =
+    configuredCodexHome ? null : await prepareScopedCodexHome(process.env, onLog, { scopeKey: codexScopeKey });
+  const effectiveCodexHome = configuredCodexHome ?? preparedScopedCodexHome;
+  await ensureCodexSkillsInjected(
+    onLog,
+    effectiveCodexHome ? { skillsHome: path.join(effectiveCodexHome, "skills") } : {},
+  );
   const hasExplicitApiKey =
     typeof envConfig.SQUADRAIL_API_KEY === "string" && envConfig.SQUADRAIL_API_KEY.trim().length > 0;
   const env: Record<string, string> = { ...buildSquadrailEnv(agent) };
+  if (effectiveCodexHome) {
+    env.CODEX_HOME = effectiveCodexHome;
+  }
   env.SQUADRAIL_RUN_ID = runId;
   const wakeTaskId =
     (typeof context.taskId === "string" && context.taskId.trim().length > 0 && context.taskId.trim()) ||
@@ -231,7 +312,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     env.SQUADRAIL_WORKSPACES_JSON = JSON.stringify(workspaceHints);
   }
   for (const [k, v] of Object.entries(envConfig)) {
+    if (k === "CODEX_HOME") continue;
     if (typeof v === "string") env[k] = v;
+  }
+  if (effectiveCodexHome) {
+    env.CODEX_HOME = effectiveCodexHome;
   }
   if (!hasExplicitApiKey && authToken) {
     env.SQUADRAIL_API_KEY = authToken;

@@ -38,6 +38,6 @@ Operational fields:
 
 Notes:
 - Prompts are piped via stdin (Codex receives "-" prompt argument).
-- Squadrail auto-injects local skills into Codex personal skills dir ("$CODEX_HOME/skills" or "~/.codex/skills") when missing, so Codex can discover "$squadrail" and related skills.
+- Squadrail auto-injects local skills into the active Codex skills dir ("$CODEX_HOME/skills"). When Squadrail runs inside a local instance, Codex home is seeded into a workspace-scoped directory under "$SQUADRAIL_HOME/instances/<id>/codex-homes/<scope>" unless adapterConfig.env.CODEX_HOME explicitly overrides it.
 - Some model/tool combinations reject certain effort levels (for example minimal with web search enabled).
 `;

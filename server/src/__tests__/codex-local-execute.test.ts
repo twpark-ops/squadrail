@@ -32,6 +32,7 @@ const payload = {
   argv: process.argv.slice(2),
   cwd: process.cwd(),
   prompt: fs.readFileSync(0, "utf8"),
+  codexHome: process.env.CODEX_HOME ?? null,
   squadrailEnvKeys: Object.keys(process.env)
     .filter((key) => key.startsWith("SQUADRAIL_"))
     .sort(),
@@ -52,11 +53,251 @@ type CapturePayload = {
   argv: string[];
   cwd: string;
   prompt: string;
+  codexHome: string | null;
   squadrailEnvKeys: string[];
   squadrailApiKey: string | null;
 };
 
 describe("codex execute", () => {
+  it("uses a workspace-scoped CODEX_HOME while preserving shared auth, rules, and history", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-isolated-home-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const capturePath = path.join(root, "capture.json");
+    const sharedCodexHome = path.join(root, "shared-codex-home");
+    const squadrailHome = path.join(root, "squadrail-home");
+    const isolatedCodexHomePrefix = path.join(
+      squadrailHome,
+      "instances",
+      "worktree_1",
+      "codex-homes",
+      "workspace-isolated-home-",
+    );
+    const previousHome = process.env.HOME;
+    const previousSquadrailHome = process.env.SQUADRAIL_HOME;
+    const previousSquadrailInstanceId = process.env.SQUADRAIL_INSTANCE_ID;
+    const previousCodexHome = process.env.CODEX_HOME;
+
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.mkdir(sharedCodexHome, { recursive: true });
+    await fs.mkdir(path.join(sharedCodexHome, "rules"), { recursive: true });
+    await fs.writeFile(path.join(sharedCodexHome, "auth.json"), '{"token":"shared"}\n', "utf8");
+    await fs.writeFile(path.join(sharedCodexHome, "AGENTS.md"), "# shared codex agents\n", "utf8");
+    await fs.writeFile(path.join(sharedCodexHome, "config.toml"), 'model = "gpt-5.4"\n', "utf8");
+    await fs.writeFile(path.join(sharedCodexHome, "rules", "default.rules"), "allow: true\n", "utf8");
+    await fs.writeFile(path.join(sharedCodexHome, "history.json"), '{"history":[]}\n', "utf8");
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      process.env.HOME = root;
+      process.env.SQUADRAIL_HOME = squadrailHome;
+      process.env.SQUADRAIL_INSTANCE_ID = "worktree_1";
+      process.env.CODEX_HOME = sharedCodexHome;
+
+      const result = await execute({
+        runId: "run-isolated-home",
+        agent: {
+          id: "agent-iso",
+          companyId: "company-1",
+          name: "Codex Engineer",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Follow the Squadrail heartbeat.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-isolated-home",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.codexHome).toMatch(new RegExp(`^${isolatedCodexHomePrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+
+      const isolatedCodexHome = capture.codexHome as string;
+      const isolatedAuth = path.join(isolatedCodexHome, "auth.json");
+      const isolatedAgents = path.join(isolatedCodexHome, "AGENTS.md");
+      const isolatedConfig = path.join(isolatedCodexHome, "config.toml");
+      const isolatedHistory = path.join(isolatedCodexHome, "history.json");
+      const isolatedRule = path.join(isolatedCodexHome, "rules", "default.rules");
+      const isolatedSkill = path.join(isolatedCodexHome, "skills", "squadrail");
+
+      expect((await fs.lstat(isolatedAuth)).isSymbolicLink()).toBe(true);
+      expect(await fs.realpath(isolatedAuth)).toBe(await fs.realpath(path.join(sharedCodexHome, "auth.json")));
+      expect((await fs.lstat(isolatedAgents)).isSymbolicLink()).toBe(true);
+      expect((await fs.lstat(isolatedConfig)).isSymbolicLink()).toBe(true);
+      expect((await fs.lstat(isolatedHistory)).isSymbolicLink()).toBe(true);
+      expect(await fs.readFile(isolatedAgents, "utf8")).toBe("# shared codex agents\n");
+      expect(await fs.readFile(isolatedConfig, "utf8")).toBe('model = "gpt-5.4"\n');
+      expect(await fs.readFile(isolatedHistory, "utf8")).toBe('{"history":[]}\n');
+      expect(await fs.readFile(isolatedRule, "utf8")).toBe("allow: true\n");
+      expect((await fs.lstat(isolatedSkill)).isSymbolicLink()).toBe(true);
+
+      await fs.writeFile(path.join(sharedCodexHome, "AGENTS.md"), "# shared codex agents v2\n", "utf8");
+      await fs.writeFile(path.join(sharedCodexHome, "config.toml"), 'model = "gpt-5.4-updated"\n', "utf8");
+      await fs.writeFile(path.join(sharedCodexHome, "history.json"), '{"history":["v2"]}\n', "utf8");
+      await fs.writeFile(path.join(sharedCodexHome, "rules", "default.rules"), "allow: updated\n", "utf8");
+
+      const secondResult = await execute({
+        runId: "run-isolated-home-second",
+        agent: {
+          id: "agent-iso",
+          companyId: "company-1",
+          name: "Codex Engineer",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Follow the Squadrail heartbeat.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-isolated-home",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(secondResult.exitCode).toBe(0);
+      expect(await fs.readFile(isolatedAgents, "utf8")).toBe("# shared codex agents v2\n");
+      expect(await fs.readFile(isolatedConfig, "utf8")).toBe('model = "gpt-5.4-updated"\n');
+      expect(await fs.readFile(isolatedHistory, "utf8")).toBe('{"history":["v2"]}\n');
+      expect(await fs.readFile(isolatedRule, "utf8")).toBe("allow: updated\n");
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousSquadrailHome === undefined) delete process.env.SQUADRAIL_HOME;
+      else process.env.SQUADRAIL_HOME = previousSquadrailHome;
+      if (previousSquadrailInstanceId === undefined) delete process.env.SQUADRAIL_INSTANCE_ID;
+      else process.env.SQUADRAIL_INSTANCE_ID = previousSquadrailInstanceId;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("respects an explicit CODEX_HOME config override with home expansion", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-explicit-home-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const capturePath = path.join(root, "capture.json");
+    const sharedCodexHome = path.join(root, "shared-codex-home");
+    const explicitCodexHome = path.join(root, "explicit-codex-home");
+    const squadrailHome = path.join(root, "squadrail-home");
+    const previousHome = process.env.HOME;
+    const previousSquadrailHome = process.env.SQUADRAIL_HOME;
+    const previousSquadrailInstanceId = process.env.SQUADRAIL_INSTANCE_ID;
+    const previousCodexHome = process.env.CODEX_HOME;
+
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.mkdir(sharedCodexHome, { recursive: true });
+    await fs.writeFile(path.join(sharedCodexHome, "auth.json"), '{"token":"shared"}\n', "utf8");
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      process.env.HOME = root;
+      process.env.SQUADRAIL_HOME = squadrailHome;
+      process.env.SQUADRAIL_INSTANCE_ID = "worktree_1";
+      process.env.CODEX_HOME = sharedCodexHome;
+
+      const result = await execute({
+        runId: "run-explicit-home",
+        agent: {
+          id: "agent-explicit",
+          companyId: "company-1",
+          name: "Codex Engineer",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            CODEX_HOME: "~/explicit-codex-home",
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Follow the Squadrail heartbeat.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-explicit-home",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.codexHome).toBe(explicitCodexHome);
+      await expect(
+        fs.lstat(path.join(squadrailHome, "instances", "worktree_1", "codex-home")),
+      ).rejects.toThrow();
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousSquadrailHome === undefined) delete process.env.SQUADRAIL_HOME;
+      else process.env.SQUADRAIL_HOME = previousSquadrailHome;
+      if (previousSquadrailInstanceId === undefined) delete process.env.SQUADRAIL_INSTANCE_ID;
+      else process.env.SQUADRAIL_INSTANCE_ID = previousSquadrailInstanceId;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("repairs broken Codex Squadrail skill links before execution", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-skill-repair-"));
     const workspace = path.join(root, "workspace");
@@ -90,6 +331,9 @@ describe("codex execute", () => {
         config: {
           command: commandPath,
           cwd: root,
+          env: {
+            CODEX_HOME: codexHome,
+          },
           promptTemplate: "Repair Squadrail skills before execution.",
         },
         context: {
@@ -113,6 +357,99 @@ describe("codex execute", () => {
         await fs.realpath(await resolveAdapterSquadrailSkillPath()),
       );
     } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("derives distinct scoped homes for colliding long workspace identifiers", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-scope-collision-"));
+    const commandPath = path.join(root, "codex");
+    const sharedCodexHome = path.join(root, "shared-codex-home");
+    const squadrailHome = path.join(root, "squadrail-home");
+    const workspaceA = path.join(root, "workspace-a");
+    const workspaceB = path.join(root, "workspace-b");
+    const captureA = path.join(root, "capture-a.json");
+    const captureB = path.join(root, "capture-b.json");
+    const previousHome = process.env.HOME;
+    const previousSquadrailHome = process.env.SQUADRAIL_HOME;
+    const previousSquadrailInstanceId = process.env.SQUADRAIL_INSTANCE_ID;
+    const previousCodexHome = process.env.CODEX_HOME;
+    const workspaceIdPrefix = "workspace-".padEnd(80, "a");
+    const workspaceIdA = `${workspaceIdPrefix}-first`;
+    const workspaceIdB = `${workspaceIdPrefix}-second`;
+
+    await fs.mkdir(sharedCodexHome, { recursive: true });
+    await fs.mkdir(workspaceA, { recursive: true });
+    await fs.mkdir(workspaceB, { recursive: true });
+    await fs.writeFile(path.join(sharedCodexHome, "auth.json"), '{"token":"shared"}\n', "utf8");
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      process.env.HOME = root;
+      process.env.SQUADRAIL_HOME = squadrailHome;
+      process.env.SQUADRAIL_INSTANCE_ID = "worktree_1";
+      process.env.CODEX_HOME = sharedCodexHome;
+
+      const runWithWorkspace = async (
+        runId: string,
+        workspaceId: string,
+        workspaceCwd: string,
+        capturePath: string,
+      ) => execute({
+        runId,
+        agent: {
+          id: "agent-scope",
+          companyId: "company-1",
+          name: "Codex Engineer",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Follow the Squadrail heartbeat.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspaceCwd,
+            source: "project_shared",
+            workspaceId,
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      const resultA = await runWithWorkspace("run-scope-a", workspaceIdA, workspaceA, captureA);
+      const resultB = await runWithWorkspace("run-scope-b", workspaceIdB, workspaceB, captureB);
+      expect(resultA.exitCode).toBe(0);
+      expect(resultB.exitCode).toBe(0);
+
+      const payloadA = JSON.parse(await fs.readFile(captureA, "utf8")) as CapturePayload;
+      const payloadB = JSON.parse(await fs.readFile(captureB, "utf8")) as CapturePayload;
+      expect(payloadA.codexHome).not.toBe(payloadB.codexHome);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousSquadrailHome === undefined) delete process.env.SQUADRAIL_HOME;
+      else process.env.SQUADRAIL_HOME = previousSquadrailHome;
+      if (previousSquadrailInstanceId === undefined) delete process.env.SQUADRAIL_INSTANCE_ID;
+      else process.env.SQUADRAIL_INSTANCE_ID = previousSquadrailInstanceId;
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
       await fs.rm(root, { recursive: true, force: true });
