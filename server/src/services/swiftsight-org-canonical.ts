@@ -1,4 +1,9 @@
-import type { AgentAdapterType, TeamBlueprintKey, TeamBlueprintPreviewRequest } from "@squadrail/shared";
+import type {
+  AgentAdapterType,
+  TeamBlueprintCanonicalAbsorptionPrep,
+  TeamBlueprintKey,
+  TeamBlueprintPreviewRequest,
+} from "@squadrail/shared";
 import { normalizeAgentUrlKey } from "@squadrail/shared";
 import {
   DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS,
@@ -20,23 +25,6 @@ type CanonicalProject = {
   slug: string;
   name: string;
   leadAgentSlug: string;
-};
-
-export type CanonicalBlueprintAbsorptionProjectMapping = {
-  canonicalProjectSlug: string;
-  canonicalProjectName: string;
-  blueprintSlotKey: string;
-  blueprintTemplateKey: string;
-  expectedLeadRoleKey: string | null;
-};
-
-export type CanonicalBlueprintAbsorptionPrep = {
-  canonicalTemplateKey: string;
-  canonicalVersion: string;
-  blueprintKey: TeamBlueprintKey;
-  previewRequest: TeamBlueprintPreviewRequest;
-  projectMappings: CanonicalBlueprintAbsorptionProjectMapping[];
-  warnings: string[];
 };
 
 export type CanonicalAgentDefinition = {
@@ -281,7 +269,7 @@ export function buildCanonicalLookupMaps() {
   };
 }
 
-export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): CanonicalBlueprintAbsorptionPrep {
+export function buildSwiftsightCanonicalBlueprintAbsorptionPrep(): TeamBlueprintCanonicalAbsorptionPrep {
   const blueprintKey: TeamBlueprintKey = "delivery_plus_qa";
   const previewRequest: TeamBlueprintPreviewRequest = {
     projectCount: PROJECTS.length,

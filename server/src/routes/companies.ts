@@ -142,7 +142,8 @@ export function companyRoutes(
   router.get("/:companyId/team-blueprints", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
-    const view = teamBlueprints.getCatalog(companyId);
+    const company = await svc.getById(companyId);
+    const view = teamBlueprints.getCatalog(companyId, company?.name ?? null);
     res.json(view);
   });
 

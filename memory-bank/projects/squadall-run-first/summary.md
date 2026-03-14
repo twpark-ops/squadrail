@@ -42,7 +42,14 @@
   - `CompanySettings` preview -> apply flow와 confirmation gate가 연결됐다
   - apply 후 setup/doctor/agent/project/orgSync/knowledgeSetup/activity/sidebar invalidate와 success trace를 추가했다
   - `swiftsight canonical` generic registry 흡수용 parameter map prep metadata를 추가했다
-  - 다음은 `Phase 6 onboarding / Company Settings 재편 + swiftsight absorption follow-through`다
+  - `OnboardingWizard`를 `회사 -> blueprint -> workspace -> 첫 quick request` 흐름으로 재편했다
+  - `CompanySettings` hierarchy를 team builder / blueprint / apply 중심으로 재정렬했다
+  - `swiftsight canonical` absorption prep metadata를 onboarding / Company Settings preview guidance에서 실제로 소비하게 연결했다
+  - browser smoke에서 onboarding full happy path와 Company Settings preview/apply confirmation gate를 끝까지 고정했다
+  - server test를 메모리 절약형 기본 실행으로 재구성했다
+    - `pnpm --filter @squadrail/server test` = `test:base(maxWorkers=2) + test:heavy(fileParallelism=false)`
+    - `pnpm --filter @squadrail/server test:coverage`는 필요할 때만 별도 실행
+  - 다음은 `Phase 7 bounded autonomy E2E kickoff`다
 - 해석:
   - coverage hardening은 유지보수 트랙으로 내린다.
   - 현재 제품 가치는 `generic software-delivery company OS`로의 일반화와 기본 사용자 플로우 제품화에 있다.

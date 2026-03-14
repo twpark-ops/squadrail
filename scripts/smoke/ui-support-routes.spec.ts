@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const baseUrl = process.env.UI_REVIEW_BASE_URL ?? "http://127.0.0.1:3326";
+const repoRoot = process.cwd();
 
 type BrowserDiagnostics = {
   consoleErrors: string[];
@@ -52,6 +53,27 @@ test.use({
 
 test("support routes render with updated UI-only surfaces", async ({ page }) => {
   const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/overview`);
+  await page.getByRole("button", { name: /Add company/i }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Create the operating company",
+      exact: true,
+    })
+  ).toBeVisible();
+  await page.getByLabel("Company name").fill("Blueprint Smoke Org");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Select the starting team blueprint",
+      exact: true,
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Preview blueprint", exact: true })
+  ).toBeVisible();
+  await page.getByLabel("Close setup").click();
 
   await page.goto(`${baseUrl}/SMO/companies`);
   await expect(page.getByRole("heading", { name: "Companies", exact: true })).toBeVisible();
@@ -108,6 +130,156 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await page.goto(`${baseUrl}/SMO/org`);
   await expect(page.getByRole("heading", { name: "Org Chart", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Interactive organization map", exact: true })).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("onboarding wizard completes blueprint to quick-request happy path", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const diagnostics = attachDiagnostics(page);
+  const companyName = `Onboarding Blueprint Smoke ${Date.now()}`;
+  const quickRequestTitle = "Onboarding smoke request";
+  const quickRequestBody =
+    "Stand up the initial delivery team, connect the primary workspace, and capture the first intake request.";
+
+  await page.goto(`${baseUrl}/SMO/overview`);
+  await page.getByRole("button", { name: /Add company/i }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Create the operating company",
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  await page.getByLabel("Company name").fill(companyName);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+
+  await expect(
+    page.getByRole("heading", {
+      name: "Select the starting team blueprint",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Continue", exact: true }),
+  ).toBeDisabled();
+
+  await page
+    .getByRole("button")
+    .filter({ hasText: "Standard Product Squad" })
+    .click();
+  await page.getByRole("button", { name: "Preview blueprint", exact: true }).click();
+  await expect(page.getByText("Preview diff").first()).toBeVisible();
+  await page
+    .getByLabel("I reviewed this preview diff and want to apply the current team blueprint to this company.")
+    .check();
+  await page.getByRole("button", { name: "Apply team blueprint", exact: true }).click();
+  await expect(page.getByText("Team blueprint applied").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Connect the primary execution workspace",
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  const projectSelect = page.locator('label:has-text("Project") + select');
+  await expect(projectSelect).toBeVisible();
+  await expect
+    .poll(async () => projectSelect.locator("option").count(), {
+      message: "expected onboarding project select to load blueprint-backed project options",
+    })
+    .toBeGreaterThan(1);
+  if ((await projectSelect.inputValue()) === "") {
+    const firstProjectValue = await projectSelect
+      .locator("option")
+      .nth(1)
+      .getAttribute("value");
+    if (!firstProjectValue) {
+      throw new Error("onboarding project select did not expose a real project option");
+    }
+    await projectSelect.selectOption(firstProjectValue);
+  }
+
+  const workspaceTargetSelect = page.locator(
+    'label:has-text("Workspace target") + select',
+  );
+  await expect(workspaceTargetSelect).toBeVisible();
+  if ((await workspaceTargetSelect.inputValue()) !== "__new__") {
+    await workspaceTargetSelect.selectOption("__new__");
+  }
+
+  const workspacePathInput = page.getByPlaceholder("/path/to/project");
+  await expect(workspacePathInput).toBeVisible();
+  await workspacePathInput.fill(repoRoot);
+  await expect(workspacePathInput).toHaveValue(repoRoot);
+  const workspaceRepoUrlInput = page.getByPlaceholder("https://github.com/org/repo");
+  await expect(workspaceRepoUrlInput).toBeVisible();
+  await workspaceRepoUrlInput.fill("https://example.com/onboarding-blueprint-smoke.git");
+  await expect(workspaceRepoUrlInput).toHaveValue(
+    "https://example.com/onboarding-blueprint-smoke.git",
+  );
+  const envProbeResponse = page.waitForResponse((response) => {
+    const url = response.url();
+    return (
+      response.request().method() === "POST" &&
+      response.status() === 200 &&
+      url.includes("/api/companies/") &&
+      url.includes("/adapters/claude_local/test-environment")
+    );
+  });
+  const workspaceCreateResponse = page.waitForResponse((response) => {
+    const url = response.url();
+    return (
+      response.request().method() === "POST" &&
+      response.status() === 201 &&
+      url.includes("/api/projects/") &&
+      url.includes("/workspaces")
+    );
+  });
+  const setupProgressPatchResponse = page.waitForResponse((response) => {
+    const url = response.url();
+    return (
+      response.request().method() === "PATCH" &&
+      response.status() === 200 &&
+      url.includes("/api/companies/") &&
+      url.includes("/setup-progress")
+    );
+  });
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await Promise.all([
+    envProbeResponse,
+    workspaceCreateResponse,
+    setupProgressPatchResponse,
+  ]);
+
+  await expect(
+    page.getByRole("heading", {
+      name: "Launch the first quick request",
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 20000 });
+  await page.getByPlaceholder("Optional: concise operating title").fill(quickRequestTitle);
+  await page
+    .getByPlaceholder("Describe the goal, why it matters, and any obvious constraints.")
+    .fill(quickRequestBody);
+  const quickRequestResponse = page.waitForResponse((response) => {
+    const url = response.url();
+    return (
+      response.request().method() === "POST" &&
+      response.status() === 201 &&
+      url.includes("/api/companies/") &&
+      url.includes("/intake/issues")
+    );
+  });
+  await page.getByRole("button", { name: "Create quick request", exact: true }).click();
+  await quickRequestResponse;
+
+  await page.waitForURL(/\/[^/]+\/work\/[^/]+$/);
+  await expect(page.getByText(quickRequestTitle).first()).toBeVisible();
 
   expectHealthyDiagnostics(diagnostics);
 });

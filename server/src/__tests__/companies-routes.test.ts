@@ -330,8 +330,34 @@ describe("company routes", () => {
   });
 
   it("returns team blueprints for the requested company", async () => {
+    mockCompanyGetById.mockResolvedValue({
+      id: "company-1",
+      name: "cloud-swiftsight",
+    });
     mockTeamBlueprintsGetCatalog.mockReturnValue({
       companyId: "company-1",
+      canonicalAbsorptionPrep: {
+        canonicalTemplateKey: "cloud-swiftsight",
+        canonicalVersion: "cloud-swiftsight-18a-v1",
+        blueprintKey: "delivery_plus_qa",
+        previewRequest: {
+          projectCount: 5,
+          engineerPairsPerProject: 1,
+          includePm: true,
+          includeQa: true,
+          includeCto: true,
+        },
+        projectMappings: [
+          {
+            canonicalProjectSlug: "swiftsight-cloud",
+            canonicalProjectName: "swiftsight-cloud",
+            blueprintSlotKey: "app_surface",
+            blueprintTemplateKey: "app_surface",
+            expectedLeadRoleKey: "product_tech_lead",
+          },
+        ],
+        warnings: ["Use the recommended blueprint expansion before migrating canonical agents."],
+      },
       blueprints: [
         {
           key: "small_delivery_team",
@@ -390,6 +416,9 @@ describe("company routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toMatchObject({
       companyId: "company-1",
+      canonicalAbsorptionPrep: expect.objectContaining({
+        blueprintKey: "delivery_plus_qa",
+      }),
       blueprints: [
         expect.objectContaining({
           key: "small_delivery_team",
@@ -399,7 +428,7 @@ describe("company routes", () => {
         }),
       ],
     });
-    expect(mockTeamBlueprintsGetCatalog).toHaveBeenCalledWith("company-1");
+    expect(mockTeamBlueprintsGetCatalog).toHaveBeenCalledWith("company-1", "cloud-swiftsight");
   });
 
   it("returns a team blueprint preview diff for the requested company", async () => {

@@ -28,8 +28,10 @@
     "clean": "rm -rf dist",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src/__tests__",
-    "test:coverage": "vitest run src/__tests__ --coverage.enabled"
+    "test": "pnpm run test:base && pnpm run test:heavy",
+    "test:base": "vitest run",
+    "test:heavy": "vitest run --config vitest.heavy.config.ts",
+    "test:coverage": "vitest run --config vitest.coverage.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",

@@ -108,6 +108,8 @@ export type {
   TeamBlueprintParameterHints,
   TeamBlueprintReadiness,
   TeamBlueprint,
+  TeamBlueprintCanonicalAbsorptionProjectMapping,
+  TeamBlueprintCanonicalAbsorptionPrep,
   TeamBlueprintCatalogView,
   TeamBlueprintPreviewRequest,
   TeamBlueprintPreviewParameters,
