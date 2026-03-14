@@ -108,6 +108,12 @@ export const companiesApi = {
     data: TeamBlueprintPreviewRequest = {},
   ) =>
     api.post<TeamBlueprintPreviewResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}/preview`, data),
+  applySavedTeamBlueprint: (
+    companyId: string,
+    savedBlueprintId: string,
+    data: TeamBlueprintApplyRequest,
+  ) =>
+    api.post<TeamBlueprintApplyResult>(`/companies/${companyId}/team-blueprints/saved/${savedBlueprintId}/apply`, data),
   updateWorkflowTemplates: (companyId: string, data: UpdateWorkflowTemplates) =>
     api.patch<WorkflowTemplatesView>(`/companies/${companyId}/workflow-templates`, data),
   getOperatingAlerts: (companyId: string) =>

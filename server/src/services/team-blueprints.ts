@@ -36,10 +36,26 @@ import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
 import { rolePackService } from "./role-packs.js";
 import { setupProgressService } from "./setup-progress.js";
-import { canonicalTemplateForCompanyName } from "./swiftsight-org-canonical.js";
+import { resolveSwiftsightCanonicalMigrationHelper } from "./swiftsight-org-canonical.js";
 
 const DEFAULT_IMPORT_COLLISION_STRATEGY: TeamBlueprintImportCollisionStrategy = "rename";
 type SavedBlueprintRow = typeof companyTeamBlueprints.$inferSelect;
+type SavedBlueprintInsert = typeof companyTeamBlueprints.$inferInsert;
+
+type TeamBlueprintLibraryStore = {
+  list(companyId: string): Promise<SavedBlueprintRow[]>;
+  get(companyId: string, savedBlueprintId: string): Promise<SavedBlueprintRow | null>;
+  insert(values: SavedBlueprintInsert): Promise<SavedBlueprintRow>;
+  update(
+    companyId: string,
+    savedBlueprintId: string,
+    values: Partial<SavedBlueprintInsert>,
+  ): Promise<SavedBlueprintRow | null>;
+};
+
+type TeamBlueprintMockDb = Db & {
+  __teamBlueprintLibraryStore?: TeamBlueprintLibraryStore;
+};
 
 const DEFAULT_TEAM_BLUEPRINTS: TeamBlueprint[] = [
   {
@@ -1387,6 +1403,197 @@ async function loadPreviewStateForBlueprint(
   };
 }
 
+async function applyLoadedPreviewState(
+  txDb: Db,
+  input: {
+    companyId: string;
+    blueprintKey: TeamBlueprint["key"];
+    previewState: Awaited<ReturnType<typeof loadPreviewStateForBlueprint>>;
+    actor: {
+      userId?: string | null;
+      agentId?: string | null;
+    };
+    setupMetadata?: Record<string, unknown>;
+  },
+): Promise<TeamBlueprintApplyResult> {
+  const projectsSvc = projectService(txDb);
+  const agentsSvc = agentService(txDb);
+  const setupSvc = setupProgressService(txDb);
+  const rolePacks = rolePackService(txDb);
+  const roleTemplateByKey = new Map(input.previewState.preview.blueprint.roles.map((role) => [role.key, role]));
+  const projectSlotByKey = new Map(input.previewState.projectSlots.map((slot) => [slot.slotKey, slot]));
+
+  const rolePackSeed = await rolePacks.seedDefaults({
+    companyId: input.companyId,
+    presetKey: input.previewState.preview.blueprint.presetKey,
+    actor: input.actor,
+  });
+
+  const projectIdBySlotKey = new Map<string, string>();
+  const projectResults: TeamBlueprintApplyResult["projectResults"] = [];
+
+  for (const projectDiff of input.previewState.preview.projectDiff) {
+    if (projectDiff.status === "adopt_existing" && projectDiff.existingProjectId && projectDiff.existingProjectName) {
+      projectIdBySlotKey.set(projectDiff.slotKey, projectDiff.existingProjectId);
+      projectResults.push({
+        slotKey: projectDiff.slotKey,
+        templateKey: projectDiff.templateKey,
+        label: projectDiff.label,
+        action: "adopt_existing",
+        projectId: projectDiff.existingProjectId,
+        projectName: projectDiff.existingProjectName,
+      });
+      continue;
+    }
+
+    const projectSlot = input.previewState.projectSlots.find((slot) => slot.slotKey === projectDiff.slotKey);
+    if (!projectSlot) {
+      throw conflict(`Blueprint project slot '${projectDiff.slotKey}' could not be resolved during apply.`);
+    }
+    const createdProject = await projectsSvc.create(input.companyId, {
+      name: projectSlot.label,
+      description: projectSlot.description,
+      status: "planned",
+      leadAgentId: null,
+      targetDate: null,
+      archivedAt: null,
+      color: null,
+    });
+    projectIdBySlotKey.set(projectDiff.slotKey, createdProject.id);
+    projectResults.push({
+      slotKey: projectDiff.slotKey,
+      templateKey: projectDiff.templateKey,
+      label: projectDiff.label,
+      action: "create_new",
+      projectId: createdProject.id,
+      projectName: createdProject.name,
+    });
+  }
+
+  const createdAgentIds = new Set<string>();
+  const updatedAgentIds = new Set<string>();
+  const agentIdBySlotKey = new Map<string, string>();
+  const roleResults: TeamBlueprintApplyResult["roleResults"] = [];
+
+  for (const match of input.previewState.roleSlotMatches) {
+    const desiredReportsTo = resolveManagerAgentId(
+      match.slot,
+      input.previewState.roleSlotMatches,
+      agentIdBySlotKey,
+      projectSlotByKey,
+      roleTemplateByKey,
+    );
+    const desiredMetadata = buildAgentMetadataForBlueprint({
+      existingMetadata: match.existingAgent?.metadata,
+      blueprintKey: input.blueprintKey,
+      roleTemplateKey: match.slot.templateKey,
+      projectSlotKey: match.slot.projectSlotKey,
+      deliveryLane: match.slot.deliveryLane,
+    });
+
+    if (match.existingAgent) {
+      agentIdBySlotKey.set(match.slot.slotKey, match.existingAgent.id);
+      const needsUpdate =
+        match.existingAgent.reportsTo !== desiredReportsTo ||
+        JSON.stringify(match.existingAgent.metadata ?? null) !== JSON.stringify(desiredMetadata);
+
+      if (needsUpdate) {
+        await agentsSvc.update(match.existingAgent.id, {
+          reportsTo: desiredReportsTo,
+          metadata: desiredMetadata,
+        });
+        updatedAgentIds.add(match.existingAgent.id);
+      }
+
+      roleResults.push({
+        slotKey: match.slot.slotKey,
+        templateKey: match.slot.templateKey,
+        label: match.slot.label,
+        action: needsUpdate ? "update_existing" : "adopt_existing",
+        agentId: match.existingAgent.id,
+        agentName: match.existingAgent.name,
+        reportsToAgentId: desiredReportsTo,
+        updated: needsUpdate,
+      });
+      continue;
+    }
+
+    const createdAgent = await agentsSvc.create(input.companyId, {
+      name: match.slot.label,
+      role: match.slot.role,
+      title: match.slot.title ?? match.slot.label,
+      icon: null,
+      reportsTo: desiredReportsTo,
+      capabilities: match.slot.capabilities.join(", "),
+      adapterType: match.slot.preferredAdapterTypes[0] ?? "process",
+      adapterConfig: {},
+      runtimeConfig: {},
+      budgetMonthlyCents: 0,
+      metadata: desiredMetadata,
+      status: "idle",
+      spentMonthlyCents: 0,
+      lastHeartbeatAt: null,
+    });
+    createdAgentIds.add(createdAgent.id);
+    agentIdBySlotKey.set(match.slot.slotKey, createdAgent.id);
+    roleResults.push({
+      slotKey: match.slot.slotKey,
+      templateKey: match.slot.templateKey,
+      label: match.slot.label,
+      action: "create_new",
+      agentId: createdAgent.id,
+      agentName: createdAgent.name,
+      reportsToAgentId: desiredReportsTo,
+      updated: false,
+    });
+  }
+
+  for (const projectSlot of input.previewState.projectSlots) {
+    if (!projectSlot.defaultLeadRoleKey) continue;
+    const projectId = projectIdBySlotKey.get(projectSlot.slotKey);
+    if (!projectId) continue;
+    const matchingLead = input.previewState.roleSlotMatches.find((match) =>
+      match.slot.templateKey === projectSlot.defaultLeadRoleKey && match.slot.projectSlotKey === projectSlot.slotKey
+    ) ?? input.previewState.roleSlotMatches.find((match) => match.slot.templateKey === projectSlot.defaultLeadRoleKey);
+    const leadAgentId = matchingLead ? agentIdBySlotKey.get(matchingLead.slot.slotKey) ?? null : null;
+    if (!leadAgentId) continue;
+    await projectsSvc.update(projectId, {
+      leadAgentId,
+    });
+  }
+
+  const setupProgress = await setupSvc.update(input.companyId, {
+    status: "squad_ready",
+    metadata: {
+      rolePacksSeeded: true,
+      rolePackPresetKey: input.previewState.preview.blueprint.presetKey,
+      teamBlueprintKey: input.blueprintKey,
+      teamBlueprintPreviewHash: input.previewState.preview.previewHash,
+      ...(input.setupMetadata ?? {}),
+    },
+  });
+
+  return {
+    companyId: input.companyId,
+    blueprintKey: input.blueprintKey,
+    previewHash: input.previewState.preview.previewHash,
+    parameters: input.previewState.preview.parameters,
+    summary: {
+      adoptedProjectCount: projectResults.filter((result) => result.action === "adopt_existing").length,
+      createdProjectCount: projectResults.filter((result) => result.action === "create_new").length,
+      adoptedAgentCount: roleResults.filter((result) => result.action === "adopt_existing").length,
+      createdAgentCount: createdAgentIds.size,
+      updatedAgentCount: updatedAgentIds.size,
+      seededRolePackCount: rolePackSeed.created.length,
+      existingRolePackCount: rolePackSeed.existing.length,
+    },
+    projectResults,
+    roleResults,
+    setupProgress,
+    warnings: input.previewState.preview.warnings,
+  };
+}
+
 function serializeSavedBlueprintRow(row: SavedBlueprintRow): CompanySavedTeamBlueprint {
   return companySavedTeamBlueprintSchema.parse({
     id: row.id,
@@ -1399,7 +1606,16 @@ function serializeSavedBlueprintRow(row: SavedBlueprintRow): CompanySavedTeamBlu
   });
 }
 
+function getTeamBlueprintLibraryStore(db: Db): TeamBlueprintLibraryStore | null {
+  return (db as TeamBlueprintMockDb).__teamBlueprintLibraryStore ?? null;
+}
+
 async function listSavedBlueprints(db: Db, companyId: string): Promise<CompanySavedTeamBlueprint[]> {
+  const store = getTeamBlueprintLibraryStore(db);
+  if (store) {
+    const rows = await store.list(companyId);
+    return rows.map((row) => serializeSavedBlueprintRow(row));
+  }
   const rows = await db
     .select()
     .from(companyTeamBlueprints)
@@ -1413,6 +1629,12 @@ async function getSavedBlueprintById(
   companyId: string,
   savedBlueprintId: string,
 ): Promise<CompanySavedTeamBlueprint> {
+  const store = getTeamBlueprintLibraryStore(db);
+  if (store) {
+    const row = await store.get(companyId, savedBlueprintId);
+    if (!row) throw notFound("Saved team blueprint not found");
+    return serializeSavedBlueprintRow(row);
+  }
   const rows = await db
     .select()
     .from(companyTeamBlueprints)
@@ -1430,19 +1652,33 @@ export function listTeamBlueprints(): TeamBlueprint[] {
   return DEFAULT_TEAM_BLUEPRINTS.map((blueprint) => cloneBlueprint(blueprint));
 }
 
-function resolveMigrationHelpers(companyName: string | null | undefined): TeamBlueprintMigrationHelper[] {
-  const helper = canonicalTemplateForCompanyName(companyName)?.blueprintAbsorptionPrep ?? null;
+export function resolveMigrationHelpers(input: {
+  currentProjects: PreviewProjectLike[];
+  currentAgents: PreviewAgentLike[];
+}): TeamBlueprintMigrationHelper[] {
+  const helper = resolveSwiftsightCanonicalMigrationHelper({
+    projectUrlKeys: input.currentProjects.map((project) => project.urlKey),
+    agents: input.currentAgents.map((agent) => ({
+      urlKey: agent.urlKey,
+      metadata: agent.metadata,
+    })),
+  });
   return helper ? [{ ...helper }] : [];
 }
 
 export function teamBlueprintService(db?: Db) {
   return {
     async getCatalog(companyId: string, companyName?: string | null): Promise<TeamBlueprintCatalogView> {
+      const currentProjects = db ? toPreviewProjects(await projectService(db).list(companyId)) : [];
+      const currentAgents = db ? toPreviewAgents(await agentService(db).list(companyId)) : [];
       return {
         companyId,
         blueprints: listTeamBlueprints(),
         savedBlueprints: db ? await listSavedBlueprints(db, companyId) : [],
-        migrationHelpers: resolveMigrationHelpers(companyName),
+        migrationHelpers: resolveMigrationHelpers({
+          currentProjects,
+          currentAgents,
+        }),
       };
     },
     async exportBlueprint(
@@ -1526,9 +1762,9 @@ export function teamBlueprintService(db?: Db) {
         });
 
         if (preview.saveAction === "replace" && preview.existingSavedBlueprintId) {
-          const rows = await txDb
-            .update(companyTeamBlueprints)
-            .set({
+          const store = getTeamBlueprintLibraryStore(txDb);
+          const row = store
+            ? await store.update(companyId, preview.existingSavedBlueprintId, {
               slug: preview.definition.slug,
               label: preview.definition.label,
               description: preview.definition.description,
@@ -1538,12 +1774,23 @@ export function teamBlueprintService(db?: Db) {
               sourceMetadata: sourceMetadata as unknown as Record<string, unknown>,
               updatedAt: now,
             })
-            .where(and(
-              eq(companyTeamBlueprints.companyId, companyId),
-              eq(companyTeamBlueprints.id, preview.existingSavedBlueprintId),
-            ))
-            .returning();
-          const row = rows[0] ?? null;
+            : (await txDb
+              .update(companyTeamBlueprints)
+              .set({
+                slug: preview.definition.slug,
+                label: preview.definition.label,
+                description: preview.definition.description,
+                sourceBlueprintKey: preview.definition.sourceBlueprintKey,
+                definition: preview.definition as unknown as Record<string, unknown>,
+                defaultPreviewRequest: request.source.bundle.defaultPreviewRequest as unknown as Record<string, unknown>,
+                sourceMetadata: sourceMetadata as unknown as Record<string, unknown>,
+                updatedAt: now,
+              })
+              .where(and(
+                eq(companyTeamBlueprints.companyId, companyId),
+                eq(companyTeamBlueprints.id, preview.existingSavedBlueprintId),
+              ))
+              .returning())[0] ?? null;
           if (!row) throw notFound("Saved team blueprint not found");
           return {
             savedBlueprint: serializeSavedBlueprintRow(row),
@@ -1553,9 +1800,9 @@ export function teamBlueprintService(db?: Db) {
           };
         }
 
-        const rows = await txDb
-          .insert(companyTeamBlueprints)
-          .values({
+        const store = getTeamBlueprintLibraryStore(txDb);
+        const row = store
+          ? await store.insert({
             companyId,
             slug: preview.definition.slug,
             label: preview.definition.label,
@@ -1565,8 +1812,19 @@ export function teamBlueprintService(db?: Db) {
             defaultPreviewRequest: (request.source.bundle.defaultPreviewRequest ?? {}) as Record<string, unknown>,
             sourceMetadata: sourceMetadata as unknown as Record<string, unknown>,
           })
-          .returning();
-        const row = rows[0] ?? null;
+          : (await txDb
+            .insert(companyTeamBlueprints)
+            .values({
+              companyId,
+              slug: preview.definition.slug,
+              label: preview.definition.label,
+              description: preview.definition.description,
+              sourceBlueprintKey: preview.definition.sourceBlueprintKey,
+              definition: preview.definition as unknown as Record<string, unknown>,
+              defaultPreviewRequest: (request.source.bundle.defaultPreviewRequest ?? {}) as Record<string, unknown>,
+              sourceMetadata: sourceMetadata as unknown as Record<string, unknown>,
+            })
+            .returning())[0] ?? null;
         if (!row) {
           throw conflict("Failed to save imported team blueprint");
         }
@@ -1595,6 +1853,43 @@ export function teamBlueprintService(db?: Db) {
       );
       return state.preview;
     },
+    async applySavedBlueprint(
+      companyId: string,
+      savedBlueprintId: string,
+      request: TeamBlueprintApplyRequest,
+      actor: {
+        userId?: string | null;
+        agentId?: string | null;
+      },
+    ): Promise<TeamBlueprintApplyResult> {
+      if (!db) throw new Error("teamBlueprintService.applySavedBlueprint requires a database handle");
+
+      return db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const savedBlueprint = await getSavedBlueprintById(txDb, companyId, savedBlueprintId);
+        const state = await loadPreviewStateForBlueprint(
+          txDb,
+          companyId,
+          materializePortableTeamBlueprint(savedBlueprint.definition),
+          request,
+          savedBlueprint.defaultPreviewRequest,
+        );
+        if (state.preview.previewHash !== request.previewHash) {
+          throw conflict("Saved blueprint preview is stale. Refresh preview before applying.");
+        }
+
+        return applyLoadedPreviewState(txDb, {
+          companyId,
+          blueprintKey: resolvePortableBlueprintSourceKey(savedBlueprint.definition),
+          previewState: state,
+          actor,
+          setupMetadata: {
+            teamBlueprintSavedBlueprintId: savedBlueprint.id,
+            teamBlueprintSource: "saved_blueprint",
+          },
+        });
+      });
+    },
     async preview(
       companyId: string,
       blueprintKey: TeamBlueprint["key"],
@@ -1621,182 +1916,12 @@ export function teamBlueprintService(db?: Db) {
         if (state.preview.previewHash !== request.previewHash) {
           throw conflict("Blueprint preview is stale. Refresh preview before applying.");
         }
-
-        const projectsSvc = projectService(txDb);
-        const agentsSvc = agentService(txDb);
-        const setupSvc = setupProgressService(txDb);
-        const rolePacks = rolePackService(txDb);
-        const roleTemplateByKey = new Map(state.preview.blueprint.roles.map((role) => [role.key, role]));
-        const projectSlotByKey = new Map(state.projectSlots.map((slot) => [slot.slotKey, slot]));
-
-        const rolePackSeed = await rolePacks.seedDefaults({
-          companyId,
-          presetKey: state.preview.blueprint.presetKey,
-          actor,
-        });
-
-        const projectIdBySlotKey = new Map<string, string>();
-        const projectResults: TeamBlueprintApplyResult["projectResults"] = [];
-
-        for (const projectDiff of state.preview.projectDiff) {
-          if (projectDiff.status === "adopt_existing" && projectDiff.existingProjectId && projectDiff.existingProjectName) {
-            projectIdBySlotKey.set(projectDiff.slotKey, projectDiff.existingProjectId);
-            projectResults.push({
-              slotKey: projectDiff.slotKey,
-              templateKey: projectDiff.templateKey,
-              label: projectDiff.label,
-              action: "adopt_existing",
-              projectId: projectDiff.existingProjectId,
-              projectName: projectDiff.existingProjectName,
-            });
-            continue;
-          }
-
-          const projectSlot = state.projectSlots.find((slot) => slot.slotKey === projectDiff.slotKey);
-          if (!projectSlot) {
-            throw conflict(`Blueprint project slot '${projectDiff.slotKey}' could not be resolved during apply.`);
-          }
-          const createdProject = await projectsSvc.create(companyId, {
-            name: projectSlot.label,
-            description: projectSlot.description,
-            status: "planned",
-            leadAgentId: null,
-            targetDate: null,
-            archivedAt: null,
-            color: null,
-          });
-          projectIdBySlotKey.set(projectDiff.slotKey, createdProject.id);
-          projectResults.push({
-            slotKey: projectDiff.slotKey,
-            templateKey: projectDiff.templateKey,
-            label: projectDiff.label,
-            action: "create_new",
-            projectId: createdProject.id,
-            projectName: createdProject.name,
-          });
-        }
-
-        const createdAgentIds = new Set<string>();
-        const updatedAgentIds = new Set<string>();
-        const agentIdBySlotKey = new Map<string, string>();
-        const roleResults: TeamBlueprintApplyResult["roleResults"] = [];
-
-        for (const match of state.roleSlotMatches) {
-          const desiredReportsTo = resolveManagerAgentId(
-            match.slot,
-            state.roleSlotMatches,
-            agentIdBySlotKey,
-            projectSlotByKey,
-            roleTemplateByKey,
-          );
-          const desiredMetadata = buildAgentMetadataForBlueprint({
-            existingMetadata: match.existingAgent?.metadata,
-            blueprintKey,
-            roleTemplateKey: match.slot.templateKey,
-            projectSlotKey: match.slot.projectSlotKey,
-            deliveryLane: match.slot.deliveryLane,
-          });
-
-          if (match.existingAgent) {
-            agentIdBySlotKey.set(match.slot.slotKey, match.existingAgent.id);
-            const needsUpdate =
-              match.existingAgent.reportsTo !== desiredReportsTo ||
-              JSON.stringify(match.existingAgent.metadata ?? null) !== JSON.stringify(desiredMetadata);
-
-            if (needsUpdate) {
-              await agentsSvc.update(match.existingAgent.id, {
-                reportsTo: desiredReportsTo,
-                metadata: desiredMetadata,
-              });
-              updatedAgentIds.add(match.existingAgent.id);
-            }
-
-            roleResults.push({
-              slotKey: match.slot.slotKey,
-              templateKey: match.slot.templateKey,
-              label: match.slot.label,
-              action: needsUpdate ? "update_existing" : "adopt_existing",
-              agentId: match.existingAgent.id,
-              agentName: match.existingAgent.name,
-              reportsToAgentId: desiredReportsTo,
-              updated: needsUpdate,
-            });
-            continue;
-          }
-
-          const createdAgent = await agentsSvc.create(companyId, {
-            name: match.slot.label,
-            role: match.slot.role,
-            title: match.slot.title ?? match.slot.label,
-            icon: null,
-            reportsTo: desiredReportsTo,
-            capabilities: match.slot.capabilities.join(", "),
-            adapterType: match.slot.preferredAdapterTypes[0] ?? "process",
-            adapterConfig: {},
-            runtimeConfig: {},
-            budgetMonthlyCents: 0,
-            metadata: desiredMetadata,
-            status: "idle",
-            spentMonthlyCents: 0,
-            lastHeartbeatAt: null,
-          });
-          createdAgentIds.add(createdAgent.id);
-          agentIdBySlotKey.set(match.slot.slotKey, createdAgent.id);
-          roleResults.push({
-            slotKey: match.slot.slotKey,
-            templateKey: match.slot.templateKey,
-            label: match.slot.label,
-            action: "create_new",
-            agentId: createdAgent.id,
-            agentName: createdAgent.name,
-            reportsToAgentId: desiredReportsTo,
-            updated: false,
-          });
-        }
-
-        for (const projectSlot of state.projectSlots) {
-          if (!projectSlot.defaultLeadRoleKey) continue;
-          const projectId = projectIdBySlotKey.get(projectSlot.slotKey);
-          if (!projectId) continue;
-          const matchingLead = state.roleSlotMatches.find((match) =>
-            match.slot.templateKey === projectSlot.defaultLeadRoleKey && match.slot.projectSlotKey === projectSlot.slotKey
-          ) ?? state.roleSlotMatches.find((match) => match.slot.templateKey === projectSlot.defaultLeadRoleKey);
-          const leadAgentId = matchingLead ? agentIdBySlotKey.get(matchingLead.slot.slotKey) ?? null : null;
-          if (!leadAgentId) continue;
-          await projectsSvc.update(projectId, {
-            leadAgentId,
-          });
-        }
-
-        const setupProgress = await setupSvc.update(companyId, {
-          status: "squad_ready",
-          metadata: {
-            rolePacksSeeded: true,
-            rolePackPresetKey: state.preview.blueprint.presetKey,
-            teamBlueprintKey: blueprintKey,
-            teamBlueprintPreviewHash: state.preview.previewHash,
-          },
-        });
-
-        return {
+        return applyLoadedPreviewState(txDb, {
           companyId,
           blueprintKey,
-          previewHash: state.preview.previewHash,
-          parameters: state.preview.parameters,
-          summary: {
-            adoptedProjectCount: projectResults.filter((result) => result.action === "adopt_existing").length,
-            createdProjectCount: projectResults.filter((result) => result.action === "create_new").length,
-            adoptedAgentCount: roleResults.filter((result) => result.action === "adopt_existing").length,
-            createdAgentCount: createdAgentIds.size,
-            updatedAgentCount: updatedAgentIds.size,
-            seededRolePackCount: rolePackSeed.created.length,
-            existingRolePackCount: rolePackSeed.existing.length,
-          },
-          projectResults,
-          roleResults,
-          setupProgress,
-          warnings: state.preview.warnings,
-        };
+          previewState: state,
+          actor,
+        });
       });
     },
   };

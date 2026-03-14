@@ -6,6 +6,7 @@ import {
   buildTeamBlueprintPreview,
   listTeamBlueprints,
   materializePortableTeamBlueprint,
+  resolveMigrationHelpers,
   resolveTeamBlueprintPreviewParameters,
   resolveImportedPortableTeamBlueprintDefinition,
   teamBlueprintService,
@@ -62,10 +63,31 @@ describe("team blueprints", () => {
   });
 
   it("includes migration helper guidance for the swiftsight company name", async () => {
-    const service = teamBlueprintService();
-    const view = await service.getCatalog("company-1", "cloud-swiftsight");
+    const helpers = resolveMigrationHelpers({
+      currentProjects: [
+        {
+          id: "project-1",
+          name: "swiftsight-cloud",
+          urlKey: "swiftsight-cloud",
+          workspaces: [],
+        },
+        {
+          id: "project-2",
+          name: "swiftsight-agent",
+          urlKey: "swiftsight-agent",
+          workspaces: [],
+        },
+        {
+          id: "project-3",
+          name: "swiftcl",
+          urlKey: "swiftcl",
+          workspaces: [],
+        },
+      ],
+      currentAgents: [],
+    });
 
-    expect(view.migrationHelpers[0]).toMatchObject({
+    expect(helpers[0]).toMatchObject({
       key: "swiftsight_canonical_absorption",
       kind: "canonical_absorption",
       blueprintKey: "delivery_plus_qa",
@@ -77,7 +99,29 @@ describe("team blueprints", () => {
         includeCto: true,
       },
     });
-    expect(view.migrationHelpers[0]?.projectMappings).toHaveLength(5);
+    expect(helpers[0]?.projectMappings).toHaveLength(5);
+  });
+
+  it("does not require company name lookup to discover migration helpers", () => {
+    const helpers = resolveMigrationHelpers({
+      currentProjects: [],
+      currentAgents: [
+        {
+          id: "agent-1",
+          name: "Legacy CTO",
+          urlKey: "custom-cto",
+          role: "cto",
+          title: "CTO",
+          reportsTo: null,
+          metadata: {
+            canonicalTemplateKey: "cloud-swiftsight",
+          },
+        },
+      ],
+    });
+
+    expect(helpers).toHaveLength(1);
+    expect(helpers[0]?.key).toBe("swiftsight_canonical_absorption");
   });
 
   it("derives preview parameters from blueprint defaults and request overrides", () => {

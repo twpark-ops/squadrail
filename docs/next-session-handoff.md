@@ -10,12 +10,12 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue immediately with `migration helper discovery registry generalization`
+- open this handoff first, then continue immediately with `blueprint library lifecycle hardening`
   - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
   - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop, autonomy matrix variant까지 올라왔다.
-  - Batch B1 portability, Batch B2 import/export, Batch B3 parameter editing 1차가 올라왔고, 다음은 helper discovery registry 일반화다.
+  - Batch B1 portability, Batch B2 import/export, Batch B3 parameter editing, helper discovery registry 일반화, saved blueprint apply/roundtrip hardening까지 닫혔다.
 
 ## Current Status
 
@@ -81,10 +81,15 @@ One-line startup rule:
     48. saved blueprint preview도 edited parameter request와 parameter diff summary를 사용하도록 정리
     49. `delivery_plus_qa` parameterized preview/apply parity test를 추가해 edited parameter가 실제 apply 결과와 일치함을 고정
     50. browser smoke와 `local-ui-flow.sh`를 현재 parameter editing 및 generic fetch 패턴에 맞게 갱신하고 green으로 재확인
+  - Batch B core scope 완료:
+    1. migration helper discovery를 company name lookup에서 registry + company footprint 기반으로 일반화했다
+    2. built-in export -> import preview/save -> saved preview -> saved apply roundtrip/service parity를 고정했다
+    3. Company Settings saved blueprint surface를 preview-only에서 preview/apply 공식 flow로 올렸다
+    4. browser smoke에서 export -> import preview/save -> saved preview surface를 다시 green으로 고정했다
   - immediate next:
-    1. migration helper discovery registry 일반화
-    2. blueprint import/export roundtrip hardening
-    3. saved blueprint apply / parameter parity follow-up
+    1. blueprint library lifecycle hardening (`rename/delete/re-export`)
+    2. migration helper registry 확장 규칙 정리 (swiftsight 외 helper provider 수용)
+    3. saved blueprint apply/browser smoke parity 추가 강화
   - 해석:
     - 지금 우선순위는 UI 미장이 아니라 기본 사용자 플로우 제품화다.
     - `cloud-swiftsight` canonical helper는 preview/apply 본경로에서 분리됐지만, helper discovery 자체는 아직 `companyName -> canonicalTemplateForCompanyName()` lookup 기반이라 follow-up이 남아 있다.

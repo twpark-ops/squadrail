@@ -53,7 +53,11 @@ vi.mock("../services/role-packs.js", () => ({
   }),
 }));
 
-import { teamBlueprintService } from "../services/team-blueprints.js";
+import {
+  buildTeamBlueprintExportBundle,
+  listTeamBlueprints,
+  teamBlueprintService,
+} from "../services/team-blueprints.js";
 
 type MutableProject = {
   id: string;
@@ -80,6 +84,20 @@ type HarnessState = {
   agents: MutableAgent[];
   setupView: SetupProgressView;
   seededPresetKeys: string[];
+  savedBlueprints: Array<{
+    id: string;
+    companyScope: string;
+    companyId: string;
+    slug: string;
+    label: string;
+    description: string | null;
+    sourceBlueprintKey: string | null;
+    definition: Record<string, unknown>;
+    defaultPreviewRequest: Record<string, unknown>;
+    sourceMetadata: Record<string, unknown>;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
 };
 
 function buildSetupView(overrides?: Partial<SetupProgressView>): SetupProgressView {
@@ -110,6 +128,10 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+function buildMockUuid(index: number) {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}
+
 function createMockDb(state: HarnessState): Db {
   const db = {
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => {
@@ -118,6 +140,7 @@ function createMockDb(state: HarnessState): Db {
         agents: state.agents,
         setupView: state.setupView,
         seededPresetKeys: state.seededPresetKeys,
+        savedBlueprints: state.savedBlueprints,
       });
 
       try {
@@ -127,8 +150,42 @@ function createMockDb(state: HarnessState): Db {
         state.agents.splice(0, state.agents.length, ...snapshot.agents);
         state.setupView = snapshot.setupView;
         state.seededPresetKeys.splice(0, state.seededPresetKeys.length, ...snapshot.seededPresetKeys);
+        state.savedBlueprints.splice(0, state.savedBlueprints.length, ...snapshot.savedBlueprints);
         throw error;
       }
+    },
+    __teamBlueprintLibraryStore: {
+      async list(companyId: string) {
+        return state.savedBlueprints.filter((entry) => entry.companyScope === companyId);
+      },
+      async get(companyId: string, savedBlueprintId: string) {
+        return state.savedBlueprints.find((entry) => entry.companyScope === companyId && entry.id === savedBlueprintId) ?? null;
+      },
+      async insert(values: Record<string, unknown>) {
+        const row = {
+          id: buildMockUuid(state.savedBlueprints.length + 1),
+          companyScope: String(values.companyId),
+          companyId: buildMockUuid(7000 + state.savedBlueprints.length + 1),
+          slug: String(values.slug),
+          label: String(values.label),
+          description: (values.description as string | null | undefined) ?? null,
+          sourceBlueprintKey: (values.sourceBlueprintKey as string | null | undefined) ?? null,
+          definition: (values.definition as Record<string, unknown> | undefined) ?? {},
+          defaultPreviewRequest: (values.defaultPreviewRequest as Record<string, unknown> | undefined) ?? {},
+          sourceMetadata: (values.sourceMetadata as Record<string, unknown> | undefined) ?? {},
+          createdAt: new Date("2026-03-14T00:00:00.000Z"),
+          updatedAt: new Date("2026-03-14T00:00:00.000Z"),
+        };
+        state.savedBlueprints.push(row);
+        return row;
+      },
+      async update(companyId: string, savedBlueprintId: string, values: Record<string, unknown>) {
+        const row = state.savedBlueprints.find((entry) => entry.companyScope === companyId && entry.id === savedBlueprintId) ?? null;
+        if (!row) return null;
+        Object.assign(row, values);
+        row.updatedAt = (values.updatedAt as Date | undefined) ?? new Date("2026-03-14T00:00:00.000Z");
+        return row;
+      },
     },
   } as Db;
   return db;
@@ -144,6 +201,7 @@ function createApplyHarness(input?: {
     agents: structuredClone(input?.agents ?? []),
     setupView: structuredClone(input?.setupView ?? buildSetupView()),
     seededPresetKeys: [],
+    savedBlueprints: [],
   };
 
   mockProjectList.mockImplementation(async () => state.projects);
@@ -545,6 +603,111 @@ describe("team blueprint apply", () => {
     expect(result.roleResults).toHaveLength(
       preview.roleDiff.reduce((total, role) => total + role.missingCount, 0),
     );
+  });
+
+  it("round-trips a built-in blueprint through export, import, saved preview, and saved apply", async () => {
+    const harness = createApplyHarness();
+    const blueprint = listTeamBlueprints()[2]!;
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: buildMockUuid(9001),
+      companyName: "Example Co",
+      blueprint,
+    });
+
+    const importPreview = await harness.service.previewImport("company-1", {
+      source: {
+        type: "inline",
+        bundle,
+      },
+      collisionStrategy: "rename",
+    });
+
+    const importResult = await harness.service.importBlueprint("company-1", {
+      source: {
+        type: "inline",
+        bundle,
+      },
+      collisionStrategy: "rename",
+      previewHash: importPreview.previewHash,
+    });
+
+    const savedPreview = await harness.service.previewSavedBlueprint(
+      "company-1",
+      importResult.savedBlueprint.id,
+      importResult.savedBlueprint.defaultPreviewRequest,
+    );
+
+    expect(savedPreview.parameters).toEqual(importPreview.preview.parameters);
+    expect(savedPreview.projectDiff).toEqual(importPreview.preview.projectDiff);
+    expect(savedPreview.roleDiff).toEqual(importPreview.preview.roleDiff);
+
+    const savedApply = await harness.service.applySavedBlueprint(
+      "company-1",
+      importResult.savedBlueprint.id,
+      {
+        previewHash: savedPreview.previewHash,
+        ...savedPreview.parameters,
+      },
+      {
+        userId: "user-1",
+        agentId: null,
+      },
+    );
+
+    expect(savedApply.parameters).toEqual(savedPreview.parameters);
+    expect(savedApply.summary.createdProjectCount).toBe(savedPreview.summary.createProjectCount);
+    expect(savedApply.summary.createdAgentCount).toBe(savedPreview.summary.missingRoleCount);
+    expect(mockSetupUpdate).toHaveBeenCalledWith("company-1", expect.objectContaining({
+      metadata: expect.objectContaining({
+        teamBlueprintSource: "saved_blueprint",
+        teamBlueprintSavedBlueprintId: importResult.savedBlueprint.id,
+      }),
+    }));
+  });
+
+  it("uses saved blueprint library defaults when previewing a round-tripped import", async () => {
+    const harness = createApplyHarness();
+    const blueprint = listTeamBlueprints()[1]!;
+    const bundle = buildTeamBlueprintExportBundle({
+      companyId: buildMockUuid(9002),
+      companyName: "Example Co",
+      blueprint,
+    });
+    bundle.defaultPreviewRequest = {
+      projectCount: 3,
+      engineerPairsPerProject: 2,
+      includePm: true,
+      includeQa: false,
+      includeCto: false,
+    };
+
+    const importPreview = await harness.service.previewImport("company-1", {
+      source: {
+        type: "inline",
+        bundle,
+      },
+      collisionStrategy: "rename",
+    });
+
+    await harness.service.importBlueprint("company-1", {
+      source: {
+        type: "inline",
+        bundle,
+      },
+      collisionStrategy: "rename",
+      previewHash: importPreview.previewHash,
+    });
+
+    const savedBlueprint = harness.state.savedBlueprints[0]!;
+    const savedPreview = await harness.service.previewSavedBlueprint("company-1", savedBlueprint.id);
+
+    expect(savedPreview.parameters).toEqual({
+      projectCount: 3,
+      engineerPairsPerProject: 2,
+      includePm: true,
+      includeQa: false,
+      includeCto: false,
+    });
   });
 
   it("rolls back project and role-pack mutations when project creation fails mid-apply", async () => {

@@ -36,8 +36,11 @@
 - clarification loop는 공식 answer path와 shared pending contract까지 닫혔고, 질문 정책 기반 상위 시나리오도 live autonomy burn-in으로 검증됐다
 - `cloud-swiftsight` canonical을 일반화한 generic team blueprint system은 catalog + preview/apply + Company Settings/onboarding consumption까지 올라왔고, B1 portability 1차로 generic definition / portability metadata / migration helper 분리까지 끝났다
 - 팀을 blueprint 단위로 preview/apply 하는 bulk provisioning은 server contract와 Company Settings/onboarding flow까지 올라왔고, 다음은 회사 간 portability를 실제 저장/이동 가능한 import/export와 parameter editing으로 확장하는 단계다
-- 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다. 즉 helper discovery 자체는 아직 완전히 portable하지 않고, follow-up에서 registry 기반으로 더 일반화해야 한다
-- 다음 immediate next는 `migration helper discovery registry generalization`이다
+- `Batch B` core scope는 닫혔다.
+  - migration helper discovery를 company footprint 기반 registry로 일반화했다.
+  - built-in export -> import preview/save -> saved preview/apply roundtrip을 고정했다.
+  - saved blueprint surface는 preview-only가 아니라 generic preview/apply flow를 사용한다.
+- 다음 immediate next는 `blueprint library lifecycle hardening (rename/delete/re-export) + helper registry 확장 규칙 정리`다
 
 ### 구현 체크포인트 2026-03-13
 
@@ -89,13 +92,13 @@
   - preview/apply 본경로는 generic blueprint definition만 읽도록 유지하고, `cloud-swiftsight` canonical helper는 migration helper 카드로만 노출되게 분리했다.
   - `OnboardingWizard`와 `CompanySettings`는 canonical helper 자동 주입 없이 generic preview/apply path를 기본값으로 사용한다.
   - UI는 blueprint별 migration helper를 단건이 아니라 list 기반으로 렌더링한다.
-  - 남은 portability 제한은 migration helper discovery가 아직 `companyName -> canonicalTemplateForCompanyName()` lookup에 묶여 있다는 점이다.
+  - helper discovery는 `companyName` lookup이 아니라 company footprint 기반 registry를 사용한다.
 - `Batch B2` 1차 구현 완료
   - shared contract에 `PortableTeamBlueprintDefinition`, `CompanySavedTeamBlueprint`, `TeamBlueprintExportBundle`, `TeamBlueprintImportPreview/Import` shape를 추가했다.
   - DB에 company-scoped blueprint library 저장용 `company_team_blueprints` 테이블과 migration을 추가했다.
   - server `team-blueprints` service / `companies` route에 built-in blueprint export, import preview/save, saved blueprint preview를 추가했다.
   - import는 apply를 수행하지 않고 preview hash gate를 거쳐 company library에만 저장한다.
-  - `CompanySettings`에 `Export JSON`, `Import blueprint bundle`, `Saved blueprint library` surface를 추가했고, saved blueprint preview는 B2 범위에서 read-only로 유지한다.
+  - `CompanySettings`에 `Export JSON`, `Import blueprint bundle`, `Saved blueprint library` surface를 추가했다.
   - fresh Playwright smoke에서 onboarding happy path와 Company Settings blueprint import/export surface를 함께 검증했다.
 - `Batch B3` 1차 구현 완료
   - shared `team blueprint` contract에 editable `parameterHints.editors`와 default preview request helper를 추가했다.
@@ -103,6 +106,11 @@
   - saved blueprint preview도 edited parameter request와 parameter diff summary를 사용한다.
   - `delivery_plus_qa` parameterized preview/apply parity test를 추가해 edited parameter와 실제 apply 결과의 대칭성을 고정했다.
   - fresh Playwright smoke와 `local-ui-flow.sh`를 현재 parameter editing / generic fetch 패턴에 맞게 갱신하고 다시 green으로 확인했다.
+ - `Batch B follow-up` 완료
+   - migration helper discovery를 company footprint registry로 일반화했다.
+   - saved blueprint apply route/service/UI flow를 추가해 built-in과 같은 previewHash gate를 사용하게 했다.
+   - built-in export -> import preview/save -> saved preview -> saved apply roundtrip/service parity를 고정했다.
+   - browser smoke에서 export -> import preview/save -> saved preview surface를 다시 green으로 확인했다.
 
 ## 4. 제품 계약
 
@@ -500,12 +508,12 @@ clarification question contract를 먼저 고정하고, 질문을 Inbox/Issue su
 
 현재 immediate next slice는 아래다.
 
-1. migration helper discovery registry 일반화
-2. blueprint import/export roundtrip hardening
-3. saved blueprint apply / parameter parity follow-up
+1. blueprint library lifecycle hardening (`rename/delete/re-export`)
+2. migration helper registry 확장 규칙 정리
+3. saved blueprint apply browser parity 추가 강화
 
-즉 Batch A는 닫혔고, Batch B1 portability / Batch B2 import/export / Batch B3 parameter editing 1차도 끝났다.
+즉 Batch A는 닫혔고, Batch B1/B2/B3와 follow-up hardening까지 core scope가 끝났다.
 
 - `pnpm e2e:cloud-swiftsight-kernel-burn-in`을 canonical `cloud-swiftsight` env에서 끝까지 다시 실행했고, `CLO-1..CLO-4 = done`, coordinated root `CLO-5 = cancelled`, child `CLO-6..CLO-8 = done`으로 마감됐다.
 - kernel batch summary: `ok=true`, `scenarioCount=5`, `durationMs=3374196`
-- autonomy baseline/matrix와 deterministic kernel 둘 다 green이고, B1 portability / B2 import/export / B3 parameter editing 1차도 generic-first path 위에 올라왔으므로 다음 제품 배치는 `migration helper discovery registry generalization`이다.
+- autonomy baseline/matrix와 deterministic kernel 둘 다 green이고, Batch B core도 generic-first path 위에 올라왔으므로 다음 제품 배치는 `blueprint library lifecycle hardening`이다.
