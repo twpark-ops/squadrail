@@ -19,11 +19,14 @@ import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
-import { relativeTime } from "../lib/utils";
+import { cn, relativeTime } from "../lib/utils";
 import { EmptyState } from "../components/EmptyState";
 import { HeroSection } from "../components/HeroSection";
 import { PageSkeleton } from "../components/PageSkeleton";
-import { AgentJobIdentity } from "../components/agent-presence-primitives";
+import {
+  AgentJobIdentity,
+  getAgentRolePresentation,
+} from "../components/agent-presence-primitives";
 
 function TeamLaneCard({
   title,
@@ -76,42 +79,98 @@ function TeamRosterSection({
     lastHeartbeatAt: Date | string | null;
   }>;
 }) {
+  function describeActivity(agent: (typeof agents)[number]) {
+    if (agent.status === "active") {
+      return agent.lastHeartbeatAt ? "Hot lane" : "Ready";
+    }
+    if (agent.status === "paused") return "Paused";
+    if (agent.status === "terminated") return "Offline";
+    return "Standby";
+  }
+
+  function describePosture(agent: (typeof agents)[number]) {
+    if (agent.status === "paused") {
+      return "This lane is paused and will not pick up new work until an operator resumes it.";
+    }
+    if (agent.status === "terminated") {
+      return "This lane is archived. Re-staff before routing new work here.";
+    }
+    if (!agent.lastHeartbeatAt) {
+      return "Rostered and available, but no fresh heartbeat has landed yet.";
+    }
+    return `Last heartbeat ${relativeTime(agent.lastHeartbeatAt)}. Keep this lane warm for the next handoff.`;
+  }
+
   return (
     <section className="rounded-[1.7rem] border border-border bg-card shadow-card">
       <div className="border-b border-border px-5 py-4">
         <h2 className="text-lg font-semibold text-foreground">{title}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
       </div>
-      <div className="divide-y divide-border">
+      <div className="grid gap-3 p-5">
         {agents.length === 0 ? (
-          <div className="px-5 py-8 text-sm text-muted-foreground">No agents assigned to this lane yet.</div>
+          <div className="rounded-[1.35rem] border border-dashed border-border px-5 py-8 text-sm text-muted-foreground">
+            No agents assigned to this lane yet.
+          </div>
         ) : (
-          agents.map((agent) => (
-            <Link
-              key={agent.id}
-              to={`/agents/${agent.urlKey ?? agent.id}`}
-              className="flex items-start justify-between gap-4 px-5 py-4 no-underline transition-colors hover:bg-accent/35"
-            >
-              <div className="min-w-0 flex-1">
-                <AgentJobIdentity
-                  name={agent.name}
-                  role={agent.role}
-                  title={agent.title}
-                  icon={agent.icon}
-                  adapterType={agent.adapterType}
-                  subtitle={agent.lastHeartbeatAt ? `heartbeat ${relativeTime(agent.lastHeartbeatAt)}` : "no heartbeat yet"}
-                />
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {agent.status}
-                  </span>
-                  <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {agent.lastHeartbeatAt ? "recently active" : "cold lane"}
-                  </span>
+          agents.map((agent) => {
+            const presentation = getAgentRolePresentation(agent.role, agent.title);
+            const activity = describeActivity(agent);
+
+            return (
+              <Link
+                key={agent.id}
+                to={`/agents/${agent.urlKey ?? agent.id}`}
+                className="rounded-[1.35rem] border border-border bg-background/80 p-4 no-underline transition-colors hover:border-primary/20 hover:bg-accent/30"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                      presentation.badgeClassName,
+                    )}
+                  >
+                    <presentation.icon className={cn("h-3.5 w-3.5", presentation.iconClassName)} />
+                    {presentation.classLabel}
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[11px]">
+                    <span className="rounded-full border border-border bg-card px-2.5 py-1 font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {agent.status}
+                    </span>
+                    <span
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 font-medium uppercase tracking-[0.14em]",
+                        agent.lastHeartbeatAt
+                          ? "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200"
+                          : "border-border bg-card text-muted-foreground",
+                      )}
+                    >
+                      {activity}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))
+
+                <div className="mt-4">
+                  <AgentJobIdentity
+                    name={agent.name}
+                    role={agent.role}
+                    title={agent.title}
+                    icon={agent.icon}
+                    adapterType={agent.adapterType}
+                    subtitle={
+                      agent.lastHeartbeatAt
+                        ? `heartbeat ${relativeTime(agent.lastHeartbeatAt)}`
+                        : "no heartbeat yet"
+                    }
+                  />
+                </div>
+
+                <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                  {describePosture(agent)}
+                </p>
+              </Link>
+            );
+          })
         )}
       </div>
     </section>
