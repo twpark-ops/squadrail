@@ -1803,6 +1803,44 @@ describe("issue routes wakeup handling", () => {
     });
   });
 
+  it("cancels issue-scoped heartbeat work when an issue is hidden", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-102A",
+      title: "Existing issue",
+      status: "blocked",
+      assigneeAgentId: null,
+      assigneeUserId: null,
+      createdByUserId: "user-1",
+      hiddenAt: null,
+    });
+    mockIssueUpdate.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-102A",
+      title: "Existing issue",
+      status: "blocked",
+      assigneeAgentId: null,
+      assigneeUserId: null,
+      hiddenAt: new Date().toISOString(),
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id",
+      method: "patch",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      body: { hiddenAt: new Date().toISOString() },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockHeartbeatCancelIssueScope).toHaveBeenCalledWith({
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      reason: "Issue hidden via update",
+    });
+  });
+
   it("awaits wakeup on checkout", async () => {
     let wakeResolved = false;
     mockIssueGetById.mockResolvedValue({
@@ -4265,7 +4303,7 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(mockHeartbeatCancelSupersededIssueFollowups).toHaveBeenCalledWith({
+    expect(mockHeartbeatCancelIssueScope).toHaveBeenCalledWith({
       companyId: "company-1",
       issueId: "11111111-1111-4111-8111-111111111111",
       excludeRunId: null,
@@ -4281,6 +4319,76 @@ describe("issue routes wakeup handling", () => {
         headSha: "abc123",
       }),
     );
+  });
+
+  it("cancels issue-scoped follow-up work when CLOSE_TASK is posted", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-229A",
+      title: "Completed issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+      status: "done",
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "lead-1",
+      companyId: "company-1",
+      role: "tech_lead",
+      title: "Cloud Tech Lead",
+      permissions: {},
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "close-scope-1", seq: 9 },
+      state: { workflowState: "done" },
+    });
+    mockHeartbeatCancelIssueScope.mockResolvedValue({
+      cancelledWakeupCount: 1,
+      cancelledRunCount: 2,
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: {
+        ...buildAgentActor("lead-1"),
+        runId: "run-close-1",
+      },
+      body: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          { recipientType: "role_group", recipientId: "human_board", role: "human_board" },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "Close the issue",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Implementation and verification are complete",
+          verificationSummary: "Focused validation passed",
+          rollbackPlan: "Revert the implementation commit",
+          finalArtifacts: ["Review notes attached"],
+          finalTestStatus: "passed",
+          mergeStatus: "merge_not_required",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatCancelIssueScope).toHaveBeenCalledWith({
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      excludeRunId: "run-close-1",
+      reason: "Issue closed via protocol",
+    });
   });
 
   it("records board workflow template trace in protocol activity logs", async () => {

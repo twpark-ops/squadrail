@@ -3843,6 +3843,7 @@ export function heartbeatService(db: Db) {
       companyId: string;
       issueId: string;
       reason?: string | null;
+      excludeRunId?: string | null;
     }) => {
       const cancelledAt = new Date();
       const reason = readNonEmptyString(input.reason) ?? "Cancelled by control plane";
@@ -3870,16 +3871,19 @@ export function heartbeatService(db: Db) {
           .where(inArray(agentWakeupRequests.id, wakeupRows.map((row) => row.id)));
       }
 
+      const runConditions = [
+        eq(heartbeatRuns.companyId, input.companyId),
+        inArray(heartbeatRuns.status, ["queued", "running"]),
+        sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
+      ];
+      if (input.excludeRunId) {
+        runConditions.push(sql`${heartbeatRuns.id} <> ${input.excludeRunId}`);
+      }
+
       const runs = await db
         .select({ id: heartbeatRuns.id })
         .from(heartbeatRuns)
-        .where(
-          and(
-            eq(heartbeatRuns.companyId, input.companyId),
-            inArray(heartbeatRuns.status, ["queued", "running"]),
-            sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
-          ),
-        )
+        .where(and(...runConditions))
         .orderBy(
           sql`case when ${heartbeatRuns.status} = 'running' then 0 else 1 end`,
           asc(heartbeatRuns.createdAt),

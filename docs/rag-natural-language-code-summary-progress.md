@@ -251,6 +251,11 @@
 - 남은 blocker:
   - hidden evaluation issue를 cleanup한 뒤에도 hidden child issue 기준으로 queued/running follow-up run이 다시 붙는 버그가 남아 있다
   - visible evaluation issue는 cleanup 완료했지만 active heartbeat run은 child issue에서 재발한다
+- cleanup hardening 1차:
+  - `PATCH /api/issues/:id`에서 issue를 hidden 처리할 때 `heartbeat.cancelIssueScope()`를 같이 호출하도록 보강했다
+  - `CLOSE_TASK` 처리 시 current run을 제외한 issue-scoped queued/running follow-up을 함께 정리하도록 보강했다
+  - focused regression:
+    - `pnpm --filter @squadrail/server exec vitest run -c vitest.heavy.config.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issues-routes.test.ts`
 - immediate next:
   1. hidden child issue follow-up run root cause 추적
   2. Phase 5 live proof를 `domain-aware proof only`와 `rag-readiness`로 분리해 안정적으로 완주

@@ -132,6 +132,10 @@
 - residual risk:
   - hidden evaluation issue cleanup 뒤에도 hidden child issue 기준 queued/running follow-up run이 다시 생기는 버그가 남아 있다
   - visible evaluation issue는 정리됐지만 active run cleanup hardening이 아직 필요하다
+  - cleanup hardening 1차는 들어갔다
+    - `PATCH /api/issues/:id` hide 시 `heartbeat.cancelIssueScope()` 호출
+    - `CLOSE_TASK` 시 current run을 제외한 issue-scoped follow-up cancel
+    - focused regression: `pnpm --filter @squadrail/server exec vitest run -c vitest.heavy.config.ts src/__tests__/heartbeat-service-flow.test.ts src/__tests__/issues-routes.test.ts`
 
 ## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
 

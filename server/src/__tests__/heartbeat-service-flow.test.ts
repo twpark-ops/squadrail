@@ -477,6 +477,60 @@ describe("heartbeat service flow coverage", () => {
     });
   });
 
+  it("keeps the excluded active run when cancelling an issue scope", async () => {
+    const excludedRun = makeRun({
+      id: "run-excluded-1",
+      wakeupRequestId: "wake-excluded-1",
+      status: "running",
+      contextSnapshot: {
+        issueId: "issue-3",
+      },
+    });
+    const queuedRun = makeRun({
+      id: "run-cancel-3",
+      wakeupRequestId: "wake-cancel-3",
+      status: "queued",
+      contextSnapshot: {
+        issueId: "issue-3",
+      },
+    });
+    const cancelledRun = {
+      ...queuedRun,
+      status: "cancelled",
+      finishedAt: new Date("2026-03-13T05:10:00Z"),
+      error: "Cancelled by control plane",
+      errorCode: "cancelled",
+    };
+    const { db, updateSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agentWakeupRequests, [[{ id: "wake-cancel-3" }]]],
+        [heartbeatRuns, [[excludedRun, queuedRun], [queuedRun], [queuedRun], [{ count: 0 }]]],
+        [issues, [[]]],
+        [agents, [[makeAgent()]]],
+      ]),
+      updateRows: new Map([
+        [heartbeatRuns, [[cancelledRun]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    await expect(
+      service.cancelIssueScope({
+        companyId: "company-1",
+        issueId: "issue-3",
+        excludeRunId: "run-excluded-1",
+      }),
+    ).resolves.toEqual({
+      cancelledWakeupCount: 1,
+      cancelledRunCount: 1,
+    });
+
+    expect(updateSets.find((entry) => entry.table === heartbeatRuns)?.value).toMatchObject({
+      status: "cancelled",
+      errorCode: "cancelled",
+    });
+  });
+
   it("ensures runtime state and prefers the latest task session display id", async () => {
     const ensuredState = {
       agentId: "agent-1",

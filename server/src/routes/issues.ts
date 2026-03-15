@@ -1192,14 +1192,14 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     if (effectiveMessage.messageType === "CLOSE_TASK") {
       try {
-        await heartbeat.cancelSupersededIssueFollowups({
+        await heartbeat.cancelIssueScope({
           companyId: input.issue.companyId,
           issueId: input.issue.id,
           excludeRunId: input.actor.runId ?? null,
           reason: "Issue closed via protocol",
         });
       } catch (err) {
-        logger.error({ err, issueId: input.issue.id }, "Superseded protocol follow-up cleanup failed");
+        logger.error({ err, issueId: input.issue.id }, "Issue close cleanup failed");
       }
     }
 
@@ -1909,6 +1909,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     if (hiddenAtRaw !== undefined) {
       updateFields.hiddenAt = hiddenAtRaw ? new Date(hiddenAtRaw) : null;
     }
+    const shouldCancelIssueScopeOnHide = !existing.hiddenAt && Boolean(updateFields.hiddenAt);
     let issue;
     try {
       issue = await svc.update(id, updateFields);
@@ -1939,6 +1940,18 @@ export function issueRoutes(db: Db, storage: StorageService) {
     if (!issue) {
       res.status(404).json({ error: "Issue not found" });
       return;
+    }
+
+    if (shouldCancelIssueScopeOnHide) {
+      try {
+        await heartbeat.cancelIssueScope({
+          companyId: issue.companyId,
+          issueId: issue.id,
+          reason: "Issue hidden via update",
+        });
+      } catch (err) {
+        logger.error({ err, issueId: issue.id }, "Issue hide cleanup failed");
+      }
     }
 
     // Build activity details with previous values for changed fields
