@@ -97,7 +97,9 @@ describe("knowledge import service", () => {
       usage: { totalTokens: texts.length * 10 },
       embeddings: texts.map(() => [0.1, 0.2]),
     }));
-    mockCreateDocument.mockResolvedValue({ id: "document-1" });
+    mockCreateDocument.mockImplementation(async ({ sourceType, path }: { sourceType: string; path?: string | null }) => ({
+      id: `${sourceType}:${path ?? "unknown"}`,
+    }));
     mockDeprecateSupersededDocuments.mockResolvedValue(0);
     mockReplaceDocumentChunks.mockImplementation(async ({ chunks }: { chunks: Array<Record<string, unknown>> }) => (
       chunks.map((chunk, index) => ({ id: `chunk-${index + 1}`, ...chunk }))
@@ -268,11 +270,11 @@ describe("knowledge import service", () => {
     }));
     expect(result?.documents).toEqual([
       expect.objectContaining({
-        documentId: "document-1",
+        documentId: "code:src/controller.ts",
         path: "src/controller.ts",
       }),
     ]);
-    expect(mockCreateDocument).toHaveBeenCalledTimes(1);
+    expect(mockCreateDocument).toHaveBeenCalledTimes(3);
     expect(mockCreateDocument).toHaveBeenCalledWith(expect.objectContaining({
       companyId: "company-1",
       sourceType: "code",
@@ -284,7 +286,7 @@ describe("knowledge import service", () => {
     }));
     expect(mockReplaceDocumentChunks).toHaveBeenCalledWith(expect.objectContaining({
       companyId: "company-1",
-      documentId: "document-1",
+      documentId: "code:src/controller.ts",
       chunks: expect.arrayContaining([
         expect.objectContaining({
           links: expect.arrayContaining([
@@ -295,6 +297,11 @@ describe("knowledge import service", () => {
         }),
       ]),
     }));
+    expect(mockCreateDocument.mock.calls.map((call) => call[0]?.sourceType)).toEqual([
+      "code",
+      "code_summary",
+      "symbol_summary",
+    ]);
     expect(mockDeprecateDocumentsByPaths).toHaveBeenCalledWith(expect.objectContaining({
       companyId: "company-1",
       projectId: "project-1",

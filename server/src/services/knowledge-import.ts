@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Db } from "@squadrail/db";
 import { logActivity } from "./activity-log.js";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
+import { syncKnowledgeSummaryDocuments } from "./knowledge-summary.js";
 import { knowledgeService } from "./knowledge.js";
 import { projectService } from "./projects.js";
 import { inspectWorkspaceVersionContext, listWorkspaceChangedPaths } from "./workspace-git-snapshot.js";
@@ -2247,6 +2248,45 @@ export function knowledgeImportService(db: Db) {
             workspaceId: workspace.id,
             workspaceName: workspace.name,
           },
+        });
+        await syncKnowledgeSummaryDocuments({
+          knowledge,
+          embeddings,
+          sourceDocument: {
+            id: document.id,
+            companyId: project.companyId,
+            projectId: project.id,
+            sourceType: descriptor.sourceType,
+            authorityLevel: "canonical",
+            repoUrl: workspace.repoUrl,
+            repoRef: workspace.repoRef,
+            path: relativePath,
+            title: descriptor.title,
+            language: descriptor.language,
+            rawContent,
+            metadata: {
+              importSource: "workspace",
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+              cwd: workspace.cwd,
+              versionBranchName: workspaceVersion?.branchName ?? null,
+              versionDefaultBranchName: workspaceVersion?.defaultBranchName ?? null,
+              versionCommitSha: workspaceVersion?.headSha ?? null,
+              versionParentCommitSha: workspaceVersion?.parentCommitSha ?? null,
+              versionCapturedAt: workspaceVersion?.capturedAt ?? generatedAt,
+              versionIsDefaultBranch: workspaceVersion?.isDefaultBranch ?? false,
+              versionIsHead: true,
+            },
+          },
+          workspace: {
+            id: workspace.id,
+            name: workspace.name,
+            cwd: workspace.cwd,
+          },
+          baseTags: descriptor.tags,
+          codeChunks: chunkInputs,
+          codeGraph,
+          generatedAt,
         });
 
         importedFiles += 1;

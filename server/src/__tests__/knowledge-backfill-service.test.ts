@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockGetProviderInfo,
   mockGenerateEmbeddings,
+  mockCreateDocument,
+  mockDeprecateSupersededDocuments,
   mockGetDocumentById,
   mockListDocumentChunksWithLinks,
   mockReplaceDocumentChunks,
@@ -18,6 +20,8 @@ const {
 } = vi.hoisted(() => ({
   mockGetProviderInfo: vi.fn(),
   mockGenerateEmbeddings: vi.fn(),
+  mockCreateDocument: vi.fn(),
+  mockDeprecateSupersededDocuments: vi.fn(),
   mockGetDocumentById: vi.fn(),
   mockListDocumentChunksWithLinks: vi.fn(),
   mockReplaceDocumentChunks: vi.fn(),
@@ -40,6 +44,8 @@ vi.mock("../services/knowledge-embeddings.js", () => ({
 
 vi.mock("../services/knowledge.js", () => ({
   knowledgeService: () => ({
+    createDocument: mockCreateDocument,
+    deprecateSupersededDocuments: mockDeprecateSupersededDocuments,
     getDocumentById: mockGetDocumentById,
     listDocumentChunksWithLinks: mockListDocumentChunksWithLinks,
     replaceDocumentChunks: mockReplaceDocumentChunks,
@@ -136,6 +142,17 @@ describe("knowledge backfill service", () => {
       model: "text-embedding-3-small",
       dimensions: 1536,
     });
+    mockGenerateEmbeddings.mockResolvedValue({
+      embeddings: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]],
+      provider: "openai",
+      model: "text-embedding-3-small",
+      dimensions: 1536,
+      usage: { totalTokens: 96 },
+    });
+    mockCreateDocument.mockImplementation(async ({ sourceType, path }: { sourceType: string; path?: string | null }) => ({
+      id: `${sourceType}:${path ?? "unknown"}`,
+    }));
+    mockDeprecateSupersededDocuments.mockResolvedValue(0);
     mockGetDocumentById.mockResolvedValue(buildDocument());
     mockListDocumentChunksWithLinks.mockResolvedValue([]);
     mockReplaceDocumentChunks.mockResolvedValue([]);
@@ -332,6 +349,10 @@ describe("knowledge backfill service", () => {
       codeGraphEdgeCount: 1,
       codeGraphRebuiltAt: expect.any(String),
     }));
+    expect(mockCreateDocument.mock.calls.map((call) => call[0]?.sourceType)).toEqual([
+      "code_summary",
+      "symbol_summary",
+    ]);
   });
 
   it("rebuilds company code graph in deterministic priority order", async () => {

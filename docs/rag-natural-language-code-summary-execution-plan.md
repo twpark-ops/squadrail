@@ -258,6 +258,11 @@ v1 summary shape:
 
 - fresh knowledge sync 후 `code_summary / symbol_summary` document/chunk가 실제로 생성됨
 
+현재 상태:
+
+- 2026-03-15 기준 구현/검증 완료
+- 다음 단계는 `Phase 3 retrieval integration`
+
 ### Verification
 
 - knowledge import service test

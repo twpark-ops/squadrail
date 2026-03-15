@@ -4,6 +4,7 @@ import { knowledgeDocuments } from "@squadrail/db";
 import { logActivity } from "./activity-log.js";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
 import { buildCodeGraphForWorkspaceFile } from "./knowledge-import.js";
+import { syncKnowledgeSummaryDocuments } from "./knowledge-summary.js";
 import { knowledgeService } from "./knowledge.js";
 import { projectService } from "./projects.js";
 import { inspectWorkspaceVersionContext } from "./workspace-git-snapshot.js";
@@ -347,6 +348,28 @@ export function knowledgeBackfillService(db: Db) {
         codeGraphRebuiltAt: new Date().toISOString(),
       });
       await recordVersionFromDocumentMetadata(document);
+      await syncKnowledgeSummaryDocuments({
+        knowledge,
+        embeddings,
+        sourceDocument: {
+          id: document.id,
+          companyId: document.companyId,
+          projectId: document.projectId,
+          sourceType: document.sourceType,
+          authorityLevel: "canonical",
+          repoUrl: null,
+          repoRef: document.repoRef,
+          path: document.path,
+          language: document.language,
+          rawContent: document.rawContent,
+          metadata: document.metadata,
+        },
+        baseTags: Array.isArray(document.metadata?.tags)
+          ? document.metadata.tags.filter((value): value is string => typeof value === "string")
+          : [],
+        codeChunks: replacementChunks,
+        codeGraph,
+      });
 
       await logActivity(db, {
         companyId: document.companyId,

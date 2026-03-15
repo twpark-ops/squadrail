@@ -48,6 +48,32 @@
   - `Phase 2 importer/backfill summary generation`
   - summary document 생성 후 같은 domain-aware PM scenario set으로 pre/post proof runner 연결
 
+## 2026-03-15 RAG meaning layer Phase 2 import/backfill generation
+
+- `Phase 2`는 importer/backfill이 실제 `code_summary / symbol_summary` document와 chunk를 생성하는 단계로 닫았다.
+- 새 helper:
+  - [`knowledge-summary.ts`](/home/taewoong/company-project/squadall/server/src/services/knowledge-summary.ts)
+  - `buildKnowledgeSummaryDrafts()`로 source `code` document에서 file-level / symbol-level summary draft를 만든다.
+  - `syncKnowledgeSummaryDocuments()`로 summary document 생성, superseded deprecate, embedding/chunk replace, version record, source metadata sync를 묶는다.
+- import/backfill wiring:
+  - [`knowledge-import.ts`](/home/taewoong/company-project/squadall/server/src/services/knowledge-import.ts)
+    - code import 직후 summary sync 실행
+  - [`knowledge-backfill.ts`](/home/taewoong/company-project/squadall/server/src/services/knowledge-backfill.ts)
+    - code graph rebuild 직후 summary sync 실행
+- 테스트:
+  - [`knowledge-summary.test.ts`](/home/taewoong/company-project/squadall/server/src/__tests__/knowledge-summary.test.ts)
+  - [`knowledge-import-service.test.ts`](/home/taewoong/company-project/squadall/server/src/__tests__/knowledge-import-service.test.ts)
+  - [`knowledge-backfill-service.test.ts`](/home/taewoong/company-project/squadall/server/src/__tests__/knowledge-backfill-service.test.ts)
+- 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/knowledge-summary.test.ts src/__tests__/knowledge-import-service.test.ts src/__tests__/knowledge-backfill.test.ts src/__tests__/knowledge-backfill-service.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `git diff --check`
+- 현재 해석:
+  - summary source는 이제 import/backfill에서 deterministic하게 생긴다.
+  - 다음 핵심은 `Phase 3 retrieval integration`이다.
+  - 즉 summary source를 retrieval scoring / personalization / PM candidate trace에 실제 반영해야 pre/post live proof가 의미가 생긴다.
+
 ## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
 
 - lower delivery kernel은 제품 기준으로 이미 충분히 닫혔다.

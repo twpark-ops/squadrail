@@ -14,7 +14,7 @@
 |---|---|---|---|
 | 0 | Baseline fixture freeze | completed | strict/autonomy/browser/rag/domain-aware baseline 실행 완료, cleanup follow-up run bug는 residual risk |
 | 1 | Summary source contract | completed | shared source type, summary metadata, route validation, retrieval policy 반영 완료 |
-| 2 | Import-time summary generation | pending | importer/backfill summary 생성 |
+| 2 | Import-time summary generation | completed | importer/backfill에서 `code_summary` / `symbol_summary` 생성 및 source metadata sync 완료 |
 | 3 | Retrieval integration | pending | summary source weighting / trace |
 | 4 | Live proof harness | pending | baseline vs summary-enabled diff |
 | 5 | Full live proof gate | pending | kernel/autonomy/browser/rag/domain-aware PM green |
@@ -156,7 +156,35 @@
 
 ### Phase 2
 
-- pending
+- 새 summary generator 추가:
+  - [knowledge-summary.ts](/home/taewoong/company-project/squadall/server/src/services/knowledge-summary.ts)
+  - `buildKnowledgeSummaryDrafts()`
+  - `syncKnowledgeSummaryDocuments()`
+- 생성 계약:
+  - source `code` document 1개당 `code_summary` document 1개 생성
+  - 같은 source `code` document 1개당 `symbol_summary` document 1개 생성
+  - `symbol_summary`는 top-level symbol별 chunk를 가진다
+  - source document metadata에 `summarySyncedAt`, `summaryDocumentCount`, `summarySourceTypes`를 기록한다
+- import/backfill 연결:
+  - [knowledge-import.ts](/home/taewoong/company-project/squadall/server/src/services/knowledge-import.ts)
+    - code import 직후 summary document/chunk/link를 함께 sync
+  - [knowledge-backfill.ts](/home/taewoong/company-project/squadall/server/src/services/knowledge-backfill.ts)
+    - graph rebuild/backfill 직후 summary document/chunk/link를 함께 sync
+- 테스트:
+  - [knowledge-import-service.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/knowledge-import-service.test.ts)
+    - import 시 `code`, `code_summary`, `symbol_summary` createDocument 호출 고정
+  - [knowledge-backfill-service.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/knowledge-backfill-service.test.ts)
+    - graph rebuild 시 summary source createDocument 호출 고정
+  - [knowledge-summary.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/knowledge-summary.test.ts)
+    - draft shape / summary sync / source metadata update direct helper test 추가
+- 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/knowledge-summary.test.ts src/__tests__/knowledge-import-service.test.ts src/__tests__/knowledge-backfill.test.ts src/__tests__/knowledge-backfill-service.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+  - `git diff --check`
+- 결과:
+  - summary source는 importer/backfill 경로에서 deterministic하게 생성된다
+  - phase 3은 이제 retrieval scoring과 hit trace에 summary source를 실제 반영하는 단계로 넘어간다
 
 ### Phase 3
 
