@@ -13,7 +13,7 @@
 | Phase | 목표 | 상태 | 비고 |
 |---|---|---|---|
 | 0 | Baseline fixture freeze | completed | strict/autonomy/browser/rag/domain-aware baseline 실행 완료, cleanup follow-up run bug는 residual risk |
-| 1 | Summary source contract | pending | source type / metadata / link contract |
+| 1 | Summary source contract | completed | shared source type, summary metadata, route validation, retrieval policy 반영 완료 |
 | 2 | Import-time summary generation | pending | importer/backfill summary 생성 |
 | 3 | Retrieval integration | pending | summary source weighting / trace |
 | 4 | Live proof harness | pending | baseline vs summary-enabled diff |
@@ -107,7 +107,52 @@
 
 ### Phase 1
 
-- pending
+- shared contract:
+  - [knowledge-source-types.ts](/home/taewoong/company-project/squadall/packages/shared/src/knowledge-source-types.ts) 추가
+  - `KnowledgeSourceType`를 repo 실제 사용 source type 12개로 고정
+  - `code_summary`, `symbol_summary`를 first-class source type으로 승격
+  - `knowledgeSummaryMetadataSchema` 추가
+    - `summaryVersion`
+    - `summaryKind`
+    - `sourceDocumentId`
+    - `sourcePath`
+    - `sourceLanguage`
+    - `sourceSymbolName`
+    - `sourceSymbolKind`
+    - `tags`
+    - `requiredKnowledgeTags`
+    - `pmProjectSelection.ownerTags/supportTags/avoidTags`
+  - summary link reason 상수 추가
+    - `summary_source_document`
+    - `summary_source_symbol`
+    - `summary_source_path`
+- server 연결:
+  - [knowledge.ts](/home/taewoong/company-project/squadall/server/src/routes/knowledge.ts)
+    - summary document 생성 시 metadata schema 검증
+    - retrieval policy `allowedSourceTypes`도 shared source type enum 사용
+  - [intake-routes.ts](/home/taewoong/company-project/squadall/server/src/routes/issues/intake-routes.ts)
+    - PM preview canonical source fetch를 shared `KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES`로 통일
+  - [pm-intake.ts](/home/taewoong/company-project/squadall/server/src/services/pm-intake.ts)
+    - canonical document filter를 shared source contract로 통일
+  - [retrieval-personalization.ts](/home/taewoong/company-project/squadall/server/src/services/retrieval-personalization.ts)
+    - summary source를 path boost eligible code context로 승격
+  - [retrieval/query.ts](/home/taewoong/company-project/squadall/server/src/services/retrieval/query.ts)
+  - [issue-retrieval.ts](/home/taewoong/company-project/squadall/server/src/services/issue-retrieval.ts)
+    - default retrieval policy와 dynamic source preference에 summary source 반영
+  - [retrieval/shared.ts](/home/taewoong/company-project/squadall/server/src/services/retrieval/shared.ts)
+    - reuse artifact 분류에서 summary source를 code-adjacent fix로 취급
+- 검증:
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/shared build`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/retrieval-personalization.test.ts src/__tests__/retrieval-query.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts`
+  - `pnpm --filter @squadrail/server exec vitest run -c vitest.heavy.config.ts src/__tests__/knowledge-routes-extended.test.ts`
+  - `git diff --check`
+- 결과:
+  - summary source가 API/validator/retrieval policy에 first-class로 노출됨
+  - summary metadata가 PM scoring용 tag/owner boundary 계약을 공식적으로 담을 수 있게 됨
+  - 아직 summary document를 실제 생성하는 importer/backfill은 Phase 2 범위로 남음
 
 ### Phase 2
 

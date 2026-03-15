@@ -143,7 +143,13 @@ describe("retrieval query helpers", () => {
     expect(signals.fileNames).toEqual(expect.arrayContaining(["retry_worker.ts", "retry_worker.test.ts", "recovery.md"]));
     expect(signals.knowledgeTags).toEqual(expect.arrayContaining(["RetryWorkerGuard", "tenant lease", "operator playbook"]));
     expect(signals.symbolHints).toEqual(expect.arrayContaining(["RetryWorkerGuard", "retry_worker", "recovery"]));
-    expect(signals.preferredSourceTypes.slice(0, 3)).toEqual(["code", "test_report", "review"]);
+    expect(signals.preferredSourceTypes).toEqual(expect.arrayContaining([
+      "code",
+      "code_summary",
+      "symbol_summary",
+      "test_report",
+      "review",
+    ]));
     expect(signals.preferredSourceTypes).toContain("protocol_message");
     expect(signals.projectAffinityIds).toEqual(["project-1", "project-2"]);
     expect(signals.projectAffinityNames).toEqual(["runtime-core"]);

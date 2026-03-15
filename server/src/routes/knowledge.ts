@@ -3,6 +3,11 @@ import { z } from "zod";
 import type { Db } from "@squadrail/db";
 import { KNOWLEDGE_EMBEDDING_DIMENSIONS } from "@squadrail/db";
 import {
+  isKnowledgeSummarySourceType,
+  knowledgeSourceTypeSchema,
+  knowledgeSummaryMetadataSchema,
+} from "@squadrail/shared";
+import {
   buildCodeGraphForWorkspaceFile,
   knowledgeBackfillService,
   knowledgeEmbeddingService,
@@ -17,7 +22,7 @@ import { assertCompanyAccess, getActorInfo } from "./authz.js";
 
 const createKnowledgeDocumentSchema = z.object({
   companyId: z.string().uuid(),
-  sourceType: z.string().min(1),
+  sourceType: knowledgeSourceTypeSchema,
   authorityLevel: z.string().min(1),
   contentSha256: z.string().min(1),
   rawContent: z.string().min(1),
@@ -30,7 +35,17 @@ const createKnowledgeDocumentSchema = z.object({
   title: z.string().min(1).nullable().optional(),
   language: z.string().min(1).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (!isKnowledgeSummarySourceType(value.sourceType)) return;
+  const parsed = knowledgeSummaryMetadataSchema.safeParse(value.metadata ?? {});
+  if (parsed.success) return;
+  for (const issue of parsed.error.issues) {
+    ctx.addIssue({
+      ...issue,
+      path: ["metadata", ...issue.path],
+    });
+  }
+});
 
 const createKnowledgeChunkLinkSchema = z.object({
   entityType: z.string().min(1),
@@ -68,7 +83,7 @@ const importProjectWorkspaceSchema = z.object({
 const listDocumentsSchema = z.object({
   companyId: z.string().uuid(),
   projectId: z.string().uuid().optional(),
-  sourceType: z.string().min(1).optional(),
+  sourceType: knowledgeSourceTypeSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
@@ -129,7 +144,7 @@ const upsertRetrievalPolicySchema = z.object({
   topKSparse: z.number().int().min(1).max(200).optional(),
   rerankK: z.number().int().min(1).max(200).optional(),
   finalK: z.number().int().min(1).max(50).optional(),
-  allowedSourceTypes: z.array(z.string().min(1)).min(1),
+  allowedSourceTypes: z.array(knowledgeSourceTypeSchema).min(1),
   allowedAuthorityLevels: z.array(z.string().min(1)).min(1),
   metadata: z.record(z.unknown()).optional(),
 }).strict();

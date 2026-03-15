@@ -208,6 +208,84 @@ describe("knowledge routes extended coverage", () => {
     expect(response.body).toEqual({ error: "Failed to create knowledge document" });
   });
 
+  it("rejects invalid summary metadata for summary knowledge documents", async () => {
+    const app = createApp();
+    const response = await request(app).post("/knowledge/documents").send({
+      companyId: "11111111-1111-4111-8111-111111111111",
+      sourceType: "code_summary",
+      authorityLevel: "canonical",
+      contentSha256: "sha256",
+      rawContent: "Runtime routing summary",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      path: "docs/runtime-summary.md",
+      title: "Runtime summary",
+      language: "md",
+      metadata: {
+        summaryKind: "module",
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Validation error");
+    expect(response.body.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: ["metadata", "summaryVersion"],
+      }),
+    ]));
+  });
+
+  it("accepts valid summary metadata for summary knowledge documents", async () => {
+    mockCreateDocument.mockResolvedValue({
+      id: "document-summary-1",
+      companyId: "11111111-1111-4111-8111-111111111111",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      issueId: null,
+      sourceType: "code_summary",
+      authorityLevel: "canonical",
+      metadata: {
+        summaryVersion: 1,
+        summaryKind: "module",
+        sourcePath: "src/runtime.ts",
+        tags: ["runtime", "orchestration"],
+        pmProjectSelection: {
+          ownerTags: ["runtime"],
+        },
+      },
+    });
+
+    const app = createApp();
+    const response = await request(app).post("/knowledge/documents").send({
+      companyId: "11111111-1111-4111-8111-111111111111",
+      sourceType: "code_summary",
+      authorityLevel: "canonical",
+      contentSha256: "sha256-summary",
+      rawContent: "Runtime routing summary",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      path: "docs/runtime-summary.md",
+      title: "Runtime summary",
+      language: "md",
+      metadata: {
+        summaryVersion: 1,
+        summaryKind: "module",
+        sourcePath: "src/runtime.ts",
+        tags: ["runtime", "orchestration"],
+        pmProjectSelection: {
+          ownerTags: ["runtime"],
+        },
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect(mockCreateDocument).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: "code_summary",
+      metadata: expect.objectContaining({
+        summaryVersion: 1,
+        summaryKind: "module",
+        sourcePath: "src/runtime.ts",
+      }),
+    }));
+  });
+
   it("records document versions and project revisions for successful document creation", async () => {
     mockCreateDocument.mockResolvedValue({
       id: "document-1",
@@ -473,7 +551,7 @@ describe("knowledge routes extended coverage", () => {
       topKSparse: 10,
       rerankK: 12,
       finalK: 6,
-      allowedSourceTypes: ["code", "review"],
+      allowedSourceTypes: ["code", "code_summary", "review"],
       allowedAuthorityLevels: ["workspace", "review"],
     });
 
@@ -487,7 +565,7 @@ describe("knowledge routes extended coverage", () => {
       topKSparse: 10,
       rerankK: 12,
       finalK: 6,
-      allowedSourceTypes: ["code", "review"],
+      allowedSourceTypes: ["code", "code_summary", "review"],
       allowedAuthorityLevels: ["workspace", "review"],
     });
     expect(mockLogActivity).toHaveBeenCalledTimes(1);

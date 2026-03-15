@@ -162,6 +162,28 @@ export {
 } from "./constants.js";
 export type { ProtocolRunRequirement } from "./protocol-run-requirements.js";
 export { resolveProtocolRunRequirement } from "./protocol-run-requirements.js";
+export {
+  KNOWLEDGE_SOURCE_TYPES,
+  KNOWLEDGE_SUMMARY_SOURCE_TYPES,
+  KNOWLEDGE_CODE_PATH_SOURCE_TYPES,
+  KNOWLEDGE_CODE_REUSE_SOURCE_TYPES,
+  KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES,
+  KNOWLEDGE_SUMMARY_KINDS,
+  KNOWLEDGE_SUMMARY_LINK_REASONS,
+  knowledgeSourceTypeSchema,
+  knowledgeSummarySourceTypeSchema,
+  knowledgeSummaryKindSchema,
+  knowledgeSummaryProjectSelectionSchema,
+  knowledgeSummaryMetadataSchema,
+  isKnowledgeSummarySourceType,
+  isKnowledgeSummaryLinkReason,
+  type KnowledgeSourceType,
+  type KnowledgeSummarySourceType,
+  type KnowledgeSummaryKind,
+  type KnowledgeSummaryProjectSelection,
+  type KnowledgeSummaryMetadata,
+  type KnowledgeSummaryLinkReason,
+} from "./knowledge-source-types.js";
 
 export type {
   Company,

@@ -128,6 +128,7 @@ describe("issue retrieval internal helpers", () => {
     });
     expect(reviewerPolicy.finalK).toBe(8);
     expect(reviewerPolicy.allowedSourceTypes).toContain("review");
+    expect(reviewerPolicy.allowedSourceTypes).toEqual(expect.arrayContaining(["code_summary", "symbol_summary"]));
 
     const rerankConfig = resolveRetrievalPolicyRerankConfig({
       allowedSourceTypes: ["code", "review"],

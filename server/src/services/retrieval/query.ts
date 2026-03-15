@@ -1,5 +1,11 @@
 import path from "node:path";
-import type { CreateIssueProtocolMessage } from "@squadrail/shared";
+import {
+  KNOWLEDGE_CODE_PATH_SOURCE_TYPES,
+  KNOWLEDGE_CODE_REUSE_SOURCE_TYPES,
+  KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES,
+  KNOWLEDGE_SUMMARY_SOURCE_TYPES,
+  type CreateIssueProtocolMessage,
+} from "@squadrail/shared";
 import type { RetrievalSignals } from "../issue-retrieval.js";
 import {
   basenameWithoutExtension,
@@ -328,10 +334,10 @@ export function deriveDynamicRetrievalSignals(input: {
   const payload = input.message.payload as Record<string, unknown>;
   const relatedIssueRefs = readRelatedIssueRefs(payload);
   const preferredSourceTypesByRole: Record<string, string[]> = {
-    engineer: ["code", "test_report", "review", "adr", "runbook", "issue"],
-    reviewer: ["code", "test_report", "review", "adr", "runbook", "issue"],
-    tech_lead: ["adr", "prd", "issue", "runbook", "review", "code"],
-    human_board: ["prd", "adr", "issue", "review", "runbook", "protocol_message"],
+    engineer: [...KNOWLEDGE_CODE_REUSE_SOURCE_TYPES, "review", "adr", "runbook", "issue"],
+    reviewer: [...KNOWLEDGE_CODE_REUSE_SOURCE_TYPES, "review", "adr", "runbook", "issue"],
+    tech_lead: ["adr", "prd", "issue", "runbook", "review", "code", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES],
+    human_board: ["prd", "adr", "issue", "review", "runbook", "protocol_message", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES],
   };
   const baselineSourceTypes = uniqueNonEmpty([
     ...(preferredSourceTypesByRole[input.recipientRole] ?? preferredSourceTypesByRole.engineer),
@@ -423,12 +429,14 @@ export function deriveDynamicRetrievalSignals(input: {
   const relatedIssueSignalPresent = relatedIssueRefs.issueIds.length > 0 || relatedIssueIdentifiers.length > 0;
 
   const preferredSourceTypes = uniqueNonEmpty([
-    ...(exactPaths.length > 0 ? ["code"] : []),
+    ...(exactPaths.length > 0 ? KNOWLEDGE_CODE_PATH_SOURCE_TYPES : []),
     ...(relatedIssueSignalPresent ? ["review", "protocol_message", "issue"] : []),
     ...(input.eventType === "on_review_submit" || input.eventType === "on_review_start" || input.eventType === "on_change_request"
-      ? ["code", "test_report", "review"]
+      ? [...KNOWLEDGE_CODE_REUSE_SOURCE_TYPES, "review"]
       : []),
-    ...((payload.questionType === "requirement" || payload.questionType === "scope") ? ["prd", "issue"] : []),
+    ...((payload.questionType === "requirement" || payload.questionType === "scope")
+      ? ["prd", "issue", ...KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES]
+      : []),
     ...(String(payload.blockerCode ?? "").includes("architecture") ? ["adr", "runbook"] : []),
     ...baselineSourceTypes,
   ]);

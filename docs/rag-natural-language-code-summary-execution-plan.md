@@ -178,13 +178,15 @@ DB 직접 조작이나 service direct call은 금지한다.
    - `symbol_summary`
 2. summary metadata contract 추가
    - `summaryKind`
-   - `sourceDocumentId`
-   - `sourceChunkId`
-   - `sourceSymbolKey`
-   - `language`
-   - `path`
+    - `sourceDocumentId`
+   - `sourcePath`
+   - `sourceLanguage`
+   - `sourceSymbolName`
+   - `sourceSymbolKind`
    - `summaryVersion`
-   - `generationModel`
+   - `tags`
+   - `requiredKnowledgeTags`
+   - `pmProjectSelection.ownerTags / supportTags / avoidTags`
 3. chunk link reason contract 추가
    - raw code <-> summary 연결
 4. retrieval allowed source type / policy 메타에 summary source 반영
@@ -203,8 +205,11 @@ DB 직접 조작이나 service direct call은 금지한다.
 
 - `pnpm --filter @squadrail/shared typecheck`
 - `pnpm --filter @squadrail/server typecheck`
-- knowledge route validation test
-- retrieval source type regression test
+- `pnpm --filter @squadrail/shared build`
+- `pnpm --filter @squadrail/server build`
+- `pnpm --filter @squadrail/server exec vitest run src/__tests__/retrieval-personalization.test.ts src/__tests__/retrieval-query.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts`
+- `pnpm --filter @squadrail/server exec vitest run -c vitest.heavy.config.ts src/__tests__/knowledge-routes-extended.test.ts`
+- `git diff --check`
 
 ### Review Gate
 

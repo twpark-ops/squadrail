@@ -2,6 +2,7 @@ import { validate } from "../../middleware/validate.js";
 import {
   createPmIntakeIssueSchema,
   createPmIntakeProjectionSchema,
+  KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES,
   previewPmIntakeProjectionSchema,
   type CreateIssueProtocolMessage,
 } from "@squadrail/shared";
@@ -375,33 +376,13 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
     const [companyAgents, companyProjects, knowledgeDocsByType] = await Promise.all([
       agentsSvc.list(rootIssue.companyId),
       projectsSvc.list(rootIssue.companyId),
-      Promise.all([
+      Promise.all(KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES.map((sourceType) => (
         knowledge.listDocuments({
           companyId: rootIssue.companyId,
-          sourceType: "adr",
+          sourceType,
           limit: 500,
-        }),
-        knowledge.listDocuments({
-          companyId: rootIssue.companyId,
-          sourceType: "prd",
-          limit: 500,
-        }),
-        knowledge.listDocuments({
-          companyId: rootIssue.companyId,
-          sourceType: "runbook",
-          limit: 500,
-        }),
-        knowledge.listDocuments({
-          companyId: rootIssue.companyId,
-          sourceType: "code_summary",
-          limit: 500,
-        }),
-        knowledge.listDocuments({
-          companyId: rootIssue.companyId,
-          sourceType: "symbol_summary",
-          limit: 500,
-        }),
-      ]),
+        })
+      ))),
     ]);
     const companyKnowledgeDocuments = knowledgeDocsByType.flat();
 

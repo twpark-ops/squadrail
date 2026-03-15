@@ -141,6 +141,33 @@ describe("retrieval personalization", () => {
     expect(boost.matchedPath).toBeNull();
   });
 
+  it("treats summary hits as path-boost eligible code context", () => {
+    const boost = computeRetrievalPersonalizationBoost({
+      hit: {
+        sourceType: "code_summary",
+        path: "src/runtime/retry.ts",
+        symbolName: "RetryPlanner",
+      },
+      profile: {
+        applied: true,
+        scopes: ["project"],
+        feedbackCount: 3,
+        positiveFeedbackCount: 3,
+        negativeFeedbackCount: 0,
+        sourceTypeBoosts: { code_summary: 0.18 },
+        pathBoosts: { "src/runtime/retry.ts": 0.27 },
+        symbolBoosts: { RetryPlanner: 0.11 },
+      },
+    });
+
+    expect(boost.applied).toBe(true);
+    expect(boost.sourceTypeBoost).toBe(0.18);
+    expect(boost.pathBoost).toBe(0.27);
+    expect(boost.matchedSourceType).toBe("code_summary");
+    expect(boost.matchedPath).toBe("src/runtime/retry.ts");
+    expect(boost.matchedSymbol).toBe("RetryPlanner");
+  });
+
   it("normalizes paths, filters documentation targets, and clamps boost magnitudes", () => {
     expect(normalizePath("./src/retry.ts")).toBe("src/retry.ts");
     expect(isPersonalizablePathTarget("docs/adr/retries.md")).toBe(false);

@@ -13,7 +13,12 @@ import {
   knowledgeDocumentVersions,
   knowledgeDocuments,
 } from "@squadrail/db";
-import type { CreateIssueProtocolMessage } from "@squadrail/shared";
+import {
+  KNOWLEDGE_CODE_REUSE_SOURCE_TYPES,
+  KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES,
+  KNOWLEDGE_SUMMARY_SOURCE_TYPES,
+  type CreateIssueProtocolMessage,
+} from "@squadrail/shared";
 import { knowledgeEmbeddingService } from "./knowledge-embeddings.js";
 import { knowledgeRerankingService } from "./knowledge-reranking.js";
 import { knowledgeService } from "./knowledge.js";
@@ -1585,13 +1590,13 @@ export function defaultPolicyTemplate(input: {
   eventType: RetrievalEventType;
   workflowState: string;
 }) {
-  const engineerSources = ["code", "test_report", "review", "adr", "runbook", "issue"];
-  const reviewerSources = ["code", "test_report", "review", "adr", "runbook", "issue"];
-  const leadSources = ["prd", "adr", "runbook", "issue", "protocol_message", "review", "code"];
-  const boardSources = ["prd", "adr", "issue", "review", "protocol_message", "runbook"];
-  const ctoSources = ["prd", "adr", "runbook", "issue", "review", "protocol_message"];
-  const pmSources = ["prd", "issue", "adr", "runbook", "protocol_message", "review"];
-  const qaSources = ["test_report", "issue", "review", "code", "adr", "runbook"];
+  const engineerSources = [...KNOWLEDGE_CODE_REUSE_SOURCE_TYPES, "review", "adr", "runbook", "issue"];
+  const reviewerSources = [...KNOWLEDGE_CODE_REUSE_SOURCE_TYPES, "review", "adr", "runbook", "issue"];
+  const leadSources = [...KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES, "issue", "protocol_message", "review", "code"];
+  const boardSources = ["prd", "adr", "issue", "review", "protocol_message", "runbook", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES];
+  const ctoSources = [...KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES, "issue", "review", "protocol_message"];
+  const pmSources = ["prd", "issue", "adr", "runbook", "protocol_message", "review", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES];
+  const qaSources = ["test_report", "issue", "review", "code", "adr", "runbook", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES];
 
   const sourceMap: Record<RetrievalTargetRole, string[]> = {
     engineer: engineerSources,

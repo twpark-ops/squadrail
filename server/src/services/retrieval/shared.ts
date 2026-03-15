@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isKnowledgeSummarySourceType } from "@squadrail/shared";
 import type { RetrievalHitView } from "../issue-retrieval.js";
 import { classifyOrganizationalArtifact } from "../retrieval-evidence-guards.js";
 
@@ -86,7 +87,9 @@ export function classifyReuseArtifactKind(hit: RetrievalHitView) {
   const artifactClass = classifyOrganizationalArtifact(hit);
   const messageType = readMetadataString(hit.documentMetadata, "messageType");
   if (messageType === "CLOSE_TASK") return "close";
-  if (hit.sourceType === "code" || hit.sourceType === "test_report") return "fix";
+  if (hit.sourceType === "code" || hit.sourceType === "test_report" || isKnowledgeSummarySourceType(hit.sourceType)) {
+    return "fix";
+  }
   if (artifactClass === "review") return "review";
   return "decision";
 }

@@ -25,6 +25,29 @@
   - [`rag-natural-language-code-summary-plan.md`](/home/taewoong/company-project/squadall/docs/rag-natural-language-code-summary-plan.md)
   - [`rag-natural-language-code-summary-execution-plan.md`](/home/taewoong/company-project/squadall/docs/rag-natural-language-code-summary-execution-plan.md)
 
+## 2026-03-15 RAG meaning layer Phase 1 contract freeze
+
+- `Phase 0 baseline freeze`는 이미 완료했고, `Phase 1`은 summary source contract를 first-class로 고정했다.
+- shared contract:
+  - [`knowledge-source-types.ts`](/home/taewoong/company-project/squadall/packages/shared/src/knowledge-source-types.ts)
+  - repo 실제 사용 source type 12개를 shared enum으로 승격
+  - `code_summary`, `symbol_summary` source type / metadata / summary link reason 상수 추가
+- server wiring:
+  - knowledge route가 summary document metadata를 공식 검증한다
+  - PM preview canonical fetch와 retrieval policy default source type이 summary source를 포함한다
+  - retrieval personalization/reuse 분류가 summary source를 code-adjacent로 취급한다
+- 검증:
+  - `pnpm --filter @squadrail/shared typecheck`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/shared build`
+  - `pnpm --filter @squadrail/server build`
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/retrieval-personalization.test.ts src/__tests__/retrieval-query.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts`
+  - `pnpm --filter @squadrail/server exec vitest run -c vitest.heavy.config.ts src/__tests__/knowledge-routes-extended.test.ts`
+  - `git diff --check`
+- immediate next:
+  - `Phase 2 importer/backfill summary generation`
+  - summary document 생성 후 같은 domain-aware PM scenario set으로 pre/post proof runner 연결
+
 ## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
 
 - lower delivery kernel은 제품 기준으로 이미 충분히 닫혔다.

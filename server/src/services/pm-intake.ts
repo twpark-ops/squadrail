@@ -1,6 +1,8 @@
-import type {
-  PmIntakeProjectionPreviewRequest,
-  PmIntakeProjectionPreviewResult,
+import {
+  KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES,
+  type KnowledgeSourceType,
+  type PmIntakeProjectionPreviewRequest,
+  type PmIntakeProjectionPreviewResult,
 } from "@squadrail/shared";
 import { conflict, unprocessable } from "../errors.js";
 
@@ -31,7 +33,7 @@ export interface PmIntakeKnowledgeDocument {
   id: string;
   companyId: string;
   projectId: string | null;
-  sourceType: string;
+  sourceType: KnowledgeSourceType;
   authorityLevel: string;
   path?: string | null;
   title?: string | null;
@@ -55,6 +57,7 @@ interface BuildPmIntakeProjectionPreviewInput {
 }
 
 const ACTIVE_INTAKE_AGENT_STATUSES = new Set(["active", "idle", "running"]);
+const PM_CANONICAL_SOURCE_TYPE_SET = new Set<string>(KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES);
 
 export interface ResolvePmIntakeAgentsInput {
   agents: PmIntakeAgent[];
@@ -495,7 +498,7 @@ export function buildPmIntakeProjectionPreview(
   const companyKnowledgeDocuments = (input.knowledgeDocuments ?? [])
     .filter((document) => document.companyId === input.issue.companyId)
     .filter((document) => document.authorityLevel === "canonical")
-    .filter((document) => ["adr", "prd", "runbook", "code_summary", "symbol_summary"].includes(document.sourceType));
+    .filter((document) => PM_CANONICAL_SOURCE_TYPE_SET.has(document.sourceType));
   if (companyProjects.length === 0) {
     throw conflict("PM intake projection preview requires at least one company project");
   }

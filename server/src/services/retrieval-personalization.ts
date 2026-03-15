@@ -8,7 +8,7 @@ import {
   retrievalRoleProfiles,
   retrievalRuns,
 } from "@squadrail/db";
-import type { CreateIssueProtocolMessage } from "@squadrail/shared";
+import { isKnowledgeSummarySourceType, type CreateIssueProtocolMessage } from "@squadrail/shared";
 import { knowledgeService } from "./knowledge.js";
 
 const PROFILE_WINDOW_DAYS = 120;
@@ -124,7 +124,7 @@ export function isPersonalizablePathTarget(path: string | null | undefined) {
 }
 
 function isPathBoostEligibleSourceType(sourceType: string) {
-  return sourceType === "code" || sourceType === "test_report";
+  return sourceType === "code" || sourceType === "test_report" || isKnowledgeSummarySourceType(sourceType);
 }
 
 function sortBoostMap(input: Record<string, number>, limit: number) {
