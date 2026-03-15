@@ -8,6 +8,7 @@
 - `cloud-swiftsight-rag-readiness.mjs`: readiness gate for knowledge sync / retrieval quality before higher-level PM/domain evaluation.
 - `cloud-swiftsight-domain-aware-pm-eval.mjs`: single-scenario domain-aware PM harness. It creates a PM intake issue, previews PM projection, scores preview correctness, then applies the same preview draft into a bounded delivery loop and scores delivery completion. `cloud-swiftsight` is the current validation fixture, not a product-specific scoring shortcut.
 - `cloud-swiftsight-domain-aware-pm-burn-in.mjs`: runs the domain-aware PM scenarios sequentially and emits preview/delivery/overall score summaries. The target is generic project-selection behavior driven by knowledge tags and boundary metadata.
+- `cloud-swiftsight-summary-layer-proof.mjs`: compares the frozen Phase 0 domain-aware PM baseline artifact with the current summary-enabled matrix output and optionally attaches the current rag-readiness gate summary.
 
 ## Execution Split
 
@@ -34,3 +35,7 @@
   - purpose: run multiple domain-heavy PM evaluation scenarios in sequence and compare preview/delivery/overall score drift before/after RAG improvements
   - note: use this to validate generic PM/RAG behavior against a real domain fixture, not to justify company-name heuristics
   - primary command: `pnpm e2e:cloud-swiftsight-domain-aware-pm-burn-in`
+- `summary-layer proof`
+  - purpose: compare the frozen baseline artifact against the current summary-enabled PM matrix and emit a structured diff report
+  - note: this is the Phase 4 proof runner, not the final Phase 5 live gate
+  - primary command: `pnpm e2e:cloud-swiftsight-summary-layer-proof`

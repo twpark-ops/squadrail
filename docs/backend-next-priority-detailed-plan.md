@@ -46,6 +46,11 @@
 > - `13-R. runtime bottleneck helper/service-body uplift` 진행 중
 > - `13-S. runtime service-body coverage uplift toward 80%` 완료
 > 현재 다음 순차 작업은 `blueprint library governance/version authoring 심화(rollback/diff 확대) + migration helper provider 규칙 정리`다.
+>
+> 추가 업데이트 2026-03-15:
+> - 위 제품화 트랙과 병행해 `RAG natural-language code summary` 트랙이 Phase 0~4까지 올라갔다.
+> - `code_summary / symbol_summary` contract, importer/backfill generation, retrieval scoring, baseline/current proof runner는 완료다.
+> - immediate next는 `Phase 5 live proof 완주 + hidden child issue follow-up run cleanup hardening`이다.
 
 ## 목적
 

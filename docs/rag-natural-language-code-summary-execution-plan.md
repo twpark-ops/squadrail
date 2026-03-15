@@ -41,6 +41,18 @@
 - retrieval hit에서 summary source를 별도로 반영하는 scoring
 - summary layer가 실제 PM 판단을 개선했다는 pre/post 증명
 
+## 현재 체크포인트
+
+- `Phase 0`: completed
+- `Phase 1`: completed
+- `Phase 2`: completed
+- `Phase 3`: completed
+- `Phase 4`: completed
+  - baseline artifact, diff utility, proof runner, focused test까지 올라갔다
+- `Phase 5`: in progress
+  - live proof runner는 실제로 돌았지만 baseline 대비 domain-aware PM 점수 개선은 아직 없었다
+  - hidden child issue에서 queued/running follow-up run이 다시 붙는 cleanup bug가 남아 있다
+
 ## 증명 원칙
 
 이번 트랙은 아래 원칙으로 증명한다.

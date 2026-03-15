@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "fixture": {
+    "companyName": "cloud-swiftsight-summary-eval",
+    "issuePrefix": "CLOAAA",
+    "capturedAt": "2026-03-15T00:00:00.000Z"
+  },
+  "results": [
+    {
+      "scenario": "workflow_mismatch_diagnostics",
+      "previewScore": 10,
+      "previewMaxScore": 12,
+      "deliveryScore": 8,
+      "deliveryMaxScore": 8,
+      "overallScore": 18,
+      "overallMaxScore": 20,
+      "selectedProjectName": "swiftcl",
+      "deliveryClosed": true
+    },
+    {
+      "scenario": "pacs_delivery_audit_evidence",
+      "previewScore": 12,
+      "previewMaxScore": 12,
+      "deliveryScore": 8,
+      "deliveryMaxScore": 8,
+      "overallScore": 20,
+      "overallMaxScore": 20,
+      "selectedProjectName": "swiftsight-agent",
+      "deliveryClosed": true
+    },
+    {
+      "scenario": "multi_destination_artifact_routing",
+      "previewScore": 8,
+      "previewMaxScore": 12,
+      "deliveryScore": 8,
+      "deliveryMaxScore": 8,
+      "overallScore": 16,
+      "overallMaxScore": 20,
+      "selectedProjectName": "swiftsight-report-server",
+      "deliveryClosed": true
+    }
+  ]
+}

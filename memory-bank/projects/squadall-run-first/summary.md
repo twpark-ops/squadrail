@@ -99,6 +99,40 @@
   - summary source는 이제 retrieval에서 실제 랭킹 근거가 된다.
   - 다음 단계는 `Phase 4 pre/post proof runner`로, 같은 scenario set에서 summary hit와 project selection 변화 artifact를 자동 비교하는 것이다.
 
+## 2026-03-15 RAG meaning layer Phase 4 proof harness
+
+- `Phase 4`는 완료했다.
+- 추가 산출물:
+  - [`cloud-swiftsight-domain-aware-pm-baseline.json`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-domain-aware-pm-baseline.json)
+  - [`summary-proof-utils.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/summary-proof-utils.mjs)
+  - [`cloud-swiftsight-summary-layer-proof.mjs`](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs)
+  - [`summary-proof-utils.test.ts`](/home/taewoong/company-project/squadall/scripts/e2e/__tests__/summary-proof-utils.test.ts)
+- 비교 계약:
+  - baseline/current는 같은 scenario set으로 비교한다
+  - missing scenario는 regression으로 집계한다
+  - optional `rag-readiness` summary를 proof result에 같이 붙인다
+- 검증:
+  - `node --check scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs`
+  - `node --check scripts/e2e/summary-proof-utils.mjs`
+  - `pnpm exec vitest run -c scripts/e2e/vitest.config.ts scripts/e2e/__tests__/summary-proof-utils.test.ts scripts/e2e/__tests__/rag-readiness-utils.test.ts`
+  - `git diff --check`
+
+## 2026-03-15 RAG meaning layer Phase 5 live proof status
+
+- `Phase 5`는 시작했지만 아직 완료는 아니다.
+- 현재까지 확인된 결과:
+  - summary-enabled `domain-aware PM burn-in`은 frozen baseline 대비 개선이 아직 없다
+  - comparison summary:
+    - `improvedScenarioCount=0`
+    - `regressedScenarioCount=0`
+    - `changedProjectSelectionCount=0`
+- 해석:
+  - `code_summary / symbol_summary` 생성과 retrieval scoring 반영만으로는 domain boundary 오판이 아직 줄지 않았다
+  - 다음 단계는 summary hit를 PM project candidate scoring/projection 쪽에 더 직접 연결하는 것이다
+- residual risk:
+  - hidden evaluation issue cleanup 뒤에도 hidden child issue 기준 queued/running follow-up run이 다시 생기는 버그가 남아 있다
+  - visible evaluation issue는 정리됐지만 active run cleanup hardening이 아직 필요하다
+
 ## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
 
 - lower delivery kernel은 제품 기준으로 이미 충분히 닫혔다.

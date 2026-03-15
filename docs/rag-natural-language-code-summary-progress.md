@@ -16,8 +16,8 @@
 | 1 | Summary source contract | completed | shared source type, summary metadata, route validation, retrieval policy 반영 완료 |
 | 2 | Import-time summary generation | completed | importer/backfill에서 `code_summary` / `symbol_summary` 생성 및 source metadata sync 완료 |
 | 3 | Retrieval integration | completed | summary metadata boost와 rationale trace를 retrieval scoring에 통합 |
-| 4 | Live proof harness | pending | baseline vs summary-enabled diff |
-| 5 | Full live proof gate | pending | kernel/autonomy/browser/rag/domain-aware PM green |
+| 4 | Live proof harness | completed | baseline artifact + comparison runner + diff utility + focused test 완료 |
+| 5 | Full live proof gate | in_progress | live proof는 시작했지만 summary improvement는 아직 없고 hidden child issue follow-up run bug가 남아 있음 |
 
 ## 현재 실행 원칙
 
@@ -213,8 +213,45 @@
 
 ### Phase 4
 
-- pending
+- proof artifact:
+  - [cloud-swiftsight-domain-aware-pm-baseline.json](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-domain-aware-pm-baseline.json)
+- proof utility:
+  - [summary-proof-utils.mjs](/home/taewoong/company-project/squadall/scripts/e2e/summary-proof-utils.mjs)
+  - baseline/current union scenario 비교
+  - missing scenario도 regression으로 집계
+- proof runner:
+  - [cloud-swiftsight-summary-layer-proof.mjs](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs)
+  - baseline artifact 로드
+  - current `domain-aware PM burn-in` 실행
+  - baseline/current diff JSON 출력
+  - optional `rag-readiness` summary 첨부
+- 테스트:
+  - [summary-proof-utils.test.ts](/home/taewoong/company-project/squadall/scripts/e2e/__tests__/summary-proof-utils.test.ts)
+  - [vitest.config.ts](/home/taewoong/company-project/squadall/scripts/e2e/vitest.config.ts)
+- 검증:
+  - `node --check scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs`
+  - `node --check scripts/e2e/summary-proof-utils.mjs`
+  - `pnpm exec vitest run -c scripts/e2e/vitest.config.ts scripts/e2e/__tests__/summary-proof-utils.test.ts scripts/e2e/__tests__/rag-readiness-utils.test.ts`
+  - `git diff --check`
+- 결과:
+  - Phase 4 runner는 baseline vs current 비교 artifact를 안정적으로 생성한다
+  - same scenario set pre/post diff 자동화는 확보됐다
 
 ### Phase 5
 
-- pending
+- live fixture:
+  - `cloud-swiftsight-summary-eval`
+- 현재 결과:
+  - summary-enabled domain-aware PM matrix는 frozen baseline 대비 아직 개선이 없다
+  - 비교 결과:
+    - `improvedScenarioCount=0`
+    - `regressedScenarioCount=0`
+    - `changedProjectSelectionCount=0`
+  - 즉 Phase 2/3 summary generation + scoring만으로는 domain boundary 오판이 아직 줄지 않았다
+- 남은 blocker:
+  - hidden evaluation issue를 cleanup한 뒤에도 hidden child issue 기준으로 queued/running follow-up run이 다시 붙는 버그가 남아 있다
+  - visible evaluation issue는 cleanup 완료했지만 active heartbeat run은 child issue에서 재발한다
+- immediate next:
+  1. hidden child issue follow-up run root cause 추적
+  2. Phase 5 live proof를 `domain-aware proof only`와 `rag-readiness`로 분리해 안정적으로 완주
+  3. summary source hit를 PM project candidate scoring에 더 직접 반영하는 retrieval/projection follow-up 설계

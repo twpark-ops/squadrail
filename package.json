@@ -37,6 +37,7 @@
     "e2e:cloud-swiftsight-rag-readiness": "node scripts/e2e/cloud-swiftsight-rag-readiness.mjs",
     "e2e:cloud-swiftsight-domain-aware-pm-eval": "node scripts/e2e/cloud-swiftsight-domain-aware-pm-eval.mjs",
     "e2e:cloud-swiftsight-domain-aware-pm-burn-in": "node scripts/e2e/cloud-swiftsight-domain-aware-pm-burn-in.mjs",
+    "e2e:cloud-swiftsight-summary-layer-proof": "node scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs",
     "knowledge:rebuild-graph": "node cli/node_modules/tsx/dist/cli.mjs scripts/knowledge/rebuild-graph.ts",
     "knowledge:rebuild-versions": "node cli/node_modules/tsx/dist/cli.mjs scripts/knowledge/rebuild-versions.ts",
     "knowledge:backfill-personalization": "node cli/node_modules/tsx/dist/cli.mjs scripts/knowledge/backfill-personalization.ts",
