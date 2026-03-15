@@ -416,7 +416,10 @@ function scoreProjectCandidate(
     }
   }
 
-  score += knowledgeStructuredScore;
+  // Cap total knowledge structured score to prevent document-count bias.
+  // Top-3 document scores dominate; remaining contribute diminishing returns.
+  const knowledgeStructuredCap = hasKnowledgeIntent ? 48 : 36;
+  score += Math.min(knowledgeStructuredCap, knowledgeStructuredScore);
   const ambientKnowledgeCap = hasKnowledgeIntent ? 8 : 12;
   const ambientKnowledgeScore = knowledgeAmbientSignals
     .sort((left, right) => right.score - left.score)
