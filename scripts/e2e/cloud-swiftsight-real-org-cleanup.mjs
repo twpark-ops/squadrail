@@ -69,7 +69,7 @@ async function ensureCompanyLabels(companyId, specs) {
   return specs.map((spec) => byName.get(spec.name)).filter(Boolean);
 }
 
-async function cancelIssue(issueId) {
+async function markIssueCancelled(issueId) {
   return api(`/api/issues/${issueId}`, {
     method: "PATCH",
     body: {
@@ -159,7 +159,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
         note(`skip cancel ${issue.identifier}: ${error.message}`);
       }
       if (HIDE_TERMINAL) {
-        await cancelIssue(issue.id);
+        await markIssueCancelled(issue.id);
         summary.hidden += 1;
         note(`hid ${issue.identifier}`);
       }
@@ -167,7 +167,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
     }
 
     if (HIDE_TERMINAL && shouldHideE2eIssue(issue.status)) {
-      await cancelIssue(issue.id);
+      await markIssueCancelled(issue.id);
       summary.hidden += 1;
       note(`hid ${issue.identifier}`);
     }

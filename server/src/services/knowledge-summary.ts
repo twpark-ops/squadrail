@@ -220,27 +220,49 @@ function deriveProjectSelectionTags(input: {
   baseTags: string[];
   relativePath: string;
   language: string;
+  symbolNames?: string[];
+  dependencyTargets?: string[];
 }) {
   const fileBase = basenameWithoutExtension(input.relativePath);
   const pathSegments = input.relativePath.split("/").filter(Boolean);
   const genericTags = new Set([
     "code",
     "test_report",
+    "code_summary",
     input.language.toLowerCase(),
   ]);
+
+  // Extract semantic tokens from symbol names (e.g. WorkflowMatcher → workflow, matcher)
+  const symbolTokens = uniqueStrings(
+    (input.symbolNames ?? []).filter(Boolean).flatMap((name) =>
+      String(name).replace(/([a-z])([A-Z])/g, "$1_$2").split(/[^a-zA-Z0-9]+/).filter((t) => t.length >= 3),
+    ).map((t) => t.toLowerCase()),
+  );
+
+  // Dependency targets provide cross-file domain signals
+  const depTokens = uniqueStrings(
+    (input.dependencyTargets ?? []).filter(Boolean).flatMap((name) =>
+      String(name).replace(/([a-z])([A-Z])/g, "$1_$2").split(/[^a-zA-Z0-9]+/).filter((t) => t.length >= 3),
+    ).map((t) => t.toLowerCase()),
+  );
+
   const specificTags = uniqueStrings([
     ...input.baseTags.filter((tag) => !genericTags.has(tag.toLowerCase())),
     ...pathSegments.slice(0, 4),
     fileBase,
+    ...symbolTokens.slice(0, 6),
+    ...depTokens.slice(0, 4),
   ]);
 
   return {
-    ownerTags: specificTags.slice(0, 6),
+    ownerTags: specificTags.slice(0, 10),
     supportTags: uniqueStrings([
       input.language,
       ...input.baseTags,
       ...specificTags,
-    ]).slice(0, 10),
+      ...symbolTokens,
+      ...depTokens,
+    ]).slice(0, 16),
     avoidTags: [] as string[],
   };
 }
@@ -328,10 +350,13 @@ export function buildKnowledgeSummaryDrafts(input: {
   ]);
   const symbols = input.codeGraph?.symbols ?? [];
   const edgeIndex = buildEdgeIndex(input.codeGraph);
+  const allDependencyTargets = summarizeDependencies(input.codeGraph?.edges ?? []);
   const projectSelection = deriveProjectSelectionTags({
     baseTags,
     relativePath: input.relativePath,
     language: input.language,
+    symbolNames: symbols.slice(0, 10).map((s) => s.symbolName),
+    dependencyTargets: allDependencyTargets,
   });
   const sharedMetadataBase = {
     summaryVersion: 1 as const,
