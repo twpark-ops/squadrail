@@ -562,6 +562,15 @@ export function buildPmIntakeProjectionPreview(
     invalidPreferredMessage: "Selected reviewer agent must support reviewer protocol role",
   });
 
+  // Complexity scoring: only assign QA for complex issues (full lane).
+  // Simple issues skip the QA gate entirely (fast lane).
+  const isComplexIssue =
+    Boolean(input.request.qaAgentId) // explicitly requested QA
+    || Boolean(input.request.coordinationOnly) // coordination = complex
+    || projectCandidates.filter((c) => c.score > 0).length > 1 // cross-project
+    || input.issue.priority === "critical" // critical priority
+    || (input.request.requiredKnowledgeTags ?? []).length > 2; // domain-heavy
+
   let qaAgent: PmIntakeAgent | null = null;
   if (input.request.qaAgentId) {
     qaAgent = pickBestAgent({
@@ -573,7 +582,7 @@ export function buildPmIntakeProjectionPreview(
       notFoundMessage: "No active QA agent is available for PM intake projection",
       invalidPreferredMessage: "Selected QA agent must support qa protocol role",
     });
-  } else {
+  } else if (isComplexIssue) {
     const qaCandidates = input.agents
       .filter(isActiveForIntake)
       .filter((agent) => agent.id !== techLead.id && agent.id !== reviewer.id)
@@ -589,6 +598,7 @@ export function buildPmIntakeProjectionPreview(
       });
     }
   }
+  // When !isComplexIssue and no explicit qaAgentId: qaAgent stays null → fast lane (no QA gate).
 
   const implementationAssignee = pickBestAgent({
     agents: input.agents,

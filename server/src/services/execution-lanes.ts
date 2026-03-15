@@ -169,3 +169,25 @@ export function applyExecutionLanePolicy(input: ExecutionLanePolicyInput & { lan
 
   return base;
 }
+
+// Product-level lane: determines whether an issue goes through fast or full workflow.
+// Fast lane = no QA gate, lighter review, no subtask decomposition.
+// Full lane = QA gate active, full review evidence, decomposition possible.
+export type ProductLane = "fast" | "full";
+
+export interface ProductLaneSignals {
+  qaAgentId: string | null;
+  hasSubtasks: boolean;
+  crossProject: boolean;
+  coordinationOnly: boolean;
+  priority: string;
+}
+
+export function deriveProductLane(signals: ProductLaneSignals): ProductLane {
+  if (signals.qaAgentId) return "full";
+  if (signals.hasSubtasks) return "full";
+  if (signals.crossProject) return "full";
+  if (signals.coordinationOnly) return "full";
+  if (signals.priority === "critical") return "full";
+  return "fast";
+}

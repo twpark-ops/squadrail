@@ -324,7 +324,7 @@ describe("pm intake helpers", () => {
         companyId: "company-1",
         title: "Tighten export handoff before release",
         description: "## Human Intake Request\n\nTighten export handoff before release.\n- keep audit evidence explicit\n",
-        priority: "high",
+        priority: "critical",
         projectId: "project-app",
       },
       projects: [
