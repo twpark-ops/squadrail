@@ -1065,7 +1065,6 @@ export function IssueDetail() {
   const isIntakeRootIssue = Boolean(
     issue &&
       !issue.parentId &&
-      !issue.hiddenAt &&
       (issue.labels ?? []).some((label) => label.name === "workflow:intake")
   );
 
@@ -1630,10 +1629,10 @@ export function IssueDetail() {
         </nav>
       )}
 
-      {issue.hiddenAt && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      {issue.parentId && (
+        <div className="flex items-center gap-2 rounded-md border border-muted-foreground/30 bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           <EyeOff className="h-4 w-4 shrink-0" />
-          This issue is hidden
+          Subtask
         </div>
       )}
 
@@ -3175,21 +3174,21 @@ export function IssueDetail() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-muted-foreground">No sub-issues.</p>
-                {!issue.hiddenAt && (
+                {!issue.parentId && (
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     onClick={() => setInternalWorkItemDialogOpen(true)}
                   >
-                    New internal work item
+                    New subtask
                   </Button>
                 )}
               </div>
             </div>
           ) : (
             <div className="space-y-3">
-              {!issue.hiddenAt && (
+              {!issue.parentId && (
                 <div className="flex items-center justify-end">
                   <Button
                     type="button"
@@ -3197,7 +3196,7 @@ export function IssueDetail() {
                     variant="outline"
                     onClick={() => setInternalWorkItemDialogOpen(true)}
                   >
-                    New internal work item
+                    New subtask
                   </Button>
                 </div>
               )}
@@ -3245,9 +3244,9 @@ export function IssueDetail() {
                         {child.identifier ?? child.id.slice(0, 8)}
                       </span>
                       <span className="truncate">{child.title}</span>
-                      {child.hiddenAt && (
+                      {child.parentId && (
                         <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Internal
+                          Subtask
                         </span>
                       )}
                       {child.labels?.some((label) => label.name.startsWith("work:")) && (
@@ -3428,7 +3427,7 @@ export function IssueDetail() {
         </SheetContent>
       </Sheet>
 
-      {issue && !issue.hiddenAt && (
+      {issue && !issue.parentId && (
         <InternalWorkItemDialog
           open={internalWorkItemDialogOpen}
           onOpenChange={setInternalWorkItemDialogOpen}

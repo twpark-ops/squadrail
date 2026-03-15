@@ -20,7 +20,6 @@ const LEAD_SUPERVISOR_PROTOCOL_REASON_BY_MESSAGE_TYPE: Record<string, string> = 
 export interface InternalWorkItemSupervisorContext {
   issueId: string;
   parentId: string | null;
-  hiddenAt: Date | null;
   labelNames: string[];
   techLeadAgentId: string | null;
   reviewerAgentId?: string | null;
@@ -48,7 +47,6 @@ export function loadInternalWorkItemSupervisorContext(
         .select({
           issueId: issues.id,
           parentId: issues.parentId,
-          hiddenAt: issues.hiddenAt,
           techLeadAgentId: issueProtocolState.techLeadAgentId,
           reviewerAgentId: issueProtocolState.reviewerAgentId,
           qaAgentId: issueProtocolState.qaAgentId,
@@ -74,7 +72,6 @@ export function loadInternalWorkItemSupervisorContext(
     return {
       issueId: issueRow.issueId,
       parentId: issueRow.parentId,
-      hiddenAt: issueRow.hiddenAt,
       techLeadAgentId: issueRow.techLeadAgentId ?? null,
       reviewerAgentId: issueRow.reviewerAgentId ?? null,
       qaAgentId: issueRow.qaAgentId ?? null,
@@ -86,7 +83,8 @@ export function loadInternalWorkItemSupervisorContext(
 
 export function isInternalWorkItemContext(context: InternalWorkItemSupervisorContext | null | undefined) {
   if (!context?.parentId) return false;
-  return Boolean(context.hiddenAt) || hasLabel(context, INTERNAL_WORK_ITEM_TEAM_LABEL);
+  // parentId is the primary signal — any issue with a parent is a subtask/internal work item.
+  return true;
 }
 
 export function getInternalWorkItemKind(

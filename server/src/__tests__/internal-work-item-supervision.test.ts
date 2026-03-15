@@ -15,7 +15,6 @@ import { issueLabels, issues } from "@squadrail/db";
 const INTERNAL_CONTEXT = {
   issueId: "issue-1",
   parentId: "root-1",
-  hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
   labelNames: ["team:internal", "work:implementation", "watch:reviewer", "watch:lead"],
   techLeadAgentId: "lead-1",
 };
@@ -53,7 +52,6 @@ describe("internal work item supervision helpers", () => {
     expect(
       isLeadWatchEnabled({
         ...INTERNAL_CONTEXT,
-        hiddenAt: null,
         parentId: null,
         labelNames: ["watch:lead"],
       }),
@@ -80,7 +78,6 @@ describe("internal work item supervision helpers", () => {
       [issues, [[{
         issueId: "issue-1",
         parentId: "root-1",
-        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
         techLeadAgentId: "lead-1",
         reviewerAgentId: "reviewer-1",
         qaAgentId: "qa-1",
@@ -99,7 +96,6 @@ describe("internal work item supervision helpers", () => {
     await expect(loadInternalWorkItemSupervisorContext(db as never, "company-1", "issue-1")).resolves.toEqual({
       issueId: "issue-1",
       parentId: "root-1",
-      hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
       techLeadAgentId: "lead-1",
       reviewerAgentId: "reviewer-1",
       qaAgentId: "qa-1",
@@ -140,7 +136,6 @@ describe("internal work item supervision helpers", () => {
     expect(buildInternalWorkItemDispatchMetadata({
       issueId: "issue-2",
       parentId: null,
-      hiddenAt: null,
       labelNames: ["watch:reviewer"],
       techLeadAgentId: null,
     })).toEqual({});

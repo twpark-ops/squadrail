@@ -488,7 +488,8 @@ export function issueService(db: Db) {
           )!,
         );
       }
-      conditions.push(isNull(issues.hiddenAt));
+      // Show root issues only in list views; subtasks are fetched via parentId filter.
+      conditions.push(isNull(issues.parentId));
 
       const priorityOrder = sql`CASE ${issues.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END`;
       const searchOrder = sql<number>`
@@ -569,7 +570,7 @@ export function issueService(db: Db) {
       const rows = await db
         .select()
         .from(issues)
-        .where(and(eq(issues.parentId, parentIssueId), sql`${issues.hiddenAt} is not null`))
+        .where(eq(issues.parentId, parentIssueId))
         .orderBy(asc(issues.createdAt), asc(issues.id));
       const labeled = await withIssueLabels(db, rows);
       return labeled;
@@ -579,7 +580,7 @@ export function issueService(db: Db) {
       const rows = await db
         .select()
         .from(issues)
-        .where(and(eq(issues.parentId, parentIssueId), sql`${issues.hiddenAt} is not null`))
+        .where(eq(issues.parentId, parentIssueId))
         .orderBy(asc(issues.createdAt), asc(issues.id));
       const labeled = await withIssueLabels(db, rows);
       return summarizeInternalWorkItems(labeled);
@@ -623,7 +624,7 @@ export function issueService(db: Db) {
           companyId: issues.companyId,
           projectId: issues.projectId,
           goalId: issues.goalId,
-          hiddenAt: issues.hiddenAt,
+          parentId: issues.parentId,
           requestDepth: issues.requestDepth,
         })
         .from(issues)
@@ -636,8 +637,8 @@ export function issueService(db: Db) {
       if (parentIssue.companyId !== input.companyId) {
         throw unprocessable("Parent issue must belong to same company");
       }
-      if (parentIssue.hiddenAt) {
-        throw unprocessable("Internal work items can only be created under visible root issues");
+      if (parentIssue.parentId !== null) {
+        throw unprocessable("Subtasks can only be created under root issues (no nested subtasks)");
       }
 
       const targetProjectId =
@@ -1433,7 +1434,7 @@ export function issueService(db: Db) {
           and(
             eq(issues.companyId, companyId),
             eq(issues.status, "in_progress"),
-            isNull(issues.hiddenAt),
+            isNull(issues.parentId),
             sql`${issues.startedAt} < ${cutoff.toISOString()}`,
           ),
         )
