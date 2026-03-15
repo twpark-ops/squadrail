@@ -23,6 +23,7 @@ import { relativeTime } from "../lib/utils";
 import { EmptyState } from "../components/EmptyState";
 import { HeroSection } from "../components/HeroSection";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { AgentJobIdentity } from "../components/agent-presence-primitives";
 
 function TeamLaneCard({
   title,
@@ -65,10 +66,11 @@ function TeamRosterSection({
   subtitle: string;
   agents: Array<{
     id: string;
-    urlKey: string;
+    urlKey: string | null;
     name: string;
     role: string;
     title: string | null;
+    icon?: string | null;
     status: string;
     adapterType: string;
     lastHeartbeatAt: Date | string | null;
@@ -90,23 +92,24 @@ function TeamRosterSection({
               to={`/agents/${agent.urlKey ?? agent.id}`}
               className="flex items-start justify-between gap-4 px-5 py-4 no-underline transition-colors hover:bg-accent/35"
             >
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-foreground">{agent.name}</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  {agent.title ?? agent.role}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <div className="min-w-0 flex-1">
+                <AgentJobIdentity
+                  name={agent.name}
+                  role={agent.role}
+                  title={agent.title}
+                  icon={agent.icon}
+                  adapterType={agent.adapterType}
+                  subtitle={agent.lastHeartbeatAt ? `heartbeat ${relativeTime(agent.lastHeartbeatAt)}` : "no heartbeat yet"}
+                />
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {agent.adapterType.replace(/_/g, " ")}
+                    {agent.status}
                   </span>
                   <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {agent.lastHeartbeatAt ? `heartbeat ${relativeTime(agent.lastHeartbeatAt)}` : "no heartbeat yet"}
+                    {agent.lastHeartbeatAt ? "recently active" : "cold lane"}
                   </span>
                 </div>
               </div>
-              <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                {agent.status}
-              </span>
             </Link>
           ))
         )}
@@ -370,7 +373,7 @@ export function Team() {
           <div className="border-b border-border px-6 py-5">
             <h2 className="text-lg font-semibold">Operating Lanes</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Keep role-specific surfaces visible, but show the lane depth so owners know where the team is thin.
+              Keep the operating party visible so owners can read planners, builders, and verification lanes at a glance.
             </p>
           </div>
           <div className="grid gap-4 px-6 py-6 md:grid-cols-3">
@@ -484,17 +487,17 @@ export function Team() {
       <div className="grid gap-6 xl:grid-cols-3">
         <TeamRosterSection
           title="Leadership roster"
-          subtitle="Planners, operators, and escalation owners currently visible in the squad."
+          subtitle="Planners, operators, and escalation owners steering routing, staffing, and recovery."
           agents={laneRoster.leadership}
         />
         <TeamRosterSection
           title="Execution roster"
-          subtitle="Implementation lanes sorted by the freshest heartbeat so active owners rise to the top."
+          subtitle="Builders and delivery owners sorted by the freshest heartbeat so active lanes stay on top."
           agents={laneRoster.execution}
         />
         <TeamRosterSection
-          title="Review roster"
-          subtitle="Independent review lanes that should protect close quality and rollback confidence."
+          title="Verification roster"
+          subtitle="Review and QA lanes protecting close quality, release confidence, and regression evidence."
           agents={laneRoster.review}
         />
       </div>

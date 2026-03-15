@@ -125,6 +125,15 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
   await expect(page.getByText("Live execution")).toBeVisible();
 
+  await page.goto(`${baseUrl}/${companyPrefix}/overview`);
+  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(page.getByText(/No live execution right now|active or recent agent sessions/).first()).toBeVisible();
+
+  await page.goto(`${baseUrl}/${companyPrefix}/team`);
+  await expect(page.getByRole("heading", { name: "Team", exact: true })).toBeVisible();
+  await expect(page.getByText("Leadership roster").first()).toBeVisible();
+  await expect(page.getByText("Verification roster").first()).toBeVisible();
+
   await page.goto(`${baseUrl}/${companyPrefix}/projects`);
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project directory", exact: true })).toBeVisible();

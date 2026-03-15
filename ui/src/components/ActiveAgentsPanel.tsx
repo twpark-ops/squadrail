@@ -7,7 +7,8 @@ import {
 } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import type { Issue, LiveEvent } from "@squadrail/shared";
+import type { Agent, Issue, LiveEvent } from "@squadrail/shared";
+import { agentsApi } from "../api/agents";
 import { heartbeatsApi, type LiveRunForIssue } from "../api/heartbeats";
 import { issuesApi } from "../api/issues";
 import { getUIAdapter } from "../adapters";
@@ -16,7 +17,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
 import { workIssuePath } from "../lib/appRoutes";
 import { ArrowUpRight, ExternalLink } from "lucide-react";
-import { Identity } from "./Identity";
+import { AgentJobIdentity } from "./agent-presence-primitives";
 
 type FeedTone = "info" | "warn" | "error" | "assistant" | "tool";
 
@@ -216,6 +217,11 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
     queryFn: () => issuesApi.list(companyId),
     enabled: runs.length > 0,
   });
+  const { data: agents } = useQuery({
+    queryKey: queryKeys.agents.list(companyId),
+    queryFn: () => agentsApi.list(companyId),
+    enabled: runs.length > 0,
+  });
 
   const issueById = useMemo(() => {
     const map = new Map<string, Issue>();
@@ -224,6 +230,13 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
     }
     return map;
   }, [issues]);
+  const agentById = useMemo(() => {
+    const map = new Map<string, Agent>();
+    for (const agent of agents ?? []) {
+      map.set(agent.id, agent);
+    }
+    return map;
+  }, [agents]);
 
   const runById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
   const activeRunIds = useMemo(
@@ -436,6 +449,7 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
             <AgentRunCard
               key={run.id}
               run={run}
+              agent={agentById.get(run.agentId)}
               issue={run.issueId ? issueById.get(run.issueId) : undefined}
               feed={feedByRun.get(run.id) ?? []}
               isActive={isRunActive(run)}
@@ -449,11 +463,13 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
 
 function AgentRunCard({
   run,
+  agent,
   issue,
   feed,
   isActive,
 }: {
   run: LiveRunForIssue;
+  agent?: Agent;
   issue?: Issue;
   feed: FeedItem[];
   isActive: boolean;
@@ -475,11 +491,20 @@ function AgentRunCard({
     : run.finishedAt
     ? `Finished ${relativeTime(run.finishedAt)}`
     : `Started ${relativeTime(run.createdAt)}`;
+  const role = agent?.role ?? "general";
+  const title = agent?.title ?? null;
+  const currentJob = isActive
+    ? run.status === "queued"
+      ? "Queued for the next operating turn"
+      : "Driving the current execution turn"
+    : run.finishedAt
+    ? "Cooling down after the last completed run"
+    : "Recent runtime activity recorded";
 
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[1.2rem] border bg-card/88 shadow-card",
+        "overflow-hidden rounded-[1.35rem] border bg-card/88 shadow-card",
         isActive ? "border-primary/18" : "border-border/85"
       )}
     >
@@ -492,7 +517,7 @@ function AgentRunCard({
                   "absolute inline-flex h-full w-full rounded-full",
                   isActive
                     ? "animate-ping bg-primary/55"
-                    : "bg-muted-foreground/25"
+                  : "bg-muted-foreground/25"
                 )}
               />
               <span
@@ -502,16 +527,28 @@ function AgentRunCard({
                 )}
               />
             </span>
-            <Identity name={run.agentName} size="sm" />
             <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
               {run.status}
             </span>
+          </div>
+
+          <div className="mt-2">
+            <AgentJobIdentity
+              name={run.agentName}
+              role={role}
+              title={title}
+              icon={agent?.icon}
+              adapterType={agent?.adapterType ?? run.adapterType}
+              subtitle={agent?.status === "active" ? "ready for lane ownership" : agent?.status ?? null}
+            />
           </div>
 
           <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{run.triggerDetail ?? run.invocationSource}</span>
             <span className="text-border">•</span>
             <span>{relativeTime(run.startedAt ?? run.createdAt)}</span>
+            <span className="text-border">•</span>
+            <span>{currentJob}</span>
           </div>
 
           {run.issueId && (
@@ -544,25 +581,47 @@ function AgentRunCard({
         </Link>
       </div>
 
-      <div className="border-t border-border/70 bg-background/66 px-4 py-3.5">
-        <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-          Latest signal
+      <div className="border-t border-border/70 bg-background/66 px-4 py-3.5 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {issue ? (
+            <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground">
+              {issue.status.replace(/_/g, " ")}
+            </span>
+          ) : null}
+          <span className="rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground">
+            Run {run.id.slice(0, 8)}
+          </span>
         </div>
-        <div className={cn("mt-2 text-sm leading-6", toneClassName)}>
-          {latest?.text ?? fallbackText}
-        </div>
-        {recent.length > 1 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {recent.slice(0, -1).map((item) => (
-              <span
-                key={item.id}
-                className="rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground"
-              >
-                {relativeTime(item.ts)} · {item.text.slice(0, 48)}
-              </span>
-            ))}
+
+        <div>
+          <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
+            Current job
           </div>
-        )}
+          <div className="mt-2 text-sm leading-6 text-foreground">
+            {currentJob}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
+            Latest signal
+          </div>
+          <div className={cn("mt-2 text-sm leading-6", toneClassName)}>
+            {latest?.text ?? fallbackText}
+          </div>
+          {recent.length > 1 && (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {recent.slice(0, -1).map((item) => (
+                <span
+                  key={item.id}
+                  className="rounded-full border border-border bg-card px-2.5 py-1 text-[10px] text-muted-foreground"
+                >
+                  {relativeTime(item.ts)} · {item.text.slice(0, 48)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
