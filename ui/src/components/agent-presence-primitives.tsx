@@ -126,6 +126,9 @@ export function AgentJobIdentity({
   icon,
   adapterType,
   subtitle,
+  avatarClassName,
+  avatarAuraClassName,
+  roleBadgeClassName,
 }: {
   name: string;
   role: string;
@@ -133,20 +136,38 @@ export function AgentJobIdentity({
   icon?: string | null;
   adapterType?: string;
   subtitle?: string | null;
+  avatarClassName?: string;
+  avatarAuraClassName?: string;
+  roleBadgeClassName?: string;
 }) {
   const presentation = getAgentRolePresentation(role, title);
 
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <Avatar className="h-11 w-11 border border-background/80 shadow-sm">
-        <AvatarFallback className={cn("text-sm font-semibold", presentation.avatarClassName)}>
-          {icon ? <AgentIcon icon={icon} className="h-5 w-5" /> : <presentation.icon className={cn("h-4.5 w-4.5", presentation.iconClassName)} />}
-        </AvatarFallback>
-      </Avatar>
+      <div className="relative flex-shrink-0">
+        {avatarAuraClassName ? (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-[-6px] rounded-full opacity-80",
+              avatarAuraClassName,
+            )}
+          />
+        ) : null}
+        <Avatar className={cn("relative h-11 w-11 border border-background/80 shadow-sm", avatarClassName)}>
+          <AvatarFallback className={cn("text-sm font-semibold", presentation.avatarClassName)}>
+            {icon ? (
+              <AgentIcon icon={icon} className="h-5 w-5" />
+            ) : (
+              <presentation.icon className={cn("h-4.5 w-4.5", presentation.iconClassName)} />
+            )}
+          </AvatarFallback>
+        </Avatar>
+      </div>
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="truncate text-sm font-semibold text-foreground">{name}</span>
-          <AgentRoleBadge role={role} title={title} />
+          <AgentRoleBadge role={role} title={title} className={roleBadgeClassName} />
         </div>
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate">{title ?? presentation.classLabel}</span>
