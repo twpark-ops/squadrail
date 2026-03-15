@@ -958,7 +958,7 @@ export function IssueDetail() {
   // into a single logical execution, then filter out live-widget duplicates.
   const timelineRuns = useMemo(() => {
     const raw = linkedRuns ?? [];
-    const grouped: typeof raw = [];
+    const grouped: Array<(typeof raw)[number] & { mergedRunIds?: string[] }> = [];
     for (let i = 0; i < raw.length; i++) {
       const current = raw[i];
       const next = raw[i + 1];
@@ -975,6 +975,7 @@ export function IssueDetail() {
           finishedAt: next.finishedAt ?? current.finishedAt,
           usageJson: next.usageJson ?? current.usageJson,
           resultJson: next.resultJson ?? current.resultJson,
+          mergedRunIds: [current.runId, next.runId],
         });
         i++; // skip the merged run
       } else {
@@ -985,7 +986,12 @@ export function IssueDetail() {
     for (const r of liveRuns ?? []) liveIds.add(r.id);
     if (activeRun) liveIds.add(activeRun.id);
     if (liveIds.size === 0) return grouped;
-    return grouped.filter((r) => !liveIds.has(r.runId));
+    return grouped.filter((r) => {
+      if (liveIds.has(r.runId)) return false;
+      // For merged runs, also check the secondary run ID
+      if (r.mergedRunIds?.some((id) => liveIds.has(id))) return false;
+      return true;
+    });
   }, [linkedRuns, liveRuns, activeRun]);
 
   const { data: allIssues } = useQuery({
@@ -2115,14 +2121,14 @@ export function IssueDetail() {
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                   onClick={() => {
                     updateIssue.mutate(
-                      { hiddenAt: new Date().toISOString() },
+                      { status: "cancelled" },
                       { onSuccess: () => navigate(appRoutes.work) }
                     );
                     setMoreOpen(false);
                   }}
                 >
                   <EyeOff className="h-3 w-3" />
-                  Hide this Issue
+                  Cancel Issue
                 </button>
               </PopoverContent>
             </Popover>

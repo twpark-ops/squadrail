@@ -251,7 +251,7 @@ export function buildIssueSnapshotMarkdown(input: {
     priority: string;
     requestDepth: number;
     parentId: string | null;
-    hiddenAt: Date | string | null;
+    hiddenAt?: Date | string | null;
     createdAt: Date | string;
     updatedAt: Date | string;
     completedAt: Date | string | null;

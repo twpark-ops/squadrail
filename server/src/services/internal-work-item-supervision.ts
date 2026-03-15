@@ -1,7 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { issueLabels, issueProtocolState, issues, labels, type Db } from "@squadrail/db";
 
-export const INTERNAL_WORK_ITEM_TEAM_LABEL = "team:internal";
 export const INTERNAL_WORK_ITEM_WATCH_REVIEWER_LABEL = "watch:reviewer";
 export const INTERNAL_WORK_ITEM_WATCH_LEAD_LABEL = "watch:lead";
 
