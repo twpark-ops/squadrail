@@ -66,11 +66,11 @@ async function getProtocolState(issueId) {
   return api(`/api/issues/${issueId}/protocol/state`);
 }
 
-async function hideIssue(issueId) {
+async function archiveIssue(issueId) {
   return api(`/api/issues/${issueId}`, {
     method: "PATCH",
     body: {
-      hiddenAt: new Date().toISOString(),
+      status: "cancelled",
     },
   });
 }
@@ -122,13 +122,13 @@ async function cleanupEvaluationIssues(input) {
       await cancelIssue(issueId, workflowState, reason);
       cancelled = true;
     }
-    await hideIssue(issueId);
+    await archiveIssue(issueId);
     return {
       issueId,
       identifier: issue.identifier ?? null,
       workflowStateBefore: workflowState,
       cancelled,
-      hidden: true,
+      archived: true,
     };
   };
 

@@ -136,7 +136,7 @@ async function prepareSummaryFixture(company) {
 function collectVisibleIssueIds(issues) {
   return new Set(
     (Array.isArray(issues) ? issues : [])
-      .filter((issue) => !issue?.hiddenAt)
+      .filter((issue) => !issue?.parentId)
       .map((issue) => issue?.id)
       .filter((issueId) => typeof issueId === "string" && issueId.length > 0),
   );
@@ -156,7 +156,7 @@ async function verifyPostRunCleanup(companyId, visibleIssueIdsBefore) {
     listHeartbeatRuns(companyId),
   ]);
   const visibleNewIssues = (Array.isArray(issues) ? issues : [])
-    .filter((issue) => !issue?.hiddenAt)
+    .filter((issue) => !issue?.parentId)
     .filter((issue) => !visibleIssueIdsBefore.has(issue?.id));
   const activeRuns = (Array.isArray(heartbeatRuns) ? heartbeatRuns : [])
     .filter((run) => ["queued", "claimed", "running"].includes(run?.status));
