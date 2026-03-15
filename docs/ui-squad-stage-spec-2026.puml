@@ -1,0 +1,87 @@
+@startuml
+title UI Squad Stage Surface
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam defaultFontName Noto Sans
+skinparam rectangle {
+  RoundCorner 18
+}
+
+rectangle "Team Page" as Team {
+  rectangle "Tabs" as Tabs {
+    rectangle "Stage (default)" as Stage
+    rectangle "Roster" as Roster
+    rectangle "Coverage" as Coverage
+  }
+}
+
+rectangle "Squad Stage Board" as Board {
+  rectangle "PM Lane" as PM
+  rectangle "Tech Lead Lane" as TL
+  rectangle "Engineer Lane" as ENG
+  rectangle "Reviewer Lane" as REV
+  rectangle "QA Lane" as QA
+}
+
+rectangle "Actor Token" as Actor {
+  rectangle "Role Crest" as Crest
+  rectangle "Body Silhouette" as Body
+  rectangle "Status Ring" as Ring
+  rectangle "Name Plate" as Plate
+}
+
+rectangle "Motion States" as Motion {
+  rectangle "idle" as Idle
+  rectangle "walking" as Walking
+  rectangle "working" as Working
+  rectangle "reviewing" as Reviewing
+  rectangle "verifying" as Verifying
+  rectangle "blocked" as Blocked
+  rectangle "handoff" as Handoff
+}
+
+rectangle "Shared Read Model" as Model {
+  rectangle "squad-stage.ts" as Mapper
+  rectangle "live runs" as LiveRuns
+  rectangle "issue protocol state" as Protocol
+  rectangle "agent roster" as Agents
+}
+
+Team --> Stage
+Team --> Roster
+Team --> Coverage
+
+Stage --> Board
+Board --> PM
+Board --> TL
+Board --> ENG
+Board --> REV
+Board --> QA
+
+Board --> Actor
+Actor --> Crest
+Actor --> Body
+Actor --> Ring
+Actor --> Plate
+
+Actor --> Motion
+Motion --> Idle
+Motion --> Walking
+Motion --> Working
+Motion --> Reviewing
+Motion --> Verifying
+Motion --> Blocked
+Motion --> Handoff
+
+Stage --> Model
+Model --> Mapper
+Mapper --> LiveRuns
+Mapper --> Protocol
+Mapper --> Agents
+
+TL --> ENG : handoff
+ENG --> REV : submit for review
+REV --> QA : QA gate
+
+@enduml

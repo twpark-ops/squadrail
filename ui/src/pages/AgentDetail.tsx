@@ -25,6 +25,7 @@ import { EntityRow } from "../components/EntityRow";
 import { Identity } from "../components/Identity";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { AgentRunExecutionPanel } from "../components/AgentRunExecutionPanel";
+import { getRunPhaseMeta } from "../lib/run-presence";
 import { formatCents, formatDate, relativeTime, formatTokens } from "../lib/utils";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
@@ -67,13 +68,6 @@ const runStatusIcons: Record<string, { icon: typeof CheckCircle2; color: string 
   queued: { icon: Clock, color: "text-yellow-600 dark:text-yellow-400" },
   timed_out: { icon: Timer, color: "text-orange-600 dark:text-orange-400" },
   cancelled: { icon: Slash, color: "text-neutral-500 dark:text-neutral-400" },
-};
-
-const sourceLabels: Record<string, string> = {
-  timer: "Timer",
-  assignment: "Assignment",
-  on_demand: "On-demand",
-  automation: "Automation",
 };
 
 const LIVE_SCROLL_BOTTOM_TOLERANCE_PX = 32;
@@ -700,21 +694,23 @@ function LatestRunCard({ runs, agentId }: { runs: HeartbeatRun[]; agentId: strin
           isLive ? "border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.08)]" : "border-border"
         )}
       >
+        {(() => {
+          const phase = getRunPhaseMeta(run);
+          return (
         <div className="flex items-center gap-2">
           <StatusIcon className={cn("h-3.5 w-3.5", statusInfo.color, run.status === "running" && "animate-spin")} />
           <StatusBadge status={run.status} />
           <span className="font-mono text-xs text-muted-foreground">{run.id.slice(0, 8)}</span>
           <span className={cn(
-            "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-            run.invocationSource === "timer" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-              : run.invocationSource === "assignment" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
-              : run.invocationSource === "on_demand" ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300"
-              : "bg-muted text-muted-foreground"
+            "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+            phase.className,
           )}>
-            {sourceLabels[run.invocationSource] ?? run.invocationSource}
+            {phase.label}
           </span>
           <span className="ml-auto text-xs text-muted-foreground">{relativeTime(run.createdAt)}</span>
         </div>
+          );
+        })()}
 
         {summary && (
           <div className="overflow-hidden max-h-16">
@@ -1213,24 +1209,26 @@ function RunListItem({ run, isSelected, agentId }: { run: HeartbeatRun; isSelect
         isSelected ? "bg-accent/40" : "hover:bg-accent/20",
       )}
     >
+      {(() => {
+        const phase = getRunPhaseMeta(run);
+        return (
       <div className="flex items-center gap-2">
         <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", statusInfo.color, run.status === "running" && "animate-spin")} />
         <span className="font-mono text-xs text-muted-foreground">
           {run.id.slice(0, 8)}
         </span>
         <span className={cn(
-          "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0",
-          run.invocationSource === "timer" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-            : run.invocationSource === "assignment" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
-            : run.invocationSource === "on_demand" ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300"
-            : "bg-muted text-muted-foreground"
+          "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium shrink-0",
+          phase.className,
         )}>
-          {sourceLabels[run.invocationSource] ?? run.invocationSource}
+          {phase.label}
         </span>
         <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
           {relativeTime(run.createdAt)}
         </span>
       </div>
+        );
+      })()}
       {summary && (
         <span className="text-xs text-muted-foreground truncate pl-5.5">
           {summary.slice(0, 60)}
