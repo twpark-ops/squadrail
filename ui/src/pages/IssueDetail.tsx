@@ -66,7 +66,6 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
-  EyeOff,
   GitBranch,
   GitCommitHorizontal,
   Hexagon,
@@ -80,6 +79,7 @@ import {
   Trash2,
   TriangleAlert,
   Workflow,
+  XCircle,
   Lightbulb,
   Pin,
   PinOff,
@@ -1662,7 +1662,7 @@ export function IssueDetail() {
 
       {issue.parentId && (
         <div className="flex items-center gap-2 rounded-md border border-muted-foreground/30 bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          <EyeOff className="h-4 w-4 shrink-0" />
+          <ListTree className="h-4 w-4 shrink-0" />
           Subtask
         </div>
       )}
@@ -2120,6 +2120,7 @@ export function IssueDetail() {
                 <button
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                   onClick={() => {
+                    if (!window.confirm("Are you sure you want to cancel this issue?")) return;
                     updateIssue.mutate(
                       { status: "cancelled" },
                       { onSuccess: () => navigate(appRoutes.work) }
@@ -2127,7 +2128,7 @@ export function IssueDetail() {
                     setMoreOpen(false);
                   }}
                 >
-                  <EyeOff className="h-3 w-3" />
+                  <XCircle className="h-3 w-3" />
                   Cancel Issue
                 </button>
               </PopoverContent>
@@ -3275,11 +3276,6 @@ export function IssueDetail() {
                         {child.identifier ?? child.id.slice(0, 8)}
                       </span>
                       <span className="truncate">{child.title}</span>
-                      {child.parentId && (
-                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Subtask
-                        </span>
-                      )}
                       {child.labels?.some((label) => label.name.startsWith("work:")) && (
                         <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                           {(child.labels.find((label) => label.name.startsWith("work:"))?.name ?? "work:item").replace("work:", "")}

@@ -1,7 +1,7 @@
 export const BURN_IN_BATCH_SCENARIOS = {
   batch1: [
     "swiftsight-agent-tl-qa-loop",
-    "swiftsight-cloud-pm-qa-lead-loop",
+    "swiftsight-cloud-pm-tl-review-loop",
     "swiftcl-cto-cross-project-loop",
     "multi-project-coordinated-delivery",
     "swiftsight-worker-codex-clone-isolation",
