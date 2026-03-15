@@ -363,6 +363,15 @@ export function matchesSwiftsightCanonicalFootprint(input: {
   return canonicalMetadataDetected || projectMatchCount >= 3 || agentMatchCount >= 4;
 }
 
+function hasExplicitSwiftsightCanonicalMetadata(input: {
+  agents: Array<{
+    urlKey: string;
+    metadata?: Record<string, unknown> | null;
+  }>;
+}) {
+  return input.agents.some((agent) => agent.metadata?.canonicalTemplateKey === SWIFTSIGHT_CANONICAL_TEMPLATE_KEY);
+}
+
 export function resolveSwiftsightCanonicalMigrationHelper(input: {
   projectUrlKeys: string[];
   agents: Array<{
@@ -377,6 +386,38 @@ export function resolveSwiftsightCanonicalMigrationHelper(input: {
 
 export function canonicalTemplateForCompanyName(companyName: string | null | undefined) {
   if (companyName?.trim() !== "cloud-swiftsight") return null;
+  return {
+    templateKey: SWIFTSIGHT_CANONICAL_TEMPLATE_KEY,
+    canonicalVersion: SWIFTSIGHT_CANONICAL_VERSION,
+    agents: listCanonicalSwiftsightAgents(),
+    projects: listCanonicalSwiftsightProjects(),
+    blueprintAbsorptionPrep: buildSwiftsightCanonicalBlueprintAbsorptionPrep(),
+  };
+}
+
+export function resolveCanonicalTemplateForCompany(input: {
+  companyName: string | null | undefined;
+  projectUrlKeys: string[];
+  agents: Array<{
+    urlKey: string;
+    metadata?: Record<string, unknown> | null;
+  }>;
+}, options?: {
+  allowHeuristicFootprint?: boolean;
+}) {
+  const exact = canonicalTemplateForCompanyName(input.companyName);
+  if (exact) return exact;
+  const explicitCanonicalMetadata = hasExplicitSwiftsightCanonicalMetadata(input);
+  const heuristicFootprintMatch =
+    options?.allowHeuristicFootprint === true
+      ? matchesSwiftsightCanonicalFootprint({
+          projectUrlKeys: input.projectUrlKeys,
+          agents: input.agents,
+        })
+      : false;
+  if (!explicitCanonicalMetadata && !heuristicFootprintMatch) {
+    return null;
+  }
   return {
     templateKey: SWIFTSIGHT_CANONICAL_TEMPLATE_KEY,
     canonicalVersion: SWIFTSIGHT_CANONICAL_VERSION,

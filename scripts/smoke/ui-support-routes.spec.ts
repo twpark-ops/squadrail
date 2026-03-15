@@ -15,6 +15,13 @@ function isIgnorableBrowserNoise(message: string) {
   return message.includes("favicon.ico") || message === "Failed to load resource: the server responded with a status of 404 (Not Found)";
 }
 
+function isIgnorableBadResponse(url: string, status: number) {
+  if (url.endsWith("/favicon.ico")) return true;
+  // Live run log polling can observe a brief 404 before the log blob is materialized.
+  if (status === 404 && /\/api\/heartbeat-runs\/[^/]+\/log\?/.test(url)) return true;
+  return false;
+}
+
 function attachDiagnostics(page: { on: (event: string, listener: (...args: any[]) => void) => void }): BrowserDiagnostics {
   const diagnostics: BrowserDiagnostics = {
     consoleErrors: [],
@@ -40,7 +47,7 @@ function attachDiagnostics(page: { on: (event: string, listener: (...args: any[]
   });
   page.on("response", (response: { status: () => number; url: () => string; request: () => { method: () => string } }) => {
     if (response.status() >= 400) {
-      if (response.url().endsWith("/favicon.ico")) return;
+      if (isIgnorableBadResponse(response.url(), response.status())) return;
       diagnostics.badResponses.push(`${response.request().method()} ${response.url()} :: ${response.status()}`);
     }
   });
@@ -364,7 +371,9 @@ test("saved blueprint library supports local authoring, versioning, and lifecycl
   await nextVersionCard.getByRole("textbox").nth(3).fill("Increase saved engineer coverage");
   await nextVersionCard.getByRole("button", { name: "Save as next version", exact: true }).click();
   await expect(page.getByText("Saved blueprint preview was stored as the next company-local version.").first()).toBeVisible();
-  await expect(savedLibraryPane.getByRole("button").filter({ hasText: /v2 ·/ }).first()).toBeVisible();
+  const nextVersionButton = savedLibraryPane.getByRole("button").filter({ hasText: /v2 ·/ }).first();
+  await expect(nextVersionButton).toBeVisible();
+  await nextVersionButton.click();
 
   page.once("dialog", (dialog) => dialog.accept());
   await savedLibraryPane.getByRole("button", { name: "Delete from library", exact: true }).click();

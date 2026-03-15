@@ -1061,7 +1061,7 @@ export async function runChildProcess(
     env: Record<string, string>;
     timeoutSec: number;
     graceSec: number;
-    onLog: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
+    onLog: (stream: "stdout" | "stderr" | "system", chunk: string) => Promise<void>;
     onLogError?: (err: unknown, runId: string, message: string) => void;
     stdin?: string;
   },

@@ -5,6 +5,7 @@ import {
   buildCanonicalLookupMaps,
   buildSwiftsightCanonicalBlueprintAbsorptionPrep,
   canonicalTemplateForCompanyName,
+  resolveCanonicalTemplateForCompany,
   listCanonicalSwiftsightAgents,
   listCanonicalSwiftsightProjects,
 } from "../services/swiftsight-org-canonical.js";
@@ -83,6 +84,57 @@ describe("swiftsight org canonical template", () => {
     });
     expect(canonicalTemplateForCompanyName("Cloud Swiftsight")).toBeNull();
     expect(canonicalTemplateForCompanyName(null)).toBeNull();
+  });
+
+  it("resolves the canonical template from imported footprint metadata even when the company name differs", () => {
+    const template = resolveCanonicalTemplateForCompany({
+      companyName: "cloud-swiftsight-summary-eval",
+      projectUrlKeys: ["swiftsight-cloud", "swiftsight-agent", "swiftcl"],
+      agents: [
+        {
+          urlKey: "swiftsight-cto",
+          metadata: { canonicalTemplateKey: SWIFTSIGHT_CANONICAL_TEMPLATE_KEY },
+        },
+        {
+          urlKey: "swiftsight-pm",
+          metadata: null,
+        },
+      ],
+    });
+
+    expect(template).toMatchObject({
+      templateKey: SWIFTSIGHT_CANONICAL_TEMPLATE_KEY,
+      canonicalVersion: SWIFTSIGHT_CANONICAL_VERSION,
+    });
+  });
+
+  it("does not resolve the canonical template from heuristic footprint alone unless explicitly allowed", () => {
+    expect(resolveCanonicalTemplateForCompany({
+      companyName: "lookalike-company",
+      projectUrlKeys: ["swiftsight-cloud", "swiftsight-agent", "swiftcl"],
+      agents: [
+        { urlKey: "swiftsight-cloud-tl", metadata: null },
+        { urlKey: "swiftsight-agent-tl", metadata: null },
+        { urlKey: "swiftcl-tl", metadata: null },
+        { urlKey: "swiftsight-pm", metadata: null },
+      ],
+    })).toBeNull();
+
+    expect(resolveCanonicalTemplateForCompany({
+      companyName: "lookalike-company",
+      projectUrlKeys: ["swiftsight-cloud", "swiftsight-agent", "swiftcl"],
+      agents: [
+        { urlKey: "swiftsight-cloud-tl", metadata: null },
+        { urlKey: "swiftsight-agent-tl", metadata: null },
+        { urlKey: "swiftcl-tl", metadata: null },
+        { urlKey: "swiftsight-pm", metadata: null },
+      ],
+    }, {
+      allowHeuristicFootprint: true,
+    })).toMatchObject({
+      templateKey: SWIFTSIGHT_CANONICAL_TEMPLATE_KEY,
+      canonicalVersion: SWIFTSIGHT_CANONICAL_VERSION,
+    });
   });
 
   it("builds a generic blueprint absorption prep map for swiftsight", () => {

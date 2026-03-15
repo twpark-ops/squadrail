@@ -244,6 +244,15 @@ describe("heartbeat protocol progress helpers", () => {
     ).toBe(false);
     expect(
       shouldSkipSupersededProtocolFollowup({
+        wakeReason: "protocol_required_retry",
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        protocolMessageType: "ASSIGN_TASK",
+        protocolRecipientRole: "pm",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
         wakeReason: "adapter_retry",
         issueStatus: "done",
         workflowState: "approved",

@@ -588,6 +588,26 @@ function buildScenarioDefinitions(context) {
           "No unrelated lint or repo-wide validation is required for handoff",
         ],
       },
+      closeAction: {
+        senderId: agent("swiftsight-python-tl").id,
+        senderRole: "tech_lead",
+        summary: "Close get_git_info file-path normalization fix after focused review approval",
+        closureSummary:
+          "get_git_info now normalizes file-path source_root inputs to their parent directory, focused pytest evidence passed in the isolated clone workspace, and review approval was recorded.",
+        verificationSummary:
+          "Focused git_info pytest evidence and dirty-base-repo isolation checks were recorded in protocol.",
+        rollbackPlan:
+          "Revert the git_info normalization change and focused regression test if file-path source_root handling regresses.",
+        finalArtifacts: [
+          "diff artifact attached",
+          "test_run artifact attached",
+          "approval recorded in protocol",
+        ],
+        remainingRisks: [
+          "Merge remains external to this E2E harness.",
+        ],
+        mergeStatus: "pending_external_merge",
+      },
     },
     {
       key: "swiftsight-cloud-pm-qa-lead-loop",
@@ -985,6 +1005,29 @@ function buildScenarioDefinitions(context) {
       ],
     },
   ];
+}
+
+function validateScenarioDefinitions(scenarios) {
+  const assertCloseAction = (scenario) => {
+    assert(scenario.closeAction, `${scenario.key} missing closeAction`);
+    assert(scenario.closeAction.senderId, `${scenario.key} closeAction missing senderId`);
+    assert(scenario.closeAction.senderRole, `${scenario.key} closeAction missing senderRole`);
+    assert(scenario.closeAction.summary, `${scenario.key} closeAction missing summary`);
+    assert(scenario.closeAction.closureSummary, `${scenario.key} closeAction missing closureSummary`);
+    assert(scenario.closeAction.verificationSummary, `${scenario.key} closeAction missing verificationSummary`);
+  };
+
+  for (const scenario of scenarios) {
+    if (scenario.mode === "coordinated") {
+      assert(Array.isArray(scenario.children) && scenario.children.length > 0, `${scenario.key} missing coordinated children`);
+      for (const child of scenario.children) {
+        assertCloseAction(child);
+      }
+      continue;
+    }
+
+    assertCloseAction(scenario);
+  }
 }
 
 async function createIssue(companyId, scenario, labelIds) {
@@ -1806,6 +1849,7 @@ async function main() {
     ? scenarios.filter((scenario) => requestedScenarioKeys.includes(scenario.key))
     : scenarios.filter((scenario) => DEFAULT_ORG_LOOP_SCENARIO_KEYS.includes(scenario.key));
   assert(selectedScenarios.length > 0, `No scenarios selected for filter: ${SCENARIO_FILTER}`);
+  validateScenarioDefinitions(selectedScenarios);
 
   const agentStatusRestores = await prepareScenarioAgents(context, selectedScenarios);
   const results = [];

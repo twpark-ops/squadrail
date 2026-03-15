@@ -37,6 +37,7 @@ import {
   SWIFTSIGHT_CANONICAL_TEMPLATE_KEY,
   SWIFTSIGHT_CANONICAL_VERSION,
   canonicalTemplateForCompanyName,
+  resolveCanonicalTemplateForCompany,
   buildCanonicalLookupMaps,
   type CanonicalAgentDefinition,
 } from "./swiftsight-org-canonical.js";
@@ -396,8 +397,20 @@ export function knowledgeSetupService(db: Db) {
 
   async function getOrgSync(companyId: string) {
     const company = await requireCompany(companyId);
-    const template = canonicalTemplateForCompanyName(company.name);
-    const liveAgents = await agentsSvc.list(companyId);
+    const [liveAgents, projectRows] = await Promise.all([
+      agentsSvc.list(companyId),
+      projectsSvc.list(companyId),
+    ]);
+    const template = resolveCanonicalTemplateForCompany({
+      companyName: company.name,
+      projectUrlKeys: projectRows.map((project) => project.urlKey).filter((value): value is string => Boolean(value)),
+      agents: liveAgents.map((agent) => ({
+        urlKey: agent.urlKey,
+        metadata: asRecord(agent.metadata),
+      })),
+    }, {
+      allowHeuristicFootprint: true,
+    });
     return buildOrgSyncView({
       companyId,
       templateKey: template?.templateKey ?? null,
@@ -935,12 +948,21 @@ export function knowledgeSetupService(db: Db) {
 
   async function repairOrgSync(companyId: string, input: RepairOrgSync, actor: ActorInfo) {
     const company = await requireCompany(companyId);
-    const template = canonicalTemplateForCompanyName(company.name);
+    const [projectRows, liveAgents] = await Promise.all([
+      projectsSvc.list(companyId),
+      agentsSvc.list(companyId),
+    ]);
+    const template = resolveCanonicalTemplateForCompany({
+      companyName: company.name,
+      projectUrlKeys: projectRows.map((project) => project.urlKey).filter((value): value is string => Boolean(value)),
+      agents: liveAgents.map((agent) => ({
+        urlKey: agent.urlKey,
+        metadata: asRecord(agent.metadata),
+      })),
+    });
     if (!template) {
       throw new Error("This company does not have a canonical org template");
     }
-
-    const liveAgents = await agentsSvc.list(companyId);
     const byId = new Map(liveAgents.map((agent) => [agent.id, agent]));
     const byUrlKey = new Map(liveAgents.map((agent) => [agent.urlKey, agent]));
     const byBootstrapSlug = new Map(

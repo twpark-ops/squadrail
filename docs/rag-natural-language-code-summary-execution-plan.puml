@@ -1,0 +1,63 @@
+@startuml
+title Natural-Language Code Summary Execution Plan
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Noto Sans
+skinparam packageStyle rectangle
+skinparam ArrowColor #355C7D
+skinparam PackageBorderColor #355C7D
+skinparam PackageBackgroundColor #F7FBFF
+skinparam RectangleBorderColor #355C7D
+skinparam RectangleBackgroundColor #EEF6FF
+
+rectangle "Phase 0\nBaseline Freeze" as P0
+rectangle "Phase 1\nSummary Source Contract" as P1
+rectangle "Phase 2\nImport-Time Summary Generation" as P2
+rectangle "Phase 3\nRetrieval Integration" as P3
+rectangle "Phase 4\nLive Fixture Proof Harness" as P4
+rectangle "Phase 5\nE2E Proof Gate" as P5
+
+P0 --> P1
+P1 --> P2
+P2 --> P3
+P3 --> P4
+P4 --> P5
+
+note right of P0
+API import로 clean fixture 생성
+baseline domain-aware PM / RAG 결과 snapshot
+end note
+
+note right of P1
+code_summary / symbol_summary source type
+summary metadata / link contract
+end note
+
+note right of P2
+workspace import/backfill 시
+file/module/symbol summary 생성
+knowledge_documents / chunks 저장
+end note
+
+note right of P3
+hybrid retrieval 유지
+role-aware summary weighting
+PM preview knowledge fetch 반영
+end note
+
+note right of P4
+baseline vs post-summary
+same fixture / same scenarios
+JSON diff report
+end note
+
+note right of P5
+strict kernel burn-in
+autonomy matrix
+browser smoke
+rag readiness with summary hits
+domain-aware PM matrix pre/post proof
+end note
+
+@enduml

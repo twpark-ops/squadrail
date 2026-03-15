@@ -406,6 +406,18 @@ export function resolveExpectedWorkflowStateAfter(input: {
     return input.message.workflowStateAfter;
   }
 
+  if (input.message.messageType === "REASSIGN_TASK" && input.before === "implementing") {
+    const payload = input.message.payload as Record<string, unknown>;
+    const newAssigneeAgentId = typeof payload.newAssigneeAgentId === "string" ? payload.newAssigneeAgentId : null;
+    if (
+      newAssigneeAgentId
+      && input.currentState?.primaryEngineerAgentId
+      && newAssigneeAgentId === input.currentState.primaryEngineerAgentId
+    ) {
+      return "implementing";
+    }
+  }
+
   return input.rule.to === "same" ? input.before : input.rule.to;
 }
 
@@ -423,6 +435,12 @@ export function resolveProtocolOwnershipForMessage(input: {
         : null;
   const assignTargetRole = findRecipientRoleForAgent(input.message.recipients, assignTargetAgentId);
   const explicitTechLeadRecipientId = firstRecipientIdForRole(input.message.recipients, "tech_lead");
+  const keepsExistingDownstreamOwnershipDuringPmRetry =
+    input.message.messageType === "REASSIGN_TASK"
+    && input.message.sender.role === "pm"
+    && Boolean(input.currentState?.primaryEngineerAgentId)
+    && assignTargetRole === "tech_lead"
+    && assignTargetAgentId === input.currentState?.techLeadAgentId;
 
   const techLeadAgentId =
     input.message.messageType === "ASSIGN_TASK"
@@ -445,21 +463,27 @@ export function resolveProtocolOwnershipForMessage(input: {
       : input.message.messageType === "REASSIGN_TASK"
         ? assignTargetRole === "engineer"
           ? assignTargetAgentId
-          : null
+          : keepsExistingDownstreamOwnershipDuringPmRetry
+            ? input.currentState?.primaryEngineerAgentId ?? null
+            : null
         : input.currentState?.primaryEngineerAgentId ?? null;
 
   const reviewerAgentId =
     input.message.messageType === "ASSIGN_TASK"
       ? String(currentPayload.reviewerAgentId)
       : input.message.messageType === "REASSIGN_TASK"
-        ? (currentPayload.newReviewerAgentId as string | null | undefined) ?? input.currentState?.reviewerAgentId ?? null
+        ? keepsExistingDownstreamOwnershipDuringPmRetry
+          ? input.currentState?.reviewerAgentId ?? null
+          : (currentPayload.newReviewerAgentId as string | null | undefined) ?? input.currentState?.reviewerAgentId ?? null
         : input.currentState?.reviewerAgentId ?? null;
 
   const qaAgentId =
     input.message.messageType === "ASSIGN_TASK"
       ? (currentPayload.qaAgentId as string | null | undefined) ?? null
       : input.message.messageType === "REASSIGN_TASK"
-        ? (currentPayload.newQaAgentId as string | null | undefined) ?? input.currentState?.qaAgentId ?? null
+        ? keepsExistingDownstreamOwnershipDuringPmRetry
+          ? input.currentState?.qaAgentId ?? null
+          : (currentPayload.newQaAgentId as string | null | undefined) ?? input.currentState?.qaAgentId ?? null
         : input.currentState?.qaAgentId ?? null;
 
   return {
@@ -554,6 +578,19 @@ export function issueProtocolService(db: Db) {
     }
     if (rule.from !== "*" && !rule.from.includes(before)) {
       throw conflict(`Message ${message.messageType} cannot run from state ${before}`);
+    }
+
+    if (message.messageType === "REASSIGN_TASK" && before === "implementing") {
+      const payload = message.payload as Record<string, unknown>;
+      const newAssigneeAgentId = typeof payload.newAssigneeAgentId === "string" ? payload.newAssigneeAgentId : null;
+      if (
+        newAssigneeAgentId
+        && currentState?.primaryEngineerAgentId
+        && currentState.techLeadAgentId
+        && newAssigneeAgentId === currentState.techLeadAgentId
+      ) {
+        throw conflict("Cannot reassign an active implementation back to the tech lead");
+      }
     }
 
     const expectedAfter = resolveExpectedWorkflowStateAfter({
@@ -808,6 +845,21 @@ export function issueProtocolService(db: Db) {
           .then((rows: Array<typeof issueProtocolState.$inferSelect>) => rows[0] ?? null);
 
         let effectiveMessage = input.message;
+
+        if (effectiveMessage.messageType === "REASSIGN_TASK" && currentState?.workflowState === "implementing") {
+          const payload = effectiveMessage.payload as Record<string, unknown>;
+          const newAssigneeAgentId = typeof payload.newAssigneeAgentId === "string" ? payload.newAssigneeAgentId : null;
+          if (
+            newAssigneeAgentId
+            && currentState.primaryEngineerAgentId
+            && newAssigneeAgentId === currentState.primaryEngineerAgentId
+          ) {
+            effectiveMessage = {
+              ...effectiveMessage,
+              workflowStateAfter: "implementing",
+            };
+          }
+        }
 
         if (effectiveMessage.messageType === "ANSWER_CLARIFICATION") {
           if (!effectiveMessage.causalMessageId) {
