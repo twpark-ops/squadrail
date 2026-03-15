@@ -286,6 +286,7 @@ type DeliveryPartySlot = {
   statusLabel: string;
   tone: DeliveryPartySlotTone;
   helperText: string;
+  detailText?: string | null;
 };
 
 function deliveryPartyToneClassName(tone: DeliveryPartySlotTone) {
@@ -337,13 +338,126 @@ function resolveDeliveryPartyFocusKey(
   }
 }
 
+function resolveBlockedDeliveryPartyKey(
+  protocolState: IssueProtocolState | null | undefined,
+): DeliveryPartySlotKey | null {
+  switch (protocolState?.blockedPhase) {
+    case "assignment":
+    case "planning":
+    case "closing":
+      return "lead";
+    case "implementing":
+      return "engineer";
+    case "review":
+      return "reviewer";
+    default:
+      return null;
+  }
+}
+
+function formatDeliveryPartyClarificationDetail(
+  clarification: PendingClarificationRequest | null | undefined,
+) {
+  if (!clarification) return null;
+  return `Clarification pending: ${truncate(clarification.question, 92)}`;
+}
+
+function describeDeliveryPartyDetail(args: {
+  slotKey: DeliveryPartySlotKey;
+  workflowState: string | null;
+  blockedCode: string | null | undefined;
+  blocked: boolean;
+  isFocused: boolean;
+  pendingClarification: PendingClarificationRequest | null;
+}) {
+  const { slotKey, workflowState, blockedCode, blocked, isFocused, pendingClarification } = args;
+  const clarificationDetail = formatDeliveryPartyClarificationDetail(pendingClarification);
+
+  if (blocked) {
+    return clarificationDetail ?? `Blocked on ${formatProtocolValue(blockedCode)}.`;
+  }
+
+  if (isFocused) {
+    switch (slotKey) {
+      case "lead":
+        if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+          return "Lead is holding the release line while review ownership clears the diff.";
+        }
+        if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+          return "Lead is waiting on the QA gate before closing the issue.";
+        }
+        return "Lead is steering scope, handoffs, and final closeout.";
+      case "engineer":
+        return "Engineer owns the active implementation lane right now.";
+      case "reviewer":
+        return workflowState === "submitted_for_review"
+          ? "Implementation handoff landed and is waiting for a review decision."
+          : "Reviewer is checking code quality, design, and regression risk.";
+      case "qa":
+        return "QA is validating acceptance criteria and release readiness.";
+    }
+  }
+
+  switch (slotKey) {
+    case "lead":
+      if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+        return "Waiting for reviewer approval before final close.";
+      }
+      if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+        return "Waiting for QA sign-off before final close.";
+      }
+      return "Holding ownership while downstream lanes execute.";
+    case "engineer":
+      if (workflowState === "assigned" || workflowState === "accepted") {
+        return "Waiting for implementation kickoff.";
+      }
+      if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+        return "Implementation is complete; waiting on reviewer feedback.";
+      }
+      if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+        return "Implementation cleared review and is waiting on QA evidence.";
+      }
+      return "Queued until implementation becomes the active lane.";
+    case "reviewer":
+      if (
+        workflowState === "assigned" ||
+        workflowState === "accepted" ||
+        workflowState === "implementing" ||
+        workflowState === "changes_requested"
+      ) {
+        return "Waiting for implementation handoff before review begins.";
+      }
+      if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+        return "Review lane already cleared and is waiting on QA.";
+      }
+      return "Waiting for the review lane to open.";
+    case "qa":
+      if (
+        workflowState === "assigned" ||
+        workflowState === "accepted" ||
+        workflowState === "implementing"
+      ) {
+        return "Waiting for review handoff before the QA gate opens.";
+      }
+      if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+        return "Waiting for reviewer approval before QA starts.";
+      }
+      if (workflowState === "qa_pending") {
+        return "QA gate is queued and ready to start.";
+      }
+      return "Waiting for QA evidence and release checks.";
+  }
+}
+
 function buildDeliveryPartySlots(args: {
   protocolState: IssueProtocolState | null | undefined;
   agentMap: Map<string, Agent>;
   liveRunAgentId: string | null;
+  pendingClarification: PendingClarificationRequest | null;
 }): DeliveryPartySlot[] {
-  const { protocolState, agentMap, liveRunAgentId } = args;
+  const { protocolState, agentMap, liveRunAgentId, pendingClarification } = args;
   const focusKey = resolveDeliveryPartyFocusKey(protocolState, liveRunAgentId);
+  const blockedKey = resolveBlockedDeliveryPartyKey(protocolState);
   const workflowState = protocolState?.workflowState ?? null;
   const blocked = Boolean(protocolState?.blockedCode);
   const closed = workflowState === "approved" || workflowState === "done";
@@ -404,6 +518,7 @@ function buildDeliveryPartySlots(args: {
           slot.key === "qa"
             ? "This issue can still close through review if QA is not staffed."
             : "Assign this slot before expecting work to move through it.",
+        detailText: null,
       } satisfies DeliveryPartySlot;
     }
 
@@ -419,17 +534,21 @@ function buildDeliveryPartySlots(args: {
           slot.key === "lead"
             ? "Lead owns the final closeout and release posture."
             : "This handoff already cleared its lane.",
+        detailText: null,
       } satisfies DeliveryPartySlot;
     }
 
-    if (focusKey === slot.key) {
+    const isBlockedSlot = blocked && blockedKey === slot.key;
+    const isFocusedSlot = focusKey === slot.key;
+
+    if (isFocusedSlot || isBlockedSlot) {
       return {
         key: slot.key,
         label: slot.label,
         agentId: slot.agentId,
         agent,
-        statusLabel: slot.activeLabel,
-        tone: blocked && (slot.key === "engineer" || slot.key === "qa") ? "blocked" : "active",
+        statusLabel: isBlockedSlot ? "Blocked" : slot.activeLabel,
+        tone: isBlockedSlot ? "blocked" : "active",
         helperText:
           slot.key === "lead"
             ? "Lead is coordinating scope, review, or final closure."
@@ -438,6 +557,14 @@ function buildDeliveryPartySlots(args: {
             : slot.key === "reviewer"
             ? "Reviewer is responsible for code quality and diff acceptance."
             : "QA verifies acceptance criteria and release readiness.",
+        detailText: describeDeliveryPartyDetail({
+          slotKey: slot.key,
+          workflowState,
+          blockedCode: protocolState?.blockedCode,
+          blocked: isBlockedSlot,
+          isFocused: true,
+          pendingClarification,
+        }),
       } satisfies DeliveryPartySlot;
     }
 
@@ -448,14 +575,22 @@ function buildDeliveryPartySlots(args: {
       agent,
       statusLabel: slot.waitingLabel,
       tone: "waiting",
-      helperText:
-        slot.key === "engineer"
+        helperText:
+          slot.key === "engineer"
           ? "Engineer is ready once implementation becomes the active lane."
           : slot.key === "reviewer"
           ? "Reviewer joins after implementation is submitted."
           : slot.key === "qa"
           ? "QA engages only when the issue crosses the QA gate."
           : "Lead keeps ownership while downstream lanes execute.",
+      detailText: describeDeliveryPartyDetail({
+        slotKey: slot.key,
+        workflowState,
+        blockedCode: protocolState?.blockedCode,
+        blocked: false,
+        isFocused: false,
+        pendingClarification,
+      }),
     } satisfies DeliveryPartySlot;
   });
 }
@@ -1193,14 +1328,19 @@ export function IssueDetail() {
     for (const a of agents ?? []) map.set(a.id, a);
     return map;
   }, [agents]);
+  const pendingClarificationRequests = useMemo(
+    () => derivePendingClarificationRequests(protocolMessages, agentMap),
+    [agentMap, protocolMessages],
+  );
   const deliveryPartySlots = useMemo(
     () =>
       buildDeliveryPartySlots({
         protocolState,
         agentMap,
         liveRunAgentId: primaryLiveRun?.agentId ?? null,
+        pendingClarification: pendingClarificationRequests[0] ?? null,
       }),
-    [agentMap, primaryLiveRun?.agentId, protocolState]
+    [agentMap, pendingClarificationRequests, primaryLiveRun?.agentId, protocolState]
   );
   const activeDeliveryPartySlot =
     deliveryPartySlots.find(
@@ -1339,10 +1479,6 @@ export function IssueDetail() {
   const protocolTimeline = useMemo(
     () => [...protocolMessages].slice(-12).reverse(),
     [protocolMessages]
-  );
-  const pendingClarificationRequests = useMemo(
-    () => derivePendingClarificationRequests(protocolMessages, agentMap),
-    [agentMap, protocolMessages],
   );
   const latestResolvedClarification = useMemo(
     () => deriveLatestClarificationResolutionView(protocolMessages, agentMap),
@@ -2451,6 +2587,20 @@ export function IssueDetail() {
                   </div>
                 )}
               </div>
+              {slot.detailText ? (
+                <div
+                  className={cn(
+                    "mt-3 rounded-lg border px-3 py-2 text-xs leading-5",
+                    slot.tone === "blocked"
+                      ? "border-red-300/70 bg-red-500/10 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200"
+                      : slot.tone === "active"
+                        ? "border-cyan-300/70 bg-cyan-500/10 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200"
+                        : "border-border/70 bg-muted/30 text-muted-foreground",
+                  )}
+                >
+                  {slot.detailText}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
