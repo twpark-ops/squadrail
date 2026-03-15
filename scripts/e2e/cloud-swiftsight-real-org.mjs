@@ -140,7 +140,7 @@ async function ensureCompanyLabels(companyId, specs) {
   });
 }
 
-async function cancelIssue(issueId) {
+async function markIssueCancelled(issueId) {
   return api(`/api/issues/${issueId}`, {
     method: "PATCH",
     body: {
@@ -191,7 +191,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
       summary.cancelled += 1;
       note(`cleanup cancelled ${issue.identifier}`);
       if (HIDE_COMPLETED_ISSUES) {
-        await cancelIssue(issue.id);
+        await markIssueCancelled(issue.id);
         summary.hidden += 1;
         note(`cleanup hid ${issue.identifier}`);
       }
@@ -199,7 +199,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
     }
 
     if (HIDE_COMPLETED_ISSUES && shouldHideE2eIssue(issue.status)) {
-      await cancelIssue(issue.id);
+      await markIssueCancelled(issue.id);
       summary.hidden += 1;
       note(`cleanup hid ${issue.identifier}`);
     }
@@ -1703,7 +1703,7 @@ async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
   }
 
   if (HIDE_COMPLETED_ISSUES) {
-    await cancelIssue(issue.id);
+    await markIssueCancelled(issue.id);
     note(`hid ${issue.identifier} after successful verification`);
   }
 

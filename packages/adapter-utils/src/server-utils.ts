@@ -700,8 +700,8 @@ export function renderSquadrailRuntimeNote(input: {
     ) {
       lines.splice(3, 0, "- Do not start file reads, design notes, or implementation planning before the first protocol action is sent.");
       lines.push("- If you accept and can continue immediately, follow `ACK_ASSIGNMENT` with `START_IMPLEMENTATION` in the same run.");
-      lines.push("- After `START_IMPLEMENTATION`, stop this run unless the current workspace is already an isolated implementation workspace.");
-      lines.push("- Do not edit files in a shared or analysis workspace after sending `START_IMPLEMENTATION`; wait for the follow-up implementation wake.");
+      lines.push("- After `START_IMPLEMENTATION`, continue working in this run if a `workspaceUsageOverride` of `implementation` was provided; the server coalesces the workspace context automatically.");
+      lines.push("- If the current workspace is shared or analysis-only and no override was provided, stop and let the server route you to the correct workspace on the next wake.");
     }
 
     if (protocolRequirement.key === "implementation_engineer") {
@@ -837,7 +837,7 @@ export function renderSquadrailRuntimeNote(input: {
     lines.push("Workspace guardrail:");
     lines.push(`- Current workspaceUsage is \`${workspaceUsage}\`, so this run is not the final implementation workspace.`);
     lines.push("- You may acknowledge or start implementation in protocol, but do not modify repository files in this run.");
-    lines.push("- Wait for the follow-up implementation wake that resolves an isolated workspace before editing code.");
+    lines.push("- Do not edit repository files in this run; the server will route the next wake to an isolated implementation workspace.");
     lines.push("");
   }
 

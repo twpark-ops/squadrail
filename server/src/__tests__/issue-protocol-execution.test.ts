@@ -452,7 +452,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     expect(plan.map((item) => item.kind)).toEqual(["notify_only", "notify_only"]);
   });
 
-  it("requeues the sender for START_IMPLEMENTATION follow-up execution", () => {
+  it("coalesces engineer self-START into active run with workspace override", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-1",
       protocolMessageId: "msg-2b",
@@ -486,12 +486,12 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       kind: "wakeup",
       reason: "protocol_implementation_started",
       payload: {
-        forceFollowupRun: true,
-        protocolDispatchMode: "implementation_followup",
+        forceFollowupRun: false,
+        workspaceUsageOverride: "implementation",
       },
       contextSnapshot: {
-        forceFollowupRun: true,
-        protocolDispatchMode: "implementation_followup",
+        forceFollowupRun: false,
+        workspaceUsageOverride: "implementation",
       },
     });
   });
