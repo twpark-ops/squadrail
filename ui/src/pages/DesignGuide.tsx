@@ -124,8 +124,13 @@ import { InlineEditor } from "@/components/InlineEditor";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Identity } from "@/components/Identity";
 import { AgentRunExecutionPanel } from "@/components/AgentRunExecutionPanel";
+import {
+  LiveRunWidgetFixture,
+  type LiveRunWidgetFeedItem,
+} from "@/components/LiveRunWidget";
 import type { TranscriptEntry } from "@/adapters";
 import type { HeartbeatRun, HeartbeatRunEvent } from "@squadrail/shared";
+import type { LiveRunForIssue } from "@/api/heartbeats";
 
 /* ------------------------------------------------------------------ */
 /*  Section wrapper                                                    */
@@ -253,6 +258,78 @@ const designGuideRun: Pick<HeartbeatRun, "status" | "error" | "stderrExcerpt" | 
   resultJson: null,
   stdoutExcerpt: null,
 };
+
+const designGuideLiveRuns: LiveRunForIssue[] = [
+  {
+    id: "run-protocol-1",
+    status: "running",
+    invocationSource: "assignment",
+    triggerDetail: "issue_assigned",
+    startedAt: "2026-03-15T07:12:00.000Z",
+    finishedAt: null,
+    createdAt: "2026-03-15T07:12:00.000Z",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    adapterType: "codex_local",
+    issueId: "issue-cloud-export",
+  },
+  {
+    id: "run-implementation-2",
+    status: "queued",
+    invocationSource: "on_demand",
+    triggerDetail: "implementation_followup",
+    startedAt: null,
+    finishedAt: null,
+    createdAt: "2026-03-15T07:13:10.000Z",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    adapterType: "codex_local",
+    issueId: "issue-cloud-export",
+  },
+  {
+    id: "run-review-3",
+    status: "running",
+    invocationSource: "assignment",
+    triggerDetail: "review_requested",
+    startedAt: "2026-03-15T07:14:30.000Z",
+    finishedAt: null,
+    createdAt: "2026-03-15T07:14:30.000Z",
+    agentId: "agent-reviewer-1",
+    agentName: "Smoke Reviewer",
+    adapterType: "claude_local",
+    issueId: "issue-cloud-export",
+  },
+];
+
+const designGuideLiveFeed: LiveRunWidgetFeedItem[] = [
+  {
+    id: "feed-1",
+    ts: "2026-03-15T07:12:15.000Z",
+    runId: "run-protocol-1",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    text: "Protocol gate acknowledged. Narrowing the export handoff patch before implementation.",
+    tone: "assistant",
+  },
+  {
+    id: "feed-2",
+    ts: "2026-03-15T07:13:12.000Z",
+    runId: "run-implementation-2",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    text: "Implementation follow-up queued in isolated workspace.",
+    tone: "warn",
+  },
+  {
+    id: "feed-3",
+    ts: "2026-03-15T07:14:45.000Z",
+    runId: "run-review-3",
+    agentId: "agent-reviewer-1",
+    agentName: "Smoke Reviewer",
+    text: "Focused review lane is running against the export handoff diff.",
+    tone: "tool",
+  },
+];
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
@@ -1269,6 +1346,16 @@ export function DesignGuide() {
             isFollowing
             hasPersistedLog
           />
+          <div className="pt-3">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Linked runs stay grouped by lane so protocol gate and implementation follow-up read as one operating thread.
+            </p>
+            <LiveRunWidgetFixture
+              testId="design-guide-live-run-widget-panel"
+              runs={designGuideLiveRuns}
+              feed={designGuideLiveFeed}
+            />
+          </div>
         </div>
       </Section>
 

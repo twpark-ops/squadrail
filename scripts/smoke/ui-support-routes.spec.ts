@@ -177,7 +177,7 @@ test("design guide keeps run transcript ahead of diagnostics", async ({ page }) 
   });
 
   await expect(page.getByRole("heading", { name: "Design Guide", exact: true })).toBeVisible();
-  const fixture = page.getByTestId("design-guide-agent-run-detail");
+  const fixture = page.getByTestId("design-guide-run-panel");
   await expect(fixture).toBeVisible();
   await expect(fixture.getByText(/Transcript \(\d+\)/).first()).toBeVisible();
   await expect(fixture.getByText("Diagnostics").first()).toBeVisible();
@@ -209,6 +209,28 @@ test("design guide keeps run transcript ahead of diagnostics", async ({ page }) 
     fixture.getByText("You are the swiftsight cloud tech lead.").first(),
   ).toBeVisible();
   await expect(fixture.getByText(/5 key\(s\) · \d redacted/).first()).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("design guide groups linked live runs by lane", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const fixture = page.getByTestId("design-guide-live-run-widget-panel");
+  await expect(fixture).toBeVisible();
+  await expect(fixture.getByText("2 linked runs").first()).toBeVisible();
+  await expect(
+    fixture.getByText("Protocol gate and implementation follow-up are both attached to this lane.").first(),
+  ).toBeVisible();
+  await expect(fixture.getByText("Protocol gate").first()).toBeVisible();
+  await expect(fixture.getByText("Implementation").first()).toBeVisible();
+  await expect(
+    fixture.getByText("Implementation follow-up queued in isolated workspace.").first(),
+  ).toBeVisible();
 
   expectHealthyDiagnostics(diagnostics);
 });
