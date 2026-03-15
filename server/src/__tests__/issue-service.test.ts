@@ -283,6 +283,203 @@ describe("issue service", () => {
     expect(insertValues.find((entry) => entry.table === issues)?.value).not.toHaveProperty("hiddenAt");
   });
 
+  it("creates a subtask with parentId set and NO hiddenAt", async () => {
+    const parent = makeIssue({
+      id: "issue-parent",
+      identifier: "CLO-50",
+      projectId: "project-1",
+      goalId: "goal-1",
+      hiddenAt: null,
+      parentId: null,
+    });
+    const existingLabel = makeLabel({
+      id: "label-team",
+      name: "team:internal",
+      color: "#64748B",
+    });
+    const implLabel = makeLabel({
+      id: "label-impl",
+      name: "work:implementation",
+      color: "#EA580C",
+    });
+    const child = makeIssue({
+      id: "issue-subtask",
+      parentId: "issue-parent",
+      identifier: "CLO-51",
+      projectId: "project-1",
+      goalId: "goal-1",
+      requestDepth: 1,
+      hiddenAt: null,
+      assigneeAgentId: "agent-1",
+    });
+    const { db, insertValues } = createIssueDbMock({
+      selectResults: [
+        [parent],
+        [makeAgentRow()],
+        [existingLabel],
+        [{ id: existingLabel.id }, { id: implLabel.id }],
+        [
+          { issueId: child.id, label: existingLabel },
+          { issueId: child.id, label: implLabel },
+        ],
+      ],
+      insertResults: [[implLabel], [child]],
+      updateResults: [[{ issueCounter: 51, issuePrefix: "CLO" }]],
+    });
+    const service = issueService(db as never);
+
+    const created = await service.createInternalWorkItem({
+      parentIssueId: "issue-parent",
+      companyId: "company-1",
+      title: "Implement feature subsystem",
+      kind: "implementation",
+      priority: "high",
+      assigneeAgentId: "agent-1",
+      labelNames: ["team:internal", "work:implementation"],
+    });
+
+    // Verify parentId is set on the created subtask
+    expect(created.parentId).toBe("issue-parent");
+    // Verify the insert payload has NO hiddenAt field (subtasks are visible)
+    const issueInsert = insertValues.find((entry) => entry.table === issues)?.value;
+    expect(issueInsert).not.toHaveProperty("hiddenAt");
+    // Verify goalId is inherited from parent
+    expect(issueInsert).toMatchObject({
+      parentId: "issue-parent",
+      projectId: "project-1",
+      goalId: "goal-1",
+    });
+  });
+
+  it("rejects nested subtask creation when parent already has a parentId", async () => {
+    const parentWithParent = makeIssue({
+      id: "issue-child",
+      parentId: "issue-root",
+      identifier: "CLO-60",
+      projectId: "project-1",
+      goalId: "goal-1",
+    });
+    const { db } = createIssueDbMock({
+      selectResults: [[parentWithParent]],
+    });
+    const service = issueService(db as never);
+
+    await expect(
+      service.createInternalWorkItem({
+        parentIssueId: "issue-child",
+        companyId: "company-1",
+        title: "Nested subtask attempt",
+        kind: "implementation",
+        priority: "medium",
+        assigneeAgentId: "agent-1",
+        labelNames: ["team:internal", "work:implementation"],
+      }),
+    ).rejects.toThrow("Subtasks can only be created under root issues (no nested subtasks)");
+  });
+
+  it("rejects subtask creation when parent issue does not exist", async () => {
+    const { db } = createIssueDbMock({
+      selectResults: [[]],
+    });
+    const service = issueService(db as never);
+
+    await expect(
+      service.createInternalWorkItem({
+        parentIssueId: "nonexistent-issue",
+        companyId: "company-1",
+        title: "Orphan subtask",
+        kind: "review",
+        priority: "low",
+        assigneeAgentId: "agent-1",
+        labelNames: ["team:internal", "work:review"],
+      }),
+    ).rejects.toThrow("Parent issue not found");
+  });
+
+  it("rejects subtask creation when parent belongs to a different company", async () => {
+    const foreignParent = makeIssue({
+      id: "issue-foreign",
+      companyId: "company-2",
+      parentId: null,
+    });
+    const { db } = createIssueDbMock({
+      selectResults: [[foreignParent]],
+    });
+    const service = issueService(db as never);
+
+    await expect(
+      service.createInternalWorkItem({
+        parentIssueId: "issue-foreign",
+        companyId: "company-1",
+        title: "Cross-company subtask",
+        kind: "implementation",
+        priority: "medium",
+        assigneeAgentId: "agent-1",
+        labelNames: ["team:internal"],
+      }),
+    ).rejects.toThrow("Parent issue must belong to same company");
+  });
+
+  it("inherits goalId from parent even when parent has no projectId", async () => {
+    const parentNoProject = makeIssue({
+      id: "issue-no-project",
+      identifier: "CLO-70",
+      projectId: null,
+      goalId: "goal-special",
+      parentId: null,
+    });
+    const existingLabel = makeLabel({
+      id: "label-team",
+      name: "team:internal",
+      color: "#64748B",
+    });
+    const child = makeIssue({
+      id: "issue-child-no-project",
+      parentId: "issue-no-project",
+      identifier: "CLO-71",
+      projectId: null,
+      goalId: "goal-special",
+      requestDepth: 1,
+      assigneeAgentId: "agent-1",
+    });
+    const { db, insertValues } = createIssueDbMock({
+      selectResults: [
+        // 1. parent lookup
+        [parentNoProject],
+        // 2. agent validation (validateCreateIssueInput)
+        [makeAgentRow()],
+        // 3. ensureLabelsByName existing label lookup (inside tx)
+        [existingLabel],
+        // 4. assertValidLabelIds (inside syncIssueLabels in createIssueRecord)
+        [{ id: existingLabel.id }],
+        // 5. withIssueLabels (label map query in createIssueRecord)
+        [{ issueId: child.id, label: existingLabel }],
+      ],
+      // ensureLabelsByName finds "team:internal" already exists so no label insert.
+      // Only the issues insert happens.
+      insertResults: [[child]],
+      updateResults: [[{ issueCounter: 71, issuePrefix: "CLO" }]],
+    });
+    const service = issueService(db as never);
+
+    const created = await service.createInternalWorkItem({
+      parentIssueId: "issue-no-project",
+      companyId: "company-1",
+      title: "Subtask under project-less parent",
+      kind: "plan",
+      priority: "low",
+      assigneeAgentId: "agent-1",
+      labelNames: ["team:internal"],
+    });
+
+    const issueInsert = insertValues.find((entry) => entry.table === issues)?.value;
+    expect(issueInsert).toMatchObject({
+      goalId: "goal-special",
+      projectId: null,
+      parentId: "issue-no-project",
+    });
+  });
+
   it("updates assignment and status side effects while syncing labels", async () => {
     const existing = makeIssue({
       status: "done",

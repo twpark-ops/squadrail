@@ -121,6 +121,50 @@ describe("execution lanes", () => {
     it("returns false at exactly 2 knowledge tags", () => {
       expect(isComplexIntake({ ...simple, requiredKnowledgeTagCount: 2 })).toBe(false);
     });
+
+    it("returns true at exactly 3 knowledge tags (boundary crossing)", () => {
+      expect(isComplexIntake({ ...simple, requiredKnowledgeTagCount: 3 })).toBe(true);
+    });
+
+    it("returns false for exactly 1 cross-project (boundary)", () => {
+      expect(isComplexIntake({ ...simple, crossProjectCount: 1 })).toBe(false);
+    });
+
+    it("returns false for priority 'high' (only critical triggers complexity)", () => {
+      expect(isComplexIntake({ ...simple, priority: "high" })).toBe(false);
+    });
+
+    it("returns false for priority 'low'", () => {
+      expect(isComplexIntake({ ...simple, priority: "low" })).toBe(false);
+    });
+
+    it("returns false when all signals are at their non-complex boundary simultaneously", () => {
+      expect(isComplexIntake({
+        explicitQaRequested: false,
+        coordinationOnly: false,
+        crossProjectCount: 1,
+        priority: "high",
+        requiredKnowledgeTagCount: 2,
+      })).toBe(false);
+    });
+
+    it("returns true when multiple complexity signals are true simultaneously", () => {
+      expect(isComplexIntake({
+        explicitQaRequested: true,
+        coordinationOnly: true,
+        crossProjectCount: 3,
+        priority: "critical",
+        requiredKnowledgeTagCount: 5,
+      })).toBe(true);
+    });
+
+    it("returns true for crossProjectCount exactly 2 (first crossing)", () => {
+      expect(isComplexIntake({ ...simple, crossProjectCount: 2 })).toBe(true);
+    });
+
+    it("returns false for zero knowledge tags", () => {
+      expect(isComplexIntake({ ...simple, requiredKnowledgeTagCount: 0 })).toBe(false);
+    });
   });
 
   describe("deriveProductLane", () => {
@@ -150,6 +194,68 @@ describe("execution lanes", () => {
 
     it("returns full for critical priority", () => {
       expect(deriveProductLane({ ...fast, priority: "critical" })).toBe("full");
+    });
+
+    it("returns full for coordinationOnly", () => {
+      expect(deriveProductLane({ ...fast, coordinationOnly: true })).toBe("full");
+    });
+
+    it("returns fast when all signals are false simultaneously", () => {
+      expect(deriveProductLane({
+        qaAgentId: null,
+        hasSubtasks: false,
+        crossProject: false,
+        coordinationOnly: false,
+        priority: "low",
+      })).toBe("fast");
+    });
+
+    it("returns fast for priority 'high' (only critical triggers full)", () => {
+      expect(deriveProductLane({ ...fast, priority: "high" })).toBe("fast");
+    });
+
+    it("returns fast for priority 'medium'", () => {
+      expect(deriveProductLane({ ...fast, priority: "medium" })).toBe("fast");
+    });
+
+    it("returns full when multiple signals are true simultaneously", () => {
+      expect(deriveProductLane({
+        qaAgentId: "qa-1",
+        hasSubtasks: true,
+        crossProject: true,
+        coordinationOnly: true,
+        priority: "critical",
+      })).toBe("full");
+    });
+
+    it("returns full when only hasSubtasks is true (single signal)", () => {
+      expect(deriveProductLane({
+        qaAgentId: null,
+        hasSubtasks: true,
+        crossProject: false,
+        coordinationOnly: false,
+        priority: "medium",
+      })).toBe("full");
+    });
+
+    it("returns full when only crossProject is true (single signal)", () => {
+      expect(deriveProductLane({
+        qaAgentId: null,
+        hasSubtasks: false,
+        crossProject: true,
+        coordinationOnly: false,
+        priority: "medium",
+      })).toBe("full");
+    });
+
+    it("returns full when only coordinationOnly is true (single signal)", () => {
+      expect(deriveProductLane({
+        qaAgentId: null,
+        hasSubtasks: false,
+        crossProject: false,
+        coordinationOnly: true,
+        priority: "medium",
+      })).toBe("full");
     });
   });
 });

@@ -35,7 +35,6 @@ interface IssueRouteIssueRecord {
   status: string;
   priority: string;
   parentId?: string | null;
-  hiddenAt?: Date | null;
 }
 
 interface IssueRouteAttachmentRecord {

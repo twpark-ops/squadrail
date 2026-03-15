@@ -44,6 +44,135 @@ describe("deriveProjectWorkspaceUsageFromContext", () => {
   });
 });
 
+describe("deriveProjectWorkspaceUsageFromContext – override paths", () => {
+  it("returns 'implementation' when workspaceUsageOverride is 'implementation' regardless of message type", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        workspaceUsageOverride: "implementation",
+        protocolRecipientRole: "reviewer",
+        protocolMessageType: "START_REVIEW",
+        protocolWorkflowStateAfter: "under_review",
+      }),
+    ).toBe("implementation");
+  });
+
+  it("returns 'review' when workspaceUsageOverride is 'review' regardless of engineer context", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        workspaceUsageOverride: "review",
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      }),
+    ).toBe("review");
+  });
+
+  it("returns 'analysis' when workspaceUsageOverride is 'analysis' regardless of other signals", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        workspaceUsageOverride: "analysis",
+        protocolRecipientRole: "reviewer",
+        protocolMessageType: "START_REVIEW",
+        protocolWorkflowStateAfter: "under_review",
+      }),
+    ).toBe("analysis");
+  });
+
+  it("falls through to normal logic when workspaceUsageOverride is an invalid value", () => {
+    // "invalid" is not one of the accepted overrides, so the function falls through
+    // to role/messageType-based derivation. reviewer + START_REVIEW → "review".
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        workspaceUsageOverride: "invalid",
+        protocolRecipientRole: "reviewer",
+        protocolMessageType: "START_REVIEW",
+        protocolWorkflowStateAfter: "under_review",
+      }),
+    ).toBe("review");
+  });
+
+  it("falls through to normal logic when workspaceUsageOverride is empty string", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        workspaceUsageOverride: "",
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      }),
+    ).toBe("implementation");
+  });
+
+  it("falls through to normal logic when workspaceUsageOverride is null", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        workspaceUsageOverride: null,
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "REPORT_PROGRESS",
+        protocolWorkflowStateAfter: "implementing",
+      }),
+    ).toBe("implementation");
+  });
+
+  it("preserves normal behavior when no override is present", () => {
+    // No workspaceUsageOverride key at all → normal derivation
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "implementing",
+      }),
+    ).toBe("implementation");
+
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        protocolRecipientRole: "reviewer",
+        protocolMessageType: "START_REVIEW",
+        protocolWorkflowStateAfter: "under_review",
+      }),
+    ).toBe("review");
+  });
+
+  it("returns 'analysis' for unrecognized role and message type with no override", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        protocolRecipientRole: "pm",
+        protocolMessageType: "PLAN_DELIVERY",
+        protocolWorkflowStateAfter: "planning",
+      }),
+    ).toBe("analysis");
+  });
+
+  it("returns 'review' for qa recipient role", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        protocolRecipientRole: "qa",
+        protocolMessageType: "START_QA",
+        protocolWorkflowStateAfter: "under_qa_review",
+      }),
+    ).toBe("review");
+  });
+
+  it("returns 'review' for APPROVE_IMPLEMENTATION message type", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        protocolRecipientRole: "reviewer",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolWorkflowStateAfter: "approved",
+      }),
+    ).toBe("review");
+  });
+
+  it("returns 'implementation' for ACK_CHANGE_REQUEST with engineer role", () => {
+    expect(
+      deriveProjectWorkspaceUsageFromContext({
+        protocolRecipientRole: "engineer",
+        protocolMessageType: "ACK_CHANGE_REQUEST",
+        protocolWorkflowStateAfter: "changes_requested",
+      }),
+    ).toBe("implementation");
+  });
+});
+
 describe("resolveProjectWorkspaceByPolicy", () => {
   it("selects shared workspace for review usage", async () => {
     const repo = await createTempWorkspace();
