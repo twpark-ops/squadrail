@@ -109,7 +109,7 @@ function makeIssue(overrides: Partial<typeof issues.$inferSelect> = {}) {
     assigneeAgentId: null,
     assigneeUserId: null,
     requestDepth: 0,
-    hiddenAt: null,
+
     createdByAgentId: null,
     createdByUserId: null,
     checkoutRunId: null,
@@ -178,7 +178,7 @@ describe("issue service", () => {
       goalId: null,
       parentId: null,
       requestDepth: 0,
-      hiddenAt: null,
+
       createdByAgentId: null,
       createdByUserId: null,
       labelIds: [label.id],
@@ -213,7 +213,7 @@ describe("issue service", () => {
       identifier: "CLO-7",
       projectId: "project-1",
       goalId: "goal-1",
-      hiddenAt: null,
+
     });
     const existingLabel = makeLabel({
       id: "label-team",
@@ -232,7 +232,7 @@ describe("issue service", () => {
       projectId: "project-1",
       goalId: "goal-1",
       requestDepth: 1,
-      hiddenAt: new Date("2026-03-13T09:10:00.000Z"),
+
       assigneeAgentId: "agent-1",
     });
     const { db, insertValues } = createIssueDbMock({
@@ -289,7 +289,7 @@ describe("issue service", () => {
       identifier: "CLO-50",
       projectId: "project-1",
       goalId: "goal-1",
-      hiddenAt: null,
+
       parentId: null,
     });
     const existingLabel = makeLabel({
@@ -309,7 +309,7 @@ describe("issue service", () => {
       projectId: "project-1",
       goalId: "goal-1",
       requestDepth: 1,
-      hiddenAt: null,
+
       assigneeAgentId: "agent-1",
     });
     const { db, insertValues } = createIssueDbMock({
@@ -849,7 +849,7 @@ describe("issue service", () => {
     const reviewChild = makeIssue({
       id: "issue-review",
       parentId: "issue-root",
-      hiddenAt: new Date("2026-03-13T09:00:00.000Z"),
+
       status: "in_review",
       assigneeAgentId: "agent-reviewer",
       updatedAt: new Date("2026-03-13T10:00:00.000Z"),
@@ -857,7 +857,7 @@ describe("issue service", () => {
     const blockedChild = makeIssue({
       id: "issue-blocked",
       parentId: "issue-root",
-      hiddenAt: new Date("2026-03-13T09:05:00.000Z"),
+
       status: "blocked",
       assigneeAgentId: "agent-engineer",
       updatedAt: new Date("2026-03-13T11:00:00.000Z"),

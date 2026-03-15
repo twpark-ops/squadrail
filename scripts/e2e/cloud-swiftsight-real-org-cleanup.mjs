@@ -134,8 +134,19 @@ async function cancelIssue(issueId, reason, workflowStateBefore) {
 }
 
 async function cleanupTaggedIssues(companyId, labelIds) {
-  const issues = await api(`/api/companies/${companyId}/issues`);
-  const taggedIssues = issues.filter((issue) => isLikelyE2eIssue(issue, labelIds));
+  const rootIssues = await api(`/api/companies/${companyId}/issues`);
+  const taggedRoots = rootIssues.filter((issue) => isLikelyE2eIssue(issue, labelIds));
+
+  // Fetch subtasks of tagged roots so cleanup covers child issues too.
+  // GET /api/issues/:id returns internalWorkItems for each root.
+  const childIssues = [];
+  for (const root of taggedRoots) {
+    const detail = await api(`/api/issues/${root.id}`).catch(() => null);
+    const children = Array.isArray(detail?.internalWorkItems) ? detail.internalWorkItems : [];
+    childIssues.push(...children);
+  }
+
+  const taggedIssues = [...taggedRoots, ...childIssues];
   const summary = {
     scanned: taggedIssues.length,
     cancelled: 0,

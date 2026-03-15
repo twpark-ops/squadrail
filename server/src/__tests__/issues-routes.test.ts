@@ -1112,7 +1112,7 @@ describe("issue routes wakeup handling", () => {
       status: "todo",
       priority: "high",
       parentId: null,
-      hiddenAt: null,
+
       labels: [],
     });
     mockAgentGetById.mockResolvedValue({
@@ -1248,7 +1248,7 @@ describe("issue routes wakeup handling", () => {
       status: "todo",
       priority: "high",
       parentId: null,
-      hiddenAt: null,
+
       labels: [],
     });
 
@@ -1276,7 +1276,7 @@ describe("issue routes wakeup handling", () => {
         status: "todo",
         priority: "high",
         parentId: null,
-        hiddenAt: null,
+
         labels: [],
       })
       .mockResolvedValueOnce({
@@ -1290,7 +1290,7 @@ describe("issue routes wakeup handling", () => {
         status: "todo",
         priority: "high",
         assigneeAgentId: "eng-1",
-        hiddenAt: new Date().toISOString(),
+
         labels: [],
       });
     mockIssueUpdate.mockResolvedValue({
@@ -1303,7 +1303,7 @@ describe("issue routes wakeup handling", () => {
       status: "todo",
       priority: "high",
       parentId: null,
-      hiddenAt: null,
+
       labels: [],
     });
     mockIssueCreateInternalWorkItem.mockResolvedValue({
@@ -1317,7 +1317,7 @@ describe("issue routes wakeup handling", () => {
       status: "backlog",
       priority: "high",
       assigneeAgentId: "eng-1",
-      hiddenAt: new Date().toISOString(),
+
       labels: [],
     });
     mockProtocolGetState.mockResolvedValue({
@@ -1506,7 +1506,7 @@ describe("issue routes wakeup handling", () => {
       status: "todo",
       priority: "high",
       parentId: null,
-      hiddenAt: null,
+
       labels: [],
     });
 
@@ -1590,7 +1590,7 @@ describe("issue routes wakeup handling", () => {
       priority: "high",
       projectId: null,
       parentId: null,
-      hiddenAt: null,
+
       goalId: null,
       assigneeAgentId: null,
       assigneeUserId: null,
@@ -1803,44 +1803,6 @@ describe("issue routes wakeup handling", () => {
     });
   });
 
-  it("cancels issue-scoped heartbeat work when an issue is hidden", async () => {
-    mockIssueGetById.mockResolvedValue({
-      id: "11111111-1111-4111-8111-111111111111",
-      companyId: "company-1",
-      identifier: "CLO-102A",
-      title: "Existing issue",
-      status: "blocked",
-      assigneeAgentId: null,
-      assigneeUserId: null,
-      createdByUserId: "user-1",
-      hiddenAt: null,
-    });
-    mockIssueUpdate.mockResolvedValue({
-      id: "11111111-1111-4111-8111-111111111111",
-      companyId: "company-1",
-      identifier: "CLO-102A",
-      title: "Existing issue",
-      status: "blocked",
-      assigneeAgentId: null,
-      assigneeUserId: null,
-      hiddenAt: new Date().toISOString(),
-    });
-
-    const response = await invokeRoute({
-      path: "/issues/:id",
-      method: "patch",
-      params: { id: "11111111-1111-4111-8111-111111111111" },
-      body: { hiddenAt: new Date().toISOString() },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(mockHeartbeatCancelIssueScope).toHaveBeenCalledWith({
-      companyId: "company-1",
-      issueId: "11111111-1111-4111-8111-111111111111",
-      reason: "Issue hidden via update",
-    });
-  });
-
   it("awaits wakeup on checkout", async () => {
     let wakeResolved = false;
     mockIssueGetById.mockResolvedValue({
@@ -1908,7 +1870,7 @@ describe("issue routes wakeup handling", () => {
         status: "in_progress",
         priority: "high",
         assigneeAgentId: "engineer-1",
-        hiddenAt: new Date().toISOString(),
+
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         labels: [],
@@ -1962,7 +1924,7 @@ describe("issue routes wakeup handling", () => {
         projectId: null,
         goalId: null,
         labels: [],
-        hiddenAt: null,
+
       })
       .mockResolvedValueOnce({
         id: "33333333-3333-4333-8333-333333333333",
@@ -1975,7 +1937,7 @@ describe("issue routes wakeup handling", () => {
         status: "todo",
         priority: "high",
         assigneeAgentId: "44444444-4444-4444-8444-444444444444",
-        hiddenAt: new Date().toISOString(),
+
         labels: [],
       });
     mockIssueCreateInternalWorkItem.mockResolvedValue({
@@ -1989,7 +1951,7 @@ describe("issue routes wakeup handling", () => {
       status: "backlog",
       priority: "high",
       assigneeAgentId: "44444444-4444-4444-8444-444444444444",
-      hiddenAt: new Date().toISOString(),
+
       labels: [],
     });
     mockAgentGetById.mockImplementation(async (agentId: string) => {
@@ -2175,7 +2137,7 @@ describe("issue routes wakeup handling", () => {
       projectId: null,
       goalId: null,
       labels: [],
-      hiddenAt: null,
+
     });
     mockAgentGetById.mockImplementation(async (agentId: string) => {
       if (agentId === "44444444-4444-4444-8444-444444444444") {
@@ -2229,7 +2191,7 @@ describe("issue routes wakeup handling", () => {
       projectId: null,
       goalId: null,
       labels: [],
-      hiddenAt: null,
+
     });
     mockAgentGetById.mockImplementation(async (agentId: string) => {
       if (agentId === "44444444-4444-4444-8444-444444444444") {
@@ -2283,7 +2245,7 @@ describe("issue routes wakeup handling", () => {
       projectId: null,
       goalId: null,
       labels: [],
-      hiddenAt: null,
+
     });
 
     const response = await invokeRoute({
@@ -2316,7 +2278,7 @@ describe("issue routes wakeup handling", () => {
       projectId: null,
       goalId: null,
       labels: [],
-      hiddenAt: null,
+
     });
     mockIssueCreateInternalWorkItem.mockResolvedValue({
       id: "33333333-3333-4333-8333-333333333333",
@@ -2329,7 +2291,7 @@ describe("issue routes wakeup handling", () => {
       status: "backlog",
       priority: "high",
       assigneeAgentId: "44444444-4444-4444-8444-444444444444",
-      hiddenAt: new Date().toISOString(),
+
       labels: [],
     });
     mockIssueRemove.mockResolvedValue({
@@ -2388,7 +2350,7 @@ describe("issue routes wakeup handling", () => {
       projectId: null,
       goalId: null,
       labels: [],
-      hiddenAt: null,
+
     });
     mockAgentGetById.mockImplementation(async (agentId: string) => {
       if (agentId === "44444444-4444-4444-8444-444444444444") {

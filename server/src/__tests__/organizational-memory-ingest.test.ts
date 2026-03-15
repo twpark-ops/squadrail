@@ -42,7 +42,7 @@ describe("organizational memory markdown rendering", () => {
         status: "in_progress",
         priority: "high",
         requestDepth: 0,
-        hiddenAt: null,
+
         createdAt: "2026-03-11T00:00:00.000Z",
         updatedAt: "2026-03-11T01:00:00.000Z",
         completedAt: null,

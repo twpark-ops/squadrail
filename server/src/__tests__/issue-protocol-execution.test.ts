@@ -188,7 +188,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       issueContext: {
         issueId: "child-1",
         parentId: "root-1",
-        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
+
         labelNames: ["team:internal", "work:implementation", "watch:reviewer", "watch:lead"],
         techLeadAgentId: "lead-1",
       },
@@ -248,7 +248,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       issueContext: {
         issueId: "child-review-1",
         parentId: "root-1",
-        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
+
         labelNames: ["team:internal", "work:review", "watch:reviewer", "watch:lead"],
         techLeadAgentId: "lead-1",
       },
@@ -505,7 +505,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       issueContext: {
         issueId: "issue-approval-1",
         parentId: null,
-        hiddenAt: null,
+
         labelNames: [],
         techLeadAgentId: "lead-1",
       },
@@ -563,7 +563,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       issueContext: {
         issueId: "issue-approval-qa-1",
         parentId: null,
-        hiddenAt: null,
+
         labelNames: [],
         techLeadAgentId: "lead-1",
         qaAgentId: "qa-1",
@@ -701,7 +701,7 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       issueContext: {
         issueId: "child-2",
         parentId: "root-2",
-        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
+
         labelNames: ["team:internal", "work:implementation", "watch:lead"],
         techLeadAgentId: "lead-1",
       },

@@ -288,7 +288,7 @@ describe("heartbeat service flow coverage", () => {
           id: "issue-hidden",
           companyId: "company-1",
           priority: "high",
-          hiddenAt: new Date("2026-03-15T10:32:54Z"),
+
           executionRunId: null,
           executionAgentNameKey: null,
         }]]],

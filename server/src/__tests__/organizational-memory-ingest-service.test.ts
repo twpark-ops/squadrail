@@ -139,7 +139,7 @@ describe("organizational memory service", () => {
           assigneeAgentId: null,
           assigneeUserId: null,
           requestDepth: 0,
-          hiddenAt: null,
+
           createdAt: new Date("2026-03-13T08:00:00.000Z"),
           updatedAt: new Date("2026-03-13T09:00:00.000Z"),
           completedAt: null,
