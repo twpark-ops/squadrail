@@ -11,6 +11,7 @@ import { StatusIcon } from "./StatusIcon";
 import { PriorityIcon } from "./PriorityIcon";
 import { EmptyState } from "./EmptyState";
 import { Identity } from "./Identity";
+import { AgentRoleBadge } from "./agent-presence-primitives";
 import { PageSkeleton } from "./PageSkeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,6 +133,62 @@ function countActiveFilters(state: IssueViewState): number {
 interface Agent {
   id: string;
   name: string;
+  role?: string;
+  title?: string | null;
+  icon?: string | null;
+}
+
+type IssueSignalTone = "default" | "warning" | "danger" | "info";
+
+function signalToneClassName(tone: IssueSignalTone) {
+  switch (tone) {
+    case "warning":
+      return "border-amber-300/70 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+    case "danger":
+      return "border-red-300/70 bg-red-500/10 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200";
+    case "info":
+      return "border-sky-300/70 bg-sky-500/10 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200";
+    default:
+      return "border-border bg-background text-muted-foreground";
+  }
+}
+
+function buildIssueSignals(issue: Issue): Array<{ label: string; tone: IssueSignalTone }> {
+  const signals: Array<{ label: string; tone: IssueSignalTone }> = [
+    { label: statusLabel(issue.status), tone: issue.status === "blocked" ? "danger" : issue.status === "in_review" ? "warning" : "default" },
+  ];
+
+  if (issue.priority === "critical" || issue.priority === "high") {
+    signals.push({
+      label: `${statusLabel(issue.priority)} priority`,
+      tone: issue.priority === "critical" ? "danger" : "warning",
+    });
+  }
+
+  if (issue.internalWorkItemSummary?.total) {
+    signals.push({
+      label: `${issue.internalWorkItemSummary.done}/${issue.internalWorkItemSummary.total} subtasks`,
+      tone: "info",
+    });
+  }
+  if (issue.internalWorkItemSummary?.blocked) {
+    signals.push({
+      label: `${issue.internalWorkItemSummary.blocked} blocked`,
+      tone: "danger",
+    });
+  }
+  if (
+    issue.status === "in_review" ||
+    issue.internalWorkItemSummary?.inReview ||
+    issue.internalWorkItemSummary?.reviewRequestedIssueId
+  ) {
+    signals.push({
+      label: "review pending",
+      tone: "warning",
+    });
+  }
+
+  return signals;
 }
 
 interface IssuesListProps {
@@ -222,6 +279,13 @@ export function IssuesList({
   });
 
   const activeFilterCount = countActiveFilters(viewState);
+  const agentMap = useMemo(() => {
+    const map = new Map<string, Agent>();
+    for (const agent of agents ?? []) {
+      map.set(agent.id, agent);
+    }
+    return map;
+  }, [agents]);
 
   const groupedContent = useMemo(() => {
     if (viewState.groupBy === "none") {
@@ -577,7 +641,7 @@ export function IssuesList({
                 <Link
                   key={issue.id}
                   to={workIssuePath(issue.identifier ?? issue.id)}
-                  className="flex cursor-pointer items-center gap-2 border-b border-border/85 py-3 pl-3 pr-4 text-sm text-inherit no-underline transition-colors last:border-b-0 hover:bg-accent/50"
+                  className="flex cursor-pointer items-start gap-2 border-b border-border/85 py-3 pl-3 pr-4 text-sm text-inherit no-underline transition-colors last:border-b-0 hover:bg-accent/50"
                 >
                   {/* Spacer matching caret width so status icon aligns with group title (hidden on mobile) */}
                   <div className="w-3.5 shrink-0 hidden sm:block" />
@@ -590,10 +654,27 @@ export function IssuesList({
                   <span className="text-sm text-muted-foreground font-mono shrink-0">
                     {issue.identifier ?? issue.id.slice(0, 8)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-medium">{issue.title}</span>
-                  {(issue.labels ?? []).length > 0 && (
-                    <div className="hidden md:flex items-center gap-1 max-w-[240px] overflow-hidden">
-                      {(issue.labels ?? []).slice(0, 3).map((label) => (
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-foreground">{issue.title}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {buildIssueSignals(issue).map((signal) => (
+                        <span
+                          key={`${issue.id}:${signal.label}`}
+                          className={cn(
+                            "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                            signalToneClassName(signal.tone),
+                          )}
+                        >
+                          {signal.label}
+                        </span>
+                      ))}
+                      {issue.assigneeAgentId && agentMap.get(issue.assigneeAgentId)?.role ? (
+                        <AgentRoleBadge
+                          role={agentMap.get(issue.assigneeAgentId)?.role ?? "general"}
+                          title={agentMap.get(issue.assigneeAgentId)?.title ?? null}
+                        />
+                      ) : null}
+                      {(issue.labels ?? []).slice(0, 2).map((label) => (
                         <span
                           key={label.id}
                           className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
@@ -606,11 +687,11 @@ export function IssuesList({
                           {label.name}
                         </span>
                       ))}
-                      {(issue.labels ?? []).length > 3 && (
-                        <span className="text-[10px] text-muted-foreground">+{(issue.labels ?? []).length - 3}</span>
+                      {(issue.labels ?? []).length > 2 && (
+                        <span className="text-[10px] text-muted-foreground">+{(issue.labels ?? []).length - 2} labels</span>
                       )}
                     </div>
-                  )}
+                  </div>
                   <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
                     {liveIssueIds?.has(issue.id) && (
                       <span className="inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded-full bg-blue-500/10">
@@ -638,7 +719,17 @@ export function IssuesList({
                             }}
                           >
                             {issue.assigneeAgentId && agentName(issue.assigneeAgentId) ? (
-                              <Identity name={agentName(issue.assigneeAgentId)!} size="sm" />
+                              <div className="flex min-w-0 items-center gap-2">
+                                <Identity name={agentName(issue.assigneeAgentId)!} size="sm" />
+                                {agentMap.get(issue.assigneeAgentId)?.role ? (
+                                  <span className="hidden md:inline">
+                                    <AgentRoleBadge
+                                      role={agentMap.get(issue.assigneeAgentId)?.role ?? "general"}
+                                      title={agentMap.get(issue.assigneeAgentId)?.title ?? null}
+                                    />
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                                 <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-muted-foreground/35 bg-muted/30">
