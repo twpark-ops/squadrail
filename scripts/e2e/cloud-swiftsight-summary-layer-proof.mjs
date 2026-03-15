@@ -256,12 +256,15 @@ async function runDomainAwarePmBurnIn() {
 }
 
 async function runRagReadiness() {
+  // RAG readiness runs against the main org (code repos + review history),
+  // not the summary-eval org which is PM-projection-only.
+  const RAG_COMPANY = process.env.SWIFTSIGHT_RAG_READINESS_COMPANY ?? "cloud-swiftsight";
   const { stdout, stderr } = await execFileAsync("node", ["scripts/e2e/cloud-swiftsight-rag-readiness.mjs"], {
     cwd: REPO_ROOT,
     env: {
       ...process.env,
       SQUADRAIL_BASE_URL: BASE_URL,
-      SQUADRAIL_COMPANY_NAME: COMPANY_NAME,
+      SQUADRAIL_COMPANY_NAME: RAG_COMPANY,
     },
     maxBuffer: 16 * 1024 * 1024,
   });
@@ -270,13 +273,13 @@ async function runRagReadiness() {
   return extractJsonTail(stdout);
 }
 
-async function runRealOrgCleanup() {
+async function runRealOrgCleanup(companyName = COMPANY_NAME) {
   const { stdout, stderr } = await execFileAsync("node", ["scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs"], {
     cwd: REPO_ROOT,
     env: {
       ...process.env,
       SQUADRAIL_BASE_URL: BASE_URL,
-      SQUADRAIL_COMPANY_NAME: COMPANY_NAME,
+      SQUADRAIL_COMPANY_NAME: companyName,
       SWIFTSIGHT_E2E_HIDE_COMPLETED: "1",
     },
     maxBuffer: 16 * 1024 * 1024,
@@ -342,7 +345,10 @@ async function main() {
   let ragCleanupRunSweep = null;
   let ragIssueIds = new Set();
   if (INCLUDE_RAG_READINESS) {
-    const issuesBeforeRag = await listCompanyIssues(company.id);
+    // RAG readiness uses the main org (code repos + review history).
+    const RAG_COMPANY_NAME = process.env.SWIFTSIGHT_RAG_READINESS_COMPANY ?? "cloud-swiftsight";
+    const ragCompany = await resolveCompanyByName(RAG_COMPANY_NAME);
+    const issuesBeforeRag = await listCompanyIssues(ragCompany.id);
     const issueIdsBeforeRag = collectIssueIds(issuesBeforeRag);
     try {
       section("Run Rag Readiness Gate");
@@ -354,20 +360,20 @@ async function main() {
       ragReadinessError = error instanceof Error ? error : new Error(String(error));
       note(`ragReadinessError=${ragReadinessError.message}`);
     } finally {
-      const issuesAfterRag = await listCompanyIssues(company.id).catch(() => []);
+      const issuesAfterRag = await listCompanyIssues(ragCompany.id).catch(() => []);
       ragIssueIds = new Set(
         [...collectIssueIds(issuesAfterRag)].filter((issueId) => !issueIdsBeforeRag.has(issueId)),
       );
 
       section("Cleanup Rag Readiness Issues");
-      ragCleanupSummary = await runRealOrgCleanup();
+      ragCleanupSummary = await runRealOrgCleanup(RAG_COMPANY_NAME);
       note(`ragCleanupCancelled=${ragCleanupSummary?.cancelled ?? 0}`);
       note(`ragCleanupHidden=${ragCleanupSummary?.hidden ?? 0}`);
       note(`ragCleanupRunsCancelled=${ragCleanupSummary?.runsCancelled ?? 0}`);
 
       section("Cancel Lingering Rag Readiness Runs");
       const allCleanupIssueIds = new Set([...cleanupIssueIds, ...ragIssueIds]);
-      ragCleanupRunSweep = await cancelLingeringRuns(company.id, allCleanupIssueIds);
+      ragCleanupRunSweep = await cancelLingeringRuns(ragCompany.id, allCleanupIssueIds);
       note(`ragCleanupIssueCount=${allCleanupIssueIds.size}`);
       note(`ragCancelledRunCount=${ragCleanupRunSweep.cancelledRunCount}`);
     }

@@ -372,7 +372,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       recipientHint,
       issueContext: input.issueContext,
       dispatchMode: reviewerWatchActive ? "reviewer_watch" : "default",
-      forceFollowupRun: false,
+      forceFollowupRun: engineerSelfStart,
     });
 
     if (recipient.recipientType !== "agent") {

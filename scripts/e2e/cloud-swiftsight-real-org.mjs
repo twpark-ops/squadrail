@@ -328,8 +328,8 @@ function buildScenarioDefinitions(context) {
       project: project("swiftsight-agent"),
       assignee: agent("swiftsight-agent-tl"),
       assigneeRole: "tech_lead",
-      reviewer: agent("swiftsight-agent-tl"),
-      reviewerRole: "reviewer",
+      reviewer: agent("swiftsight-agent-codex-engineer"),
+      reviewerRole: "engineer",
       qa: agent("swiftsight-qa-engineer"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-agent`,
       issue: {
@@ -359,7 +359,7 @@ function buildScenarioDefinitions(context) {
           "- run `go test ./internal/storage -count=1`",
           ...buildManagerHelperLines([
             "- all protocol transitions in this scenario should use the local helper, not ad-hoc Python/curl POSTs",
-            `- TL staffing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftsight-agent-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-agent-tl").id}" --summary "Route SafeJoin fix to swiftsight-agent-codex-engineer" --reason "Project TL staffing the focused SafeJoin fix"\``,
+            `- TL staffing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftsight-agent-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-agent-tl").id}" --qa-id "${agent("swiftsight-qa-engineer").id}" --summary "Route SafeJoin fix to swiftsight-agent-codex-engineer" --reason "Project TL staffing the focused SafeJoin fix"\``,
             `- TL code review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "TL starts SafeJoin code review" --review-focus "path traversal preserved||nested segments preserved||focused package test evidence"\``,
             `- TL approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "TL approves SafeJoin code review" --approval-summary "Nested path preservation is fixed and focused evidence is sufficient" --approval-checklist "nested safe path preserved||parent traversal still rejected||focused Go package test passed" --verified-evidence "review handoff payload inspected||diff artifact reviewed||test evidence reviewed" --residual-risks "No repo-wide test evidence was requested for this focused slice"\``,
             `- TL close example: \`node ${PROTOCOL_HELPER_PATH} close-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --summary "Close SafeJoin fix after QA approval" --closure-summary "Nested safe paths now stay nested and QA approved the focused delivery slice" --verification-summary "QA approval and focused Go package test evidence were recorded in protocol" --rollback-plan "Revert the SafeJoin patch and test file if nested path behavior regresses" --final-artifacts "diff artifact attached||test_run artifact attached||approval recorded in protocol" --remaining-risks "Merge remains external to this E2E harness" --merge-status pending_external_merge\``,
@@ -1115,6 +1115,7 @@ async function assignIssue(issueId, scenario) {
       priority: "high",
       assigneeAgentId: scenario.assignee.id,
       reviewerAgentId: scenario.reviewer.id,
+      ...(scenario.qa?.id ? { qaAgentId: scenario.qa.id } : {}),
     },
     artifacts: [],
   };

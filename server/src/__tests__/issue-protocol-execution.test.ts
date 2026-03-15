@@ -486,14 +486,15 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       kind: "wakeup",
       reason: "protocol_implementation_started",
       payload: {
+        forceFollowupRun: true,
         workspaceUsageOverride: "implementation",
       },
       contextSnapshot: {
+        forceFollowupRun: true,
         workspaceUsageOverride: "implementation",
       },
     });
-    // forceFollowupRun is omitted (falsy values are not serialized)
-    expect(plan[0].payload).not.toHaveProperty("forceFollowupRun");
+    // No protocolDispatchMode — default mode is omitted from payload
     expect(plan[0].payload).not.toHaveProperty("protocolDispatchMode");
   });
 

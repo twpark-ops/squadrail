@@ -855,6 +855,14 @@ async function reassignTaskCommand(options) {
   );
   const state = await getIssueState(issueId);
 
+  const qaId = readAnyOption(options, [
+    "new-qa-agent-id",
+    "new-qa",
+    "newQaAgentId",
+    "qa-id",
+    "qa",
+  ], payloadPatch.newQaAgentId ?? payloadPatch.qaAgentId ?? null);
+
   const {
     reason: _ignoredReason,
     newAssigneeAgentId: _ignoredAssignee,
@@ -863,6 +871,8 @@ async function reassignTaskCommand(options) {
     assigneeRole: _ignoredLegacyAssigneeRole,
     newReviewerAgentId: _ignoredReviewer,
     reviewerAgentId: _ignoredLegacyReviewer,
+    newQaAgentId: _ignoredQa,
+    qaAgentId: _ignoredLegacyQa,
     carryForwardBriefVersion: _ignoredCarryForward,
     goal: _ignoredGoal,
     summary: _ignoredSummary,
@@ -897,6 +907,7 @@ async function reassignTaskCommand(options) {
       reason,
       newAssigneeAgentId: assigneeId,
       newReviewerAgentId: reviewerId,
+      ...(qaId ? { newQaAgentId: qaId } : {}),
       ...(carryForwardBriefVersion ? { carryForwardBriefVersion: Number(carryForwardBriefVersion) } : {}),
     },
     artifacts: [],
