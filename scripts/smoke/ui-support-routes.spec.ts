@@ -169,6 +169,50 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   expectHealthyDiagnostics(diagnostics);
 });
 
+test("design guide keeps run transcript ahead of diagnostics", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  await expect(page.getByRole("heading", { name: "Design Guide", exact: true })).toBeVisible();
+  const fixture = page.getByTestId("design-guide-agent-run-detail");
+  await expect(fixture).toBeVisible();
+  await expect(fixture.getByText(/Transcript \(\d+\)/).first()).toBeVisible();
+  await expect(fixture.getByText("Diagnostics").first()).toBeVisible();
+  await expect(
+    fixture.getByText("I will patch the export handoff guard and add focused coverage.").first(),
+  ).toBeVisible();
+
+  const transcriptBeforeDiagnostics = await fixture.evaluate((element) => {
+    const transcriptNode = Array.from(element.querySelectorAll("*")).find((node) =>
+      /^Transcript \(\d+\)$/.test(node.textContent?.trim() ?? ""),
+    );
+    const diagnosticsNode = Array.from(element.querySelectorAll("*")).find(
+      (node) => node.textContent?.trim() === "Diagnostics",
+    );
+    if (!(transcriptNode instanceof HTMLElement) || !(diagnosticsNode instanceof HTMLElement)) {
+      return null;
+    }
+    return Boolean(
+      transcriptNode.compareDocumentPosition(diagnosticsNode) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+  expect(transcriptBeforeDiagnostics).toBe(true);
+
+  await expect(
+    fixture.getByText("You are the swiftsight cloud tech lead.").first(),
+  ).not.toBeVisible();
+  await fixture.getByRole("button", { name: /Prompt/i }).click();
+  await expect(
+    fixture.getByText("You are the swiftsight cloud tech lead.").first(),
+  ).toBeVisible();
+  await expect(fixture.getByText(/5 key\(s\) · \d redacted/).first()).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
 test("onboarding wizard completes blueprint to quick-request happy path", async ({
   page,
 }) => {

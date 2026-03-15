@@ -123,6 +123,9 @@ import { FilterBar, type FilterValue } from "@/components/FilterBar";
 import { InlineEditor } from "@/components/InlineEditor";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Identity } from "@/components/Identity";
+import { AgentRunExecutionPanel } from "@/components/AgentRunExecutionPanel";
+import type { TranscriptEntry } from "@/adapters";
+import type { HeartbeatRun, HeartbeatRunEvent } from "@squadrail/shared";
 
 /* ------------------------------------------------------------------ */
 /*  Section wrapper                                                    */
@@ -167,6 +170,89 @@ function Swatch({ name, cssVar }: { name: string; cssVar: string }) {
     </div>
   );
 }
+
+const designGuideRunTranscript: TranscriptEntry[] = [
+  { kind: "init", ts: "2026-03-15T07:12:00.000Z", model: "codex", sessionId: "session-123" },
+  { kind: "system", ts: "2026-03-15T07:12:01.000Z", text: "turn started" },
+  {
+    kind: "assistant",
+    ts: "2026-03-15T07:12:02.000Z",
+    text: "I will patch the export handoff guard and add focused coverage.",
+  },
+  {
+    kind: "tool_call",
+    ts: "2026-03-15T07:12:03.000Z",
+    name: "command_execution",
+    input: { command: "pnpm test --filter swiftsight-cloud" },
+  },
+  {
+    kind: "tool_result",
+    ts: "2026-03-15T07:12:05.000Z",
+    toolUseId: "cmd-1",
+    content: JSON.stringify({ exitCode: 0, aggregatedOutput: "1 passed" }),
+    isError: false,
+  },
+  {
+    kind: "result",
+    ts: "2026-03-15T07:12:08.000Z",
+    text: "Patch ready",
+    inputTokens: 1200,
+    outputTokens: 340,
+    cachedTokens: 800,
+    costUsd: 0.0123,
+    subtype: "success",
+    isError: false,
+    errors: [],
+  },
+];
+
+const designGuideRunEvents: HeartbeatRunEvent[] = [
+  {
+    id: 1,
+    companyId: "design-guide",
+    runId: "run-protocol-1",
+    agentId: "agent-swiftsight-cloud-tl",
+    seq: 1,
+    eventType: "adapter.invoke",
+    stream: "system",
+    level: "info",
+    color: null,
+    message: "adapter invoke",
+    payload: {
+      adapterType: "codex_local",
+      cwd: "/tmp/swiftsight-cloud",
+      command: "codex",
+      commandArgs: ["exec", "--json"],
+      prompt: [
+        "You are the swiftsight cloud tech lead.",
+        "Tighten the export handoff path before release.",
+        "Keep the patch narrow and cite focused evidence.",
+      ].join("\n"),
+      context: {
+        issueId: "issue-cloud-export",
+        issueIdentifier: "SMO-42",
+        wakeReason: "issue_assigned",
+        agentRole: "tech_lead",
+      },
+      env: {
+        OPENAI_API_KEY: "redacted",
+        SQUADRAIL_BASE_URL: "http://127.0.0.1:3358",
+        PROJECT_ROOT: "/tmp/swiftsight-cloud",
+        CODEX_HOME: "/tmp/codex-home",
+        SQUADRAIL_AUTH_TOKEN: "redacted",
+      },
+    },
+    createdAt: new Date("2026-03-15T07:12:00.000Z"),
+  },
+];
+
+const designGuideRun: Pick<HeartbeatRun, "status" | "error" | "stderrExcerpt" | "resultJson" | "stdoutExcerpt"> = {
+  status: "running",
+  error: null,
+  stderrExcerpt: null,
+  resultJson: null,
+  stdoutExcerpt: null,
+};
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
@@ -1162,6 +1248,27 @@ export function DesignGuide() {
               onClick={() => {}}
             />
           </div>
+        </div>
+      </Section>
+
+      {/* ============================================================ */}
+      {/*  AGENT RUN DETAIL                                             */}
+      {/* ============================================================ */}
+      <Section title="Agent Run Detail">
+        <div className="space-y-3" data-testid="design-guide-agent-run-detail">
+          <p className="text-sm text-muted-foreground">
+            Transcript stays first. Prompt, context, environment, and events remain folded under diagnostics until needed.
+          </p>
+          <AgentRunExecutionPanel
+            testId="design-guide-run-panel"
+            transcript={designGuideRunTranscript}
+            run={designGuideRun}
+            events={designGuideRunEvents}
+            adapterInvokePayload={(designGuideRunEvents[0]?.payload as Record<string, unknown>) ?? null}
+            isLive
+            isFollowing
+            hasPersistedLog
+          />
         </div>
       </Section>
 

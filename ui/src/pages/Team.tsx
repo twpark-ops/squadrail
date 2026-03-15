@@ -353,10 +353,10 @@ export function Team() {
         <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
           <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5" />
-            QA / reviewers
+            Verification lanes
           </div>
           <div className="mt-3 text-3xl font-semibold text-foreground">{roleSummary.qa}</div>
-          <p className="mt-2 text-sm text-muted-foreground">Review and regression capacity available before close or merge.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Reviewer and QA coverage available before close, release, or merge.</p>
         </div>
         <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
           <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
