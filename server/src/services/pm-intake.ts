@@ -3,6 +3,7 @@ import type {
   PmIntakeProjectionPreviewResult,
 } from "@squadrail/shared";
 import { conflict, unprocessable } from "../errors.js";
+import { isComplexIntake } from "./execution-lanes.js";
 
 export interface PmIntakeAgent {
   id: string;
@@ -564,12 +565,13 @@ export function buildPmIntakeProjectionPreview(
 
   // Complexity scoring: only assign QA for complex issues (full lane).
   // Simple issues skip the QA gate entirely (fast lane).
-  const isComplexIssue =
-    Boolean(input.request.qaAgentId) // explicitly requested QA
-    || Boolean(input.request.coordinationOnly) // coordination = complex
-    || projectCandidates.filter((c) => c.score > 0).length > 1 // cross-project
-    || input.issue.priority === "critical" // critical priority
-    || (input.request.requiredKnowledgeTags ?? []).length > 2; // domain-heavy
+  const complexIssue = isComplexIntake({
+    explicitQaRequested: Boolean(input.request.qaAgentId),
+    coordinationOnly: Boolean(input.request.coordinationOnly),
+    crossProjectCount: projectCandidates.filter((c) => c.score > 0).length,
+    priority: input.issue.priority,
+    requiredKnowledgeTagCount: (input.request.requiredKnowledgeTags ?? []).length,
+  });
 
   let qaAgent: PmIntakeAgent | null = null;
   if (input.request.qaAgentId) {
@@ -582,7 +584,7 @@ export function buildPmIntakeProjectionPreview(
       notFoundMessage: "No active QA agent is available for PM intake projection",
       invalidPreferredMessage: "Selected QA agent must support qa protocol role",
     });
-  } else if (isComplexIssue) {
+  } else if (complexIssue) {
     const qaCandidates = input.agents
       .filter(isActiveForIntake)
       .filter((agent) => agent.id !== techLead.id && agent.id !== reviewer.id)
@@ -598,7 +600,7 @@ export function buildPmIntakeProjectionPreview(
       });
     }
   }
-  // When !isComplexIssue and no explicit qaAgentId: qaAgent stays null → fast lane (no QA gate).
+  // When !complexIssue and no explicit qaAgentId: qaAgent stays null -> fast lane (no QA gate).
 
   const implementationAssignee = pickBestAgent({
     agents: input.agents,

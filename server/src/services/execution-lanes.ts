@@ -175,14 +175,36 @@ export function applyExecutionLanePolicy(input: ExecutionLanePolicyInput & { lan
 // Full lane = QA gate active, full review evidence, decomposition possible.
 export type ProductLane = "fast" | "full";
 
+export type IssuePriority = "critical" | "high" | "medium" | "low";
+
+export interface IntakeComplexitySignals {
+  explicitQaRequested: boolean;
+  coordinationOnly: boolean;
+  crossProjectCount: number;
+  priority: IssuePriority | string;
+  requiredKnowledgeTagCount: number;
+}
+
+// Centralized complexity check used by PM intake to decide QA assignment.
+// When complex, QA is assigned (full lane). When simple, QA is skipped (fast lane).
+export function isComplexIntake(signals: IntakeComplexitySignals): boolean {
+  if (signals.explicitQaRequested) return true;
+  if (signals.coordinationOnly) return true;
+  if (signals.crossProjectCount > 1) return true;
+  if (signals.priority === "critical") return true;
+  if (signals.requiredKnowledgeTagCount > 2) return true;
+  return false;
+}
+
 export interface ProductLaneSignals {
   qaAgentId: string | null;
   hasSubtasks: boolean;
   crossProject: boolean;
   coordinationOnly: boolean;
-  priority: string;
+  priority: IssuePriority | string;
 }
 
+// Runtime lane derivation for brief construction and UI display.
 export function deriveProductLane(signals: ProductLaneSignals): ProductLane {
   if (signals.qaAgentId) return "full";
   if (signals.hasSubtasks) return "full";

@@ -417,6 +417,91 @@ describe("pm intake helpers", () => {
     });
   });
 
+  it("skips QA assignment for simple issues (fast lane)", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Fix button alignment",
+        description: "## Human Intake Request\n\nFix the button alignment on the settings page.\n",
+        priority: "medium",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-cloud",
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+          urlKey: "swiftsight-cloud",
+        },
+      ],
+      agents: [
+        ...agents,
+        {
+          id: "eng-1",
+          companyId: "company-1",
+          name: "Cloud Engineer",
+          urlKey: "swiftsight-cloud-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ],
+      request: {},
+    });
+
+    // Simple issue: single project, non-critical, no coordination, no knowledge tags
+    // → QA should NOT be assigned (fast lane)
+    expect(preview.staffing.qaAgentId).toBeNull();
+    expect(preview.staffing.qaName).toBeNull();
+    expect(preview.draft.workItems[0]?.qaAgentId).toBeNull();
+  });
+
+  it("assigns QA for complex cross-project issues (full lane)", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Coordinate export delivery across cloud and agent",
+        description: "## Human Intake Request\n\nCoordinate export delivery across swiftsight-cloud and swiftsight-agent.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-cloud",
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+          urlKey: "swiftsight-cloud",
+        },
+        {
+          id: "project-agent",
+          companyId: "company-1",
+          name: "swiftsight-agent",
+          urlKey: "swiftsight-agent",
+        },
+      ],
+      agents: [
+        ...agents,
+        {
+          id: "eng-1",
+          companyId: "company-1",
+          name: "Cloud Engineer",
+          urlKey: "swiftsight-cloud-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ],
+      request: {},
+    });
+
+    // Cross-project issue → complex → QA should be assigned (full lane)
+    expect(preview.staffing.qaAgentId).toBe("qa-1");
+  });
+
   it("does not use manager tech leads as implementation assignees when no engineer exists", () => {
     expect(() => buildPmIntakeProjectionPreview({
       issue: {

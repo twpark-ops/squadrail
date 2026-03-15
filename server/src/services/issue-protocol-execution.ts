@@ -28,7 +28,6 @@ type ProtocolDispatchMode =
   | "default"
   | "reviewer_watch"
   | "lead_supervisor"
-  | "implementation_followup"
   | "qa_gate_followup"
   | "approval_close_followup";
 
