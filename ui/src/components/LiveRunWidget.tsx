@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { Link } from "@/lib/router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LiveEvent } from "@squadrail/shared";
@@ -155,6 +155,132 @@ function describeCluster(cluster: LiveRunCluster): string | null {
     return "Protocol gate and implementation follow-up are both attached to this lane.";
   }
   return `${cluster.runs.length} linked runs are currently attached to this lane.`;
+}
+
+interface LiveRunWidgetSurfaceProps {
+  runClusters: LiveRunCluster[];
+  recent: FeedItem[];
+  cancellingRunIds: Set<string>;
+  onCancelRun: (runId: string) => void;
+  bodyRef?: RefObject<HTMLDivElement | null>;
+  testId?: string;
+}
+
+function LiveRunWidgetSurface({
+  runClusters,
+  recent,
+  cancellingRunIds,
+  onCancelRun,
+  bodyRef,
+  testId,
+}: LiveRunWidgetSurfaceProps) {
+  return (
+    <div
+      data-testid={testId}
+      className="rounded-lg border border-cyan-500/30 bg-background/80 overflow-hidden shadow-[0_0_12px_rgba(6,182,212,0.08)]"
+    >
+      {runClusters.length > 0 ? (
+        runClusters.map((cluster) => (
+          <div key={cluster.key} className="px-3 py-3 border-b border-border/50 last:border-b-0">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="space-y-1">
+                <Link to={`/agents/${cluster.agentId}`} className="hover:underline">
+                  <Identity name={cluster.agentName} size="sm" />
+                </Link>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>Started {relativeTime(cluster.latestCreatedAt)}</span>
+                  {cluster.runs.length > 1 ? (
+                    <span className="rounded-full border border-border bg-background px-2 py-0.5 font-medium">
+                      {cluster.runs.length} linked runs
+                    </span>
+                  ) : null}
+                </div>
+                {describeCluster(cluster) ? (
+                  <div className="text-[11px] leading-5 text-muted-foreground">
+                    {describeCluster(cluster)}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="mt-3 space-y-2">
+              {cluster.runs.map((run) => (
+                <div
+                  key={run.id}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs"
+                >
+                  <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-700 dark:text-cyan-200">
+                    {runPhaseLabel(run)}
+                  </span>
+                  <Link
+                    to={`/agents/${run.agentId}/runs/${run.id}`}
+                    className="inline-flex items-center rounded-md border border-border bg-accent/40 px-2 py-1 font-mono text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+                  >
+                    {run.id.slice(0, 8)}
+                  </Link>
+                  <StatusBadge status={run.status} />
+                  <span className="text-muted-foreground">
+                    {formatDateTime(run.startedAt ?? run.createdAt)}
+                  </span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button
+                      onClick={() => onCancelRun(run.id)}
+                      disabled={cancellingRunIds.has(run.id)}
+                      className="inline-flex items-center gap-1 text-[10px] text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50"
+                    >
+                      <Square className="h-2 w-2" fill="currentColor" />
+                      {cancellingRunIds.has(run.id) ? "Stopping…" : "Stop"}
+                    </button>
+                    <Link
+                      to={`/agents/${run.agentId}/runs/${run.id}`}
+                      className="inline-flex items-center gap-1 text-[10px] text-cyan-600 hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
+                    >
+                      Open run
+                      <ExternalLink className="h-2.5 w-2.5" />
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="flex items-center px-3 py-2 border-b border-border/50">
+          <span className="text-xs font-medium text-muted-foreground">Recent run updates</span>
+        </div>
+      )}
+
+      <div ref={bodyRef} className="max-h-[220px] overflow-y-auto p-2 font-mono text-[11px] space-y-1">
+        {recent.length === 0 ? (
+          <div className="text-xs text-muted-foreground">Waiting for run output...</div>
+        ) : null}
+        {recent.map((item, index) => (
+          <div
+            key={item.id}
+            className={cn(
+              "grid grid-cols-[auto_1fr] gap-2 items-start",
+              index === recent.length - 1 && "animate-in fade-in slide-in-from-bottom-1 duration-300",
+            )}
+          >
+            <span className="text-[10px] text-muted-foreground">{relativeTime(item.ts)}</span>
+            <div
+              className={cn(
+                "min-w-0",
+                item.tone === "error" && "text-red-600 dark:text-red-300",
+                item.tone === "warn" && "text-amber-600 dark:text-amber-300",
+                item.tone === "assistant" && "text-emerald-700 dark:text-emerald-200",
+                item.tone === "tool" && "text-cyan-600 dark:text-cyan-300",
+                item.tone === "info" && "text-foreground/80",
+              )}
+            >
+              <Identity name={item.agentName} size="sm" className="text-cyan-600 dark:text-cyan-400" />
+              <span className="text-muted-foreground"> [{item.runId.slice(0, 8)}] </span>
+              <span className="break-words">{item.text}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function parseStdoutChunk(
@@ -556,106 +682,34 @@ export function LiveRunWidget({ issueId, companyId }: LiveRunWidgetProps) {
   const recent = feed.slice(-25);
 
   return (
-    <div className="rounded-lg border border-cyan-500/30 bg-background/80 overflow-hidden shadow-[0_0_12px_rgba(6,182,212,0.08)]">
-      {runClusters.length > 0 ? (
-        runClusters.map((cluster) => (
-          <div key={cluster.key} className="px-3 py-3 border-b border-border/50 last:border-b-0">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="space-y-1">
-                <Link to={`/agents/${cluster.agentId}`} className="hover:underline">
-                  <Identity name={cluster.agentName} size="sm" />
-                </Link>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                  <span>Started {relativeTime(cluster.latestCreatedAt)}</span>
-                  {cluster.runs.length > 1 ? (
-                    <span className="rounded-full border border-border bg-background px-2 py-0.5 font-medium">
-                      {cluster.runs.length} linked runs
-                    </span>
-                  ) : null}
-                </div>
-                {describeCluster(cluster) ? (
-                  <div className="text-[11px] leading-5 text-muted-foreground">
-                    {describeCluster(cluster)}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="mt-3 space-y-2">
-              {cluster.runs.map((run) => (
-                <div
-                  key={run.id}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs"
-                >
-                  <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-700 dark:text-cyan-200">
-                    {runPhaseLabel(run)}
-                  </span>
-                  <Link
-                    to={`/agents/${run.agentId}/runs/${run.id}`}
-                    className="inline-flex items-center rounded-md border border-border bg-accent/40 px-2 py-1 font-mono text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
-                  >
-                    {run.id.slice(0, 8)}
-                  </Link>
-                  <StatusBadge status={run.status} />
-                  <span className="text-muted-foreground">
-                    {formatDateTime(run.startedAt ?? run.createdAt)}
-                  </span>
-                  <div className="ml-auto flex items-center gap-2">
-                    <button
-                      onClick={() => handleCancelRun(run.id)}
-                      disabled={cancellingRunIds.has(run.id)}
-                      className="inline-flex items-center gap-1 text-[10px] text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50"
-                    >
-                      <Square className="h-2 w-2" fill="currentColor" />
-                      {cancellingRunIds.has(run.id) ? "Stopping…" : "Stop"}
-                    </button>
-                    <Link
-                      to={`/agents/${run.agentId}/runs/${run.id}`}
-                      className="inline-flex items-center gap-1 text-[10px] text-cyan-600 hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
-                    >
-                      Open run
-                      <ExternalLink className="h-2.5 w-2.5" />
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))
-      ) : (
-        <div className="flex items-center px-3 py-2 border-b border-border/50">
-          <span className="text-xs font-medium text-muted-foreground">Recent run updates</span>
-        </div>
-      )}
+    <LiveRunWidgetSurface
+      runClusters={runClusters}
+      recent={recent}
+      cancellingRunIds={cancellingRunIds}
+      onCancelRun={handleCancelRun}
+      bodyRef={bodyRef}
+    />
+  );
+}
 
-      <div ref={bodyRef} className="max-h-[220px] overflow-y-auto p-2 font-mono text-[11px] space-y-1">
-        {recent.length === 0 && (
-          <div className="text-xs text-muted-foreground">Waiting for run output...</div>
-        )}
-        {recent.map((item, index) => (
-          <div
-            key={item.id}
-            className={cn(
-              "grid grid-cols-[auto_1fr] gap-2 items-start",
-              index === recent.length - 1 && "animate-in fade-in slide-in-from-bottom-1 duration-300",
-            )}
-          >
-            <span className="text-[10px] text-muted-foreground">{relativeTime(item.ts)}</span>
-            <div className={cn(
-              "min-w-0",
-              item.tone === "error" && "text-red-600 dark:text-red-300",
-              item.tone === "warn" && "text-amber-600 dark:text-amber-300",
-              item.tone === "assistant" && "text-emerald-700 dark:text-emerald-200",
-              item.tone === "tool" && "text-cyan-600 dark:text-cyan-300",
-              item.tone === "info" && "text-foreground/80",
-            )}>
-              <Identity name={item.agentName} size="sm" className="text-cyan-600 dark:text-cyan-400" />
-              <span className="text-muted-foreground"> [{item.runId.slice(0, 8)}] </span>
-              <span className="break-words">{item.text}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+export type LiveRunWidgetFeedItem = FeedItem;
 
-    </div>
+export function LiveRunWidgetFixture({
+  runs,
+  feed,
+  testId,
+}: {
+  runs: LiveRunForIssue[];
+  feed: FeedItem[];
+  testId?: string;
+}) {
+  return (
+    <LiveRunWidgetSurface
+      runClusters={buildLiveRunClusters(runs)}
+      recent={feed.slice(-25)}
+      cancellingRunIds={new Set()}
+      onCancelRun={() => {}}
+      testId={testId}
+    />
   );
 }
