@@ -161,9 +161,9 @@ export function InternalWorkItemDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Create Internal Work Item</DialogTitle>
+          <DialogTitle>Create Subtask</DialogTitle>
           <DialogDescription>
-            Create a hidden child issue under {issue.identifier ?? issue.id.slice(0, 8)} and immediately assign the
+            Create a subtask under {issue.identifier ?? issue.id.slice(0, 8)} and immediately assign the
             execution lane.
           </DialogDescription>
         </DialogHeader>
@@ -308,7 +308,7 @@ export function InternalWorkItemDialog({
 
           {createWorkItem.isError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {createWorkItem.error instanceof Error ? createWorkItem.error.message : "Failed to create internal work item"}
+              {createWorkItem.error instanceof Error ? createWorkItem.error.message : "Failed to create subtask"}
             </div>
           )}
         </div>

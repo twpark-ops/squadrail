@@ -250,7 +250,7 @@ export function buildIssueSnapshotMarkdown(input: {
     status: string;
     priority: string;
     requestDepth: number;
-    hiddenAt: Date | string | null;
+    parentId: string | null;
     createdAt: Date | string;
     updatedAt: Date | string;
     completedAt: Date | string | null;
@@ -288,7 +288,7 @@ export function buildIssueSnapshotMarkdown(input: {
     `- parent: ${input.parentLabel ?? "-"}`,
     `- assignee: ${input.assigneeLabel ?? "-"}`,
     `- requestDepth: ${input.issue.requestDepth}`,
-    `- visibility: ${input.issue.hiddenAt ? "internal_work_item" : "root_issue"}`,
+    `- visibility: ${input.issue.parentId ? "subtask" : "root_issue"}`,
     `- labels: ${input.labels.length > 0 ? input.labels.join(", ") : "-"}`,
     `- createdAt: ${new Date(input.issue.createdAt).toISOString()}`,
     `- updatedAt: ${new Date(input.issue.updatedAt).toISOString()}`,
@@ -763,7 +763,6 @@ export function organizationalMemoryService(db: Db) {
         select status, count(*)::int as count
         from issues
         where parent_id = ${issue.id}
-          and hidden_at is not null
         group by status
       `),
     ]);

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import {
   derivePendingHumanClarifications,
@@ -759,7 +759,7 @@ export function dashboardService(db: Db) {
         })
         .from(issueProtocolState)
         .innerJoin(issues, eq(issueProtocolState.issueId, issues.id))
-        .where(and(eq(issueProtocolState.companyId, companyId), isNull(issues.hiddenAt)))
+        .where(and(eq(issueProtocolState.companyId, companyId), isNull(issues.parentId)))
         .groupBy(issueProtocolState.workflowState);
 
       const protocolOpenViolations = await db
@@ -786,7 +786,7 @@ export function dashboardService(db: Db) {
         .where(
           and(
             eq(issueProtocolState.companyId, companyId),
-            isNull(issues.hiddenAt),
+            isNull(issues.parentId),
             inArray(issueProtocolState.workflowState, [
               "assigned",
               "accepted",
@@ -1061,7 +1061,7 @@ export function dashboardService(db: Db) {
         .where(
           and(
             eq(issueProtocolState.companyId, input.companyId),
-            isNull(issues.hiddenAt),
+            isNull(issues.parentId),
             inArray(issueProtocolState.workflowState, [...DASHBOARD_PROTOCOL_QUEUE_STATES]),
           ),
         )
@@ -1363,7 +1363,7 @@ export function dashboardService(db: Db) {
           and(
             eq(issues.companyId, input.companyId),
             inArray(issues.status, ["backlog", "todo", "in_progress", "in_review", "blocked"]),
-            sql`${issues.hiddenAt} is not null`,
+            isNotNull(issues.parentId),
           ),
         )
         .orderBy(desc(issueProtocolState.lastTransitionAt), desc(issues.updatedAt));

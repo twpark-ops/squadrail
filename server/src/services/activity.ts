@@ -40,7 +40,7 @@ export function activityService(db: Db) {
             ...conditions,
             or(
               sql`${activityLog.entityType} != 'issue'`,
-              isNull(issues.hiddenAt),
+              isNull(issues.parentId),
             ),
           ),
         )
@@ -118,7 +118,7 @@ export function activityService(db: Db) {
             eq(activityLog.companyId, run.companyId),
             eq(activityLog.runId, runId),
             eq(activityLog.entityType, "issue"),
-            isNull(issues.hiddenAt),
+            isNull(issues.parentId),
           ),
         )
         .orderBy(issueIdAsText);
@@ -144,7 +144,7 @@ export function activityService(db: Db) {
           and(
             eq(issues.companyId, run.companyId),
             eq(issues.id, contextIssueId),
-            isNull(issues.hiddenAt),
+            isNull(issues.parentId),
           ),
         )
         .then((rows) => rows[0] ?? null);

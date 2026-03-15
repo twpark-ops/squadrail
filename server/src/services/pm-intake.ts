@@ -6,6 +6,7 @@ import {
   type PmIntakeProjectionPreviewResult,
 } from "@squadrail/shared";
 import { conflict, unprocessable } from "../errors.js";
+import { isComplexIntake } from "./execution-lanes.js";
 
 export interface PmIntakeAgent {
   id: string;
@@ -89,7 +90,9 @@ function hasDedicatedEngineerIdentity(agent: PmIntakeAgent) {
 
 function canActAsReviewer(agent: PmIntakeAgent) {
   if (hasReviewerIdentity(agent)) return true;
-  if (agent.role === "qa") return true;
+  // QA agents must not fill the reviewer slot — role exclusivity enforcement.
+  // QA agents belong in the qaAgentId slot only.
+  if (agent.role === "qa") return false;
   if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return true;
   return false;
 }
@@ -666,9 +669,19 @@ export function buildPmIntakeProjectionPreview(
     predicate: canActAsReviewer,
     preferredId: input.request.reviewerAgentId ?? null,
     excludedIds: [techLead.id],
-    roleBonus: (agent) => (hasReviewerIdentity(agent) ? 100 : agent.role === "qa" ? 50 : 0),
+    roleBonus: (agent) => (hasReviewerIdentity(agent) ? 100 : 0),
     notFoundMessage: "No active reviewer-capable agent is available for PM intake projection",
     invalidPreferredMessage: "Selected reviewer agent must support reviewer protocol role",
+  });
+
+  // Complexity scoring: only assign QA for complex issues (full lane).
+  // Simple issues skip the QA gate entirely (fast lane).
+  const complexIssue = isComplexIntake({
+    explicitQaRequested: Boolean(input.request.qaAgentId),
+    coordinationOnly: Boolean(input.request.coordinationOnly),
+    crossProjectCount: projectCandidates.filter((c) => c.score > 0).length,
+    priority: input.issue.priority,
+    requiredKnowledgeTagCount: (input.request.requiredKnowledgeTags ?? []).length,
   });
 
   let qaAgent: PmIntakeAgent | null = null;
@@ -682,7 +695,7 @@ export function buildPmIntakeProjectionPreview(
       notFoundMessage: "No active QA agent is available for PM intake projection",
       invalidPreferredMessage: "Selected QA agent must support qa protocol role",
     });
-  } else {
+  } else if (complexIssue) {
     const qaCandidates = input.agents
       .filter(isActiveForIntake)
       .filter((agent) => agent.id !== techLead.id && agent.id !== reviewer.id)
@@ -698,6 +711,7 @@ export function buildPmIntakeProjectionPreview(
       });
     }
   }
+  // When !complexIssue and no explicit qaAgentId: qaAgent stays null -> fast lane (no QA gate).
 
   const implementationAssignee = pickBestAgent({
     agents: input.agents,

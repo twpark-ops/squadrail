@@ -28,7 +28,6 @@ type ProtocolDispatchMode =
   | "default"
   | "reviewer_watch"
   | "lead_supervisor"
-  | "implementation_followup"
   | "qa_gate_followup"
   | "approval_close_followup";
 
@@ -343,7 +342,10 @@ export function buildProtocolExecutionDispatchPlan(input: {
     const recipientHint = input.recipientHints?.find(
       (hint) => hint.recipientId === recipient.recipientId && hint.recipientRole === recipient.role,
     );
-    const implementationFollowupActive =
+    // Engineer self-START coalesces into the active run instead of forcing a
+    // separate followup. The workspace override ensures the single run still
+    // resolves to the implementation workspace.
+    const engineerSelfStart =
       recipient.recipientType === "agent"
       && recipient.role === "engineer"
       && input.message.messageType === "START_IMPLEMENTATION"
@@ -360,19 +362,17 @@ export function buildProtocolExecutionDispatchPlan(input: {
       protocolMessageId: input.protocolMessageId,
       message: input.message,
       protocolPayload,
-      wakeHints,
+      wakeHints: {
+        ...wakeHints,
+        ...(engineerSelfStart ? { workspaceUsageOverride: "implementation" } : {}),
+      },
       source,
       reason: reviewerWatchActive ? reviewerWatchReason(input.message.messageType) : reason,
       recipient,
       recipientHint,
       issueContext: input.issueContext,
-      dispatchMode:
-        implementationFollowupActive
-          ? "implementation_followup"
-          : reviewerWatchActive
-            ? "reviewer_watch"
-            : "default",
-      forceFollowupRun: implementationFollowupActive,
+      dispatchMode: reviewerWatchActive ? "reviewer_watch" : "default",
+      forceFollowupRun: false,
     });
 
     if (recipient.recipientType !== "agent") {
@@ -383,7 +383,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       return { kind: "notify_only", ...base };
     }
 
-    if (input.senderAgentId && recipient.recipientId === input.senderAgentId && !implementationFollowupActive) {
+    if (input.senderAgentId && recipient.recipientId === input.senderAgentId && !engineerSelfStart) {
       return { kind: "skip_sender", ...base };
     }
 

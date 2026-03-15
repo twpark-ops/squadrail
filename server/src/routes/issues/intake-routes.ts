@@ -206,11 +206,11 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
 
     assertCompanyAccess(req, rootIssue.companyId);
     await assertCanAssignTasks(req, rootIssue.companyId);
-    if (rootIssue.parentId || rootIssue.hiddenAt) {
-      throw unprocessable("PM intake projection can only run on visible root issues");
+    if (rootIssue.parentId) {
+      throw unprocessable("PM intake projection can only run on root issues");
     }
     if (!isPmIntakeRootIssue(rootIssue)) {
-      throw unprocessable("PM intake projection can only run on visible root intake issues");
+      throw unprocessable("PM intake projection can only run on root intake issues");
     }
 
     const actor = getActorInfo(req);
@@ -361,11 +361,11 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
 
     assertCompanyAccess(req, rootIssue.companyId);
     await assertCanAssignTasks(req, rootIssue.companyId);
-    if (rootIssue.parentId || rootIssue.hiddenAt) {
-      throw unprocessable("PM intake projection preview can only run on visible root issues");
+    if (rootIssue.parentId) {
+      throw unprocessable("PM intake projection preview can only run on root issues");
     }
     if (!isPmIntakeRootIssue(rootIssue)) {
-      throw unprocessable("PM intake projection preview can only run on visible root intake issues");
+      throw unprocessable("PM intake projection preview can only run on root intake issues");
     }
 
     const sender = await buildTaskAssignmentSender(req, rootIssue.companyId);

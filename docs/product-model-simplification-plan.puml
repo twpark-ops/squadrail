@@ -1,0 +1,73 @@
+@startuml Product Model Simplification
+title Squadrail Product Model: Current vs Target
+
+rectangle "Current Model" as current {
+  rectangle "Root Issue\n(visible)" as root_current
+  rectangle "Hidden Child 1\n(hiddenAt set)" as hc1
+  rectangle "Hidden Child 2\n(hiddenAt set)" as hc2
+  rectangle "Hidden Child 3\n(hiddenAt set)" as hc3
+
+  root_current --> hc1 : parentId
+  root_current --> hc2 : parentId
+  root_current --> hc3 : parentId
+
+  note right of hc1
+    Users cannot see these.
+    CLO-5 cancelled root,
+    CLO-6~8 hidden children.
+  end note
+}
+
+rectangle "Target Model" as target {
+  rectangle "Parent Issue\n(always visible)" as parent_target
+  rectangle "Subtask 1\n(visible)" as st1
+  rectangle "Subtask 2\n(visible)" as st2
+  rectangle "Subtask 3\n(visible)" as st3
+
+  parent_target --> st1 : subtask
+  parent_target --> st2 : subtask
+  parent_target --> st3 : subtask
+
+  note right of st1
+    Users see all subtasks.
+    Parent shows progress:
+    2/3 done.
+  end note
+}
+
+rectangle "Engineer Flow: Current" as eng_current {
+  rectangle "Run 1: Protocol Gate\nACK_ASSIGNMENT" as run1
+  rectangle "Run 2: Implementation\nSTART_IMPLEMENTATION" as run2
+
+  run1 --> run2 : forceFollowupRun
+  note bottom of run1
+    Two separate heartbeat runs.
+    Artificial separation.
+  end note
+}
+
+rectangle "Engineer Flow: Target" as eng_target {
+  rectangle "Single Run\nACK -> START -> Implement" as run_single
+
+  note bottom of run_single
+    One continuous run.
+    ACK and START in same context.
+  end note
+}
+
+rectangle "Issue Routing: Target" as routing {
+  rectangle "PM Structuring" as pm
+  rectangle "Fast Lane\nimplement -> review -> close" as fast
+  rectangle "Full Lane\nclarify -> decompose ->\nimplement -> review -> QA -> close" as full
+
+  pm --> fast : simple issue
+  pm --> full : complex issue
+
+  note bottom of fast
+    No QA gate.
+    Lighter brief.
+    Quick close.
+  end note
+}
+
+@enduml

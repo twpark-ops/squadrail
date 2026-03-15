@@ -1,7 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { issueLabels, issueProtocolState, issues, labels, type Db } from "@squadrail/db";
 
-export const INTERNAL_WORK_ITEM_TEAM_LABEL = "team:internal";
 export const INTERNAL_WORK_ITEM_WATCH_REVIEWER_LABEL = "watch:reviewer";
 export const INTERNAL_WORK_ITEM_WATCH_LEAD_LABEL = "watch:lead";
 
@@ -20,7 +19,6 @@ const LEAD_SUPERVISOR_PROTOCOL_REASON_BY_MESSAGE_TYPE: Record<string, string> = 
 export interface InternalWorkItemSupervisorContext {
   issueId: string;
   parentId: string | null;
-  hiddenAt: Date | null;
   labelNames: string[];
   techLeadAgentId: string | null;
   reviewerAgentId?: string | null;
@@ -48,7 +46,6 @@ export function loadInternalWorkItemSupervisorContext(
         .select({
           issueId: issues.id,
           parentId: issues.parentId,
-          hiddenAt: issues.hiddenAt,
           techLeadAgentId: issueProtocolState.techLeadAgentId,
           reviewerAgentId: issueProtocolState.reviewerAgentId,
           qaAgentId: issueProtocolState.qaAgentId,
@@ -74,7 +71,6 @@ export function loadInternalWorkItemSupervisorContext(
     return {
       issueId: issueRow.issueId,
       parentId: issueRow.parentId,
-      hiddenAt: issueRow.hiddenAt,
       techLeadAgentId: issueRow.techLeadAgentId ?? null,
       reviewerAgentId: issueRow.reviewerAgentId ?? null,
       qaAgentId: issueRow.qaAgentId ?? null,
@@ -86,7 +82,8 @@ export function loadInternalWorkItemSupervisorContext(
 
 export function isInternalWorkItemContext(context: InternalWorkItemSupervisorContext | null | undefined) {
   if (!context?.parentId) return false;
-  return Boolean(context.hiddenAt) || hasLabel(context, INTERNAL_WORK_ITEM_TEAM_LABEL);
+  // parentId is the primary signal — any issue with a parent is a subtask/internal work item.
+  return true;
 }
 
 export function getInternalWorkItemKind(
@@ -100,7 +97,6 @@ export function getInternalWorkItemKind(
 export function isReviewerWatchEnabled(context: InternalWorkItemSupervisorContext | null | undefined) {
   return (
     isInternalWorkItemContext(context)
-    && !context?.hiddenAt
     && hasLabel(context, INTERNAL_WORK_ITEM_WATCH_REVIEWER_LABEL)
   );
 }
@@ -112,7 +108,6 @@ export function reviewerWatchReason(messageType: string) {
 export function isLeadWatchEnabled(context: InternalWorkItemSupervisorContext | null | undefined) {
   return (
     isInternalWorkItemContext(context)
-    && !context?.hiddenAt
     && hasLabel(context, INTERNAL_WORK_ITEM_WATCH_LEAD_LABEL)
   );
 }

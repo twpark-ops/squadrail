@@ -31,7 +31,7 @@ const SCENARIO_CONFIG = {
     reviewScope: "reviewer",
     expectedProject: "swiftsight-agent",
   },
-  "swiftsight-cloud-pm-qa-lead-loop": {
+  "swiftsight-cloud-pm-tl-review-loop": {
     pinnedPaths: ["internal/observability/tracing.go"],
     expectedRelatedPaths: ["internal/observability/tracing_test.go"],
     reviewScope: "reviewer",

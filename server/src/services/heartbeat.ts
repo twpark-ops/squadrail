@@ -3219,7 +3219,7 @@ export function heartbeatService(db: Db) {
             id: issues.id,
             companyId: issues.companyId,
             priority: issues.priority,
-            hiddenAt: issues.hiddenAt,
+            parentId: issues.parentId,
             executionRunId: issues.executionRunId,
             executionAgentNameKey: issues.executionAgentNameKey,
           })
@@ -3248,13 +3248,13 @@ export function heartbeatService(db: Db) {
           enrichedContextSnapshot.issuePriority = issue.priority;
         }
 
-        if (issue.hiddenAt) {
+        if (issue.parentId) {
           await tx.insert(agentWakeupRequests).values(buildWakeupRequestValues({
             companyId: agent.companyId,
             agentId,
             source,
             triggerDetail,
-            reason: "issue_hidden",
+            reason: "issue_is_subtask",
             payload,
             status: "skipped",
             requestedByActorType: opts.requestedByActorType,

@@ -169,3 +169,47 @@ export function applyExecutionLanePolicy(input: ExecutionLanePolicyInput & { lan
 
   return base;
 }
+
+// Product-level lane: determines whether an issue goes through fast or full workflow.
+// Fast lane = no QA gate, lighter review, no subtask decomposition.
+// Full lane = QA gate active, full review evidence, decomposition possible.
+export type ProductLane = "fast" | "full";
+
+export type IssuePriority = "critical" | "high" | "medium" | "low";
+
+export interface IntakeComplexitySignals {
+  explicitQaRequested: boolean;
+  coordinationOnly: boolean;
+  crossProjectCount: number;
+  priority: IssuePriority | string;
+  requiredKnowledgeTagCount: number;
+}
+
+// Centralized complexity check used by PM intake to decide QA assignment.
+// When complex, QA is assigned (full lane). When simple, QA is skipped (fast lane).
+export function isComplexIntake(signals: IntakeComplexitySignals): boolean {
+  if (signals.explicitQaRequested) return true;
+  if (signals.coordinationOnly) return true;
+  if (signals.crossProjectCount > 1) return true;
+  if (signals.priority === "critical") return true;
+  if (signals.requiredKnowledgeTagCount > 2) return true;
+  return false;
+}
+
+export interface ProductLaneSignals {
+  qaAgentId: string | null;
+  hasSubtasks: boolean;
+  crossProject: boolean;
+  coordinationOnly: boolean;
+  priority: IssuePriority | string;
+}
+
+// Runtime lane derivation for brief construction and UI display.
+export function deriveProductLane(signals: ProductLaneSignals): ProductLane {
+  if (signals.qaAgentId) return "full";
+  if (signals.hasSubtasks) return "full";
+  if (signals.crossProject) return "full";
+  if (signals.coordinationOnly) return "full";
+  if (signals.priority === "critical") return "full";
+  return "fast";
+}

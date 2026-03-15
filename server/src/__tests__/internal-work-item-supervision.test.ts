@@ -15,7 +15,6 @@ import { issueLabels, issues } from "@squadrail/db";
 const INTERNAL_CONTEXT = {
   issueId: "issue-1",
   parentId: "root-1",
-  hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
   labelNames: ["team:internal", "work:implementation", "watch:reviewer", "watch:lead"],
   techLeadAgentId: "lead-1",
 };
@@ -47,27 +46,20 @@ describe("internal work item supervision helpers", () => {
     expect(getInternalWorkItemKind(INTERNAL_CONTEXT)).toBe("implementation");
   });
 
-  it("disables reviewer and lead watch flags for hidden internal child issues", () => {
-    expect(isReviewerWatchEnabled(INTERNAL_CONTEXT)).toBe(false);
-    expect(isLeadWatchEnabled(INTERNAL_CONTEXT)).toBe(false);
+  it("enables reviewer and lead watch flags based on labels for subtasks", () => {
+    expect(isReviewerWatchEnabled(INTERNAL_CONTEXT)).toBe(true);
+    expect(isLeadWatchEnabled(INTERNAL_CONTEXT)).toBe(true);
+    expect(
+      isLeadWatchEnabled({
+        ...INTERNAL_CONTEXT,
+        parentId: null,
+        labelNames: ["watch:lead"],
+      }),
+    ).toBe(false);
     expect(
       isReviewerWatchEnabled({
         ...INTERNAL_CONTEXT,
-        hiddenAt: null,
-      }),
-    ).toBe(true);
-    expect(
-      isLeadWatchEnabled({
-        ...INTERNAL_CONTEXT,
-        hiddenAt: null,
-      }),
-    ).toBe(true);
-    expect(
-      isLeadWatchEnabled({
-        ...INTERNAL_CONTEXT,
-        hiddenAt: null,
-        parentId: null,
-        labelNames: ["watch:lead"],
+        labelNames: ["team:internal", "work:implementation"],
       }),
     ).toBe(false);
   });
@@ -77,8 +69,8 @@ describe("internal work item supervision helpers", () => {
       issueInternalWorkItem: true,
       rootIssueId: "root-1",
       internalWorkItemKind: "implementation",
-      reviewerWatchEnabled: false,
-      leadWatchEnabled: false,
+      reviewerWatchEnabled: true,
+      leadWatchEnabled: true,
     });
   });
 
@@ -92,7 +84,6 @@ describe("internal work item supervision helpers", () => {
       [issues, [[{
         issueId: "issue-1",
         parentId: "root-1",
-        hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
         techLeadAgentId: "lead-1",
         reviewerAgentId: "reviewer-1",
         qaAgentId: "qa-1",
@@ -111,7 +102,6 @@ describe("internal work item supervision helpers", () => {
     await expect(loadInternalWorkItemSupervisorContext(db as never, "company-1", "issue-1")).resolves.toEqual({
       issueId: "issue-1",
       parentId: "root-1",
-      hiddenAt: new Date("2026-03-09T00:00:00.000Z"),
       techLeadAgentId: "lead-1",
       reviewerAgentId: "reviewer-1",
       qaAgentId: "qa-1",
@@ -152,7 +142,6 @@ describe("internal work item supervision helpers", () => {
     expect(buildInternalWorkItemDispatchMetadata({
       issueId: "issue-2",
       parentId: null,
-      hiddenAt: null,
       labelNames: ["watch:reviewer"],
       techLeadAgentId: null,
     })).toEqual({});
@@ -160,5 +149,197 @@ describe("internal work item supervision helpers", () => {
       labelNames: ["team:internal"],
     })).toBeNull();
     expect(reviewerWatchReason("ANYTHING_ELSE")).toBe("issue_watch_assigned");
+  });
+
+  describe("isInternalWorkItemContext with parentId-based detection", () => {
+    it("returns true when parentId is set and NO labels exist", () => {
+      expect(isInternalWorkItemContext({
+        issueId: "issue-no-labels",
+        parentId: "root-1",
+        labelNames: [],
+        techLeadAgentId: null,
+      })).toBe(true);
+    });
+
+    it("returns false when parentId is null even with team:internal label", () => {
+      expect(isInternalWorkItemContext({
+        issueId: "issue-root-with-label",
+        parentId: null,
+        labelNames: ["team:internal"],
+        techLeadAgentId: "lead-1",
+      })).toBe(false);
+    });
+
+    it("returns true when parentId is set with random unrelated labels", () => {
+      expect(isInternalWorkItemContext({
+        issueId: "issue-random",
+        parentId: "root-2",
+        labelNames: ["bug", "frontend", "priority:high"],
+        techLeadAgentId: null,
+      })).toBe(true);
+    });
+
+    it("returns false for null context", () => {
+      expect(isInternalWorkItemContext(null)).toBe(false);
+    });
+
+    it("returns false for undefined context", () => {
+      expect(isInternalWorkItemContext(undefined)).toBe(false);
+    });
+  });
+
+  describe("watch flags require both parentId and label", () => {
+    it("reviewer watch is disabled when parentId is set but watch:reviewer label is missing", () => {
+      expect(isReviewerWatchEnabled({
+        issueId: "issue-no-watch",
+        parentId: "root-1",
+        labelNames: ["team:internal", "work:implementation"],
+        techLeadAgentId: "lead-1",
+      })).toBe(false);
+    });
+
+    it("lead watch is disabled when parentId is set but watch:lead label is missing", () => {
+      expect(isLeadWatchEnabled({
+        issueId: "issue-no-lead-watch",
+        parentId: "root-1",
+        labelNames: ["team:internal", "watch:reviewer"],
+        techLeadAgentId: "lead-1",
+      })).toBe(false);
+    });
+
+    it("both watches disabled for root issue even with all watch labels present", () => {
+      expect(isReviewerWatchEnabled({
+        issueId: "root-issue",
+        parentId: null,
+        labelNames: ["watch:reviewer", "watch:lead"],
+        techLeadAgentId: "lead-1",
+      })).toBe(false);
+      expect(isLeadWatchEnabled({
+        issueId: "root-issue",
+        parentId: null,
+        labelNames: ["watch:reviewer", "watch:lead"],
+        techLeadAgentId: "lead-1",
+      })).toBe(false);
+    });
+  });
+
+  describe("getInternalWorkItemKind label extraction", () => {
+    it("returns 'plan' for work:plan label", () => {
+      expect(getInternalWorkItemKind({ labelNames: ["work:plan", "team:internal"] })).toBe("plan");
+    });
+
+    it("returns 'qa' for work:qa label", () => {
+      expect(getInternalWorkItemKind({ labelNames: ["work:qa"] })).toBe("qa");
+    });
+
+    it("returns 'review' for work:review label", () => {
+      expect(getInternalWorkItemKind({ labelNames: ["work:review"] })).toBe("review");
+    });
+
+    it("returns null when no work: labels exist", () => {
+      expect(getInternalWorkItemKind({ labelNames: ["team:internal", "watch:lead"] })).toBeNull();
+    });
+
+    it("returns null for empty labelNames", () => {
+      expect(getInternalWorkItemKind({ labelNames: [] })).toBeNull();
+    });
+
+    it("returns null for null context", () => {
+      expect(getInternalWorkItemKind(null)).toBeNull();
+    });
+  });
+
+  describe("dispatch metadata completeness", () => {
+    it("includes all fields for a fully labeled internal work item", () => {
+      expect(buildInternalWorkItemDispatchMetadata({
+        issueId: "issue-full",
+        parentId: "root-1",
+        labelNames: ["team:internal", "work:qa", "watch:reviewer", "watch:lead"],
+        techLeadAgentId: "lead-1",
+      })).toEqual({
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+        internalWorkItemKind: "qa",
+        reviewerWatchEnabled: true,
+        leadWatchEnabled: true,
+      });
+    });
+
+    it("returns partial watches when only some watch labels are present", () => {
+      expect(buildInternalWorkItemDispatchMetadata({
+        issueId: "issue-partial",
+        parentId: "root-1",
+        labelNames: ["work:implementation", "watch:reviewer"],
+        techLeadAgentId: "lead-1",
+      })).toEqual({
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+        internalWorkItemKind: "implementation",
+        reviewerWatchEnabled: true,
+        leadWatchEnabled: false,
+      });
+    });
+
+    it("returns internalWorkItemKind null when parentId is set but no work: labels", () => {
+      expect(buildInternalWorkItemDispatchMetadata({
+        issueId: "issue-no-kind",
+        parentId: "root-1",
+        labelNames: ["bug"],
+        techLeadAgentId: null,
+      })).toEqual({
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+        internalWorkItemKind: null,
+        reviewerWatchEnabled: false,
+        leadWatchEnabled: false,
+      });
+    });
+  });
+
+  describe("leadSupervisorProtocolReason completeness", () => {
+    it("maps ACK_ASSIGNMENT", () => {
+      expect(leadSupervisorProtocolReason("ACK_ASSIGNMENT")).toBe("issue_supervisor_assignment_acknowledged");
+    });
+
+    it("maps ASK_CLARIFICATION", () => {
+      expect(leadSupervisorProtocolReason("ASK_CLARIFICATION")).toBe("issue_supervisor_clarification_requested");
+    });
+
+    it("maps ESCALATE_BLOCKER", () => {
+      expect(leadSupervisorProtocolReason("ESCALATE_BLOCKER")).toBe("issue_supervisor_blocker_escalated");
+    });
+
+    it("maps APPROVE_IMPLEMENTATION", () => {
+      expect(leadSupervisorProtocolReason("APPROVE_IMPLEMENTATION")).toBe("issue_supervisor_implementation_approved");
+    });
+
+    it("maps TIMEOUT_ESCALATION", () => {
+      expect(leadSupervisorProtocolReason("TIMEOUT_ESCALATION")).toBe("issue_supervisor_timeout_escalated");
+    });
+
+    it("returns null for unknown message types", () => {
+      expect(leadSupervisorProtocolReason("UNKNOWN_TYPE")).toBeNull();
+      expect(leadSupervisorProtocolReason("")).toBeNull();
+    });
+  });
+
+  describe("leadSupervisorRunFailureReason edge cases", () => {
+    it("returns null for succeeded status", () => {
+      expect(leadSupervisorRunFailureReason({ status: "succeeded", errorCode: null })).toBeNull();
+    });
+
+    it("returns null for null status", () => {
+      expect(leadSupervisorRunFailureReason({ status: null, errorCode: null })).toBeNull();
+    });
+
+    it("returns null for undefined status", () => {
+      expect(leadSupervisorRunFailureReason({ status: undefined, errorCode: null })).toBeNull();
+    });
+
+    it("prefers process_lost over failed even with failed status", () => {
+      expect(leadSupervisorRunFailureReason({ status: "failed", errorCode: "process_lost" })).toBe(
+        "issue_supervisor_run_process_lost",
+      );
+    });
   });
 });

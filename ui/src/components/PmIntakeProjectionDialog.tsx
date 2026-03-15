@@ -213,7 +213,7 @@ export function PmIntakeProjectionDialog({
         dedupeKey: `activity:intake.projection:${issue.id}`,
         title: "Intake projected to delivery",
         body: createInitialWorkItem
-          ? `${result.projectedWorkItems.length} internal work item created`
+          ? `${result.projectedWorkItems.length} subtask created`
           : "Root issue was re-routed without child work items",
         tone: "success",
       });

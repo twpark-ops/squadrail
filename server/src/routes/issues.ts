@@ -1905,11 +1905,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
     if (!(await assertAgentRunCheckoutOwnership(req, res, existing))) return;
 
-    const { comment: commentBody, hiddenAt: hiddenAtRaw, ...updateFields } = req.body;
-    if (hiddenAtRaw !== undefined) {
-      updateFields.hiddenAt = hiddenAtRaw ? new Date(hiddenAtRaw) : null;
-    }
-    const shouldCancelIssueScopeOnHide = !existing.hiddenAt && Boolean(updateFields.hiddenAt);
+    const { comment: commentBody, ...updateFields } = req.body;
     let issue;
     try {
       issue = await svc.update(id, updateFields);
@@ -1940,18 +1936,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
     if (!issue) {
       res.status(404).json({ error: "Issue not found" });
       return;
-    }
-
-    if (shouldCancelIssueScopeOnHide) {
-      try {
-        await heartbeat.cancelIssueScope({
-          companyId: issue.companyId,
-          issueId: issue.id,
-          reason: "Issue hidden via update",
-        });
-      } catch (err) {
-        logger.error({ err, issueId: issue.id }, "Issue hide cleanup failed");
-      }
     }
 
     // Build activity details with previous values for changed fields

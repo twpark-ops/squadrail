@@ -37,7 +37,7 @@ const PROTOCOL_HELPER_PATH = process.env.SQUADRAIL_PROTOCOL_HELPER_PATH
   ?? path.join(REPO_ROOT, "scripts", "runtime", "squadrail-protocol.mjs");
 const DEFAULT_ORG_LOOP_SCENARIO_KEYS = [
   "swiftsight-agent-tl-qa-loop",
-  "swiftsight-cloud-pm-qa-lead-loop",
+  "swiftsight-cloud-pm-tl-review-loop",
   "swiftcl-cto-cross-project-loop",
 ];
 
@@ -140,11 +140,11 @@ async function ensureCompanyLabels(companyId, specs) {
   });
 }
 
-async function hideIssue(issueId) {
+async function cancelIssue(issueId) {
   return api(`/api/issues/${issueId}`, {
     method: "PATCH",
     body: {
-      hiddenAt: new Date().toISOString(),
+      status: "cancelled",
     },
   });
 }
@@ -191,7 +191,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
       summary.cancelled += 1;
       note(`cleanup cancelled ${issue.identifier}`);
       if (HIDE_COMPLETED_ISSUES) {
-        await hideIssue(issue.id);
+        await cancelIssue(issue.id);
         summary.hidden += 1;
         note(`cleanup hid ${issue.identifier}`);
       }
@@ -199,7 +199,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
     }
 
     if (HIDE_COMPLETED_ISSUES && shouldHideE2eIssue(issue.status)) {
-      await hideIssue(issue.id);
+      await cancelIssue(issue.id);
       summary.hidden += 1;
       note(`cleanup hid ${issue.identifier}`);
     }
@@ -328,11 +328,12 @@ function buildScenarioDefinitions(context) {
       project: project("swiftsight-agent"),
       assignee: agent("swiftsight-agent-tl"),
       assigneeRole: "tech_lead",
-      reviewer: agent("swiftsight-qa-engineer"),
+      reviewer: agent("swiftsight-agent-tl"),
       reviewerRole: "reviewer",
+      qa: agent("swiftsight-qa-engineer"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-agent`,
       issue: {
-        title: "Org E2E: TL delegates SafeJoin fix and QA validates the review loop",
+        title: "Org E2E: TL delegates SafeJoin fix, TL reviews code, QA validates release gate",
         description: [
           "Repository: swiftsight-agent",
           "Target files: internal/storage/path.go and internal/storage/path_test.go",
@@ -341,8 +342,9 @@ function buildScenarioDefinitions(context) {
           "- you own staffing for this issue first",
           "- do not implement the fix yourself",
           `- route the implementation to \`swiftsight-agent-codex-engineer\` (${agent("swiftsight-agent-codex-engineer").id}) with explicit acceptance criteria`,
-          `- keep QA Engineer \`swiftsight-qa-engineer\` (${agent("swiftsight-qa-engineer").id}) as the active reviewer and reuse that exact reviewer id in REASSIGN_TASK`,
-          "- close only after QA sign-off",
+          `- keep yourself as the code reviewer for the diff review cycle`,
+          `- assign QA Engineer \`swiftsight-qa-engineer\` (${agent("swiftsight-qa-engineer").id}) to the QA gate only`,
+          "- close only after both code review and QA sign-off",
           "Known bug:",
           "- SafeJoin currently flattens nested relative segments because it applies filepath.Base() to every element",
           "- nested safe inputs like subdir/nested/file.txt lose their directory structure even though they should stay inside the base directory",
@@ -357,16 +359,16 @@ function buildScenarioDefinitions(context) {
           "- run `go test ./internal/storage -count=1`",
           ...buildManagerHelperLines([
             "- all protocol transitions in this scenario should use the local helper, not ad-hoc Python/curl POSTs",
-            `- TL staffing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftsight-agent-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-qa-engineer").id}" --summary "Route SafeJoin fix to swiftsight-agent-codex-engineer" --reason "Project TL staffing the focused SafeJoin fix"\``,
-            `- QA review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "QA starts SafeJoin review" --review-focus "path traversal preserved||nested segments preserved||focused package test evidence"\``,
-            `- QA approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "QA approves SafeJoin fix" --approval-summary "Nested path preservation is fixed and focused evidence is sufficient" --approval-checklist "nested safe path preserved||parent traversal still rejected||focused Go package test passed" --verified-evidence "review handoff payload inspected||diff artifact reviewed||test evidence reviewed" --residual-risks "No repo-wide test evidence was requested for this focused slice"\``,
+            `- TL staffing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftsight-agent-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-agent-tl").id}" --summary "Route SafeJoin fix to swiftsight-agent-codex-engineer" --reason "Project TL staffing the focused SafeJoin fix"\``,
+            `- TL code review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "TL starts SafeJoin code review" --review-focus "path traversal preserved||nested segments preserved||focused package test evidence"\``,
+            `- TL approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "TL approves SafeJoin code review" --approval-summary "Nested path preservation is fixed and focused evidence is sufficient" --approval-checklist "nested safe path preserved||parent traversal still rejected||focused Go package test passed" --verified-evidence "review handoff payload inspected||diff artifact reviewed||test evidence reviewed" --residual-risks "No repo-wide test evidence was requested for this focused slice"\``,
             `- TL close example: \`node ${PROTOCOL_HELPER_PATH} close-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --summary "Close SafeJoin fix after QA approval" --closure-summary "Nested safe paths now stay nested and QA approved the focused delivery slice" --verification-summary "QA approval and focused Go package test evidence were recorded in protocol" --rollback-plan "Revert the SafeJoin patch and test file if nested path behavior regresses" --final-artifacts "diff artifact attached||test_run artifact attached||approval recorded in protocol" --remaining-risks "Merge remains external to this E2E harness" --merge-status pending_external_merge\``,
           ]),
           ...buildEngineerHelperLines([
             `- Engineer ACK command: \`node ${PROTOCOL_HELPER_PATH} ack-assignment --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Accepted SafeJoin fix scope" --understood-scope "Fix SafeJoin path handling in internal/storage/path.go and add focused regression tests in internal/storage/path_test.go" --initial-risks "Path normalization changes can weaken traversal protection if focused tests are incomplete"\``,
             `- Engineer start command: \`node ${PROTOCOL_HELPER_PATH} start-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Start SafeJoin implementation in isolated workspace" --active-hypotheses "Safe nested relative segments should be preserved||parent traversal and unsafe absolute-path behavior must remain blocked"\``,
             `- Engineer progress command: \`node ${PROTOCOL_HELPER_PATH} report-progress --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "SafeJoin patch and focused tests are in progress" --progress-percent 60 --completed-items "Reproduced nested-path flattening bug" --next-steps "Patch SafeJoin path normalization||Run focused Go package test" --risks "Traversal safety regression if normalization is too permissive"\``,
-            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftsight-qa-engineer").id}" --summary "Submit SafeJoin fix for QA review" --implementation-summary "SafeJoin now preserves safe nested segments while keeping traversal and absolute-path sanitization protections in place" --evidence "Focused Go package test passed||Nested relative path behavior verified||Traversal safety behavior rechecked" --diff-summary "Adjusted SafeJoin normalization and added regression tests for nested paths and traversal safety" --changed-files "internal/storage/path.go||internal/storage/path_test.go" --test-results "go test ./internal/storage -count=1" --review-checklist "Nested safe path preserved||Parent traversal still rejected||Absolute path stays sanitized" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
+            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftsight-agent-tl").id}" --summary "Submit SafeJoin fix for TL code review" --implementation-summary "SafeJoin now preserves safe nested segments while keeping traversal and absolute-path sanitization protections in place" --evidence "Focused Go package test passed||Nested relative path behavior verified||Traversal safety behavior rechecked" --diff-summary "Adjusted SafeJoin normalization and added regression tests for nested paths and traversal safety" --changed-files "internal/storage/path.go||internal/storage/path_test.go" --test-results "go test ./internal/storage -count=1" --review-checklist "Nested safe path preserved||Parent traversal still rejected||Absolute path stays sanitized" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
           ]),
           "Execution constraints:",
           "- do not run unrelated repo-wide validation",
@@ -375,7 +377,7 @@ function buildScenarioDefinitions(context) {
         ].join("\n"),
       },
       assignment: {
-        goal: "Project TL must staff the SafeJoin fix to an engineer, keep QA as reviewer, and drive the issue to done.",
+        goal: "Project TL must staff the SafeJoin fix to an engineer, review the code diff, and drive the issue to done after QA gate.",
         acceptanceCriteria: [
           "The project TL delegates implementation instead of coding directly",
           "Nested safe segments remain nested inside the base directory",
@@ -610,12 +612,13 @@ function buildScenarioDefinitions(context) {
       },
     },
     {
-      key: "swiftsight-cloud-pm-qa-lead-loop",
+      key: "swiftsight-cloud-pm-tl-review-loop",
       project: project("swiftsight-cloud"),
       assignee: agent("swiftsight-pm"),
       assigneeRole: "pm",
-      reviewer: agent("swiftsight-qa-lead"),
+      reviewer: agent("swiftsight-cloud-tl"),
       reviewerRole: "reviewer",
+      qa: agent("swiftsight-qa-lead"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-cloud`,
       issue: {
         title: "Org E2E: PM clarifies build-info scope, TL owns execution, QA Lead reviews",
@@ -626,7 +629,7 @@ function buildScenarioDefinitions(context) {
           "- you own scope clarification first",
           "- do not implement the change yourself",
           `- turn this into an execution-ready delivery slice and hand it to \`swiftsight-cloud-tl\` (${agent("swiftsight-cloud-tl").id})`,
-          "- keep QA Lead as the active reviewer for the final review cycle",
+          `- hand code review to \`swiftsight-cloud-tl\` and assign QA Lead to the QA gate`,
           `- after TL takeover, prefer the implementation lane \`swiftsight-cloud-codex-engineer\` (${agent("swiftsight-cloud-codex-engineer").id}) when staffing is still needed`,
           "- if the issue is already execution-ready in the TL lane, the TL may implement directly instead of forcing another reassignment",
           "Known bug:",
@@ -642,19 +645,19 @@ function buildScenarioDefinitions(context) {
           "- run `go test ./internal/observability -count=1`",
           ...buildManagerHelperLines([
             "- all protocol transitions in this scenario should use the local helper, not ad-hoc Python/curl POSTs",
-            `- PM routing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role pm --assignee-id "${agent("swiftsight-cloud-tl").id}" --assignee-role tech_lead --reviewer-id "${agent("swiftsight-qa-lead").id}" --summary "PM routes build-info fix into the swiftsight-cloud TL lane" --reason "PM clarified the delivery slice and is handing execution ownership to the project TL"\``,
-            `- TL staffing command when delegating further: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftsight-cloud-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-qa-lead").id}" --summary "TL staffs build-info fix to swiftsight-cloud-codex-engineer" --reason "Project TL is staffing the focused observability implementation"\``,
+            `- PM routing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role pm --assignee-id "${agent("swiftsight-cloud-tl").id}" --assignee-role tech_lead --reviewer-id "${agent("swiftsight-cloud-tl").id}" --summary "PM routes build-info fix into the swiftsight-cloud TL lane" --reason "PM clarified the delivery slice and is handing execution ownership to the project TL"\``,
+            `- TL staffing command when delegating further: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftsight-cloud-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-cloud-tl").id}" --summary "TL staffs build-info fix to swiftsight-cloud-codex-engineer" --reason "Project TL is staffing the focused observability implementation"\``,
             `- TL direct implementation fallback: \`node ${PROTOCOL_HELPER_PATH} start-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "TL starts observability implementation directly from the TL lane" --active-hypotheses "Build metadata can drive service.version with deterministic fallback||Change scope should stay local to observability package"\``,
             "- TL protocol sender-role split: use `tech_lead` for reassign/close, and `engineer` for ack/start/progress/review-submission while the TL is the active implementation owner.",
-            `- QA Lead review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "QA Lead starts observability review" --review-focus "build metadata fallback behavior||focused observability test evidence||diff scope stays local to observability package"\``,
-            `- QA Lead approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "QA Lead approves observability fix" --approval-summary "Build metadata fallback behavior is correct and focused evidence is sufficient" --approval-checklist "service.version no longer hard-coded||fallback behavior covered||focused observability test passed" --verified-evidence "review handoff payload inspected||diff artifact reviewed||test evidence reviewed" --residual-risks "Build stamping may still be absent in local builds, so deterministic fallback remains expected"\``,
+            `- QA Lead review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role qa --summary "QA Lead starts QA gate review" --review-focus "build metadata fallback behavior||focused observability test evidence||diff scope stays local to observability package"\``,
+            `- QA Lead approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role qa --summary "QA Lead approves observability fix (QA gate)" --approval-summary "Build metadata fallback behavior is correct and focused evidence is sufficient" --approval-checklist "service.version no longer hard-coded||fallback behavior covered||focused observability test passed" --verified-evidence "review handoff payload inspected||diff artifact reviewed||test evidence reviewed" --residual-risks "Build stamping may still be absent in local builds, so deterministic fallback remains expected"\``,
             `- TL close example: \`node ${PROTOCOL_HELPER_PATH} close-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --summary "Close observability fix after QA approval" --closure-summary "service.version now follows build metadata with deterministic fallback and QA approved the slice" --verification-summary "QA approval and focused observability test evidence were recorded in protocol" --rollback-plan "Revert the observability helper and regression test changes if version resolution regresses" --final-artifacts "diff artifact attached||test_run artifact attached||approval recorded in protocol" --remaining-risks "Merge remains external to this E2E harness" --merge-status pending_external_merge\``,
           ]),
           ...buildEngineerHelperLines([
             `- Engineer ACK command: \`node ${PROTOCOL_HELPER_PATH} ack-assignment --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Accepted observability build-info scope" --understood-scope "Resolve service.version from build metadata in internal/observability and add focused regression tests" --initial-risks "Build metadata may be unavailable outside stamped builds and needs deterministic fallback coverage"\``,
             `- Engineer start command: \`node ${PROTOCOL_HELPER_PATH} start-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Start observability implementation in isolated workspace" --active-hypotheses "Build metadata can drive service.version with deterministic fallback||Change scope should stay local to observability package"\``,
             `- Engineer progress command: \`node ${PROTOCOL_HELPER_PATH} report-progress --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Observability patch and focused tests are in progress" --progress-percent 60 --completed-items "Confirmed hard-coded service.version behavior" --next-steps "Wire build metadata fallback||Run focused observability test" --risks "Fallback behavior can drift if tests do not pin non-stamped builds"\``,
-            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftsight-qa-lead").id}" --summary "Submit observability build-info fix for QA Lead review" --implementation-summary "createResource now resolves service.version from build metadata with deterministic fallback when stamping is unavailable" --evidence "Focused observability test passed||Resolved version behavior verified||Fallback behavior verified" --diff-summary "Removed hard-coded service.version path and added focused observability regression coverage" --changed-files "internal/observability/tracing.go||internal/observability/tracing_test.go" --test-results "go test ./internal/observability -count=1" --review-checklist "service.version no longer hard-coded||Fallback behavior covered||Change scope remains local to observability package" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
+            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftsight-cloud-tl").id}" --summary "Submit observability build-info fix for TL code review" --implementation-summary "createResource now resolves service.version from build metadata with deterministic fallback when stamping is unavailable" --evidence "Focused observability test passed||Resolved version behavior verified||Fallback behavior verified" --diff-summary "Removed hard-coded service.version path and added focused observability regression coverage" --changed-files "internal/observability/tracing.go||internal/observability/tracing_test.go" --test-results "go test ./internal/observability -count=1" --review-checklist "service.version no longer hard-coded||Fallback behavior covered||Change scope remains local to observability package" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
           ]),
           "Execution constraints:",
           "- PM should route through `swiftsight-cloud-tl` before engineer implementation starts",
@@ -663,7 +666,7 @@ function buildScenarioDefinitions(context) {
         ].join("\n"),
       },
       assignment: {
-        goal: "PM must clarify and route the observability fix through the project TL, then QA Lead must review the delivered slice.",
+        goal: "PM must clarify and route the observability fix through the project TL, TL reviews code, then QA Lead must validate the delivered slice at the QA gate.",
         acceptanceCriteria: [
           "PM reassigns the issue into the project TL lane before coding starts",
           "Project TL either staffs the final engineer implementation lane or implements directly after the routing decision is recorded",
@@ -706,8 +709,9 @@ function buildScenarioDefinitions(context) {
       project: project("swiftcl"),
       assignee: agent("swiftsight-cto"),
       assigneeRole: "cto",
-      reviewer: agent("swiftsight-qa-lead"),
+      reviewer: agent("swiftcl-tl"),
       reviewerRole: "reviewer",
+      qa: agent("swiftsight-qa-lead"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftcl`,
       issue: {
         title: "Org E2E: CTO routes swiftcl catalog-path fix through TL ownership and QA release review",
@@ -732,19 +736,19 @@ function buildScenarioDefinitions(context) {
           "- run `go test ./pkg/swiftcl -count=1`",
           ...buildManagerHelperLines([
             "- all protocol transitions in this scenario should use the local helper, not ad-hoc Python/curl POSTs",
-            `- CTO routing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role cto --assignee-id "${agent("swiftcl-tl").id}" --assignee-role tech_lead --reviewer-id "${agent("swiftsight-qa-lead").id}" --summary "CTO routes swiftcl catalog-path fix into the project TL lane" --reason "CTO is routing this company-level delivery slice into the correct project lane"\``,
-            `- TL staffing command when delegating further: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftcl-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-qa-lead").id}" --summary "TL staffs catalog-path fix to swiftcl-codex-engineer" --reason "SwiftCL TL is staffing the focused implementation lane"\``,
+            `- CTO routing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role cto --assignee-id "${agent("swiftcl-tl").id}" --assignee-role tech_lead --reviewer-id "${agent("swiftcl-tl").id}" --summary "CTO routes swiftcl catalog-path fix into the project TL lane" --reason "CTO is routing this company-level delivery slice into the correct project lane"\``,
+            `- TL staffing command when delegating further: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftcl-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftcl-tl").id}" --summary "TL staffs catalog-path fix to swiftcl-codex-engineer" --reason "SwiftCL TL is staffing the focused implementation lane"\``,
             `- TL direct implementation fallback: \`node ${PROTOCOL_HELPER_PATH} start-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "TL starts CatalogPath implementation directly from the TL lane" --active-hypotheses "CatalogPath should load definitions before constructor wiring||Empty CatalogPath must stay backward compatible"\``,
             "- TL protocol sender-role split: use `tech_lead` for reassign/close, and `engineer` for ack/start/progress/review-submission while the TL is the active implementation owner.",
-            `- QA Lead review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "QA Lead starts swiftcl release review" --review-focus "CatalogPath loading behavior||focused swiftcl package tests||bootstrapping regression risk"\``,
-            `- QA Lead approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role reviewer --summary "QA Lead approves CatalogPath loading fix" --approval-summary "CatalogPath loading behavior and focused regression evidence satisfy the release review bar" --approval-checklist "CatalogPath now honored||invalid path errors preserved||empty path stays backward compatible||focused swiftcl package test passed" --verified-evidence "review handoff payload inspected||diff artifact reviewed||test evidence reviewed" --residual-risks "Recursive loading behavior should be documented for operators choosing catalog directories"\``,
+            `- QA Lead review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role qa --summary "QA Lead starts swiftcl QA gate review" --review-focus "CatalogPath loading behavior||focused swiftcl package tests||bootstrapping regression risk"\``,
+            `- QA Lead approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role qa --summary "QA Lead approves CatalogPath loading fix (QA gate)" --approval-summary "CatalogPath loading behavior and focused regression evidence satisfy the release review bar" --approval-checklist "CatalogPath now honored||invalid path errors preserved||empty path stays backward compatible||focused swiftcl package test passed" --verified-evidence "review handoff payload inspected||diff artifact reviewed||test evidence reviewed" --residual-risks "Recursive loading behavior should be documented for operators choosing catalog directories"\``,
             `- TL close example: \`node ${PROTOCOL_HELPER_PATH} close-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --summary "Close CatalogPath fix after QA approval" --closure-summary "CatalogPath loading now works, regression tests pass, and QA approved the delivery slice" --verification-summary "QA approval and focused swiftcl package test evidence were recorded in protocol" --rollback-plan "Revert the CatalogPath loader and regression test if bootstrapping behavior regresses" --final-artifacts "diff artifact attached||test_run artifact attached||approval recorded in protocol" --remaining-risks "Merge remains external to this E2E harness" --merge-status pending_external_merge\``,
           ]),
           ...buildEngineerHelperLines([
             `- Engineer ACK command: \`node ${PROTOCOL_HELPER_PATH} ack-assignment --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Accepted swiftcl CatalogPath scope" --understood-scope "Honor Config.CatalogPath in pkg/swiftcl and add focused regression tests for valid, invalid, and empty path behavior" --initial-risks "Bootstrapping changes can break backward compatibility if empty-path behavior changes"\``,
             `- Engineer start command: \`node ${PROTOCOL_HELPER_PATH} start-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Start CatalogPath implementation in isolated workspace" --active-hypotheses "CatalogPath should load definitions before constructor wiring||Empty CatalogPath must stay backward compatible"\``,
             `- Engineer progress command: \`node ${PROTOCOL_HELPER_PATH} report-progress --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "swiftcl CatalogPath patch and focused tests are in progress" --progress-percent 60 --completed-items "Confirmed Config.CatalogPath is ignored in New()" --next-steps "Wire disk catalog loading||Run focused swiftcl package test" --risks "Loader behavior can break empty-path compatibility if initialization order changes"\``,
-            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftsight-qa-lead").id}" --summary "Submit CatalogPath loading fix for QA Lead review" --implementation-summary "swiftcl.New now honors Config.CatalogPath, loads on-disk definitions before constructor setup, and preserves empty-path compatibility" --evidence "Focused swiftcl package test passed||Valid path loading verified||Invalid path and empty-path behavior verified" --diff-summary "Wired CatalogPath loading into swiftcl bootstrapping and added focused regression coverage" --changed-files "pkg/swiftcl/swiftcl.go||pkg/swiftcl/*test*.go" --test-results "go test ./pkg/swiftcl -count=1" --review-checklist "CatalogPath now honored||Invalid path errors preserved||Empty path stays backward compatible" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
+            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftcl-tl").id}" --summary "Submit CatalogPath loading fix for TL code review" --implementation-summary "swiftcl.New now honors Config.CatalogPath, loads on-disk definitions before constructor setup, and preserves empty-path compatibility" --evidence "Focused swiftcl package test passed||Valid path loading verified||Invalid path and empty-path behavior verified" --diff-summary "Wired CatalogPath loading into swiftcl bootstrapping and added focused regression coverage" --changed-files "pkg/swiftcl/swiftcl.go||pkg/swiftcl/*test*.go" --test-results "go test ./pkg/swiftcl -count=1" --review-checklist "CatalogPath now honored||Invalid path errors preserved||Empty path stays backward compatible" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
           ]),
           "Execution constraints:",
           "- CTO should route through `swiftcl-tl` before engineer implementation starts",
@@ -753,7 +757,7 @@ function buildScenarioDefinitions(context) {
         ].join("\n"),
       },
       assignment: {
-        goal: "CTO must route the swiftcl catalog-path fix into the SwiftCL TL lane, then QA Lead must validate the delivered implementation before closure.",
+        goal: "CTO must route the swiftcl catalog-path fix into the SwiftCL TL lane, TL reviews code, then QA Lead must validate the delivered implementation at the QA gate before closure.",
         acceptanceCriteria: [
           "CTO reassigns the work into the SwiftCL TL lane before coding starts",
           "SwiftCL TL either staffs the final engineer implementation lane or implements directly after routing is recorded",
@@ -798,8 +802,8 @@ function buildScenarioDefinitions(context) {
       coordinator: {
         pm: agent("swiftsight-pm"),
         techLead: agent("swiftsight-cloud-tl"),
-        reviewer: agent("swiftsight-qa-lead"),
-        qa: null,
+        reviewer: agent("swiftsight-cloud-tl"),
+        qa: agent("swiftsight-qa-lead"),
       },
       rootIssue: {
         title: "Org E2E: coordinate multi-project export delivery across agent, cloud, and swiftcl",
@@ -1699,7 +1703,7 @@ async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
   }
 
   if (HIDE_COMPLETED_ISSUES) {
-    await hideIssue(issue.id);
+    await cancelIssue(issue.id);
     note(`hid ${issue.identifier} after successful verification`);
   }
 
@@ -1752,7 +1756,7 @@ async function runCoordinatedScenario(companyId, scenario) {
       "Archive coordinating root after child fan-out",
     );
     if (HIDE_COMPLETED_ISSUES) {
-      await hideIssue(rootIssue.id);
+      await cancelIssue(rootIssue.id);
       note(`hid coordinated root ${rootIssue.identifier} after projection`);
     }
 
