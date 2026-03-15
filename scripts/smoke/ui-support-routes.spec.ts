@@ -125,6 +125,15 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
   await expect(page.getByText("Live execution")).toBeVisible();
 
+  await page.goto(`${baseUrl}/${companyPrefix}/overview`);
+  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(page.getByText(/No live execution right now|active or recent agent sessions/).first()).toBeVisible();
+
+  await page.goto(`${baseUrl}/${companyPrefix}/team`);
+  await expect(page.getByRole("heading", { name: "Team", exact: true })).toBeVisible();
+  await expect(page.getByText("Leadership roster").first()).toBeVisible();
+  await expect(page.getByText("Verification roster").first()).toBeVisible();
+
   await page.goto(`${baseUrl}/${companyPrefix}/projects`);
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project directory", exact: true })).toBeVisible();
@@ -156,6 +165,114 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await page.goto(`${baseUrl}/${companyPrefix}/org`);
   await expect(page.getByRole("heading", { name: "Org Chart", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Interactive organization map", exact: true })).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("design guide keeps run transcript ahead of diagnostics", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  await expect(page.getByRole("heading", { name: "Design Guide", exact: true })).toBeVisible();
+  const fixture = page.getByTestId("design-guide-run-panel");
+  await expect(fixture).toBeVisible();
+  await expect(fixture.getByText(/Transcript \(\d+\)/).first()).toBeVisible();
+  await expect(fixture.getByText("Diagnostics").first()).toBeVisible();
+  await expect(
+    fixture.getByText("I will patch the export handoff guard and add focused coverage.").first(),
+  ).toBeVisible();
+
+  const transcriptBeforeDiagnostics = await fixture.evaluate((element) => {
+    const transcriptNode = Array.from(element.querySelectorAll("*")).find((node) =>
+      /^Transcript \(\d+\)$/.test(node.textContent?.trim() ?? ""),
+    );
+    const diagnosticsNode = Array.from(element.querySelectorAll("*")).find(
+      (node) => node.textContent?.trim() === "Diagnostics",
+    );
+    if (!(transcriptNode instanceof HTMLElement) || !(diagnosticsNode instanceof HTMLElement)) {
+      return null;
+    }
+    return Boolean(
+      transcriptNode.compareDocumentPosition(diagnosticsNode) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+  expect(transcriptBeforeDiagnostics).toBe(true);
+
+  await expect(
+    fixture.getByText("You are the swiftsight cloud tech lead.").first(),
+  ).not.toBeVisible();
+  await fixture.getByRole("button", { name: /Prompt/i }).click();
+  await expect(
+    fixture.getByText("You are the swiftsight cloud tech lead.").first(),
+  ).toBeVisible();
+  await expect(fixture.getByText(/5 key\(s\) · \d redacted/).first()).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("design guide groups linked live runs by lane", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const fixture = page.getByTestId("design-guide-live-run-widget-panel");
+  await expect(fixture).toBeVisible();
+  await expect(fixture.getByText("2 linked runs").first()).toBeVisible();
+  await expect(
+    fixture.getByText("Protocol gate and implementation follow-up are both attached to this lane.").first(),
+  ).toBeVisible();
+  await expect(fixture.getByText("Protocol gate").first()).toBeVisible();
+  await expect(fixture.getByText("Implementation").first()).toBeVisible();
+  await expect(
+    fixture.getByText("Implementation follow-up queued in isolated workspace.").first(),
+  ).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("design guide prioritizes failed linked lanes over queued follow-ups", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const fixture = page.getByTestId("design-guide-live-run-widget-panel");
+  const recoveryLane = fixture.locator(".live-run-cluster").filter({
+    hasText: "Smoke Recovery Engineer",
+  });
+
+  await expect(recoveryLane).toBeVisible();
+  await expect(recoveryLane.getByText("failed").first()).toBeVisible();
+  await expect(
+    fixture.getByText("Recovery follow-up is queued behind the failed protocol gate.").first(),
+  ).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("design guide shows delivery party blocked and qa state matrix", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const blockedFixture = page.getByTestId("design-guide-delivery-party-blocked");
+  await expect(blockedFixture).toBeVisible();
+  await expect(blockedFixture.getByText("Blocked here").first()).toBeVisible();
+  await expect(blockedFixture.getByText("Acting as reviewer").first()).toBeVisible();
+  await expect(blockedFixture.getByText("Waiting on diff").first()).toBeVisible();
+
+  const qaFixture = page.getByTestId("design-guide-delivery-party-qa");
+  await expect(qaFixture).toBeVisible();
+  await expect(qaFixture.getByText("QA gate open").first()).toBeVisible();
+  await expect(qaFixture.getByText("Verifying").first()).toBeVisible();
 
   expectHealthyDiagnostics(diagnostics);
 });

@@ -60,6 +60,12 @@ import { BriefPanelV2 } from "../components/BriefPanelV2";
 import { ChangeReviewDesk } from "../components/ChangeReviewDesk";
 import { StatusBadgeV2 } from "../components/StatusBadgeV2";
 import {
+  DeliveryPartyStrip,
+  type DeliveryPartySlot,
+  type DeliveryPartySlotKey,
+  type DeliveryPartySlotTone,
+} from "../components/DeliveryPartyStrip";
+import {
   Activity as ActivityIcon,
   BookText,
   CheckCheck,
@@ -272,6 +278,340 @@ function formatProtocolValue(value: string | null | undefined) {
   return value
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function resolveDeliveryPartyFocusKey(
+  protocolState: IssueProtocolState | null | undefined,
+  liveRunAgentId: string | null,
+): DeliveryPartySlotKey | null {
+  if (protocolState?.techLeadAgentId && liveRunAgentId === protocolState.techLeadAgentId) {
+    return "lead";
+  }
+  if (protocolState?.primaryEngineerAgentId && liveRunAgentId === protocolState.primaryEngineerAgentId) {
+    return "engineer";
+  }
+  if (protocolState?.reviewerAgentId && liveRunAgentId === protocolState.reviewerAgentId) {
+    return "reviewer";
+  }
+  if (protocolState?.qaAgentId && liveRunAgentId === protocolState.qaAgentId) {
+    return "qa";
+  }
+
+  switch (protocolState?.workflowState) {
+    case "submitted_for_review":
+    case "under_review":
+      return "reviewer";
+    case "qa_pending":
+    case "under_qa_review":
+      return "qa";
+    case "approved":
+    case "done":
+      return "lead";
+    case "cancelled":
+      return null;
+    default:
+      return "engineer";
+  }
+}
+
+function resolveBlockedDeliveryPartyKey(
+  protocolState: IssueProtocolState | null | undefined,
+): DeliveryPartySlotKey | null {
+  switch (protocolState?.blockedPhase) {
+    case "assignment":
+    case "planning":
+    case "closing":
+      return "lead";
+    case "implementing":
+      return "engineer";
+    case "review":
+      return "reviewer";
+    default:
+      return null;
+  }
+}
+
+function formatDeliveryPartyClarificationDetail(
+  clarification: PendingClarificationRequest | null | undefined,
+) {
+  if (!clarification) return null;
+  return `Clarification pending: ${truncate(clarification.question, 92)}`;
+}
+
+function describeDeliveryPartyDetail(args: {
+  slotKey: DeliveryPartySlotKey;
+  workflowState: string | null;
+  blockedCode: string | null | undefined;
+  blocked: boolean;
+  isFocused: boolean;
+  pendingClarification: PendingClarificationRequest | null;
+}) {
+  const { slotKey, workflowState, blockedCode, blocked, isFocused, pendingClarification } = args;
+  const clarificationDetail = formatDeliveryPartyClarificationDetail(pendingClarification);
+
+  if (blocked) {
+    return clarificationDetail ?? `Blocked on ${formatProtocolValue(blockedCode)}.`;
+  }
+
+  if (isFocused) {
+    switch (slotKey) {
+      case "lead":
+        if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+          return "Lead is holding the release line while review ownership clears the diff.";
+        }
+        if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+          return "Lead is waiting on the QA gate before closing the issue.";
+        }
+        return "Lead is steering scope, handoffs, and final closeout.";
+      case "engineer":
+        return "Engineer owns the active implementation lane right now.";
+      case "reviewer":
+        return workflowState === "submitted_for_review"
+          ? "Implementation handoff landed and is waiting for a review decision."
+          : "Reviewer is checking code quality, design, and regression risk.";
+      case "qa":
+        return "QA is validating acceptance criteria and release readiness.";
+    }
+  }
+
+  switch (slotKey) {
+    case "lead":
+      if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+        return "Waiting for reviewer approval before final close.";
+      }
+      if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+        return "Waiting for QA sign-off before final close.";
+      }
+      return "Holding ownership while downstream lanes execute.";
+    case "engineer":
+      if (workflowState === "assigned" || workflowState === "accepted") {
+        return "Waiting for implementation kickoff.";
+      }
+      if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+        return "Implementation is complete; waiting on reviewer feedback.";
+      }
+      if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+        return "Implementation cleared review and is waiting on QA evidence.";
+      }
+      return "Queued until implementation becomes the active lane.";
+    case "reviewer":
+      if (
+        workflowState === "assigned" ||
+        workflowState === "accepted" ||
+        workflowState === "implementing" ||
+        workflowState === "changes_requested"
+      ) {
+        return "Waiting for implementation handoff before review begins.";
+      }
+      if (workflowState === "qa_pending" || workflowState === "under_qa_review") {
+        return "Review lane already cleared and is waiting on QA.";
+      }
+      return "Waiting for the review lane to open.";
+    case "qa":
+      if (
+        workflowState === "assigned" ||
+        workflowState === "accepted" ||
+        workflowState === "implementing"
+      ) {
+        return "Waiting for review handoff before the QA gate opens.";
+      }
+      if (workflowState === "submitted_for_review" || workflowState === "under_review") {
+        return "Waiting for reviewer approval before QA starts.";
+      }
+      if (workflowState === "qa_pending") {
+        return "QA gate is queued and ready to start.";
+      }
+      return "Waiting for QA evidence and release checks.";
+  }
+}
+
+function describeDeliveryPartySignal(args: {
+  slotKey: DeliveryPartySlotKey;
+  workflowState: string | null;
+  blocked: boolean;
+  isFocused: boolean;
+}) {
+  const { slotKey, workflowState, blocked, isFocused } = args;
+  if (blocked) return "Blocked here";
+  if (isFocused) return "Holding baton";
+  switch (slotKey) {
+    case "lead":
+      return workflowState === "done" || workflowState === "approved"
+        ? "Closing lane"
+        : "Routing next";
+    case "engineer":
+      return workflowState === "assigned" || workflowState === "accepted"
+        ? "Next to implement"
+        : "Waiting on handoff";
+    case "reviewer":
+      return workflowState === "submitted_for_review" || workflowState === "under_review"
+        ? "Review lane open"
+        : "Waiting on diff";
+    case "qa":
+      return workflowState === "qa_pending" || workflowState === "under_qa_review"
+        ? "QA gate open"
+        : "Waiting on review";
+  }
+}
+
+function buildDeliveryPartySlots(args: {
+  protocolState: IssueProtocolState | null | undefined;
+  agentMap: Map<string, Agent>;
+  liveRunAgentId: string | null;
+  pendingClarification: PendingClarificationRequest | null;
+}): DeliveryPartySlot[] {
+  const { protocolState, agentMap, liveRunAgentId, pendingClarification } = args;
+  const focusKey = resolveDeliveryPartyFocusKey(protocolState, liveRunAgentId);
+  const blockedKey = resolveBlockedDeliveryPartyKey(protocolState);
+  const workflowState = protocolState?.workflowState ?? null;
+  const blocked = Boolean(protocolState?.blockedCode);
+  const closed = workflowState === "approved" || workflowState === "done";
+
+  const slotConfigs: Array<{
+    key: DeliveryPartySlotKey;
+    label: string;
+    agentId: string | null;
+    activeLabel: string;
+    waitingLabel: string;
+    missingLabel: string;
+  }> = [
+    {
+      key: "lead",
+      label: "Tech Lead",
+      agentId: protocolState?.techLeadAgentId ?? null,
+      activeLabel: closed ? "Closing" : "Coordinating",
+      waitingLabel: "Watching",
+      missingLabel: "No lead assigned",
+    },
+    {
+      key: "engineer",
+      label: "Engineer",
+      agentId: protocolState?.primaryEngineerAgentId ?? null,
+      activeLabel: blocked ? "Blocked" : "Implementing",
+      waitingLabel: "Queued",
+      missingLabel: "No engineer assigned",
+    },
+    {
+      key: "reviewer",
+      label: "Reviewer",
+      agentId: protocolState?.reviewerAgentId ?? null,
+      activeLabel: "Reviewing",
+      waitingLabel: "Waiting",
+      missingLabel: "No reviewer assigned",
+    },
+    {
+      key: "qa",
+      label: "QA Gate",
+      agentId: protocolState?.qaAgentId ?? null,
+      activeLabel: blocked ? "Blocked" : "Verifying",
+      waitingLabel: "Waiting",
+      missingLabel: "No QA gate",
+    },
+  ];
+
+  return slotConfigs.map((slot) => {
+    const agent = slot.agentId ? agentMap.get(slot.agentId) ?? null : null;
+    if (!agent) {
+      return {
+        key: slot.key,
+        label: slot.label,
+        agentId: slot.agentId,
+        agent: null,
+        statusLabel: slot.missingLabel,
+        tone: "idle",
+        helperText:
+          slot.key === "qa"
+            ? "This issue can still close through review if QA is not staffed."
+            : "Assign this slot before expecting work to move through it.",
+        signalLabel: "Unstaffed",
+        detailText: null,
+      } satisfies DeliveryPartySlot;
+    }
+
+    if (closed) {
+      return {
+        key: slot.key,
+        label: slot.label,
+        agentId: slot.agentId,
+        agent,
+        statusLabel: slot.key === "lead" ? "Closed" : "Complete",
+        tone: "done",
+        helperText:
+          slot.key === "lead"
+            ? "Lead owns the final closeout and release posture."
+            : "This handoff already cleared its lane.",
+        signalLabel: slot.key === "lead" ? "Closed" : "Cleared",
+        detailText: null,
+      } satisfies DeliveryPartySlot;
+    }
+
+    const isBlockedSlot = blocked && blockedKey === slot.key;
+    const isFocusedSlot = focusKey === slot.key;
+
+    if (isFocusedSlot || isBlockedSlot) {
+      return {
+        key: slot.key,
+        label: slot.label,
+        agentId: slot.agentId,
+        agent,
+        statusLabel: isBlockedSlot ? "Blocked" : slot.activeLabel,
+        tone: isBlockedSlot ? "blocked" : "active",
+        helperText:
+          slot.key === "lead"
+            ? "Lead is coordinating scope, review, or final closure."
+            : slot.key === "engineer"
+            ? "Engineer owns the active implementation loop."
+            : slot.key === "reviewer"
+            ? "Reviewer is responsible for code quality and diff acceptance."
+            : "QA verifies acceptance criteria and release readiness.",
+        signalLabel: describeDeliveryPartySignal({
+          slotKey: slot.key,
+          workflowState,
+          blocked: isBlockedSlot,
+          isFocused: true,
+        }),
+        detailText: describeDeliveryPartyDetail({
+          slotKey: slot.key,
+          workflowState,
+          blockedCode: protocolState?.blockedCode,
+          blocked: isBlockedSlot,
+          isFocused: true,
+          pendingClarification,
+        }),
+      } satisfies DeliveryPartySlot;
+    }
+
+    return {
+      key: slot.key,
+      label: slot.label,
+      agentId: slot.agentId,
+      agent,
+      statusLabel: slot.waitingLabel,
+      tone: "waiting",
+        helperText:
+          slot.key === "engineer"
+          ? "Engineer is ready once implementation becomes the active lane."
+          : slot.key === "reviewer"
+          ? "Reviewer joins after implementation is submitted."
+          : slot.key === "qa"
+          ? "QA engages only when the issue crosses the QA gate."
+          : "Lead keeps ownership while downstream lanes execute.",
+      signalLabel: describeDeliveryPartySignal({
+        slotKey: slot.key,
+        workflowState,
+        blocked: false,
+        isFocused: false,
+      }),
+      detailText: describeDeliveryPartyDetail({
+        slotKey: slot.key,
+        workflowState,
+        blockedCode: protocolState?.blockedCode,
+        blocked: false,
+        isFocused: false,
+        pendingClarification,
+      }),
+    } satisfies DeliveryPartySlot;
+  });
 }
 
 function collectProtocolEvidence(message: IssueProtocolMessage) {
@@ -1039,6 +1379,24 @@ export function IssueDetail() {
     for (const a of agents ?? []) map.set(a.id, a);
     return map;
   }, [agents]);
+  const pendingClarificationRequests = useMemo(
+    () => derivePendingClarificationRequests(protocolMessages, agentMap),
+    [agentMap, protocolMessages],
+  );
+  const deliveryPartySlots = useMemo(
+    () =>
+      buildDeliveryPartySlots({
+        protocolState,
+        agentMap,
+        liveRunAgentId: primaryLiveRun?.agentId ?? null,
+        pendingClarification: pendingClarificationRequests[0] ?? null,
+      }),
+    [agentMap, pendingClarificationRequests, primaryLiveRun?.agentId, protocolState]
+  );
+  const activeDeliveryPartySlot =
+    deliveryPartySlots.find(
+      (slot) => slot.tone === "active" || slot.tone === "blocked"
+    ) ?? null;
 
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const options: MentionOption[] = [];
@@ -1171,10 +1529,6 @@ export function IssueDetail() {
   const protocolTimeline = useMemo(
     () => [...protocolMessages].slice(-12).reverse(),
     [protocolMessages]
-  );
-  const pendingClarificationRequests = useMemo(
-    () => derivePendingClarificationRequests(protocolMessages, agentMap),
-    [agentMap, protocolMessages],
   );
   const latestResolvedClarification = useMemo(
     () => deriveLatestClarificationResolutionView(protocolMessages, agentMap),
@@ -2225,6 +2579,17 @@ export function IssueDetail() {
         </div>
       )}
 
+      <DeliveryPartyStrip
+        headline={
+          activeDeliveryPartySlot
+            ? `${activeDeliveryPartySlot.label} is carrying the active lane`
+            : "Staffed protocol chain"
+        }
+        summaryLabel={activeDeliveryPartySlot?.statusLabel ?? null}
+        summaryTone={activeDeliveryPartySlot?.tone ?? null}
+        slots={deliveryPartySlots}
+      />
+
       <div className="grid gap-3 md:grid-cols-3">
         <div className="rounded-lg border border-border bg-card px-4 py-3">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -2275,11 +2640,11 @@ export function IssueDetail() {
         <div className="rounded-lg border border-border bg-card px-4 py-3">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <ClipboardCheck className="h-3.5 w-3.5" />
-            Ownership
+            Protocol ownership
           </div>
           <div className="mt-2 space-y-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0">Lead</span>
+              <span className="w-16 shrink-0">Tech Lead</span>
               {protocolState?.techLeadAgentId &&
               agentMap.get(protocolState.techLeadAgentId) ? (
                 <Identity
@@ -2321,6 +2686,20 @@ export function IssueDetail() {
                 />
               ) : (
                 <span>Unassigned</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0">QA Gate</span>
+              {protocolState?.qaAgentId && agentMap.get(protocolState.qaAgentId) ? (
+                <Identity
+                  name={
+                    agentMap.get(protocolState.qaAgentId)?.name ??
+                    protocolState.qaAgentId.slice(0, 8)
+                  }
+                  size="sm"
+                />
+              ) : (
+                <span>Optional</span>
               )}
             </div>
           </div>

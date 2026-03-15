@@ -7,8 +7,9 @@ import { heartbeatsApi } from "../api/heartbeats";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
-import { relativeTime } from "../lib/utils";
+import { cn, relativeTime } from "../lib/utils";
 import { workIssuePath } from "../lib/appRoutes";
+import { getRunPhaseMeta } from "../lib/run-presence";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 
@@ -119,11 +120,17 @@ export function Runs() {
             ) : (
               liveRuns.map((run) => (
                 <div key={run.id} className="rounded-[1.3rem] border border-border bg-background/72 p-4">
+                  {(() => {
+                    const phase = getRunPhaseMeta(run);
+                    return (
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:text-blue-400">
                           {run.status}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]", phase.className)}>
+                          {phase.label}
                         </span>
                         <span className="text-xs text-muted-foreground">{run.agentName}</span>
                       </div>
@@ -131,11 +138,14 @@ export function Runs() {
                         {run.issueId ? `Issue-linked run ${run.id.slice(0, 8)}` : `Run ${run.id.slice(0, 8)}`}
                       </div>
                       <div className="mt-1 text-sm text-muted-foreground">
-                        {run.triggerDetail ?? run.invocationSource}
+                        {run.triggerDetail ?? phase.summary}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                         <span className="rounded-full border border-border bg-card px-2.5 py-1">
                           started {relativeTime(run.startedAt ?? run.createdAt)}
+                        </span>
+                        <span className="rounded-full border border-border bg-card px-2.5 py-1">
+                          {phase.threadLabel}
                         </span>
                         {run.issueId && (
                           <span className="rounded-full border border-border bg-card px-2.5 py-1">
@@ -161,6 +171,8 @@ export function Runs() {
                       </Link>
                     </div>
                   </div>
+                    );
+                  })()}
                 </div>
               ))
             )}
@@ -242,18 +254,25 @@ export function Runs() {
           <div className="divide-y divide-border">
             {recentRuns.slice(0, 10).map((run) => (
               <div key={run.id} className="flex items-start justify-between gap-4 px-6 py-4">
+                {(() => {
+                  const phase = getRunPhaseMeta(run);
+                  return (
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
                         {run.status}
                       </span>
-                    <span className="text-xs text-muted-foreground">{run.invocationSource}</span>
+                    <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]", phase.className)}>
+                      {phase.label}
+                    </span>
                   </div>
                   <div className="mt-1 text-sm font-medium text-foreground">Run {run.id.slice(0, 8)}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    created {relativeTime(run.createdAt)} · {run.error ?? run.errorCode ?? "no summary"}
+                    created {relativeTime(run.createdAt)} · {run.error ?? run.errorCode ?? phase.summary}
                   </div>
                 </div>
+                  );
+                })()}
                 <div className="flex shrink-0 items-center gap-2">
                   {["failed", "timed_out"].includes(run.status) ? (
                     <AlertTriangle className="h-4 w-4 text-red-500" />

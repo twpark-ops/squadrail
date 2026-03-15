@@ -123,6 +123,18 @@ import { FilterBar, type FilterValue } from "@/components/FilterBar";
 import { InlineEditor } from "@/components/InlineEditor";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Identity } from "@/components/Identity";
+import { AgentRunExecutionPanel } from "@/components/AgentRunExecutionPanel";
+import {
+  DeliveryPartyStrip,
+  type DeliveryPartySlot,
+} from "@/components/DeliveryPartyStrip";
+import {
+  LiveRunWidgetFixture,
+  type LiveRunWidgetFeedItem,
+} from "@/components/LiveRunWidget";
+import type { TranscriptEntry } from "@/adapters";
+import type { HeartbeatRun, HeartbeatRunEvent } from "@squadrail/shared";
+import type { LiveRunForIssue } from "@/api/heartbeats";
 
 /* ------------------------------------------------------------------ */
 /*  Section wrapper                                                    */
@@ -167,6 +179,347 @@ function Swatch({ name, cssVar }: { name: string; cssVar: string }) {
     </div>
   );
 }
+
+const designGuideRunTranscript: TranscriptEntry[] = [
+  { kind: "init", ts: "2026-03-15T07:12:00.000Z", model: "codex", sessionId: "session-123" },
+  { kind: "system", ts: "2026-03-15T07:12:01.000Z", text: "turn started" },
+  {
+    kind: "assistant",
+    ts: "2026-03-15T07:12:02.000Z",
+    text: "I will patch the export handoff guard and add focused coverage.",
+  },
+  {
+    kind: "tool_call",
+    ts: "2026-03-15T07:12:03.000Z",
+    name: "command_execution",
+    input: { command: "pnpm test --filter swiftsight-cloud" },
+  },
+  {
+    kind: "tool_result",
+    ts: "2026-03-15T07:12:05.000Z",
+    toolUseId: "cmd-1",
+    content: JSON.stringify({ exitCode: 0, aggregatedOutput: "1 passed" }),
+    isError: false,
+  },
+  {
+    kind: "result",
+    ts: "2026-03-15T07:12:08.000Z",
+    text: "Patch ready",
+    inputTokens: 1200,
+    outputTokens: 340,
+    cachedTokens: 800,
+    costUsd: 0.0123,
+    subtype: "success",
+    isError: false,
+    errors: [],
+  },
+];
+
+const designGuideRunEvents: HeartbeatRunEvent[] = [
+  {
+    id: 1,
+    companyId: "design-guide",
+    runId: "run-protocol-1",
+    agentId: "agent-swiftsight-cloud-tl",
+    seq: 1,
+    eventType: "adapter.invoke",
+    stream: "system",
+    level: "info",
+    color: null,
+    message: "adapter invoke",
+    payload: {
+      adapterType: "codex_local",
+      cwd: "/tmp/swiftsight-cloud",
+      command: "codex",
+      commandArgs: ["exec", "--json"],
+      prompt: [
+        "You are the swiftsight cloud tech lead.",
+        "Tighten the export handoff path before release.",
+        "Keep the patch narrow and cite focused evidence.",
+      ].join("\n"),
+      context: {
+        issueId: "issue-cloud-export",
+        issueIdentifier: "SMO-42",
+        wakeReason: "issue_assigned",
+        agentRole: "tech_lead",
+      },
+      env: {
+        OPENAI_API_KEY: "redacted",
+        SQUADRAIL_BASE_URL: "http://127.0.0.1:3358",
+        PROJECT_ROOT: "/tmp/swiftsight-cloud",
+        CODEX_HOME: "/tmp/codex-home",
+        SQUADRAIL_AUTH_TOKEN: "redacted",
+      },
+    },
+    createdAt: new Date("2026-03-15T07:12:00.000Z"),
+  },
+];
+
+const designGuideRun: Pick<HeartbeatRun, "status" | "error" | "stderrExcerpt" | "resultJson" | "stdoutExcerpt"> = {
+  status: "running",
+  error: null,
+  stderrExcerpt: null,
+  resultJson: null,
+  stdoutExcerpt: null,
+};
+
+const designGuideLiveRuns: LiveRunForIssue[] = [
+  {
+    id: "run-protocol-1",
+    status: "running",
+    invocationSource: "assignment",
+    triggerDetail: "issue_assigned",
+    startedAt: "2026-03-15T07:12:00.000Z",
+    finishedAt: null,
+    createdAt: "2026-03-15T07:12:00.000Z",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    adapterType: "codex_local",
+    issueId: "issue-cloud-export",
+  },
+  {
+    id: "run-implementation-2",
+    status: "queued",
+    invocationSource: "on_demand",
+    triggerDetail: "implementation_followup",
+    startedAt: null,
+    finishedAt: null,
+    createdAt: "2026-03-15T07:13:10.000Z",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    adapterType: "codex_local",
+    issueId: "issue-cloud-export",
+  },
+  {
+    id: "run-review-3",
+    status: "running",
+    invocationSource: "assignment",
+    triggerDetail: "review_requested",
+    startedAt: "2026-03-15T07:14:30.000Z",
+    finishedAt: null,
+    createdAt: "2026-03-15T07:14:30.000Z",
+    agentId: "agent-reviewer-1",
+    agentName: "Smoke Reviewer",
+    adapterType: "claude_local",
+    issueId: "issue-cloud-export",
+  },
+  {
+    id: "run-recovery-protocol-4",
+    status: "failed",
+    invocationSource: "assignment",
+    triggerDetail: "issue_reassigned",
+    startedAt: "2026-03-15T07:15:20.000Z",
+    finishedAt: "2026-03-15T07:16:03.000Z",
+    createdAt: "2026-03-15T07:15:20.000Z",
+    agentId: "agent-recovery-1",
+    agentName: "Smoke Recovery Engineer",
+    adapterType: "codex_local",
+    issueId: "issue-cloud-export",
+  },
+  {
+    id: "run-recovery-followup-5",
+    status: "queued",
+    invocationSource: "on_demand",
+    triggerDetail: "recovery_followup",
+    startedAt: null,
+    finishedAt: null,
+    createdAt: "2026-03-15T07:16:15.000Z",
+    agentId: "agent-recovery-1",
+    agentName: "Smoke Recovery Engineer",
+    adapterType: "codex_local",
+    issueId: "issue-cloud-export",
+  },
+];
+
+const designGuideLiveFeed: LiveRunWidgetFeedItem[] = [
+  {
+    id: "feed-1",
+    ts: "2026-03-15T07:12:15.000Z",
+    runId: "run-protocol-1",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    text: "Protocol gate acknowledged. Narrowing the export handoff patch before implementation.",
+    tone: "assistant",
+  },
+  {
+    id: "feed-2",
+    ts: "2026-03-15T07:13:12.000Z",
+    runId: "run-implementation-2",
+    agentId: "agent-swiftsight-cloud-tl",
+    agentName: "Swiftsight Cloud TL",
+    text: "Implementation follow-up queued in isolated workspace.",
+    tone: "warn",
+  },
+  {
+    id: "feed-3",
+    ts: "2026-03-15T07:14:45.000Z",
+    runId: "run-review-3",
+    agentId: "agent-reviewer-1",
+    agentName: "Smoke Reviewer",
+    text: "Focused review lane is running against the export handoff diff.",
+    tone: "tool",
+  },
+  {
+    id: "feed-4",
+    ts: "2026-03-15T07:16:10.000Z",
+    runId: "run-recovery-protocol-4",
+    agentId: "agent-recovery-1",
+    agentName: "Smoke Recovery Engineer",
+    text: "Protocol gate failed after the reassigned workspace boot reported a stale checkout.",
+    tone: "error",
+  },
+  {
+    id: "feed-5",
+    ts: "2026-03-15T07:16:16.000Z",
+    runId: "run-recovery-followup-5",
+    agentId: "agent-recovery-1",
+    agentName: "Smoke Recovery Engineer",
+    text: "Recovery follow-up is queued behind the failed protocol gate.",
+    tone: "warn",
+  },
+];
+
+const designGuideDeliveryPartyBlocked: DeliveryPartySlot[] = [
+  {
+    key: "lead",
+    label: "Tech Lead",
+    agentId: "lead-1",
+    agent: {
+      name: "Smoke Cloud Lead",
+      role: "cto",
+      title: "Cloud TL",
+      icon: null,
+      adapterType: "codex_local",
+    },
+    statusLabel: "Watching",
+    tone: "waiting",
+    helperText: "Lead is steering the fallback and keeping downstream lanes aligned.",
+    signalLabel: "Routing next",
+    detailText: "Waiting for the blocked implementation lane to recover before review opens.",
+  },
+  {
+    key: "engineer",
+    label: "Engineer",
+    agentId: "engineer-1",
+    agent: {
+      name: "Smoke Recovery Engineer",
+      role: "engineer",
+      title: null,
+      icon: null,
+      adapterType: "codex_local",
+    },
+    statusLabel: "Blocked",
+    tone: "blocked",
+    helperText: "Engineer owns the active implementation loop.",
+    signalLabel: "Blocked here",
+    detailText: "Blocked on workspace recovery after the protocol gate failed.",
+  },
+  {
+    key: "reviewer",
+    label: "Reviewer",
+    agentId: "reviewer-1",
+    agent: {
+      name: "Smoke Reviewer",
+      role: "qa",
+      title: null,
+      icon: null,
+      adapterType: "codex_local",
+    },
+    statusLabel: "Waiting",
+    tone: "waiting",
+    helperText: "Reviewer is responsible for code quality and diff acceptance.",
+    signalLabel: "Waiting on diff",
+    detailText: "Waiting for implementation handoff before the review lane opens.",
+  },
+  {
+    key: "qa",
+    label: "QA Gate",
+    agentId: "qa-1",
+    agent: {
+      name: "Smoke QA Lead",
+      role: "qa",
+      title: null,
+      icon: null,
+      adapterType: "claude_local",
+    },
+    statusLabel: "Waiting",
+    tone: "waiting",
+    helperText: "QA is validating acceptance criteria and release readiness.",
+    signalLabel: "Waiting on review",
+    detailText: "Waiting for reviewer approval before QA starts.",
+  },
+];
+
+const designGuideDeliveryPartyQa: DeliveryPartySlot[] = [
+  {
+    key: "lead",
+    label: "Tech Lead",
+    agentId: "lead-2",
+    agent: {
+      name: "Smoke Cloud Lead",
+      role: "cto",
+      title: "Cloud TL",
+      icon: null,
+      adapterType: "codex_local",
+    },
+    statusLabel: "Watching",
+    tone: "waiting",
+    helperText: "Lead is holding the release line while QA finishes.",
+    signalLabel: "Routing next",
+    detailText: "Waiting for QA sign-off before final close.",
+  },
+  {
+    key: "engineer",
+    label: "Engineer",
+    agentId: "engineer-2",
+    agent: {
+      name: "Smoke Engineer",
+      role: "engineer",
+      title: null,
+      icon: null,
+      adapterType: "codex_local",
+    },
+    statusLabel: "Complete",
+    tone: "done",
+    helperText: "This handoff already cleared its lane.",
+    signalLabel: "Cleared",
+    detailText: "Implementation completed and is waiting on QA evidence.",
+  },
+  {
+    key: "reviewer",
+    label: "Reviewer",
+    agentId: "reviewer-2",
+    agent: {
+      name: "Smoke Reviewer",
+      role: "reviewer",
+      title: "Reviewer",
+      icon: null,
+      adapterType: "claude_local",
+    },
+    statusLabel: "Complete",
+    tone: "done",
+    helperText: "Review lane cleared and handed off to QA.",
+    signalLabel: "Cleared",
+    detailText: "Diff quality and regression review already passed.",
+  },
+  {
+    key: "qa",
+    label: "QA Gate",
+    agentId: "qa-2",
+    agent: {
+      name: "Smoke QA Lead",
+      role: "qa",
+      title: null,
+      icon: null,
+      adapterType: "claude_local",
+    },
+    statusLabel: "Verifying",
+    tone: "active",
+    helperText: "QA is validating acceptance criteria and release readiness.",
+    signalLabel: "QA gate open",
+    detailText: "Acceptance evidence is being checked before final close.",
+  },
+];
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
@@ -1160,6 +1513,56 @@ export function DesignGuide() {
               identifier="PAP-102"
               title="Add cost tracking dashboard"
               onClick={() => {}}
+            />
+          </div>
+        </div>
+      </Section>
+
+      {/* ============================================================ */}
+      {/*  AGENT RUN DETAIL                                             */}
+      {/* ============================================================ */}
+      <Section title="Agent Run Detail">
+        <div className="space-y-3" data-testid="design-guide-agent-run-detail">
+          <p className="text-sm text-muted-foreground">
+            Transcript stays first. Prompt, context, environment, and events remain folded under diagnostics until needed.
+          </p>
+          <AgentRunExecutionPanel
+            testId="design-guide-run-panel"
+            transcript={designGuideRunTranscript}
+            run={designGuideRun}
+            events={designGuideRunEvents}
+            adapterInvokePayload={(designGuideRunEvents[0]?.payload as Record<string, unknown>) ?? null}
+            isLive
+            isFollowing
+            hasPersistedLog
+          />
+          <div className="pt-3">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Linked runs stay grouped by lane so protocol gate and implementation follow-up read as one operating thread.
+            </p>
+            <LiveRunWidgetFixture
+              testId="design-guide-live-run-widget-panel"
+              runs={designGuideLiveRuns}
+              feed={designGuideLiveFeed}
+            />
+          </div>
+          <div className="pt-3 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Delivery party fixtures pin blocked, waiting, reviewer-role context, and QA-open states so the issue surface stays deterministic.
+            </p>
+            <DeliveryPartyStrip
+              testId="design-guide-delivery-party-blocked"
+              headline="Engineer is carrying the active lane"
+              summaryLabel="Blocked"
+              summaryTone="blocked"
+              slots={designGuideDeliveryPartyBlocked}
+            />
+            <DeliveryPartyStrip
+              testId="design-guide-delivery-party-qa"
+              headline="QA Gate is carrying the active lane"
+              summaryLabel="Verifying"
+              summaryTone="active"
+              slots={designGuideDeliveryPartyQa}
             />
           </div>
         </div>
