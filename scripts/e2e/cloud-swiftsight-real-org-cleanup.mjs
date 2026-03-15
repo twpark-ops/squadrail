@@ -69,11 +69,11 @@ async function ensureCompanyLabels(companyId, specs) {
   return specs.map((spec) => byName.get(spec.name)).filter(Boolean);
 }
 
-async function hideIssue(issueId) {
+async function cancelIssue(issueId) {
   return api(`/api/issues/${issueId}`, {
     method: "PATCH",
     body: {
-      hiddenAt: new Date().toISOString(),
+      status: "cancelled",
     },
   });
 }
@@ -159,7 +159,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
         note(`skip cancel ${issue.identifier}: ${error.message}`);
       }
       if (HIDE_TERMINAL) {
-        await hideIssue(issue.id);
+        await cancelIssue(issue.id);
         summary.hidden += 1;
         note(`hid ${issue.identifier}`);
       }
@@ -167,7 +167,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
     }
 
     if (HIDE_TERMINAL && shouldHideE2eIssue(issue.status)) {
-      await hideIssue(issue.id);
+      await cancelIssue(issue.id);
       summary.hidden += 1;
       note(`hid ${issue.identifier}`);
     }
@@ -188,7 +188,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
     const shouldTreatAsE2e =
       issueIds.has(issue.id) ||
       Boolean(matchedIssue) ||
-      (issue.hiddenAt && issue.parentId && String(issue.title ?? "").startsWith("Child delivery:"));
+      (issue.parentId && String(issue.title ?? "").startsWith("Child delivery:"));
 
     if (!shouldTreatAsE2e) continue;
 

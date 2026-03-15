@@ -140,11 +140,11 @@ async function ensureCompanyLabels(companyId, specs) {
   });
 }
 
-async function hideIssue(issueId) {
+async function cancelIssue(issueId) {
   return api(`/api/issues/${issueId}`, {
     method: "PATCH",
     body: {
-      hiddenAt: new Date().toISOString(),
+      status: "cancelled",
     },
   });
 }
@@ -191,7 +191,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
       summary.cancelled += 1;
       note(`cleanup cancelled ${issue.identifier}`);
       if (HIDE_COMPLETED_ISSUES) {
-        await hideIssue(issue.id);
+        await cancelIssue(issue.id);
         summary.hidden += 1;
         note(`cleanup hid ${issue.identifier}`);
       }
@@ -199,7 +199,7 @@ async function cleanupTaggedIssues(companyId, labelIds) {
     }
 
     if (HIDE_COMPLETED_ISSUES && shouldHideE2eIssue(issue.status)) {
-      await hideIssue(issue.id);
+      await cancelIssue(issue.id);
       summary.hidden += 1;
       note(`cleanup hid ${issue.identifier}`);
     }
@@ -1660,7 +1660,7 @@ async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
   }
 
   if (HIDE_COMPLETED_ISSUES) {
-    await hideIssue(issue.id);
+    await cancelIssue(issue.id);
     note(`hid ${issue.identifier} after successful verification`);
   }
 
@@ -1713,7 +1713,7 @@ async function runCoordinatedScenario(companyId, scenario) {
       "Archive coordinating root after child fan-out",
     );
     if (HIDE_COMPLETED_ISSUES) {
-      await hideIssue(rootIssue.id);
+      await cancelIssue(rootIssue.id);
       note(`hid coordinated root ${rootIssue.identifier} after projection`);
     }
 
