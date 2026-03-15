@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import type { DashboardAgentPerformanceItem } from "@squadrail/shared";
@@ -79,6 +79,14 @@ function TeamRosterSection({
     lastHeartbeatAt: Date | string | null;
   }>;
 }) {
+  function describePresenceMode(agent: (typeof agents)[number]) {
+    if (agent.status === "paused") return "paused";
+    if (agent.status === "terminated") return "offline";
+    if (agent.status === "active" && agent.lastHeartbeatAt) return "hot";
+    if (agent.status === "active") return "ready";
+    return "standby";
+  }
+
   function describeActivity(agent: (typeof agents)[number]) {
     if (agent.status === "active") {
       return agent.lastHeartbeatAt ? "Hot lane" : "Ready";
@@ -113,61 +121,81 @@ function TeamRosterSection({
             No agents assigned to this lane yet.
           </div>
         ) : (
-          agents.map((agent) => {
+          agents.map((agent, index) => {
             const presentation = getAgentRolePresentation(agent.role, agent.title);
             const activity = describeActivity(agent);
+            const presenceMode = describePresenceMode(agent);
 
             return (
               <Link
                 key={agent.id}
                 to={`/agents/${agent.urlKey ?? agent.id}`}
-                className="rounded-[1.35rem] border border-border bg-background/80 p-4 no-underline transition-colors hover:border-primary/20 hover:bg-accent/30"
+                className="team-roster-card group rounded-[1.35rem] border border-border bg-background/80 p-4 no-underline"
+                data-presence={presenceMode}
+                style={
+                  {
+                    "--team-card-delay": `${Math.min(index, 6) * 80}ms`,
+                  } as CSSProperties
+                }
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]",
-                      presentation.badgeClassName,
-                    )}
-                  >
-                    <presentation.icon className={cn("h-3.5 w-3.5", presentation.iconClassName)} />
-                    {presentation.classLabel}
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-[11px]">
-                    <span className="rounded-full border border-border bg-card px-2.5 py-1 font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      {agent.status}
-                    </span>
-                    <span
+                <div className="relative z-10">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div
                       className={cn(
-                        "rounded-full border px-2.5 py-1 font-medium uppercase tracking-[0.14em]",
-                        agent.lastHeartbeatAt
-                          ? "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200"
-                          : "border-border bg-card text-muted-foreground",
+                        "team-role-pill inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                        presentation.badgeClassName,
                       )}
                     >
-                      {activity}
-                    </span>
+                      <presentation.icon className={cn("h-3.5 w-3.5", presentation.iconClassName)} />
+                      {presentation.classLabel}
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      <span className="rounded-full border border-border bg-card px-2.5 py-1 font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                        {agent.status}
+                      </span>
+                      <span
+                        className={cn(
+                          "team-live-pill rounded-full border px-2.5 py-1 font-medium uppercase tracking-[0.14em]",
+                          presenceMode === "hot"
+                            ? "team-live-pill-hot border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200"
+                            : presenceMode === "ready"
+                              ? "team-live-pill-ready border-sky-300/70 bg-sky-500/10 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200"
+                              : presenceMode === "standby"
+                                ? "team-live-pill-standby border-amber-300/70 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200"
+                              : "border-border bg-card text-muted-foreground",
+                        )}
+                      >
+                        <span
+                          aria-hidden
+                          className={cn("team-live-pill-dot", `team-live-pill-dot-${presenceMode}`)}
+                        />
+                        <span>{activity}</span>
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                <div className="mt-4">
-                  <AgentJobIdentity
-                    name={agent.name}
-                    role={agent.role}
-                    title={agent.title}
-                    icon={agent.icon}
-                    adapterType={agent.adapterType}
-                    subtitle={
-                      agent.lastHeartbeatAt
-                        ? `heartbeat ${relativeTime(agent.lastHeartbeatAt)}`
-                        : "no heartbeat yet"
-                    }
-                  />
-                </div>
+                  <div className="mt-4">
+                    <AgentJobIdentity
+                      name={agent.name}
+                      role={agent.role}
+                      title={agent.title}
+                      icon={agent.icon}
+                      adapterType={agent.adapterType}
+                      subtitle={
+                        agent.lastHeartbeatAt
+                          ? `heartbeat ${relativeTime(agent.lastHeartbeatAt)}`
+                          : "no heartbeat yet"
+                      }
+                      avatarClassName={cn("team-avatar-shell", `team-avatar-${presenceMode}`)}
+                      avatarAuraClassName={cn("team-avatar-aura", `team-avatar-aura-${presenceMode}`)}
+                      roleBadgeClassName="team-job-badge"
+                    />
+                  </div>
 
-                <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                  {describePosture(agent)}
-                </p>
+                  <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                    {describePosture(agent)}
+                  </p>
+                </div>
               </Link>
             );
           })

@@ -240,9 +240,316 @@
     dashboard-activity-highlight 920ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+@keyframes team-roster-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.975);
+    filter: blur(8px);
+  }
+  68% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.008);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes team-avatar-breathe {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    transform: translateY(-1px) scale(1.045);
+    box-shadow: 0 10px 24px color-mix(in oklab, var(--primary) 18%, transparent);
+  }
+}
+
+@keyframes team-avatar-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 0%, transparent);
+  }
+  55% {
+    box-shadow: 0 0 0 8px color-mix(in oklab, var(--primary) 0%, transparent);
+  }
+}
+
+@keyframes team-live-pill-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 0%, transparent);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--primary) 0%, transparent);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes team-card-ambient {
+  0%, 100% {
+    opacity: 0.16;
+    transform: translate3d(-8%, 0, 0) scale(1);
+  }
+  50% {
+    opacity: 0.38;
+    transform: translate3d(5%, -2%, 0) scale(1.045);
+  }
+}
+
+@keyframes team-role-drift {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes team-avatar-aura-spin {
+  0% {
+    transform: scale(0.94) rotate(0deg);
+    opacity: 0.24;
+  }
+  50% {
+    transform: scale(1.08) rotate(180deg);
+    opacity: 0.52;
+  }
+  100% {
+    transform: scale(0.94) rotate(360deg);
+    opacity: 0.24;
+  }
+}
+
+@keyframes team-live-dot-ping {
+  0%, 100% {
+    transform: scale(0.92);
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 0%, transparent);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.25);
+    box-shadow: 0 0 0 7px color-mix(in oklab, currentColor 0%, transparent);
+    opacity: 1;
+  }
+}
+
+.team-roster-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  animation: team-roster-enter 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--team-card-delay, 0ms);
+  transition:
+    transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 220ms ease,
+    background-color 220ms ease,
+    box-shadow 240ms ease;
+  will-change: transform, opacity;
+}
+
+.team-roster-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      125deg,
+      transparent 0%,
+      color-mix(in oklab, var(--primary) 10%, transparent) 42%,
+      color-mix(in oklab, var(--chart-2) 8%, transparent) 58%,
+      transparent 100%
+    );
+  opacity: 0;
+  transform: translateX(-8%);
+  transition:
+    opacity 220ms ease,
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: team-card-ambient 8.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.team-roster-card[data-presence="hot"]::before {
+  opacity: 0.26;
+  animation-duration: 5.4s;
+}
+
+.team-roster-card[data-presence="ready"]::before {
+  opacity: 0.2;
+  animation-duration: 6.7s;
+}
+
+.team-roster-card[data-presence="standby"]::before {
+  opacity: 0.16;
+  animation-duration: 9.6s;
+}
+
+.team-roster-card[data-presence="paused"]::before,
+.team-roster-card[data-presence="offline"]::before {
+  animation: none;
+  opacity: 0.08;
+}
+
+.team-roster-card:hover {
+  transform: translateY(-5px) scale(1.01);
+  border-color: color-mix(in oklab, var(--primary) 22%, var(--border));
+  background-color: color-mix(in oklab, var(--accent) 52%, var(--background));
+  box-shadow:
+    0 18px 34px color-mix(in oklab, var(--primary) 10%, transparent),
+    0 4px 10px color-mix(in oklab, black 4%, transparent);
+}
+
+.team-roster-card:hover::before {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.team-role-pill,
+.team-job-badge {
+  transform-origin: center;
+  animation: team-role-drift 5.6s ease-in-out infinite;
+  transition:
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+
+.team-roster-card[data-presence="paused"] .team-role-pill,
+.team-roster-card[data-presence="paused"] .team-job-badge,
+.team-roster-card[data-presence="offline"] .team-role-pill,
+.team-roster-card[data-presence="offline"] .team-job-badge {
+  animation: none;
+}
+
+.team-roster-card:hover .team-role-pill,
+.team-roster-card:hover .team-job-badge {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px color-mix(in oklab, var(--primary) 12%, transparent);
+}
+
+.team-avatar-aura {
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in oklab, var(--primary) 24%, transparent), transparent 52%),
+    radial-gradient(circle at 70% 70%, color-mix(in oklab, var(--chart-2) 20%, transparent), transparent 58%);
+  filter: blur(10px);
+  animation: team-avatar-aura-spin 7.2s linear infinite;
+}
+
+.team-avatar-aura-hot {
+  opacity: 0.72;
+  animation-duration: 4.2s;
+}
+
+.team-avatar-aura-ready {
+  opacity: 0.56;
+  animation-duration: 5.8s;
+}
+
+.team-avatar-aura-standby {
+  opacity: 0.36;
+  animation-duration: 7.8s;
+}
+
+.team-avatar-aura-paused,
+.team-avatar-aura-offline {
+  animation: none;
+  opacity: 0.14;
+}
+
+.team-avatar-shell {
+  animation: team-avatar-breathe 5.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.team-avatar-hot {
+  animation:
+    team-avatar-breathe 4.6s ease-in-out infinite,
+    team-avatar-pulse 2.4s ease-out infinite;
+}
+
+.team-avatar-ready {
+  animation-duration: 5.8s;
+}
+
+.team-avatar-paused,
+.team-avatar-offline {
+  animation: none;
+}
+
+.team-live-pill-hot {
+  animation: team-live-pill-pulse 1.8s ease-in-out infinite;
+}
+
+.team-live-pill-ready {
+  animation: team-live-pill-pulse 2.8s ease-in-out infinite;
+}
+
+.team-live-pill-standby {
+  animation: team-live-pill-pulse 4.4s ease-in-out infinite;
+}
+
+.team-live-pill-dot {
+  display: inline-block;
+  height: 0.5rem;
+  width: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 0%, transparent);
+}
+
+.team-live-pill-dot-hot {
+  animation: team-live-dot-ping 1.2s ease-in-out infinite;
+}
+
+.team-live-pill-dot-ready {
+  animation: team-live-dot-ping 2s ease-in-out infinite;
+}
+
+.team-live-pill-dot-standby {
+  animation: team-live-dot-ping 3.2s ease-in-out infinite;
+}
+
+.team-live-pill-dot-paused,
+.team-live-pill-dot-offline {
+  opacity: 0.52;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .activity-row-enter {
     animation: none;
+  }
+
+  .team-roster-card,
+  .team-avatar-aura,
+  .team-avatar-shell,
+  .team-live-pill-hot,
+  .team-live-pill-standby,
+  .team-live-pill-ready {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .team-role-pill,
+  .team-job-badge,
+  .team-live-pill-dot-hot,
+  .team-live-pill-dot-ready,
+  .team-live-pill-dot-standby {
+    animation: none !important;
+  }
+
+  .team-roster-card:hover,
+  .team-roster-card:hover .team-role-pill,
+  .team-roster-card:hover .team-job-badge {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .team-roster-card::before {
+    display: none;
   }
 }
 
