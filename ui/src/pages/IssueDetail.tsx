@@ -2506,11 +2506,11 @@ export function IssueDetail() {
         <div className="rounded-lg border border-border bg-card px-4 py-3">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <ClipboardCheck className="h-3.5 w-3.5" />
-            Ownership
+            Protocol ownership
           </div>
           <div className="mt-2 space-y-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0">Lead</span>
+              <span className="w-16 shrink-0">Tech Lead</span>
               {protocolState?.techLeadAgentId &&
               agentMap.get(protocolState.techLeadAgentId) ? (
                 <Identity
@@ -2552,6 +2552,20 @@ export function IssueDetail() {
                 />
               ) : (
                 <span>Unassigned</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0">QA Gate</span>
+              {protocolState?.qaAgentId && agentMap.get(protocolState.qaAgentId) ? (
+                <Identity
+                  name={
+                    agentMap.get(protocolState.qaAgentId)?.name ??
+                    protocolState.qaAgentId.slice(0, 8)
+                  }
+                  size="sm"
+                />
+              ) : (
+                <span>Optional</span>
               )}
             </div>
           </div>
