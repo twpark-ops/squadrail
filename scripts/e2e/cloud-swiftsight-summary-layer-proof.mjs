@@ -155,9 +155,11 @@ async function verifyPostRunCleanup(companyId, visibleIssueIdsBefore) {
     listCompanyIssues(companyId),
     listHeartbeatRuns(companyId),
   ]);
+  const terminalStatuses = new Set(["cancelled", "done"]);
   const visibleNewIssues = (Array.isArray(issues) ? issues : [])
     .filter((issue) => !issue?.parentId)
-    .filter((issue) => !visibleIssueIdsBefore.has(issue?.id));
+    .filter((issue) => !visibleIssueIdsBefore.has(issue?.id))
+    .filter((issue) => !terminalStatuses.has(issue?.status));
   const activeRuns = (Array.isArray(heartbeatRuns) ? heartbeatRuns : [])
     .filter((run) => ["queued", "claimed", "running"].includes(run?.status));
 

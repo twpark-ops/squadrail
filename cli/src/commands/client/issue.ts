@@ -48,7 +48,6 @@ interface IssueUpdateOptions extends BaseClientOptions {
   requestDepth?: string;
   billingCode?: string;
   comment?: string;
-  hiddenAt?: string;
 }
 
 interface IssueCommentOptions extends BaseClientOptions {
@@ -188,7 +187,6 @@ export function registerIssueCommands(program: Command): void {
       .option("--request-depth <n>", "Request depth integer")
       .option("--billing-code <code>", "Billing code")
       .option("--comment <text>", "Optional comment to add with update")
-      .option("--hidden-at <iso8601|null>", "Set hiddenAt timestamp or literal 'null'")
       .action(async (issueId: string, opts: IssueUpdateOptions) => {
         try {
           const ctx = resolveCommandContext(opts);
@@ -204,7 +202,6 @@ export function registerIssueCommands(program: Command): void {
             requestDepth: parseOptionalInt(opts.requestDepth),
             billingCode: opts.billingCode,
             comment: opts.comment,
-            hiddenAt: parseHiddenAt(opts.hiddenAt),
           });
 
           const updated = await ctx.api.patch<Issue & { comment?: IssueComment | null }>(`/api/issues/${issueId}`, payload);
@@ -292,12 +289,6 @@ function parseOptionalInt(value: string | undefined): number | undefined {
     throw new Error(`Invalid integer value: ${value}`);
   }
   return parsed;
-}
-
-function parseHiddenAt(value: string | undefined): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value.trim().toLowerCase() === "null") return null;
-  return value;
 }
 
 function filterIssueRows(rows: Issue[], match: string | undefined): Issue[] {
