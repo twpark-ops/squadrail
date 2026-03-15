@@ -7,6 +7,12 @@ import { getUIAdapter } from "../adapters";
 import type { TranscriptEntry } from "../adapters";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime, formatDateTime } from "../lib/utils";
+import {
+  getRunPhaseMeta,
+  resolveRunVisualState,
+  summarizeRunClusterPhases,
+  summarizeRunClusterState,
+} from "../lib/run-presence";
 import { ExternalLink, Square } from "lucide-react";
 import { Identity } from "./Identity";
 import { StatusBadge } from "./StatusBadge";
@@ -103,14 +109,6 @@ function createFeedItem(
   };
 }
 
-function runPhaseLabel(run: LiveRunForIssue): string {
-  if (run.invocationSource === "assignment") return "Protocol gate";
-  if (run.invocationSource === "on_demand") return "Implementation";
-  if (run.invocationSource === "automation") return "Automation";
-  if (run.invocationSource === "timer") return "Timer";
-  return run.invocationSource.replace(/_/g, " ");
-}
-
 function buildLiveRunClusters(runs: LiveRunForIssue[]): LiveRunCluster[] {
   const clusters = new Map<string, LiveRunCluster>();
 
@@ -148,13 +146,23 @@ function buildLiveRunClusters(runs: LiveRunForIssue[]): LiveRunCluster[] {
 }
 
 function describeCluster(cluster: LiveRunCluster): string | null {
-  if (cluster.runs.length <= 1) return null;
+  const phases = summarizeRunClusterPhases(
+    cluster.runs.map((run) => ({
+      invocationSource: run.invocationSource,
+      triggerDetail: run.triggerDetail,
+    })),
+  );
+  if (phases.length === 0) return null;
+  if (cluster.runs.length <= 1) return phases[0]?.summary ?? null;
   const hasProtocolGate = cluster.runs.some((run) => run.invocationSource === "assignment");
   const hasImplementation = cluster.runs.some((run) => run.invocationSource === "on_demand");
   if (hasProtocolGate && hasImplementation) {
     return "Protocol gate and implementation follow-up are both attached to this lane.";
   }
-  return `${cluster.runs.length} linked runs are currently attached to this lane.`;
+  if (phases.length === 1) {
+    return `${phases[0].threadLabel} currently has ${cluster.runs.length} linked runs attached.`;
+  }
+  return `${phases.map((phase) => phase.threadLabel).join(" · ")} are attached to this lane.`;
 }
 
 interface LiveRunWidgetSurfaceProps {
@@ -181,66 +189,127 @@ function LiveRunWidgetSurface({
     >
       {runClusters.length > 0 ? (
         runClusters.map((cluster) => (
-          <div key={cluster.key} className="px-3 py-3 border-b border-border/50 last:border-b-0">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="space-y-1">
-                <Link to={`/agents/${cluster.agentId}`} className="hover:underline">
-                  <Identity name={cluster.agentName} size="sm" />
-                </Link>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                  <span>Started {relativeTime(cluster.latestCreatedAt)}</span>
-                  {cluster.runs.length > 1 ? (
-                    <span className="rounded-full border border-border bg-background px-2 py-0.5 font-medium">
-                      {cluster.runs.length} linked runs
-                    </span>
-                  ) : null}
-                </div>
-                {describeCluster(cluster) ? (
-                  <div className="text-[11px] leading-5 text-muted-foreground">
-                    {describeCluster(cluster)}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="mt-3 space-y-2">
-              {cluster.runs.map((run) => (
+          <div
+            key={cluster.key}
+            className="border-b border-border/50 px-3 py-3 last:border-b-0"
+          >
+            {(() => {
+              const phases = summarizeRunClusterPhases(
+                cluster.runs.map((run) => ({
+                  invocationSource: run.invocationSource,
+                  triggerDetail: run.triggerDetail,
+                })),
+              );
+              const primaryPhase = phases[0] ?? getRunPhaseMeta({ invocationSource: "assignment" });
+              const clusterState = summarizeRunClusterState(cluster.runs.map((run) => run.status));
+
+              return (
                 <div
-                  key={run.id}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs"
+                  className="live-run-cluster rounded-xl border border-border/80 bg-background/65 px-3 py-3"
+                  data-phase={primaryPhase.phase}
+                  data-state={clusterState}
                 >
-                  <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-700 dark:text-cyan-200">
-                    {runPhaseLabel(run)}
-                  </span>
-                  <Link
-                    to={`/agents/${run.agentId}/runs/${run.id}`}
-                    className="inline-flex items-center rounded-md border border-border bg-accent/40 px-2 py-1 font-mono text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
-                  >
-                    {run.id.slice(0, 8)}
-                  </Link>
-                  <StatusBadge status={run.status} />
-                  <span className="text-muted-foreground">
-                    {formatDateTime(run.startedAt ?? run.createdAt)}
-                  </span>
-                  <div className="ml-auto flex items-center gap-2">
-                    <button
-                      onClick={() => onCancelRun(run.id)}
-                      disabled={cancellingRunIds.has(run.id)}
-                      className="inline-flex items-center gap-1 text-[10px] text-red-600 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50"
-                    >
-                      <Square className="h-2 w-2" fill="currentColor" />
-                      {cancellingRunIds.has(run.id) ? "Stopping…" : "Stop"}
-                    </button>
-                    <Link
-                      to={`/agents/${run.agentId}/runs/${run.id}`}
-                      className="inline-flex items-center gap-1 text-[10px] text-cyan-600 hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
-                    >
-                      Open run
-                      <ExternalLink className="h-2.5 w-2.5" />
-                    </Link>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className="live-run-cluster-dot"
+                          aria-hidden
+                        />
+                        <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                          {phases.length > 1 ? "Linked delivery lane" : primaryPhase.threadLabel}
+                        </span>
+                        {phases.map((phase) => (
+                          <span
+                            key={`${cluster.key}:${phase.phase}`}
+                            className={cn(
+                              "live-run-phase-pill inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em]",
+                              phase.className,
+                            )}
+                          >
+                            {phase.label}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link to={`/agents/${cluster.agentId}`} className="hover:underline">
+                          <Identity name={cluster.agentName} size="sm" />
+                        </Link>
+                        <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                          {clusterState}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                        <span>Started {relativeTime(cluster.latestCreatedAt)}</span>
+                        {cluster.runs.length > 1 ? (
+                          <span className="rounded-full border border-border bg-background px-2 py-0.5 font-medium">
+                            {cluster.runs.length} linked runs
+                          </span>
+                        ) : null}
+                      </div>
+                      {describeCluster(cluster) ? (
+                        <div className="text-[11px] leading-5 text-muted-foreground">
+                          {describeCluster(cluster)}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {cluster.runs.map((run) => {
+                      const phaseMeta = getRunPhaseMeta(run);
+                      const runVisualState = resolveRunVisualState(run.status);
+                      return (
+                        <div
+                          key={run.id}
+                          className="live-run-row flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/78 px-3 py-2 text-xs"
+                          data-phase={phaseMeta.phase}
+                          data-state={runVisualState}
+                        >
+                          <span
+                            className={cn(
+                              "live-run-phase-pill inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
+                              phaseMeta.className,
+                            )}
+                          >
+                            {phaseMeta.label}
+                          </span>
+                          <Link
+                            to={`/agents/${run.agentId}/runs/${run.id}`}
+                            className="inline-flex items-center rounded-md border border-border bg-accent/40 px-2 py-1 font-mono text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                          >
+                            {run.id.slice(0, 8)}
+                          </Link>
+                          <StatusBadge status={run.status} />
+                          <span className="text-muted-foreground">
+                            {formatDateTime(run.startedAt ?? run.createdAt)}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {run.triggerDetail ?? phaseMeta.summary}
+                          </span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <button
+                              onClick={() => onCancelRun(run.id)}
+                              disabled={cancellingRunIds.has(run.id)}
+                              className="inline-flex items-center gap-1 text-[10px] text-red-600 disabled:opacity-50 hover:text-red-500 dark:text-red-400 dark:hover:text-red-300"
+                            >
+                              <Square className="h-2 w-2" fill="currentColor" />
+                              {cancellingRunIds.has(run.id) ? "Stopping…" : "Stop"}
+                            </button>
+                            <Link
+                              to={`/agents/${run.agentId}/runs/${run.id}`}
+                              className="inline-flex items-center gap-1 text-[10px] text-cyan-600 hover:text-cyan-500 dark:text-cyan-300 dark:hover:text-cyan-200"
+                            >
+                              Open run
+                              <ExternalLink className="h-2.5 w-2.5" />
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })()}
           </div>
         ))
       ) : (
@@ -248,6 +317,11 @@ function LiveRunWidgetSurface({
           <span className="text-xs font-medium text-muted-foreground">Recent run updates</span>
         </div>
       )}
+
+      <div className="flex items-center justify-between border-t border-border/50 px-3 py-2">
+        <span className="text-xs font-medium text-muted-foreground">Live transcript</span>
+        <span className="text-[11px] text-muted-foreground">{recent.length} recent item(s)</span>
+      </div>
 
       <div ref={bodyRef} className="max-h-[220px] overflow-y-auto p-2 font-mono text-[11px] space-y-1">
         {recent.length === 0 ? (

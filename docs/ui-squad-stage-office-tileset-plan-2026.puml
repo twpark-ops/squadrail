@@ -1,0 +1,52 @@
+@startuml
+title UI Squad Stage Office Tileset V1
+
+package "Stage Surface" {
+  rectangle "PM Lane" as PM
+  rectangle "TL Lane" as TL
+  rectangle "Engineer Lane" as ENG
+  rectangle "Reviewer Lane" as REV
+  rectangle "QA Lane" as QA
+}
+
+package "Office Tileset V1" {
+  rectangle "Floor\n16x16" as FLOOR
+  rectangle "Wall Pieces\n16x16 / 16x32" as WALL
+  rectangle "Stations\npodium / desk / bench / gate" as STATION
+  rectangle "Props\nchair / monitor / signal / queue" as PROP
+  rectangle "State Overlays\nactive / blocked / handoff" as OVERLAY
+}
+
+package "Actors" {
+  rectangle "Pixel Agents Character Sheet\n16x32 actor frames" as ACTOR
+}
+
+FLOOR --> PM
+FLOOR --> TL
+FLOOR --> ENG
+FLOOR --> REV
+FLOOR --> QA
+
+WALL --> PM
+WALL --> QA
+
+STATION --> PM
+STATION --> TL
+STATION --> ENG
+STATION --> REV
+STATION --> QA
+
+PROP --> STATION
+OVERLAY --> STATION
+ACTOR --> PM
+ACTOR --> TL
+ACTOR --> ENG
+ACTOR --> REV
+ACTOR --> QA
+
+note bottom of ACTOR
+Character motion is reused/adapted.
+Office environment is built in-house.
+end note
+
+@enduml

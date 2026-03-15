@@ -235,6 +235,48 @@ test("design guide groups linked live runs by lane", async ({ page }) => {
   expectHealthyDiagnostics(diagnostics);
 });
 
+test("design guide prioritizes failed linked lanes over queued follow-ups", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const fixture = page.getByTestId("design-guide-live-run-widget-panel");
+  const recoveryLane = fixture.locator(".live-run-cluster").filter({
+    hasText: "Smoke Recovery Engineer",
+  });
+
+  await expect(recoveryLane).toBeVisible();
+  await expect(recoveryLane.getByText("failed").first()).toBeVisible();
+  await expect(
+    fixture.getByText("Recovery follow-up is queued behind the failed protocol gate.").first(),
+  ).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("design guide shows delivery party blocked and qa state matrix", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const blockedFixture = page.getByTestId("design-guide-delivery-party-blocked");
+  await expect(blockedFixture).toBeVisible();
+  await expect(blockedFixture.getByText("Blocked here").first()).toBeVisible();
+  await expect(blockedFixture.getByText("Acting as reviewer").first()).toBeVisible();
+  await expect(blockedFixture.getByText("Waiting on diff").first()).toBeVisible();
+
+  const qaFixture = page.getByTestId("design-guide-delivery-party-qa");
+  await expect(qaFixture).toBeVisible();
+  await expect(qaFixture.getByText("QA gate open").first()).toBeVisible();
+  await expect(qaFixture.getByText("Verifying").first()).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
 test("onboarding wizard completes blueprint to quick-request happy path", async ({
   page,
 }) => {
