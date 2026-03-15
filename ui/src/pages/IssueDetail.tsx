@@ -59,6 +59,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BriefPanelV2 } from "../components/BriefPanelV2";
 import { ChangeReviewDesk } from "../components/ChangeReviewDesk";
 import { StatusBadgeV2 } from "../components/StatusBadgeV2";
+import { AgentJobIdentity } from "../components/agent-presence-primitives";
 import {
   Activity as ActivityIcon,
   BookText,
@@ -272,6 +273,191 @@ function formatProtocolValue(value: string | null | undefined) {
   return value
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+type DeliveryPartySlotKey = "lead" | "engineer" | "reviewer" | "qa";
+type DeliveryPartySlotTone = "active" | "waiting" | "blocked" | "idle" | "done";
+
+type DeliveryPartySlot = {
+  key: DeliveryPartySlotKey;
+  label: string;
+  agentId: string | null;
+  agent: Agent | null;
+  statusLabel: string;
+  tone: DeliveryPartySlotTone;
+  helperText: string;
+};
+
+function deliveryPartyToneClassName(tone: DeliveryPartySlotTone) {
+  switch (tone) {
+    case "active":
+      return "border-cyan-300/70 bg-cyan-500/10 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200";
+    case "waiting":
+      return "border-amber-300/70 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+    case "blocked":
+      return "border-red-300/70 bg-red-500/10 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200";
+    case "done":
+      return "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+    default:
+      return "border-border bg-background text-muted-foreground";
+  }
+}
+
+function resolveDeliveryPartyFocusKey(
+  protocolState: IssueProtocolState | null | undefined,
+  liveRunAgentId: string | null,
+): DeliveryPartySlotKey | null {
+  if (protocolState?.techLeadAgentId && liveRunAgentId === protocolState.techLeadAgentId) {
+    return "lead";
+  }
+  if (protocolState?.primaryEngineerAgentId && liveRunAgentId === protocolState.primaryEngineerAgentId) {
+    return "engineer";
+  }
+  if (protocolState?.reviewerAgentId && liveRunAgentId === protocolState.reviewerAgentId) {
+    return "reviewer";
+  }
+  if (protocolState?.qaAgentId && liveRunAgentId === protocolState.qaAgentId) {
+    return "qa";
+  }
+
+  switch (protocolState?.workflowState) {
+    case "submitted_for_review":
+    case "under_review":
+      return "reviewer";
+    case "qa_pending":
+    case "under_qa_review":
+      return "qa";
+    case "approved":
+    case "done":
+      return "lead";
+    case "cancelled":
+      return null;
+    default:
+      return "engineer";
+  }
+}
+
+function buildDeliveryPartySlots(args: {
+  protocolState: IssueProtocolState | null | undefined;
+  agentMap: Map<string, Agent>;
+  liveRunAgentId: string | null;
+}): DeliveryPartySlot[] {
+  const { protocolState, agentMap, liveRunAgentId } = args;
+  const focusKey = resolveDeliveryPartyFocusKey(protocolState, liveRunAgentId);
+  const workflowState = protocolState?.workflowState ?? null;
+  const blocked = Boolean(protocolState?.blockedCode);
+  const closed = workflowState === "approved" || workflowState === "done";
+
+  const slotConfigs: Array<{
+    key: DeliveryPartySlotKey;
+    label: string;
+    agentId: string | null;
+    activeLabel: string;
+    waitingLabel: string;
+    missingLabel: string;
+  }> = [
+    {
+      key: "lead",
+      label: "Tech Lead",
+      agentId: protocolState?.techLeadAgentId ?? null,
+      activeLabel: closed ? "Closing" : "Coordinating",
+      waitingLabel: "Watching",
+      missingLabel: "No lead assigned",
+    },
+    {
+      key: "engineer",
+      label: "Engineer",
+      agentId: protocolState?.primaryEngineerAgentId ?? null,
+      activeLabel: blocked ? "Blocked" : "Implementing",
+      waitingLabel: "Queued",
+      missingLabel: "No engineer assigned",
+    },
+    {
+      key: "reviewer",
+      label: "Reviewer",
+      agentId: protocolState?.reviewerAgentId ?? null,
+      activeLabel: "Reviewing",
+      waitingLabel: "Waiting",
+      missingLabel: "No reviewer assigned",
+    },
+    {
+      key: "qa",
+      label: "QA Gate",
+      agentId: protocolState?.qaAgentId ?? null,
+      activeLabel: blocked ? "Blocked" : "Verifying",
+      waitingLabel: "Waiting",
+      missingLabel: "No QA gate",
+    },
+  ];
+
+  return slotConfigs.map((slot) => {
+    const agent = slot.agentId ? agentMap.get(slot.agentId) ?? null : null;
+    if (!agent) {
+      return {
+        key: slot.key,
+        label: slot.label,
+        agentId: slot.agentId,
+        agent: null,
+        statusLabel: slot.missingLabel,
+        tone: "idle",
+        helperText:
+          slot.key === "qa"
+            ? "This issue can still close through review if QA is not staffed."
+            : "Assign this slot before expecting work to move through it.",
+      } satisfies DeliveryPartySlot;
+    }
+
+    if (closed) {
+      return {
+        key: slot.key,
+        label: slot.label,
+        agentId: slot.agentId,
+        agent,
+        statusLabel: slot.key === "lead" ? "Closed" : "Complete",
+        tone: "done",
+        helperText:
+          slot.key === "lead"
+            ? "Lead owns the final closeout and release posture."
+            : "This handoff already cleared its lane.",
+      } satisfies DeliveryPartySlot;
+    }
+
+    if (focusKey === slot.key) {
+      return {
+        key: slot.key,
+        label: slot.label,
+        agentId: slot.agentId,
+        agent,
+        statusLabel: slot.activeLabel,
+        tone: blocked && (slot.key === "engineer" || slot.key === "qa") ? "blocked" : "active",
+        helperText:
+          slot.key === "lead"
+            ? "Lead is coordinating scope, review, or final closure."
+            : slot.key === "engineer"
+            ? "Engineer owns the active implementation loop."
+            : slot.key === "reviewer"
+            ? "Reviewer is responsible for code quality and diff acceptance."
+            : "QA verifies acceptance criteria and release readiness.",
+      } satisfies DeliveryPartySlot;
+    }
+
+    return {
+      key: slot.key,
+      label: slot.label,
+      agentId: slot.agentId,
+      agent,
+      statusLabel: slot.waitingLabel,
+      tone: "waiting",
+      helperText:
+        slot.key === "engineer"
+          ? "Engineer is ready once implementation becomes the active lane."
+          : slot.key === "reviewer"
+          ? "Reviewer joins after implementation is submitted."
+          : slot.key === "qa"
+          ? "QA engages only when the issue crosses the QA gate."
+          : "Lead keeps ownership while downstream lanes execute.",
+    } satisfies DeliveryPartySlot;
+  });
 }
 
 function collectProtocolEvidence(message: IssueProtocolMessage) {
@@ -953,7 +1139,6 @@ export function IssueDetail() {
     : primaryLiveRun?.invocationSource
     ? formatProtocolValue(primaryLiveRun.invocationSource)
     : null;
-
   // Filter out runs already shown by the live widget to avoid duplication
   const timelineRuns = useMemo(() => {
     const liveIds = new Set<string>();
@@ -1008,6 +1193,19 @@ export function IssueDetail() {
     for (const a of agents ?? []) map.set(a.id, a);
     return map;
   }, [agents]);
+  const deliveryPartySlots = useMemo(
+    () =>
+      buildDeliveryPartySlots({
+        protocolState,
+        agentMap,
+        liveRunAgentId: primaryLiveRun?.agentId ?? null,
+      }),
+    [agentMap, primaryLiveRun?.agentId, protocolState]
+  );
+  const activeDeliveryPartySlot =
+    deliveryPartySlots.find(
+      (slot) => slot.tone === "active" || slot.tone === "blocked"
+    ) ?? null;
 
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const options: MentionOption[] = [];
@@ -2193,6 +2391,70 @@ export function IssueDetail() {
           </div>
         </div>
       )}
+
+      <div className="rounded-xl border border-border/80 bg-card/80 px-4 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Delivery party
+            </div>
+            <div className="mt-1 text-sm font-semibold text-foreground">
+              {activeDeliveryPartySlot
+                ? `${activeDeliveryPartySlot.label} is carrying the active lane`
+                : "Staffed protocol chain"}
+            </div>
+          </div>
+          {activeDeliveryPartySlot ? (
+            <Badge
+              variant="outline"
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.16em]",
+                deliveryPartyToneClassName(activeDeliveryPartySlot.tone)
+              )}
+            >
+              {activeDeliveryPartySlot.statusLabel}
+            </Badge>
+          ) : null}
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-4">
+          {deliveryPartySlots.map((slot) => (
+            <div
+              key={slot.key}
+              className="rounded-xl border border-border/80 bg-background/80 px-3 py-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {slot.label}
+                </div>
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
+                    deliveryPartyToneClassName(slot.tone)
+                  )}
+                >
+                  {slot.statusLabel}
+                </span>
+              </div>
+              <div className="mt-3">
+                {slot.agent ? (
+                  <AgentJobIdentity
+                    name={slot.agent.name}
+                    role={slot.agent.role}
+                    title={slot.agent.title}
+                    icon={slot.agent.icon}
+                    adapterType={slot.agent.adapterType}
+                    subtitle={slot.helperText}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs leading-5 text-muted-foreground">
+                    {slot.helperText}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="grid gap-3 md:grid-cols-3">
         <div className="rounded-lg border border-border bg-card px-4 py-3">
