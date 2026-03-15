@@ -657,14 +657,12 @@ export function issueService(db: Db) {
         assigneeAgentId: input.assigneeAgentId,
         assigneeUserId: null,
         requestDepth: (parentIssue.requestDepth ?? 0) + 1,
-        hiddenAt: new Date(),
         createdByAgentId: input.createdByAgentId ?? null,
         createdByUserId: input.createdByUserId ?? null,
         labelIds: [],
       });
 
       return db.transaction(async (tx) => {
-        const hiddenAt = new Date();
         const ensuredLabels = await ensureLabelsByName(
           tx,
           input.companyId,
@@ -685,7 +683,6 @@ export function issueService(db: Db) {
           assigneeAgentId: input.assigneeAgentId,
           assigneeUserId: null,
           requestDepth: (parentIssue.requestDepth ?? 0) + 1,
-          hiddenAt,
           createdByAgentId: input.createdByAgentId ?? null,
           createdByUserId: input.createdByUserId ?? null,
           labelIds: ensuredLabels.map((label) => label.id),

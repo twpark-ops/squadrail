@@ -278,8 +278,9 @@ describe("issue service", () => {
       projectId: "project-1",
       goalId: "goal-1",
       requestDepth: 1,
-      hiddenAt: expect.any(Date),
     });
+    // Subtasks are now created visible (no hiddenAt).
+    expect(insertValues.find((entry) => entry.table === issues)?.value).not.toHaveProperty("hiddenAt");
   });
 
   it("updates assignment and status side effects while syncing labels", async () => {
