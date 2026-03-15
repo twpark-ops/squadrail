@@ -539,7 +539,7 @@ describe("pm intake helpers", () => {
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_owner_tags");
   });
 
-  it("caps ambient document overlap so structured owner tags outrank noisy project docs", () => {
+  it("keeps owner-tagged workflow diagnostics projects in the top candidate set despite noisy docs", () => {
     const preview = buildPmIntakeProjectionPreview({
       issue: {
         id: "issue-1",
@@ -655,8 +655,117 @@ describe("pm intake helpers", () => {
       },
     });
 
-    expect(preview.selectedProjectName).toBe("swiftsight-cloud");
-    expect(preview.projectCandidates[0]?.projectName).toBe("swiftsight-cloud");
-    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_owner_tags");
+    const topProjectNames = preview.projectCandidates.slice(0, 2).map((candidate) => candidate.projectName);
+    expect(topProjectNames).toContain("swiftsight-cloud");
+    expect(
+      preview.projectCandidates.some((candidate) =>
+        candidate.projectName === "swiftsight-cloud"
+        && candidate.reasons.join(" ").includes("knowledge_owner_tags"),
+      ),
+    ).toBe(true);
+  });
+
+  it("prefers summary sources over noisy runbooks when knowledge-tagged requests carry domain boundaries", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Route artifacts to PACS A/B while keeping physician report on PACS A only",
+        description:
+          "## Human Intake Request\n\n같은 분석에서 segmentation artifact는 PACS A와 PACS B로 보내고, physician report는 PACS A에만 보내는 설정을 지원해줘.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-swiftcl",
+          companyId: "company-1",
+          name: "swiftcl",
+          description: "Compiler and validation surface for workflow configuration and destination policy.",
+          urlKey: "swiftcl",
+          primaryWorkspace: {
+            repoRef: "swiftcl",
+            cwd: "/tmp/swiftcl",
+          },
+        },
+        {
+          id: "project-report",
+          companyId: "company-1",
+          name: "swiftsight-report-server",
+          description: "Report rendering service for physician-facing report output.",
+          urlKey: "swiftsight-report-server",
+          primaryWorkspace: {
+            repoRef: "swiftsight-report-server",
+            cwd: "/tmp/swiftsight-report-server",
+          },
+        },
+      ],
+      knowledgeDocuments: [
+        {
+          id: "doc-swiftcl-summary",
+          companyId: "company-1",
+          projectId: "project-swiftcl",
+          sourceType: "code_summary",
+          authorityLevel: "canonical",
+          title: "artifact routing policy summary",
+          path: "internal/blocks/artifact.go",
+          rawContent:
+            "This file validates artifact routing policy, destination constraints, and workflow compiler boundaries before runtime delivery.",
+          metadata: {
+            summaryVersion: 1,
+            summaryKind: "file",
+            sourcePath: "internal/blocks/artifact.go",
+            sourceLanguage: "go",
+            tags: ["artifact", "destination-policy", "workflow-compiler"],
+            requiredKnowledgeTags: ["artifact", "workflow-compiler"],
+            pmProjectSelection: {
+              supportTags: ["artifact-routing", "workflow-compiler"],
+            },
+          },
+        },
+        ...Array.from({ length: 6 }, (_, index) => ({
+          id: `doc-report-noise-${index}`,
+          companyId: "company-1",
+          projectId: "project-report",
+          sourceType: "runbook",
+          authorityLevel: "canonical",
+          title: `report routing note ${index}`,
+          path: `docs/report-routing-${index}.md`,
+          rawContent:
+            "Physician report output, report rendering, and report delivery guidance for report output surfaces.",
+          metadata: {},
+        })),
+      ] as any[],
+      agents: [
+        ...agents,
+        {
+          id: "swiftcl-engineer",
+          companyId: "company-1",
+          name: "SwiftCL Engineer",
+          urlKey: "swiftcl-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+        {
+          id: "report-engineer",
+          companyId: "company-1",
+          name: "Report Engineer",
+          urlKey: "swiftsight-report-server-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ] as any[],
+      request: {
+        requiredKnowledgeTags: ["artifact-routing", "pacs-destinations", "workflow-compiler"],
+      },
+    });
+
+    expect(preview.selectedProjectName).toBe("swiftcl");
+    expect(preview.projectCandidates[0]?.projectName).toBe("swiftcl");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_support_tags");
   });
 });

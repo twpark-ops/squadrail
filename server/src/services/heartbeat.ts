@@ -3219,6 +3219,7 @@ export function heartbeatService(db: Db) {
             id: issues.id,
             companyId: issues.companyId,
             priority: issues.priority,
+            hiddenAt: issues.hiddenAt,
             executionRunId: issues.executionRunId,
             executionAgentNameKey: issues.executionAgentNameKey,
           })
@@ -3245,6 +3246,23 @@ export function heartbeatService(db: Db) {
 
         if (!readNonEmptyString(enrichedContextSnapshot.issuePriority)) {
           enrichedContextSnapshot.issuePriority = issue.priority;
+        }
+
+        if (issue.hiddenAt) {
+          await tx.insert(agentWakeupRequests).values(buildWakeupRequestValues({
+            companyId: agent.companyId,
+            agentId,
+            source,
+            triggerDetail,
+            reason: "issue_hidden",
+            payload,
+            status: "skipped",
+            requestedByActorType: opts.requestedByActorType,
+            requestedByActorId: opts.requestedByActorId,
+            idempotencyKey: opts.idempotencyKey,
+            finishedAt: new Date(),
+          }));
+          return { kind: "skipped" as const };
         }
 
         let activeExecutionRun = issue.executionRunId
@@ -3621,7 +3639,7 @@ export function heartbeatService(db: Db) {
   async function cancelRunInternal(runId: string) {
     const run = await getRun(runId);
     if (!run) throw notFound("Heartbeat run not found");
-    if (run.status !== "running" && run.status !== "queued") return run;
+    if (run.status !== "running" && run.status !== "queued" && run.status !== "claimed") return run;
     const cancellation = buildHeartbeatCancellationArtifacts({
       message: "Cancelled by control plane",
       checkpointMessage: "run cancelled by control plane",
@@ -3873,7 +3891,7 @@ export function heartbeatService(db: Db) {
 
       const runConditions = [
         eq(heartbeatRuns.companyId, input.companyId),
-        inArray(heartbeatRuns.status, ["queued", "running"]),
+        inArray(heartbeatRuns.status, ["queued", "claimed", "running"]),
         sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
       ];
       if (input.excludeRunId) {
@@ -3892,7 +3910,7 @@ export function heartbeatService(db: Db) {
       let cancelledRunCount = 0;
       for (const run of runs) {
         const current = await getRun(run.id);
-        if (!current || (current.status !== "queued" && current.status !== "running")) continue;
+        if (!current || (current.status !== "queued" && current.status !== "claimed" && current.status !== "running")) continue;
         await cancelRunInternal(run.id);
         cancelledRunCount += 1;
       }
@@ -3942,7 +3960,7 @@ export function heartbeatService(db: Db) {
 
       const runConditions = [
         eq(heartbeatRuns.companyId, input.companyId),
-        inArray(heartbeatRuns.status, ["queued", "running"]),
+        inArray(heartbeatRuns.status, ["queued", "claimed", "running"]),
         sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
         sql`${heartbeatRuns.contextSnapshot} ->> 'wakeReason' in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})`,
       ];
@@ -3957,7 +3975,7 @@ export function heartbeatService(db: Db) {
       let cancelledRunCount = 0;
       for (const run of runs) {
         const current = await getRun(run.id);
-        if (!current || (current.status !== "queued" && current.status !== "running")) continue;
+        if (!current || (current.status !== "queued" && current.status !== "claimed" && current.status !== "running")) continue;
         await cancelRunInternal(run.id);
         cancelledRunCount += 1;
       }

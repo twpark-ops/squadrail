@@ -399,6 +399,7 @@ export function registerIssueIntakeRoutes(ctx: IssueRouteContext) {
         id: project.id,
         companyId: project.companyId,
         name: project.name,
+        description: (project as { description?: string | null }).description ?? null,
         urlKey: project.urlKey ?? null,
         primaryWorkspace: project.primaryWorkspace
           ? {

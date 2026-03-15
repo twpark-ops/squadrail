@@ -19,6 +19,8 @@ const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
 const SCENARIO_KEY = process.env.SWIFTSIGHT_PM_EVAL_SCENARIO ?? "pacs_delivery_audit_evidence";
 const PRIORITY = process.env.SWIFTSIGHT_PM_EVAL_PRIORITY ?? "high";
 const EXECUTE_DELIVERY = process.env.SWIFTSIGHT_PM_EVAL_EXECUTE !== "0";
+const CLEANUP_AFTER_RUN = process.env.SWIFTSIGHT_PM_EVAL_CLEANUP === "1";
+const CLEANUP_ACTOR_ID = process.env.SWIFTSIGHT_PM_EVAL_CLEANUP_ACTOR_ID ?? "summary-proof-cleanup";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PROTOCOL_HELPER_PATH = process.env.SQUADRAIL_PROTOCOL_HELPER_PATH
   ?? path.join(REPO_ROOT, "scripts", "runtime", "squadrail-protocol.mjs");
@@ -54,6 +56,103 @@ async function api(pathname, options = {}) {
     );
   }
   return body;
+}
+
+async function getIssue(issueId) {
+  return api(`/api/issues/${issueId}`);
+}
+
+async function getProtocolState(issueId) {
+  return api(`/api/issues/${issueId}/protocol/state`);
+}
+
+async function hideIssue(issueId) {
+  return api(`/api/issues/${issueId}`, {
+    method: "PATCH",
+    body: {
+      hiddenAt: new Date().toISOString(),
+    },
+  });
+}
+
+async function cancelIssue(issueId, workflowStateBefore, reason) {
+  return api(`/api/issues/${issueId}/protocol/messages`, {
+    method: "POST",
+    body: {
+      messageType: "CANCEL_TASK",
+      sender: {
+        actorType: "user",
+        actorId: CLEANUP_ACTOR_ID,
+        role: "human_board",
+      },
+      recipients: [
+        {
+          recipientType: "role_group",
+          recipientId: "human_board",
+          role: "human_board",
+        },
+      ],
+      workflowStateBefore,
+      workflowStateAfter: "cancelled",
+      summary: "Cancel summary proof evaluation issue during cleanup",
+      requiresAck: false,
+      payload: {
+        reason,
+        cancelType: "duplicate",
+      },
+      artifacts: [],
+    },
+  });
+}
+
+function needsCancellation(workflowState) {
+  return workflowState !== "done" && workflowState !== "cancelled";
+}
+
+async function cleanupEvaluationIssues(input) {
+  const touched = [];
+  const cleanupIssue = async (issueId, reason) => {
+    const issue = await getIssue(issueId).catch(() => null);
+    if (!issue) return null;
+
+    const protocolState = await getProtocolState(issueId).catch(() => null);
+    const workflowState = protocolState?.workflowState ?? null;
+    let cancelled = false;
+    if (workflowState && needsCancellation(workflowState)) {
+      await cancelIssue(issueId, workflowState, reason);
+      cancelled = true;
+    }
+    await hideIssue(issueId);
+    return {
+      issueId,
+      identifier: issue.identifier ?? null,
+      workflowStateBefore: workflowState,
+      cancelled,
+      hidden: true,
+    };
+  };
+
+  const rootCleanup = await cleanupIssue(
+    input.rootIssueId,
+    `Cleanup summary proof root issue ${input.rootIssueIdentifier ?? input.rootIssueId}.`,
+  );
+  if (rootCleanup) touched.push(rootCleanup);
+
+  for (const child of input.childResults) {
+    const cleaned = await cleanupIssue(
+      child.issueId,
+      `Cleanup summary proof child issue ${child.identifier ?? child.issueId}.`,
+    );
+    if (cleaned) touched.push(cleaned);
+  }
+
+  return {
+    enabled: true,
+    touchedCount: touched.length,
+    cancelledCount: touched.filter((entry) => entry.cancelled).length,
+    hiddenCount: touched.filter((entry) => entry.hidden).length,
+    touched,
+  };
 }
 
 async function resolveCompanyByName(name) {
@@ -247,6 +346,19 @@ async function main() {
   }
   note(`overallScore=${overallScore}/${overallMaxScore}`);
 
+  let cleanup = null;
+  if (CLEANUP_AFTER_RUN) {
+    section("Cleanup Evaluation Issues");
+    cleanup = await cleanupEvaluationIssues({
+      rootIssueId: issue.id,
+      rootIssueIdentifier: issue.identifier ?? null,
+      childResults: Array.isArray(delivery?.childResults) ? delivery.childResults : [],
+    });
+    note(`cleanupTouched=${cleanup.touchedCount}`);
+    note(`cleanupCancelled=${cleanup.cancelledCount}`);
+    note(`cleanupHidden=${cleanup.hiddenCount}`);
+  }
+
   note(
     JSON.stringify(
       {
@@ -272,6 +384,7 @@ async function main() {
         previewEvaluation,
         delivery,
         deliveryEvaluation,
+        cleanup,
         overallEvaluation: {
           score: overallScore,
           maxScore: overallMaxScore,

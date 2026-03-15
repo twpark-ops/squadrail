@@ -1133,6 +1133,135 @@ describe("issue protocol service", () => {
     });
   });
 
+  it("allows a QA-role agent to start the primary review lane when that agent is the assigned reviewer", async () => {
+    const issue = {
+      id: "issue-review-qa-reviewer",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+    };
+    const currentState = {
+      issueId: "issue-review-qa-reviewer",
+      companyId: "company-1",
+      workflowState: "submitted_for_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "qa-1",
+      qaAgentId: null,
+      currentReviewCycle: 0,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-review-qa-reviewer",
+      issueId: "issue-review-qa-reviewer",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-review-qa-reviewer-4",
+      issueId: "issue-review-qa-reviewer",
+      threadId: "thread-review-qa-reviewer",
+      seq: 4,
+      integritySignature: null,
+    };
+    const submittedMessage = {
+      id: "submit-review-qa-reviewer-1",
+      issueId: "issue-review-qa-reviewer",
+      threadId: "thread-review-qa-reviewer",
+      seq: 3,
+      messageType: "SUBMIT_FOR_REVIEW",
+    };
+    const createdMessage = {
+      id: "message-review-qa-reviewer-5",
+      issueId: "issue-review-qa-reviewer",
+      threadId: "thread-review-qa-reviewer",
+      seq: 5,
+      messageType: "START_REVIEW",
+      senderActorType: "agent",
+      senderActorId: "qa-1",
+      senderRole: "qa",
+      workflowStateBefore: "submitted_for_review",
+      workflowStateAfter: "under_review",
+      summary: "QA reviewer starts primary review",
+      payload: { reviewCycle: 1 },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-review-qa-reviewer",
+    };
+    const { db, insertValues, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [],
+        [submittedMessage],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-review-qa-reviewer",
+      authorAgentId: "qa-1",
+      message: {
+        messageType: "START_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "qa-1",
+          role: "qa",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "qa-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "submitted_for_review",
+        workflowStateAfter: "under_review",
+        summary: "QA reviewer starts primary review",
+        payload: { reviewCycle: 1 },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.message).toMatchObject({
+      id: "message-review-qa-reviewer-5",
+      integrityStatus: "verified",
+    });
+    expect(appended.state).toMatchObject({
+      workflowState: "under_review",
+      coarseIssueStatus: "in_review",
+      currentReviewCycle: 1,
+    });
+    expect(insertValues).toContainEqual({
+      table: issueReviewCycles,
+      value: expect.objectContaining({
+        issueId: "issue-review-qa-reviewer",
+        cycleNumber: 1,
+        reviewerAgentId: "qa-1",
+        submittedMessageId: "submit-review-qa-reviewer-1",
+      }),
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        workflowState: "under_review",
+        currentReviewCycle: 1,
+      }),
+    });
+  });
+
   it("closes the active review cycle when REQUEST_CHANGES is appended", async () => {
     const issue = {
       id: "issue-changes",

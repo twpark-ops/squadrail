@@ -260,3 +260,19 @@
   1. hidden child issue follow-up run root cause 추적
   2. Phase 5 live proof를 `domain-aware proof only`와 `rag-readiness`로 분리해 안정적으로 완주
   3. summary source hit를 PM project candidate scoring에 더 직접 반영하는 retrieval/projection follow-up 설계
+
+### Phase 5 remaining execution order
+
+1. `Phase 5-2`
+   - proof runner split
+   - cleanup hardening live 재검증
+2. `Phase 5-3`
+   - summary-aware PM scoring/projection tightening
+   - boundary-heavy scenario 기준 개선
+3. `Phase 5-4`
+   - same fixture / same scenario set live rerun
+   - baseline vs current diff 재계산
+4. `Phase 5-5`
+   - 결과 문서화
+   - residual risk 정리
+   - 최종 커밋/푸시 판단

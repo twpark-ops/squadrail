@@ -408,6 +408,111 @@ v1 summary shape:
 
 이번 트랙의 완료 조건은 아래 5개가 모두 녹색인 것이다.
 
+### Phase 5-2. Proof runner split / cleanup hardening
+
+목표:
+
+- `domain-aware proof`와 `rag-readiness`를 분리해 long-running gate 때문에 전체 proof가 불안정해지지 않게 만든다
+- hidden issue / hidden child issue cleanup 뒤에도 follow-up run이 재발하지 않도록 정리한다
+
+구현 대상:
+
+- [scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs)
+- [scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs](/home/taewoong/company-project/squadall/scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs)
+- [server/src/routes/issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
+- [server/src/services/heartbeat.ts](/home/taewoong/company-project/squadall/server/src/services/heartbeat.ts)
+
+구체 작업:
+
+1. proof runner를 아래 두 실행 모드로 분리
+   - `domain-aware proof only`
+   - `domain-aware proof + rag-readiness`
+2. issue hide / `CLOSE_TASK` 후 issue-scoped wakeup/run cleanup을 보강
+3. cleanup 이후 active run 재발 여부를 API로 다시 검증
+
+완료 기준:
+
+- proof runner가 domain-aware matrix만으로도 완주 가능
+- cleanup 이후 visible evaluation issue `0`
+- cleanup 이후 active heartbeat run `0`
+
+### Phase 5-3. Summary-aware PM selection tightening
+
+목표:
+
+- summary source가 retrieval evidence에만 뜨는 수준이 아니라, PM project candidate selection / projection 품질까지 실제로 움직이게 한다
+
+구현 대상:
+
+- [server/src/services/pm-intake.ts](/home/taewoong/company-project/squadall/server/src/services/pm-intake.ts)
+- [server/src/services/issue-retrieval.ts](/home/taewoong/company-project/squadall/server/src/services/issue-retrieval.ts)
+- [server/src/services/retrieval/scoring.ts](/home/taewoong/company-project/squadall/server/src/services/retrieval/scoring.ts)
+- domain-aware PM scenario / evaluation harness
+
+구체 작업:
+
+1. summary hit를 PM candidate scoring에 더 직접 연결
+   - owner/support/avoid tag match
+   - summary source rationale
+   - ambiguous lexical overlap penalty
+2. projection preview scoring이 summary evidence를 읽고 top candidate ordering을 조정하도록 보강
+3. `workflow_mismatch_diagnostics`, `multi_destination_artifact_routing` 같은 boundary-heavy scenario를 우선 기준 시나리오로 삼는다
+
+완료 기준:
+
+- summary-enabled run에서 적어도 1개 scenario 이상 project selection 또는 preview score 개선
+- `multi_destination_artifact_routing`가 `swiftcl` 중심 선택으로 복구되거나, coordination root 필요성이 명시적으로 드러남
+
+### Phase 5-4. Live pre/post proof rerun
+
+목표:
+
+- 같은 fixture / 같은 scenario set으로 summary layer 전후 차이를 실제 live 결과로 다시 증명한다
+
+실행 순서:
+
+1. 서버 최신 코드 반영 후 fixture readiness 재확인
+2. `domain-aware proof only` 재실행
+3. 필요 시 `rag-readiness` 별도 실행
+4. 결과를 baseline artifact와 다시 비교
+
+필수 실행:
+
+```bash
+SQUADRAIL_COMPANY_NAME=<fixture> \
+SWIFTSIGHT_SUMMARY_PROOF_INCLUDE_RAG_READINESS=0 \
+pnpm e2e:cloud-swiftsight-summary-layer-proof
+
+SQUADRAIL_COMPANY_NAME=<fixture> \
+pnpm e2e:cloud-swiftsight-rag-readiness
+```
+
+성공 기준:
+
+- domain-aware proof가 cleanup 없이 완주
+- baseline 대비 `improvedScenarioCount > 0` 또는 project selection drift가 의도한 방향으로 발생
+- `rag-readiness` evidence trace에 `code_summary` 또는 `symbol_summary` hit가 남음
+
+### Phase 5-5. Final close-out
+
+목표:
+
+- 결과를 문서/메모리/커밋 기준으로 마감하고, residual risk와 후속 투자 포인트를 명확히 남긴다
+
+산출물:
+
+1. progress 문서 업데이트
+2. execution plan 문서 업데이트
+3. memory-bank summary 업데이트
+4. 최종 결과 커밋
+5. residual risk / next track 명시
+
+최종 판정 질문:
+
+1. summary layer가 PM project selection을 실제로 개선했는가
+2. summary layer가 delivery/review/QA/close까지 닫히는 live loop에서 유효했는가
+3. 개선이 fixture-specific workaround가 아니라 generic contract 위에서 일어났는가
+
 ### Gate 1. Strict kernel burn-in
 
 ```bash

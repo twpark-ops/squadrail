@@ -280,6 +280,46 @@ describe("heartbeat service flow coverage", () => {
     });
   });
 
+  it("skips wakeups for hidden issues before creating follow-up runs", async () => {
+    const { db, insertValues } = createHeartbeatDbMock({
+      selectRows: new Map([
+        [agents, [[makeAgent()]]],
+        [issues, [[{
+          id: "issue-hidden",
+          companyId: "company-1",
+          priority: "high",
+          hiddenAt: new Date("2026-03-15T10:32:54Z"),
+          executionRunId: null,
+          executionAgentNameKey: null,
+        }]]],
+      ]),
+      insertRows: new Map([
+        [agentWakeupRequests, [[{ id: "wake-hidden-1" }]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const run = await service.wakeup("agent-1", {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "protocol_review_requested",
+      payload: {
+        issueId: "issue-hidden",
+      },
+      contextSnapshot: {
+        issueId: "issue-hidden",
+        wakeReason: "protocol_review_requested",
+      },
+    });
+
+    expect(run).toBeNull();
+    expect(insertValues.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      status: "skipped",
+      reason: "issue_hidden",
+    });
+    expect(insertValues.some((entry) => entry.table === heartbeatRuns)).toBe(false);
+  });
+
   it("ticks timers only for elapsed enabled agents", async () => {
     const now = new Date("2026-03-12T12:00:00Z");
     const pausedAgent = makeAgent({
@@ -354,11 +394,11 @@ describe("heartbeat service flow coverage", () => {
     });
   });
 
-  it("cancels active issue-scoped wakeups and queued runs, then idles the agent", async () => {
+  it("cancels active issue-scoped wakeups and claimed runs, then idles the agent", async () => {
     const activeRun = makeRun({
       id: "run-cancel-1",
       wakeupRequestId: "wake-cancel-1",
-      status: "queued",
+      status: "claimed",
       contextSnapshot: {
         issueId: "issue-1",
       },
@@ -735,11 +775,11 @@ describe("heartbeat service flow coverage", () => {
     expect(updateSets.find((entry) => entry.table === agentRuntimeState)?.value).not.toHaveProperty("stateJson");
   });
 
-  it("cancels superseded follow-up wakeups while excluding the active run that should remain", async () => {
+  it("cancels superseded follow-up wakeups and claimed runs while excluding the active run that should remain", async () => {
     const supersededRun = makeRun({
       id: "run-superseded-1",
       wakeupRequestId: "wake-superseded-1",
-      status: "queued",
+      status: "claimed",
       contextSnapshot: {
         issueId: "issue-3",
         wakeReason: "protocol_required_retry",

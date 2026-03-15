@@ -553,12 +553,31 @@ function inferSenderRoleFromAgent(agent, options = {}) {
 
 async function resolveSenderRole(options, commandName = null) {
   const explicitRole = readOption(options, "sender-role");
-  if (explicitRole) return explicitRole;
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
+  let issueState = null;
+  if (issueId) {
+    issueState = await getIssueState(issueId);
+  }
+
+  // Normalize explicit QA review commands onto the primary reviewer lane when the
+  // current agent is the assigned reviewer for the issue. This preserves the
+  // generic helper contract while avoiding a broken `qa -> under_qa_review`
+  // transition on issues that use QA-role agents as the main reviewer.
+  if (explicitRole) {
+    if (
+      explicitRole === "qa"
+      && REVIEW_SENDER_COMMANDS.has(commandName)
+      && issueState?.reviewerAgentId === AGENT_ID
+      && issueState?.qaAgentId !== AGENT_ID
+    ) {
+      return "reviewer";
+    }
+    return explicitRole;
+  }
+
   const selfAgent = await getSelfAgent();
   const preferExplicitEngineer = ENGINEER_SENDER_COMMANDS.has(commandName);
-  if (issueId) {
-    const issueState = await getIssueState(issueId);
+  if (issueState) {
     if (TECH_LEAD_SENDER_COMMANDS.has(commandName)) {
       if (issueState?.techLeadAgentId === AGENT_ID) {
         return "tech_lead";

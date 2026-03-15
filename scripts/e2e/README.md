@@ -8,7 +8,7 @@
 - `cloud-swiftsight-rag-readiness.mjs`: readiness gate for knowledge sync / retrieval quality before higher-level PM/domain evaluation.
 - `cloud-swiftsight-domain-aware-pm-eval.mjs`: single-scenario domain-aware PM harness. It creates a PM intake issue, previews PM projection, scores preview correctness, then applies the same preview draft into a bounded delivery loop and scores delivery completion. `cloud-swiftsight` is the current validation fixture, not a product-specific scoring shortcut.
 - `cloud-swiftsight-domain-aware-pm-burn-in.mjs`: runs the domain-aware PM scenarios sequentially and emits preview/delivery/overall score summaries. The target is generic project-selection behavior driven by knowledge tags and boundary metadata.
-- `cloud-swiftsight-summary-layer-proof.mjs`: compares the frozen Phase 0 domain-aware PM baseline artifact with the current summary-enabled matrix output and optionally attaches the current rag-readiness gate summary.
+- `cloud-swiftsight-summary-layer-proof.mjs`: prepares the summary fixture through the public workspace-import API, runs the current domain-aware PM matrix with cleanup enabled, verifies that no new visible proof issues or active runs remain, and optionally attaches the current rag-readiness gate summary.
 
 ## Execution Split
 
@@ -37,5 +37,11 @@
   - primary command: `pnpm e2e:cloud-swiftsight-domain-aware-pm-burn-in`
 - `summary-layer proof`
   - purpose: compare the frozen baseline artifact against the current summary-enabled PM matrix and emit a structured diff report
-  - note: this is the Phase 4 proof runner, not the final Phase 5 live gate
+  - note: this is the Phase 4/5 proof runner. By default it refreshes summary documents through the public workspace-import API before running the matrix.
   - primary command: `pnpm e2e:cloud-swiftsight-summary-layer-proof`
+  - domain-only command: `pnpm e2e:cloud-swiftsight-summary-layer-proof:domain-only`
+  - full command: `pnpm e2e:cloud-swiftsight-summary-layer-proof:full`
+  - important env:
+    - `SQUADRAIL_COMPANY_NAME=<fixture-company>`
+    - `SWIFTSIGHT_SUMMARY_PROOF_PREPARE_FIXTURE=0` to skip API re-import
+    - `SWIFTSIGHT_SUMMARY_PROOF_MAX_FILES=120` to widen per-project summary refresh

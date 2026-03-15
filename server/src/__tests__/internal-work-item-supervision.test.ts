@@ -47,9 +47,21 @@ describe("internal work item supervision helpers", () => {
     expect(getInternalWorkItemKind(INTERNAL_CONTEXT)).toBe("implementation");
   });
 
-  it("enables reviewer and lead watch flags only for internal child issues", () => {
-    expect(isReviewerWatchEnabled(INTERNAL_CONTEXT)).toBe(true);
-    expect(isLeadWatchEnabled(INTERNAL_CONTEXT)).toBe(true);
+  it("disables reviewer and lead watch flags for hidden internal child issues", () => {
+    expect(isReviewerWatchEnabled(INTERNAL_CONTEXT)).toBe(false);
+    expect(isLeadWatchEnabled(INTERNAL_CONTEXT)).toBe(false);
+    expect(
+      isReviewerWatchEnabled({
+        ...INTERNAL_CONTEXT,
+        hiddenAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      isLeadWatchEnabled({
+        ...INTERNAL_CONTEXT,
+        hiddenAt: null,
+      }),
+    ).toBe(true);
     expect(
       isLeadWatchEnabled({
         ...INTERNAL_CONTEXT,
@@ -65,8 +77,8 @@ describe("internal work item supervision helpers", () => {
       issueInternalWorkItem: true,
       rootIssueId: "root-1",
       internalWorkItemKind: "implementation",
-      reviewerWatchEnabled: true,
-      leadWatchEnabled: true,
+      reviewerWatchEnabled: false,
+      leadWatchEnabled: false,
     });
   });
 

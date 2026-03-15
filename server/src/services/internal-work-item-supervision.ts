@@ -98,7 +98,11 @@ export function getInternalWorkItemKind(
 }
 
 export function isReviewerWatchEnabled(context: InternalWorkItemSupervisorContext | null | undefined) {
-  return isInternalWorkItemContext(context) && hasLabel(context, INTERNAL_WORK_ITEM_WATCH_REVIEWER_LABEL);
+  return (
+    isInternalWorkItemContext(context)
+    && !context?.hiddenAt
+    && hasLabel(context, INTERNAL_WORK_ITEM_WATCH_REVIEWER_LABEL)
+  );
 }
 
 export function reviewerWatchReason(messageType: string) {
@@ -106,7 +110,11 @@ export function reviewerWatchReason(messageType: string) {
 }
 
 export function isLeadWatchEnabled(context: InternalWorkItemSupervisorContext | null | undefined) {
-  return isInternalWorkItemContext(context) && hasLabel(context, INTERNAL_WORK_ITEM_WATCH_LEAD_LABEL);
+  return (
+    isInternalWorkItemContext(context)
+    && !context?.hiddenAt
+    && hasLabel(context, INTERNAL_WORK_ITEM_WATCH_LEAD_LABEL)
+  );
 }
 
 export function leadSupervisorProtocolReason(messageType: string) {

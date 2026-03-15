@@ -635,7 +635,12 @@ export function issueProtocolService(db: Db) {
     }
 
     if (message.messageType === "START_REVIEW" && before === "submitted_for_review" && message.sender.role === "qa") {
-      throw unprocessable("QA cannot start the primary review lane before reviewer approval");
+      const qaActsAsAssignedReviewer =
+        message.sender.actorType === "agent"
+        && currentState?.reviewerAgentId === message.sender.actorId;
+      if (!qaActsAsAssignedReviewer) {
+        throw unprocessable("QA cannot start the primary review lane before reviewer approval");
+      }
     }
 
     if (message.sender.role === "tech_lead" && currentState?.techLeadAgentId) {

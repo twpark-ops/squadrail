@@ -1,5 +1,6 @@
 import {
   KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES,
+  isKnowledgeSummarySourceType,
   type KnowledgeSourceType,
   type PmIntakeProjectionPreviewRequest,
   type PmIntakeProjectionPreviewResult,
@@ -21,6 +22,7 @@ export interface PmIntakeProjectCandidate {
   id: string;
   companyId: string;
   name: string;
+  description?: string | null;
   urlKey?: string | null;
   primaryWorkspace?: {
     cwd?: string | null;
@@ -136,6 +138,10 @@ function tokenize(value: string | null | undefined) {
     .filter((token) => token.length >= 2);
 }
 
+function tokenizeKnowledgeTags(values: string[]) {
+  return uniqueStrings(values.flatMap((value) => tokenize(value)));
+}
+
 function readStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
@@ -179,6 +185,12 @@ function buildProjectSearchTerms(project: PmIntakeProjectCandidate) {
   ]);
 }
 
+function buildProjectContextTexts(project: PmIntakeProjectCandidate) {
+  return uniqueStrings([
+    project.description ?? null,
+  ]);
+}
+
 function scoreTextAgainstRequest(text: string, requestLower: string, requestTokens: Set<string>) {
   const normalized = compactLine(text).toLowerCase();
   if (!normalized) return { score: 0, overlapCount: 0 };
@@ -206,33 +218,100 @@ function scoreKnowledgeDocumentForProject(input: {
     ...readStringArray(metadata.tags),
     ...readStringArray(metadata.requiredKnowledgeTags),
   ]).map((tag) => tag.toLowerCase());
-
   const normalizedKnowledgeTags = input.requestKnowledgeTags.map((tag) => tag.toLowerCase());
-  const ownerTagMatches = normalizedKnowledgeTags.filter((tag) => ownerTags.map((value) => value.toLowerCase()).includes(tag));
-  const supportTagMatches = normalizedKnowledgeTags.filter((tag) => supportTags.map((value) => value.toLowerCase()).includes(tag));
-  const avoidTagMatches = normalizedKnowledgeTags.filter((tag) => avoidTags.map((value) => value.toLowerCase()).includes(tag));
-  const genericTagMatches = normalizedKnowledgeTags.filter((tag) => documentTags.includes(tag));
+  const knowledgeTagTokens = tokenizeKnowledgeTags(normalizedKnowledgeTags);
+  const ownerTagSet = new Set(uniqueStrings([
+    ...ownerTags.map((value) => value.toLowerCase()),
+    ...tokenizeKnowledgeTags(ownerTags),
+  ]));
+  const supportTagSet = new Set(uniqueStrings([
+    ...supportTags.map((value) => value.toLowerCase()),
+    ...tokenizeKnowledgeTags(supportTags),
+  ]));
+  const avoidTagSet = new Set(uniqueStrings([
+    ...avoidTags.map((value) => value.toLowerCase()),
+    ...tokenizeKnowledgeTags(avoidTags),
+  ]));
+  const documentTagSet = new Set(uniqueStrings([
+    ...documentTags,
+    ...tokenizeKnowledgeTags(documentTags),
+  ]));
+  const ownerTagMatches = uniqueStrings([
+    ...normalizedKnowledgeTags.filter((tag) => ownerTagSet.has(tag)),
+    ...knowledgeTagTokens.filter((tag) => ownerTagSet.has(tag)),
+  ]);
+  const supportTagMatches = uniqueStrings([
+    ...normalizedKnowledgeTags.filter((tag) => supportTagSet.has(tag)),
+    ...knowledgeTagTokens.filter((tag) => supportTagSet.has(tag)),
+  ]);
+  const avoidTagMatches = uniqueStrings([
+    ...normalizedKnowledgeTags.filter((tag) => avoidTagSet.has(tag)),
+    ...knowledgeTagTokens.filter((tag) => avoidTagSet.has(tag)),
+  ]);
+  const genericTagMatches = uniqueStrings([
+    ...normalizedKnowledgeTags.filter((tag) => documentTagSet.has(tag)),
+    ...knowledgeTagTokens.filter((tag) => documentTagSet.has(tag)),
+  ]);
+  const summarySource = isKnowledgeSummarySourceType(input.document.sourceType);
+
+  const ownerTagWeight = summarySource ? 14 : 12;
+  const supportTagWeight = summarySource ? 7 : 6;
+  const avoidTagWeight = summarySource ? 14 : 12;
+  const genericTagWeight = summarySource ? 5 : input.document.sourceType === "runbook" ? 2 : 3;
+  const ownerTokenWeight = summarySource ? 5 : 4;
+  const supportTokenWeight = summarySource ? 3 : 2;
+  const avoidTokenWeight = summarySource ? 5 : 4;
+  const genericTokenWeight = summarySource ? 2 : input.document.sourceType === "runbook" ? 1 : 1;
+  const ambientTextCap = summarySource ? 8 : input.document.sourceType === "runbook" ? 3 : 6;
+  const ambientMultiplier = summarySource ? 1.35 : input.document.sourceType === "runbook" ? 0.55 : 1;
+  const structuredScoreCap = summarySource ? 24 : 18;
 
   const reasons: string[] = [];
   let structuredScore = 0;
   let ambientScore = 0;
 
+  const ownerTagMatchSet = new Set(ownerTagMatches);
+  const supportTagMatchSet = new Set(supportTagMatches);
+  const avoidTagMatchSet = new Set(avoidTagMatches);
+  const genericTagMatchSet = new Set(genericTagMatches);
+  const ownerTokenMatches = knowledgeTagTokens.filter((tag) => ownerTagSet.has(tag) && !ownerTagMatchSet.has(tag));
+  const supportTokenMatches = knowledgeTagTokens.filter((tag) => supportTagSet.has(tag) && !supportTagMatchSet.has(tag));
+  const avoidTokenMatches = knowledgeTagTokens.filter((tag) => avoidTagSet.has(tag) && !avoidTagMatchSet.has(tag));
+  const genericTokenMatches = knowledgeTagTokens.filter((tag) => documentTagSet.has(tag) && !genericTagMatchSet.has(tag));
+
   if (ownerTagMatches.length > 0) {
-    structuredScore += ownerTagMatches.length * 12;
+    structuredScore += ownerTagMatches.length * ownerTagWeight;
     reasons.push(`knowledge_owner_tags:${ownerTagMatches.join(",")}`);
   }
+  if (ownerTokenMatches.length > 0) {
+    structuredScore += ownerTokenMatches.length * ownerTokenWeight;
+    reasons.push(`knowledge_owner_tag_tokens:${uniqueStrings(ownerTokenMatches).join(",")}`);
+  }
   if (supportTagMatches.length > 0) {
-    structuredScore += supportTagMatches.length * 6;
+    structuredScore += supportTagMatches.length * supportTagWeight;
     reasons.push(`knowledge_support_tags:${supportTagMatches.join(",")}`);
   }
+  if (supportTokenMatches.length > 0) {
+    structuredScore += supportTokenMatches.length * supportTokenWeight;
+    reasons.push(`knowledge_support_tag_tokens:${uniqueStrings(supportTokenMatches).join(",")}`);
+  }
   if (avoidTagMatches.length > 0) {
-    structuredScore -= avoidTagMatches.length * 12;
+    structuredScore -= avoidTagMatches.length * avoidTagWeight;
     reasons.push(`knowledge_avoid_tags:${avoidTagMatches.join(",")}`);
   }
+  if (avoidTokenMatches.length > 0) {
+    structuredScore -= avoidTokenMatches.length * avoidTokenWeight;
+    reasons.push(`knowledge_avoid_tag_tokens:${uniqueStrings(avoidTokenMatches).join(",")}`);
+  }
   if (genericTagMatches.length > 0) {
-    structuredScore += genericTagMatches.length * 3;
+    structuredScore += genericTagMatches.length * genericTagWeight;
     reasons.push(`knowledge_tags:${genericTagMatches.join(",")}`);
   }
+  if (genericTokenMatches.length > 0) {
+    structuredScore += genericTokenMatches.length * genericTokenWeight;
+    reasons.push(`knowledge_tag_tokens:${uniqueStrings(genericTokenMatches).join(",")}`);
+  }
+  structuredScore = Math.min(structuredScoreCap, structuredScore);
 
   for (const text of uniqueStrings([
     input.document.title ?? null,
@@ -241,7 +320,7 @@ function scoreKnowledgeDocumentForProject(input: {
   ])) {
     const textScore = scoreTextAgainstRequest(text, input.requestLower, input.requestTokens);
     if (textScore.overlapCount > 0 && textScore.score > 0) {
-      ambientScore += Math.min(6, textScore.score);
+      ambientScore += Math.min(ambientTextCap, textScore.score * ambientMultiplier);
       reasons.push(`knowledge_match:${compactLine(text).slice(0, 80).toLowerCase()}`);
     }
   }
@@ -270,9 +349,12 @@ function scoreProjectCandidate(
 
   const requestLower = requestText.toLowerCase();
   const requestTokens = new Set(tokenize(requestText));
+  const knowledgeTagTokens = tokenizeKnowledgeTags(requestKnowledgeTags);
   const reasons: string[] = [];
+  const hasKnowledgeIntent = requestKnowledgeTags.length > 0;
   let score = 0;
   let knowledgeStructuredScore = 0;
+  const structuredReasonPool: string[] = [];
   const knowledgeAmbientSignals: Array<{ score: number; reasons: string[] }> = [];
 
   for (const term of buildProjectSearchTerms(project)) {
@@ -280,12 +362,34 @@ function scoreProjectCandidate(
     if (!normalized) continue;
     const termScore = scoreTextAgainstRequest(normalized, requestLower, requestTokens);
     if (requestLower.includes(normalized)) {
-      score += 8;
+      score += hasKnowledgeIntent ? 6 : 8;
       reasons.push(`mentions:${normalized}`);
     }
     if (termScore.overlapCount > 0) {
-      score += termScore.overlapCount * 2;
+      score += termScore.overlapCount * (hasKnowledgeIntent ? 1 : 2);
       reasons.push(`token_overlap:${normalized}`);
+    }
+  }
+
+  for (const contextText of buildProjectContextTexts(project)) {
+    const contextScore = scoreTextAgainstRequest(contextText, requestLower, requestTokens);
+    if (contextScore.overlapCount > 0 && contextScore.score > 0) {
+      score += Math.min(hasKnowledgeIntent ? 3 : 5, contextScore.score);
+      reasons.push(`project_context:${compactLine(contextText).slice(0, 80).toLowerCase()}`);
+    }
+  }
+
+  if (hasKnowledgeIntent && knowledgeTagTokens.length > 0) {
+    const projectKnowledgeContext = uniqueStrings([
+      project.name,
+      project.urlKey ?? null,
+      ...buildProjectContextTexts(project),
+    ]).join(" ");
+    const projectKnowledgeTokens = new Set(tokenize(projectKnowledgeContext));
+    const projectKnowledgeMatches = knowledgeTagTokens.filter((token) => projectKnowledgeTokens.has(token));
+    if (projectKnowledgeMatches.length > 0) {
+      score += Math.min(8, projectKnowledgeMatches.length * 2);
+      reasons.push(`project_knowledge_tags:${projectKnowledgeMatches.join(",")}`);
     }
   }
 
@@ -299,7 +403,7 @@ function scoreProjectCandidate(
     });
     knowledgeStructuredScore += knowledgeScore.structuredScore;
     if (knowledgeScore.structuredScore !== 0) {
-      reasons.push(...knowledgeScore.reasons.filter((reason) => !reason.startsWith("knowledge_match:")));
+      structuredReasonPool.push(...knowledgeScore.reasons.filter((reason) => !reason.startsWith("knowledge_match:")));
     }
     if (knowledgeScore.ambientScore > 0) {
       knowledgeAmbientSignals.push({
@@ -310,16 +414,20 @@ function scoreProjectCandidate(
   }
 
   score += knowledgeStructuredScore;
+  const ambientKnowledgeCap = hasKnowledgeIntent ? 8 : 12;
   const ambientKnowledgeScore = knowledgeAmbientSignals
     .sort((left, right) => right.score - left.score)
     .slice(0, 3)
     .reduce((sum, signal) => sum + signal.score, 0);
-  score += Math.min(12, ambientKnowledgeScore);
+  score += Math.min(ambientKnowledgeCap, ambientKnowledgeScore);
+  reasons.push(...uniqueStrings(structuredReasonPool).slice(0, 12));
   reasons.push(
-    ...knowledgeAmbientSignals
-      .sort((left, right) => right.score - left.score)
-      .slice(0, 3)
-      .flatMap((signal) => signal.reasons.slice(0, 2)),
+    ...uniqueStrings(
+      knowledgeAmbientSignals
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 3)
+        .flatMap((signal) => signal.reasons.slice(0, 2)),
+    ).slice(0, 6),
   );
 
   return { score, reasons };
