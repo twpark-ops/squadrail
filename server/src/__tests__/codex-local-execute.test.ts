@@ -77,6 +77,7 @@ describe("codex execute", () => {
     const previousSquadrailHome = process.env.SQUADRAIL_HOME;
     const previousSquadrailInstanceId = process.env.SQUADRAIL_INSTANCE_ID;
     const previousCodexHome = process.env.CODEX_HOME;
+    const logEvents: Array<{ stream: "stdout" | "stderr" | "system"; chunk: string }> = [];
 
     await fs.mkdir(workspace, { recursive: true });
     await fs.mkdir(sharedCodexHome, { recursive: true });
@@ -128,7 +129,9 @@ describe("codex execute", () => {
           },
         },
         authToken: "run-jwt-token",
-        onLog: async () => {},
+        onLog: async (stream, chunk) => {
+          logEvents.push({ stream, chunk });
+        },
         onMeta: async () => {},
       });
 
@@ -154,6 +157,10 @@ describe("codex execute", () => {
       expect(await fs.readFile(isolatedHistory, "utf8")).toBe('{"history":[]}\n');
       expect(await fs.readFile(isolatedRule, "utf8")).toBe("allow: true\n");
       expect((await fs.lstat(isolatedSkill)).isSymbolicLink()).toBe(true);
+      expect(logEvents).toContainEqual(expect.objectContaining({
+        stream: "system",
+        chunk: expect.stringContaining("Using scoped Codex home"),
+      }));
 
       await fs.writeFile(path.join(sharedCodexHome, "AGENTS.md"), "# shared codex agents v2\n", "utf8");
       await fs.writeFile(path.join(sharedCodexHome, "config.toml"), 'model = "gpt-5.4-updated"\n', "utf8");

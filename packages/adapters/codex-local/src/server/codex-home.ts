@@ -134,7 +134,7 @@ export async function prepareScopedCodexHome(
   }
 
   await onLog(
-    "stderr",
+    "system",
     `[squadrail] Using scoped Codex home "${targetHome}" (seeded from "${sourceHome}").\n`,
   );
   return targetHome;

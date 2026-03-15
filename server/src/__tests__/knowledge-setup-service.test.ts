@@ -20,6 +20,7 @@ const {
   mockRebuildCompanyDocumentVersions,
   mockBackfillProtocolFeedback,
   mockCanonicalTemplateForCompanyName,
+  mockResolveCanonicalTemplateForCompany,
 } = vi.hoisted(() => ({
   mockEnqueueAfterDbCommit: vi.fn(),
   mockProjectList: vi.fn(),
@@ -33,6 +34,7 @@ const {
   mockRebuildCompanyDocumentVersions: vi.fn(),
   mockBackfillProtocolFeedback: vi.fn(),
   mockCanonicalTemplateForCompanyName: vi.fn(),
+  mockResolveCanonicalTemplateForCompany: vi.fn(),
 }));
 
 vi.mock("@squadrail/db", async (importOriginal) => {
@@ -87,6 +89,7 @@ vi.mock("../services/swiftsight-org-canonical.js", () => ({
   SWIFTSIGHT_CANONICAL_TEMPLATE_KEY: "swiftsight",
   SWIFTSIGHT_CANONICAL_VERSION: "1.0.0",
   canonicalTemplateForCompanyName: mockCanonicalTemplateForCompanyName,
+  resolveCanonicalTemplateForCompany: mockResolveCanonicalTemplateForCompany,
   buildCanonicalLookupMaps: vi.fn(),
 }));
 
@@ -170,6 +173,7 @@ describe("knowledge setup service", () => {
     mockAgentList.mockResolvedValue([]);
     mockSetupGetView.mockResolvedValue({ status: "engine_ready" });
     mockCanonicalTemplateForCompanyName.mockReturnValue(null);
+    mockResolveCanonicalTemplateForCompany.mockReturnValue(null);
   });
 
   it("builds and caches the knowledge setup read model on cache miss", async () => {
@@ -218,7 +222,7 @@ describe("knowledge setup service", () => {
   });
 
   it("returns org sync views from canonical templates and can look up individual sync jobs", async () => {
-    mockCanonicalTemplateForCompanyName.mockReturnValue({
+    mockResolveCanonicalTemplateForCompany.mockReturnValue({
       templateKey: "swiftsight",
       canonicalVersion: "1.0.0",
       agents: [
@@ -314,6 +318,14 @@ describe("knowledge setup service", () => {
       templateKey: "swiftsight",
       status: "repairable",
     });
+    expect(mockResolveCanonicalTemplateForCompany.mock.calls.at(-1)).toEqual([
+      expect.objectContaining({
+        companyName: "Cloud Swiftsight",
+      }),
+      {
+        allowHeuristicFootprint: true,
+      },
+    ]);
     await expect(service.getKnowledgeSyncJob(COMPANY_ID, "job-lookup-1")).resolves.toMatchObject({
       id: "job-lookup-1",
       projectRuns: [
@@ -506,7 +518,7 @@ describe("knowledge setup service", () => {
   });
 
   it("repairs org sync by updating legacy agents, creating missing ones, and pausing extras", async () => {
-    mockCanonicalTemplateForCompanyName.mockReturnValue({
+    mockResolveCanonicalTemplateForCompany.mockReturnValue({
       templateKey: "swiftsight",
       canonicalVersion: "1.0.0",
       agents: [
@@ -663,5 +675,18 @@ describe("knowledge setup service", () => {
     expect(result.updatedAgentIds).toEqual(["agent-legacy-qa"]);
     expect(result.pausedAgentIds).toEqual(["agent-extra"]);
     expect(result.adoptedAgentIds).toEqual(["agent-legacy-qa"]);
+    expect(mockResolveCanonicalTemplateForCompany.mock.calls[0]).toEqual([
+      expect.objectContaining({
+        companyName: "Cloud Swiftsight",
+      }),
+    ]);
+    expect(mockResolveCanonicalTemplateForCompany.mock.calls.at(-1)).toEqual([
+      expect.objectContaining({
+        companyName: "Cloud Swiftsight",
+      }),
+      {
+        allowHeuristicFootprint: true,
+      },
+    ]);
   });
 });

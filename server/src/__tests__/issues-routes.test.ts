@@ -55,6 +55,7 @@ const {
   mockRunWithoutDbContext,
   mockLogActivity,
   mockKnowledgeListTaskBriefs,
+  mockKnowledgeListDocuments,
   mockSummarizeIssueFailureLearning,
 } = vi.hoisted(() => ({
   mockEnqueueAfterDbCommit: vi.fn(),
@@ -111,6 +112,7 @@ const {
   mockRunWithoutDbContext: vi.fn(),
   mockLogActivity: vi.fn(),
   mockKnowledgeListTaskBriefs: vi.fn(),
+  mockKnowledgeListDocuments: vi.fn().mockResolvedValue([]),
   mockSummarizeIssueFailureLearning: vi.fn(),
 }));
 
@@ -221,6 +223,7 @@ vi.mock("../services/index.js", () => ({
   knowledgeService: () => ({
     upsertDocument: vi.fn(),
     listTaskBriefs: mockKnowledgeListTaskBriefs,
+    listDocuments: mockKnowledgeListDocuments,
   }),
   projectService: () => ({
     list: mockProjectList,

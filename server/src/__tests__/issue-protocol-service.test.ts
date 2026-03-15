@@ -654,6 +654,330 @@ describe("issue protocol service", () => {
     })).rejects.toThrow("Clarification answer must be sent by the requested reviewer actor");
   });
 
+  it("keeps implementation state when a reassignment reaffirms the active engineer", async () => {
+    const issue = {
+      id: "issue-reassign-implementing",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+      status: "in_progress",
+    };
+    const currentState = {
+      issueId: "issue-reassign-implementing",
+      companyId: "company-1",
+      workflowState: "implementing",
+      coarseIssueStatus: "in_progress",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 0,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-reassign-implementing",
+      issueId: "issue-reassign-implementing",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-reassign-implementing-1",
+      issueId: "issue-reassign-implementing",
+      threadId: "thread-reassign-implementing",
+      seq: 1,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-reassign-implementing-2",
+      issueId: "issue-reassign-implementing",
+      threadId: "thread-reassign-implementing",
+      seq: 2,
+      messageType: "REASSIGN_TASK",
+      senderActorType: "agent",
+      senderActorId: "lead-1",
+      senderRole: "tech_lead",
+      workflowStateBefore: "implementing",
+      workflowStateAfter: "implementing",
+      summary: "Keep implementation on the already active engineer",
+      payload: {
+        reason: "Reconfirm the staffed engineer without regressing the active implementation lane.",
+        newAssigneeAgentId: "eng-1",
+        newReviewerAgentId: "rev-1",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-reassign-implementing",
+    };
+    const { db, insertValues, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [thread],
+        [lastMessage],
+      ],
+      insertResults: [[createdMessage], [], []],
+      updateResults: [[sealedMessage], [], []],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-reassign-implementing",
+      authorAgentId: "lead-1",
+      message: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "assigned",
+        summary: "Keep implementation on the already active engineer",
+        payload: {
+          reason: "Reconfirm the staffed engineer without regressing the active implementation lane.",
+          newAssigneeAgentId: "eng-1",
+          newReviewerAgentId: "rev-1",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.state).toMatchObject({
+      workflowState: "implementing",
+      coarseIssueStatus: "in_progress",
+      primaryEngineerAgentId: "eng-1",
+      techLeadAgentId: "lead-1",
+      reviewerAgentId: "rev-1",
+    });
+    expect(insertValues).toContainEqual({
+      table: issueProtocolMessages,
+      value: expect.objectContaining({
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "implementing",
+      }),
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        workflowState: "implementing",
+        coarseIssueStatus: "in_progress",
+      }),
+    });
+  });
+
+  it("rejects reassignment back to the tech lead after implementation has started", async () => {
+    const issue = {
+      id: "issue-reassign-to-lead",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+      status: "in_progress",
+    };
+    const currentState = {
+      issueId: "issue-reassign-to-lead",
+      companyId: "company-1",
+      workflowState: "implementing",
+      coarseIssueStatus: "in_progress",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 0,
+      metadata: {},
+    };
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+      ],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.appendMessage({
+      issueId: "issue-reassign-to-lead",
+      authorAgentId: "lead-1",
+      message: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "assigned",
+        summary: "Attempt to send the active implementation back to the TL",
+        payload: {
+          reason: "Retrying staffing after implementation has already started.",
+          newAssigneeAgentId: "lead-1",
+          newReviewerAgentId: "rev-1",
+        },
+        artifacts: [],
+      },
+    })).rejects.toThrow("Cannot reassign an active implementation back to the tech lead");
+  });
+
+  it("keeps the staffed engineer when a PM retry reaffirms the same tech lead", async () => {
+    const issue = {
+      id: "issue-pm-retry-routing",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+      status: "todo",
+    };
+    const currentState = {
+      issueId: "issue-pm-retry-routing",
+      companyId: "company-1",
+      workflowState: "assigned",
+      coarseIssueStatus: "todo",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-2",
+      qaAgentId: "qa-1",
+      currentReviewCycle: 0,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-pm-retry-routing",
+      issueId: "issue-pm-retry-routing",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-pm-retry-routing-3",
+      issueId: "issue-pm-retry-routing",
+      threadId: "thread-pm-retry-routing",
+      seq: 3,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-pm-retry-routing-4",
+      issueId: "issue-pm-retry-routing",
+      threadId: "thread-pm-retry-routing",
+      seq: 4,
+      messageType: "REASSIGN_TASK",
+      senderActorType: "agent",
+      senderActorId: "pm-1",
+      senderRole: "pm",
+      workflowStateBefore: "assigned",
+      workflowStateAfter: "assigned",
+      summary: "PM retry reaffirms TL without undoing engineer staffing",
+      payload: {
+        reason: "Adapter retry wake from PM after TL already staffed engineer.",
+        newAssigneeAgentId: "lead-1",
+        newReviewerAgentId: "rev-1",
+        newQaAgentId: "qa-2",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-pm-retry-routing",
+    };
+    const { db, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [thread],
+        [lastMessage],
+      ],
+      insertResults: [[createdMessage], [], []],
+      updateResults: [[sealedMessage], [], []],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-pm-retry-routing",
+      authorAgentId: "pm-1",
+      message: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "pm-1",
+          role: "pm",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "qa-2",
+            role: "qa",
+          },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "PM retry reaffirms TL without undoing engineer staffing",
+        payload: {
+          reason: "Adapter retry wake from PM after TL already staffed engineer.",
+          newAssigneeAgentId: "lead-1",
+          newReviewerAgentId: "rev-1",
+          newQaAgentId: "qa-2",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.state).toMatchObject({
+      workflowState: "assigned",
+      coarseIssueStatus: "todo",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-2",
+      qaAgentId: "qa-1",
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+        reviewerAgentId: "rev-2",
+        qaAgentId: "qa-1",
+      }),
+    });
+  });
+
   it("opens a review cycle when START_REVIEW is appended", async () => {
     const issue = {
       id: "issue-review",

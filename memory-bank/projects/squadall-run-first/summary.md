@@ -15,6 +15,16 @@
 - project selection, knowledge weighting, boundary hints, summary source는 **어떤 회사/도메인에도 재사용 가능한 generic contract**로 올린다.
 - 특정 회사 문서는 검증 fixture로만 사용하고, 제품 로직에는 회사명 하드코딩이나 전용 scoring shortcut을 넣지 않는다.
 
+## 2026-03-15 next main track: natural-language code summary layer
+
+- 다음 메인 트랙은 `code_summary / symbol_summary` 기반 RAG 의미층이다.
+- 목표는 기존 `raw code + symbol graph + issue/history` 위에 별도 자연어 summary source를 추가하고, PM/reviewer/human_board가 코드 역할을 더 정확히 읽게 만드는 것이다.
+- 증명 방식은 반드시 **clean fixture pre/post comparison + live bounded delivery**다.
+- `cloud-swiftsight`는 검증 fixture일 뿐이며, 제품 로직은 generic source type / metadata / scoring contract로 유지한다.
+- 세부 실행 계획 문서:
+  - [`rag-natural-language-code-summary-plan.md`](/home/taewoong/company-project/squadall/docs/rag-natural-language-code-summary-plan.md)
+  - [`rag-natural-language-code-summary-execution-plan.md`](/home/taewoong/company-project/squadall/docs/rag-natural-language-code-summary-execution-plan.md)
+
 ## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
 
 - lower delivery kernel은 제품 기준으로 이미 충분히 닫혔다.

@@ -1,0 +1,88 @@
+@startuml Natural Language Code Summary RAG Plan
+title Squadrail Natural-Language Code Summary RAG Plan
+
+actor "Board / PM / TL / Engineer / Reviewer" as actor
+
+package "Current Import Pipeline" {
+  rectangle "Workspace Import" as importer
+  rectangle "Code Chunking\nAST / semantic / heuristic" as chunker
+  rectangle "Code Graph Builder\nsymbols + edges" as graph_builder
+  rectangle "Raw Code Embeddings" as raw_embed
+}
+
+package "New Meaning Layer" {
+  rectangle "Summary Generator\nfile / module / symbol" as summarizer
+  rectangle "Summary Documents / Chunks\ncode_summary / symbol_summary" as summaries
+  rectangle "Summary Embeddings" as summary_embed
+}
+
+database "Knowledge Store" as db {
+  rectangle "knowledge_documents" as documents
+  rectangle "knowledge_chunks\nraw code + derived summaries" as chunks
+  rectangle "knowledge_chunk_links" as links
+  rectangle "code_symbols" as symbols
+  rectangle "code_symbol_edges" as edges
+}
+
+package "Retrieval Runtime" {
+  rectangle "Raw Code Retrieval" as raw_retrieval
+  rectangle "Graph Expansion" as graph_retrieval
+  rectangle "Issue / Protocol Memory Retrieval" as memory_retrieval
+  rectangle "Summary Retrieval" as summary_retrieval
+  rectangle "Role / Lane / Protocol Scoring" as scoring
+  rectangle "Brief / Evidence Builder" as brief
+}
+
+importer --> chunker
+chunker --> graph_builder
+chunker --> raw_embed
+chunker --> documents
+chunker --> chunks
+graph_builder --> symbols
+graph_builder --> edges
+raw_embed --> chunks
+
+chunker --> summarizer
+graph_builder --> summarizer
+summarizer --> summaries
+summaries --> summary_embed
+summaries --> documents
+summaries --> chunks
+summaries --> links
+summary_embed --> chunks
+
+actor --> raw_retrieval
+actor --> graph_retrieval
+actor --> memory_retrieval
+actor --> summary_retrieval
+
+chunks --> raw_retrieval
+symbols --> graph_retrieval
+edges --> graph_retrieval
+links --> graph_retrieval
+documents --> memory_retrieval
+chunks --> summary_retrieval
+links --> summary_retrieval
+
+raw_retrieval --> scoring
+graph_retrieval --> scoring
+memory_retrieval --> scoring
+summary_retrieval --> scoring
+scoring --> brief
+
+note right of summarizer
+Do not replace raw code retrieval.
+Generate a derived semantic layer
+that explains what code does
+and why it exists.
+end note
+
+note bottom of scoring
+Summary retrieval must stay inside
+the existing Squadrail scoring pipeline:
+- role-aware
+- lane-aware
+- protocol-aware
+end note
+
+@enduml

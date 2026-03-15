@@ -931,7 +931,9 @@ export function shouldSkipSupersededProtocolFollowup(input: {
     return isSupersededProtocolWakeReason(input.wakeReason) || readNonEmptyString(input.wakeReason) === "adapter_retry";
   }
 
-  if (readNonEmptyString(input.wakeReason) !== "adapter_retry") return false;
+  const wakeReason = readNonEmptyString(input.wakeReason);
+  if (!wakeReason) return false;
+  if (!isSupersededProtocolWakeReason(wakeReason) && wakeReason !== "adapter_retry") return false;
 
   const requirement = resolveProtocolRunRequirement({
     protocolMessageType: readNonEmptyString(input.protocolMessageType) ?? undefined,
@@ -2301,7 +2303,7 @@ export function heartbeatService(db: Db) {
         logStore: handle.store,
       });
 
-      const onLog = async (stream: "stdout" | "stderr", chunk: string) => {
+      const onLog = async (stream: "stdout" | "stderr" | "system", chunk: string) => {
         if (stream === "stdout") stdoutExcerpt = appendExcerpt(stdoutExcerpt, chunk);
         if (stream === "stderr") stderrExcerpt = appendExcerpt(stderrExcerpt, chunk);
 
@@ -2331,7 +2333,7 @@ export function heartbeatService(db: Db) {
         });
       };
       for (const warning of runtimeWorkspaceWarnings) {
-        await onLog("stderr", `[squadrail] ${warning}\n`);
+        await onLog("system", `[squadrail] ${warning}\n`);
       }
       assertResolvedWorkspaceReadyForExecution({
         resolvedWorkspace,

@@ -722,7 +722,12 @@ async function approveImplementation(issueId, companyId, agentId, senderRole, wo
   });
 }
 
-async function closeTask(issueId, companyId, techLeadAgentId, project) {
+async function closeTask(issueId, companyId, fallbackTechLeadAgentId, project) {
+  const protocolState = await getProtocolState(issueId);
+  const techLeadAgentId = protocolState.techLeadAgentId ?? fallbackTechLeadAgentId;
+  if (!techLeadAgentId) {
+    throw new Error(`Missing tech lead ownership for close-task on ${issueId}`);
+  }
   await runProtocolHelper({
     companyId,
     agentId: techLeadAgentId,
