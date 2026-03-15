@@ -486,14 +486,15 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       kind: "wakeup",
       reason: "protocol_implementation_started",
       payload: {
-        forceFollowupRun: false,
         workspaceUsageOverride: "implementation",
       },
       contextSnapshot: {
-        forceFollowupRun: false,
         workspaceUsageOverride: "implementation",
       },
     });
+    // forceFollowupRun is omitted (falsy values are not serialized)
+    expect(plan[0].payload).not.toHaveProperty("forceFollowupRun");
+    expect(plan[0].payload).not.toHaveProperty("protocolDispatchMode");
   });
 
   it("requeues the project tech lead for CLOSE_TASK after reviewer approval, even when reviewer and tech lead are the same agent", () => {

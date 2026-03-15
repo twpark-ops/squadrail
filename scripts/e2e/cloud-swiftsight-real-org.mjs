@@ -1756,7 +1756,7 @@ async function runCoordinatedScenario(companyId, scenario) {
       "Archive coordinating root after child fan-out",
     );
     if (HIDE_COMPLETED_ISSUES) {
-      await cancelIssue(rootIssue.id);
+      await markIssueCancelled(rootIssue.id);
       note(`hid coordinated root ${rootIssue.identifier} after projection`);
     }
 
