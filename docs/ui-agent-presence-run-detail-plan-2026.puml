@@ -1,0 +1,74 @@
+@startuml
+title UI Agent Presence and Run Detail Plan 2026
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam handwritten false
+skinparam defaultFontName Pretendard
+skinparam packageStyle rectangle
+skinparam rectangle {
+  RoundCorner 18
+}
+
+rectangle "Current UI" as Current {
+  rectangle "AgentDetail Run" as CurrentRun
+  rectangle "ActiveAgentsPanel" as CurrentActive
+  rectangle "Team" as CurrentTeam
+  rectangle "IssuesList" as CurrentIssues
+}
+
+rectangle "Problems" as Problems {
+  rectangle "Prompt / Context / Env\ndominate first screen" as P1
+  rectangle "Agents feel like runtime rows,\nnot squad roles" as P2
+  rectangle "Issue cards lack\nphase / owner / gate context" as P3
+}
+
+rectangle "Target UI" as Target {
+  rectangle "Transcript-first Run Detail" as T1
+  rectangle "Diagnostics Accordion" as T2
+  rectangle "Role / Job Agent Cards" as T3
+  rectangle "Richer Issue Cards" as T4
+  rectangle "Issue Party Strip" as T5
+}
+
+rectangle "Execution Batches" as Batches {
+  rectangle "Batch 1\nRun detail hierarchy" as B1
+  rectangle "Batch 2\nAgent presence / character UI" as B2
+  rectangle "Batch 3\nIssue cards + party strip" as B3
+}
+
+CurrentRun --> P1
+CurrentActive --> P2
+CurrentTeam --> P2
+CurrentIssues --> P3
+
+P1 --> T1
+P1 --> T2
+P2 --> T3
+P3 --> T4
+P2 --> T5
+
+T1 --> B1
+T2 --> B1
+T3 --> B2
+T4 --> B3
+T5 --> B3
+
+note right of B1
+Transcript first
+Prompt / Environment collapsed
+System logs informational
+end note
+
+note right of B2
+PM / TL / Engineer / Reviewer / QA
+as operational class cards
+end note
+
+note right of B3
+Phase chip
+Owner role
+Blocked / Review / QA signal
+end note
+
+@enduml

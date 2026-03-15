@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import { useParams, useNavigate, Link, useBeforeUnload } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentsApi, type AgentKey, type ClaudeLoginResult } from "../api/agents";
@@ -28,6 +28,11 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { formatCents, formatDate, relativeTime, formatTokens } from "../lib/utils";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Popover,
   PopoverContent,
@@ -110,6 +115,71 @@ function formatEnvForDisplay(envValue: unknown): string {
     .sort()
     .map((key) => `${key}=${redactEnvValue(key, env[key])}`)
     .join("\n");
+}
+
+function formatStructuredValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildPromptPreview(promptValue: unknown, maxLines = 10): { preview: string; lineCount: number } {
+  const prompt = typeof promptValue === "string" ? promptValue : formatStructuredValue(promptValue);
+  const lines = prompt.split(/\r?\n/);
+  return {
+    preview: lines.slice(0, maxLines).join("\n"),
+    lineCount: lines.length,
+  };
+}
+
+function summarizeEnvironment(envValue: unknown): { totalKeys: number; redactedKeys: number } {
+  const env = asRecord(envValue);
+  if (!env) return { totalKeys: 0, redactedKeys: 0 };
+  let redactedKeys = 0;
+  for (const [key, value] of Object.entries(env)) {
+    if (
+      shouldRedactSecretValue(key, value) ||
+      (typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        (value as { type?: unknown }).type === "secret_ref")
+    ) {
+      redactedKeys += 1;
+    }
+  }
+  return {
+    totalKeys: Object.keys(env).length,
+    redactedKeys,
+  };
+}
+
+function summarizeContext(contextValue: unknown): Array<{ label: string; value: string }> {
+  const context = asRecord(contextValue);
+  if (!context) return [];
+
+  const preferredKeys: Array<[string, string]> = [
+    ["issueId", "Issue"],
+    ["taskId", "Task"],
+    ["taskKey", "Task key"],
+    ["workspaceSource", "Workspace"],
+    ["workspaceUsage", "Usage"],
+    ["workspaceBranchName", "Branch"],
+    ["wakeReason", "Wake"],
+    ["protocolMessageType", "Protocol"],
+    ["protocolWorkflow", "Workflow"],
+  ];
+
+  return preferredKeys
+    .map(([key, label]) => {
+      const value = context[key];
+      const normalized = asNonEmptyString(value) ?? (typeof value === "number" ? String(value) : null);
+      if (!normalized) return null;
+      return { label, value: normalized };
+    })
+    .filter((value): value is { label: string; value: string } => value !== null);
 }
 
 const sourceLabels: Record<string, string> = {
@@ -214,6 +284,37 @@ function runMetrics(run: HeartbeatRun) {
 }
 
 type RunLogChunk = { ts: string; stream: "stdout" | "stderr" | "system"; chunk: string };
+
+function DiagnosticsSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border border-border bg-background/60">
+      <CollapsibleTrigger asChild>
+        <button className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-foreground">{title}</div>
+            {summary ? <div className="mt-0.5 text-[11px] text-muted-foreground">{summary}</div> : null}
+          </div>
+          <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t border-border px-3 py-3">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
@@ -2015,6 +2116,23 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
 
   const adapter = useMemo(() => getUIAdapter(adapterType), [adapterType]);
   const transcript = useMemo(() => buildTranscript(logLines, adapter.parseStdoutLine), [logLines, adapter]);
+  const contextSummary = useMemo(
+    () => summarizeContext(adapterInvokePayload?.context),
+    [adapterInvokePayload],
+  );
+  const environmentSummary = useMemo(
+    () => summarizeEnvironment(adapterInvokePayload?.env),
+    [adapterInvokePayload],
+  );
+  const promptPreview = useMemo(
+    () => buildPromptPreview(adapterInvokePayload?.prompt),
+    [adapterInvokePayload],
+  );
+  const diagnosticsCount =
+    (adapterInvokePayload?.prompt !== undefined ? 1 : 0) +
+    (adapterInvokePayload?.context !== undefined ? 1 : 0) +
+    (adapterInvokePayload?.env !== undefined ? 1 : 0) +
+    (events.length > 0 ? 1 : 0);
 
   if (loading && logLoading) {
     return <p className="text-xs text-muted-foreground">Loading run logs...</p>;
@@ -2038,71 +2156,6 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
 
   return (
     <div className="space-y-3">
-      {adapterInvokePayload && (
-        <div className="rounded-lg border border-border bg-background/60 p-3 space-y-2">
-          <div className="text-xs font-medium text-muted-foreground">Invocation</div>
-          {typeof adapterInvokePayload.adapterType === "string" && (
-            <div className="text-xs"><span className="text-muted-foreground">Adapter: </span>{adapterInvokePayload.adapterType}</div>
-          )}
-          {typeof adapterInvokePayload.cwd === "string" && (
-            <div className="text-xs break-all"><span className="text-muted-foreground">Working dir: </span><span className="font-mono">{adapterInvokePayload.cwd}</span></div>
-          )}
-          {typeof adapterInvokePayload.command === "string" && (
-            <div className="text-xs break-all">
-              <span className="text-muted-foreground">Command: </span>
-              <span className="font-mono">
-                {[
-                  adapterInvokePayload.command,
-                  ...(Array.isArray(adapterInvokePayload.commandArgs)
-                    ? adapterInvokePayload.commandArgs.filter((v): v is string => typeof v === "string")
-                    : []),
-                ].join(" ")}
-              </span>
-            </div>
-          )}
-          {Array.isArray(adapterInvokePayload.commandNotes) && adapterInvokePayload.commandNotes.length > 0 && (
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Command notes</div>
-              <ul className="list-disc pl-5 space-y-1">
-                {adapterInvokePayload.commandNotes
-                  .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-                  .map((note, idx) => (
-                    <li key={`${idx}-${note}`} className="text-xs break-all font-mono">
-                      {note}
-                    </li>
-                  ))}
-              </ul>
-            </div>
-          )}
-          {adapterInvokePayload.prompt !== undefined && (
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Prompt</div>
-              <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-2 text-xs overflow-x-auto whitespace-pre-wrap">
-                {typeof adapterInvokePayload.prompt === "string"
-                  ? adapterInvokePayload.prompt
-                  : JSON.stringify(adapterInvokePayload.prompt, null, 2)}
-              </pre>
-            </div>
-          )}
-          {adapterInvokePayload.context !== undefined && (
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Context</div>
-              <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-2 text-xs overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(adapterInvokePayload.context, null, 2)}
-              </pre>
-            </div>
-          )}
-          {adapterInvokePayload.env !== undefined && (
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Environment</div>
-              <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-2 text-xs overflow-x-auto whitespace-pre-wrap font-mono">
-                {formatEnvForDisplay(adapterInvokePayload.env)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">
           Transcript ({transcript.length})
@@ -2290,31 +2343,134 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
         </div>
       )}
 
-      {events.length > 0 && (
-        <div>
-          <div className="mb-2 text-xs font-medium text-muted-foreground">Events ({events.length})</div>
-          <div className="bg-neutral-100 dark:bg-neutral-950 rounded-lg p-3 font-mono text-xs space-y-0.5">
-            {events.map((evt) => {
-              const color = evt.color
-                ?? (evt.level ? levelColors[evt.level] : null)
-                ?? (evt.stream ? streamColors[evt.stream] : null)
-                ?? "text-foreground";
-
-              return (
-                <div key={evt.id} className="flex gap-2">
-                  <span className="text-neutral-400 dark:text-neutral-600 shrink-0 select-none w-16">
-                    {new Date(evt.createdAt).toLocaleTimeString("en-US", { hour12: false })}
-                  </span>
-                  <span className={cn("shrink-0 w-14", evt.stream ? (streamColors[evt.stream] ?? "text-neutral-500") : "text-neutral-500")}>
-                    {evt.stream ? `[${evt.stream}]` : ""}
-                  </span>
-                  <span className={cn("break-all", color)}>
-                    {evt.message ?? (evt.payload ? JSON.stringify(evt.payload) : "")}
-                  </span>
-                </div>
-              );
-            })}
+      {(adapterInvokePayload || events.length > 0) && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">
+              Diagnostics
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {diagnosticsCount} section{diagnosticsCount === 1 ? "" : "s"}
+            </span>
           </div>
+
+          {adapterInvokePayload && (
+            <div className="rounded-lg border border-border bg-background/60 px-3 py-3 space-y-2">
+              <div className="text-xs font-medium text-foreground">Invocation summary</div>
+              <div className="grid gap-2 sm:grid-cols-2 text-xs text-muted-foreground">
+                {typeof adapterInvokePayload.adapterType === "string" && (
+                  <div>
+                    <span className="text-foreground">Adapter</span>: {adapterInvokePayload.adapterType}
+                  </div>
+                )}
+                {typeof adapterInvokePayload.cwd === "string" && (
+                  <div className="truncate" title={adapterInvokePayload.cwd}>
+                    <span className="text-foreground">Working dir</span>: <span className="font-mono">{adapterInvokePayload.cwd}</span>
+                  </div>
+                )}
+                {typeof adapterInvokePayload.command === "string" && (
+                  <div className="sm:col-span-2 break-all">
+                    <span className="text-foreground">Command</span>:{" "}
+                    <span className="font-mono">
+                      {[
+                        adapterInvokePayload.command,
+                        ...(Array.isArray(adapterInvokePayload.commandArgs)
+                          ? adapterInvokePayload.commandArgs.filter((v): v is string => typeof v === "string")
+                          : []),
+                      ].join(" ")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {adapterInvokePayload?.prompt !== undefined && (
+            <DiagnosticsSection
+              title="Prompt"
+              summary={
+                promptPreview.lineCount > 0
+                  ? `${promptPreview.lineCount} line(s) · first lines shown by default`
+                  : "structured prompt payload"
+              }
+            >
+              <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-2 text-xs overflow-x-auto whitespace-pre-wrap">
+                {promptPreview.preview}
+                {promptPreview.lineCount > 10 ? "\n…" : ""}
+              </pre>
+              <pre className="mt-3 bg-neutral-100 dark:bg-neutral-950 rounded-md p-2 text-xs overflow-x-auto whitespace-pre-wrap">
+                {formatStructuredValue(adapterInvokePayload.prompt)}
+              </pre>
+            </DiagnosticsSection>
+          )}
+
+          {adapterInvokePayload?.context !== undefined && (
+            <DiagnosticsSection
+              title="Context"
+              summary={
+                contextSummary.length > 0
+                  ? `${contextSummary.length} highlighted field(s)`
+                  : "raw runtime context"
+              }
+            >
+              {contextSummary.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {contextSummary.map((entry) => (
+                    <span
+                      key={`${entry.label}:${entry.value}`}
+                      className="rounded-full border border-border bg-card px-2.5 py-1 text-[11px] text-muted-foreground"
+                    >
+                      <span className="text-foreground">{entry.label}</span>: {entry.value}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-2 text-xs overflow-x-auto whitespace-pre-wrap">
+                {formatStructuredValue(adapterInvokePayload.context)}
+              </pre>
+            </DiagnosticsSection>
+          )}
+
+          {adapterInvokePayload?.env !== undefined && (
+            <DiagnosticsSection
+              title="Environment"
+              summary={`${environmentSummary.totalKeys} key(s) · ${environmentSummary.redactedKeys} redacted`}
+            >
+              <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-2 text-xs overflow-x-auto whitespace-pre-wrap font-mono">
+                {formatEnvForDisplay(adapterInvokePayload.env)}
+              </pre>
+            </DiagnosticsSection>
+          )}
+
+          {events.length > 0 && (
+            <DiagnosticsSection
+              title="Events"
+              summary={`${events.length} event(s) captured for this run`}
+            >
+              <div className="bg-neutral-100 dark:bg-neutral-950 rounded-lg p-3 font-mono text-xs space-y-0.5">
+                {events.map((evt) => {
+                  const color = evt.color
+                    ?? (evt.level ? levelColors[evt.level] : null)
+                    ?? (evt.stream ? streamColors[evt.stream] : null)
+                    ?? "text-foreground";
+
+                  return (
+                    <div key={evt.id} className="flex gap-2">
+                      <span className="text-neutral-400 dark:text-neutral-600 shrink-0 select-none w-16">
+                        {new Date(evt.createdAt).toLocaleTimeString("en-US", { hour12: false })}
+                      </span>
+                      <span className={cn("shrink-0 w-14", evt.stream ? (streamColors[evt.stream] ?? "text-neutral-500") : "text-neutral-500")}>
+                        {evt.stream ? `[${evt.stream}]` : ""}
+                      </span>
+                      <span className={cn("break-all", color)}>
+                        {evt.message ?? (evt.payload ? JSON.stringify(evt.payload) : "")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </DiagnosticsSection>
+          )}
         </div>
       )}
     </div>
