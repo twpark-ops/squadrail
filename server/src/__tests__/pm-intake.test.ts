@@ -19,6 +19,15 @@ describe("pm intake helpers", () => {
       title: "PM",
     },
     {
+      id: "rev-default",
+      companyId: "company-1",
+      name: "Cloud Reviewer",
+      role: "reviewer",
+      status: "active",
+      reportsTo: null,
+      title: "Reviewer",
+    },
+    {
       id: "qa-1",
       companyId: "company-1",
       name: "QA Lead",
@@ -38,10 +47,10 @@ describe("pm intake helpers", () => {
     },
   ] as any[];
 
-  it("prefers the active PM and QA lead by default", () => {
+  it("prefers the active PM and dedicated reviewer by default", () => {
     const resolved = resolvePmIntakeAgents({ agents });
     expect(resolved.pmAgent.id).toBe("pm-1");
-    expect(resolved.reviewerAgent.id).toBe("qa-1");
+    expect(resolved.reviewerAgent.id).toBe("rev-default");
   });
 
   it("accepts a dedicated reviewer role for intake routing", () => {
@@ -106,14 +115,14 @@ describe("pm intake helpers", () => {
       title: "Bulk export for cloud studies",
       priority: "high",
       pmAgentId: "pm-1",
-      reviewerAgentId: "qa-1",
+      reviewerAgentId: "rev-default",
       requestedDueAt: "2026-03-12T00:00:00.000Z",
       relatedIssueIds: ["issue-1"],
       requiredKnowledgeTags: ["cloud", "export"],
     });
     expect(assignment.summary).toContain("PM intake");
     expect(assignment.payload.assigneeAgentId).toBe("pm-1");
-    expect(assignment.payload.reviewerAgentId).toBe("qa-1");
+    expect(assignment.payload.reviewerAgentId).toBe("rev-default");
     expect(assignment.payload.acceptanceCriteria).toHaveLength(3);
   });
 
@@ -162,11 +171,13 @@ describe("pm intake helpers", () => {
     expect(preview.draft.workItems[0]).toMatchObject({
       projectId: "project-cloud",
       assigneeAgentId: "eng-1",
-      reviewerAgentId: "qa-1",
+      reviewerAgentId: "rev-default",
     });
   });
 
   it("prefers a dedicated reviewer role over non-reviewer managers", () => {
+    // Exclude the default reviewer so the test isolates rev-1 vs manager preference.
+    const agentsWithoutDefaultReviewer = agents.filter((a) => a.id !== "rev-default");
     const preview = buildPmIntakeProjectionPreview({
       issue: {
         id: "issue-1",
@@ -185,7 +196,7 @@ describe("pm intake helpers", () => {
         },
       ],
       agents: [
-        ...agents,
+        ...agentsWithoutDefaultReviewer,
         {
           id: "mgr-1",
           companyId: "company-1",

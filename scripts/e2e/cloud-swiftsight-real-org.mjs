@@ -328,11 +328,12 @@ function buildScenarioDefinitions(context) {
       project: project("swiftsight-agent"),
       assignee: agent("swiftsight-agent-tl"),
       assigneeRole: "tech_lead",
-      reviewer: agent("swiftsight-qa-engineer"),
+      reviewer: agent("swiftsight-agent-tl"),
       reviewerRole: "reviewer",
+      qa: agent("swiftsight-qa-engineer"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-agent`,
       issue: {
-        title: "Org E2E: TL delegates SafeJoin fix and QA validates the review loop",
+        title: "Org E2E: TL delegates SafeJoin fix, TL reviews code, QA validates release gate",
         description: [
           "Repository: swiftsight-agent",
           "Target files: internal/storage/path.go and internal/storage/path_test.go",
@@ -341,8 +342,9 @@ function buildScenarioDefinitions(context) {
           "- you own staffing for this issue first",
           "- do not implement the fix yourself",
           `- route the implementation to \`swiftsight-agent-codex-engineer\` (${agent("swiftsight-agent-codex-engineer").id}) with explicit acceptance criteria`,
-          `- keep QA Engineer \`swiftsight-qa-engineer\` (${agent("swiftsight-qa-engineer").id}) as the active reviewer and reuse that exact reviewer id in REASSIGN_TASK`,
-          "- close only after QA sign-off",
+          `- keep yourself as the code reviewer for the diff review cycle`,
+          `- assign QA Engineer \`swiftsight-qa-engineer\` (${agent("swiftsight-qa-engineer").id}) to the QA gate only`,
+          "- close only after both code review and QA sign-off",
           "Known bug:",
           "- SafeJoin currently flattens nested relative segments because it applies filepath.Base() to every element",
           "- nested safe inputs like subdir/nested/file.txt lose their directory structure even though they should stay inside the base directory",
@@ -375,7 +377,7 @@ function buildScenarioDefinitions(context) {
         ].join("\n"),
       },
       assignment: {
-        goal: "Project TL must staff the SafeJoin fix to an engineer, keep QA as reviewer, and drive the issue to done.",
+        goal: "Project TL must staff the SafeJoin fix to an engineer, review the code diff, and drive the issue to done after QA gate.",
         acceptanceCriteria: [
           "The project TL delegates implementation instead of coding directly",
           "Nested safe segments remain nested inside the base directory",
@@ -590,12 +592,13 @@ function buildScenarioDefinitions(context) {
       },
     },
     {
-      key: "swiftsight-cloud-pm-qa-lead-loop",
+      key: "swiftsight-cloud-pm-tl-review-loop",
       project: project("swiftsight-cloud"),
       assignee: agent("swiftsight-pm"),
       assigneeRole: "pm",
-      reviewer: agent("swiftsight-qa-lead"),
+      reviewer: agent("swiftsight-cloud-tl"),
       reviewerRole: "reviewer",
+      qa: agent("swiftsight-qa-lead"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-cloud`,
       issue: {
         title: "Org E2E: PM clarifies build-info scope, TL owns execution, QA Lead reviews",
@@ -606,7 +609,7 @@ function buildScenarioDefinitions(context) {
           "- you own scope clarification first",
           "- do not implement the change yourself",
           `- turn this into an execution-ready delivery slice and hand it to \`swiftsight-cloud-tl\` (${agent("swiftsight-cloud-tl").id})`,
-          "- keep QA Lead as the active reviewer for the final review cycle",
+          `- hand code review to \`swiftsight-cloud-tl\` and assign QA Lead to the QA gate`,
           `- after TL takeover, prefer the implementation lane \`swiftsight-cloud-codex-engineer\` (${agent("swiftsight-cloud-codex-engineer").id}) when staffing is still needed`,
           "- if the issue is already execution-ready in the TL lane, the TL may implement directly instead of forcing another reassignment",
           "Known bug:",
@@ -686,8 +689,9 @@ function buildScenarioDefinitions(context) {
       project: project("swiftcl"),
       assignee: agent("swiftsight-cto"),
       assigneeRole: "cto",
-      reviewer: agent("swiftsight-qa-lead"),
+      reviewer: agent("swiftcl-tl"),
       reviewerRole: "reviewer",
+      qa: agent("swiftsight-qa-lead"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftcl`,
       issue: {
         title: "Org E2E: CTO routes swiftcl catalog-path fix through TL ownership and QA release review",
@@ -778,8 +782,8 @@ function buildScenarioDefinitions(context) {
       coordinator: {
         pm: agent("swiftsight-pm"),
         techLead: agent("swiftsight-cloud-tl"),
-        reviewer: agent("swiftsight-qa-lead"),
-        qa: null,
+        reviewer: agent("swiftsight-cloud-tl"),
+        qa: agent("swiftsight-qa-lead"),
       },
       rootIssue: {
         title: "Org E2E: coordinate multi-project export delivery across agent, cloud, and swiftcl",

@@ -84,7 +84,9 @@ function hasDedicatedEngineerIdentity(agent: PmIntakeAgent) {
 
 function canActAsReviewer(agent: PmIntakeAgent) {
   if (hasReviewerIdentity(agent)) return true;
-  if (agent.role === "qa") return true;
+  // QA agents must not fill the reviewer slot — role exclusivity enforcement.
+  // QA agents belong in the qaAgentId slot only.
+  if (agent.role === "qa") return false;
   if (typeof agent.title === "string" && /tech lead/i.test(agent.title)) return true;
   return false;
 }
@@ -555,7 +557,7 @@ export function buildPmIntakeProjectionPreview(
     predicate: canActAsReviewer,
     preferredId: input.request.reviewerAgentId ?? null,
     excludedIds: [techLead.id],
-    roleBonus: (agent) => (hasReviewerIdentity(agent) ? 100 : agent.role === "qa" ? 50 : 0),
+    roleBonus: (agent) => (hasReviewerIdentity(agent) ? 100 : 0),
     notFoundMessage: "No active reviewer-capable agent is available for PM intake projection",
     invalidPreferredMessage: "Selected reviewer agent must support reviewer protocol role",
   });
