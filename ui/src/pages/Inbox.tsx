@@ -724,7 +724,7 @@ export function Inbox() {
           icon={InboxIcon}
           label="Team supervision"
           value={teamSupervisionItems.length}
-          detail="Shared internal work items waiting on lead, reviewer, or operator attention."
+          detail="Subtasks waiting on lead, reviewer, or operator attention."
           tone={teamSupervisionItems.length > 0 ? "accent" : "default"}
         />
         <SupportMetricCard
