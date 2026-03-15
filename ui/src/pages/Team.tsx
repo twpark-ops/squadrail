@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import type { DashboardAgentPerformanceItem } from "@squadrail/shared";
@@ -16,6 +16,7 @@ import { agentsApi } from "../api/agents";
 import { dashboardApi } from "../api/dashboard";
 import { heartbeatsApi } from "../api/heartbeats";
 import { projectsApi } from "../api/projects";
+import { PageTabBar } from "../components/PageTabBar";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
@@ -27,6 +28,9 @@ import {
   AgentJobIdentity,
   getAgentRolePresentation,
 } from "../components/agent-presence-primitives";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SquadStageBoard } from "../components/squad-stage/SquadStageBoard";
+import { buildSquadStageModel } from "../lib/squad-stage/stage-model";
 
 function TeamLaneCard({
   title,
@@ -286,8 +290,9 @@ function AgentPerformanceCard({
 }
 
 export function Team() {
-  const { selectedCompanyId } = useCompany();
+  const { selectedCompanyId, selectedCompany } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const [teamView, setTeamView] = useState<"stage" | "roster" | "coverage">("stage");
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Team" }]);
@@ -315,6 +320,12 @@ export function Team() {
     queryKey: queryKeys.dashboardAgentPerformance(selectedCompanyId!, 18),
     queryFn: () => dashboardApi.agentPerformance(selectedCompanyId!, 18),
     enabled: !!selectedCompanyId,
+  });
+  const teamSupervisionQuery = useQuery({
+    queryKey: queryKeys.dashboardTeamSupervision(selectedCompanyId!, 18),
+    queryFn: () => dashboardApi.teamSupervision(selectedCompanyId!, 18),
+    enabled: !!selectedCompanyId,
+    refetchInterval: 10_000,
   });
 
   const leadershipTitlePattern = /(lead|head|chief|director|manager|cto|ceo|owner)/i;
@@ -380,7 +391,13 @@ export function Team() {
     return <EmptyState icon={Users} message="Select a company to inspect the squad." />;
   }
 
-  if (agentsQuery.isLoading || projectsQuery.isLoading || liveRunsQuery.isLoading || performanceQuery.isLoading) {
+  if (
+    agentsQuery.isLoading
+    || projectsQuery.isLoading
+    || liveRunsQuery.isLoading
+    || performanceQuery.isLoading
+    || teamSupervisionQuery.isLoading
+  ) {
     return <PageSkeleton variant="list" />;
   }
 
@@ -388,6 +405,14 @@ export function Team() {
   const agents = agentsQuery.data ?? [];
   const liveAgentCount = new Set((liveRunsQuery.data ?? []).map((run) => run.agentId)).size;
   const performance = performanceQuery.data;
+  const stageModel = buildSquadStageModel({
+    companyLabel: selectedCompany?.name ?? "Company",
+    agents,
+    liveRuns: liveRunsQuery.data ?? [],
+    performanceItems: performance?.items ?? [],
+    teamSupervision: teamSupervisionQuery.data,
+    projects,
+  });
 
   return (
     <div className="space-y-8">
@@ -455,171 +480,201 @@ export function Team() {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.04fr_0.96fr]">
-        <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
-          <div className="border-b border-border px-6 py-5">
-            <h2 className="text-lg font-semibold">Operating Lanes</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Keep the operating party visible so owners can read planners, builders, and verification lanes at a glance.
-            </p>
-          </div>
-          <div className="grid gap-4 px-6 py-6 md:grid-cols-3">
-            <TeamLaneCard
-              href="/agents/all"
-              title="Agents"
-              description="Inspect execution lanes, current status, and runtime ownership from the full roster."
-              count={`${agents.length} total`}
-              icon={Bot}
-            />
-            <TeamLaneCard
-              href="/projects"
-              title="Projects"
-              description="Check how many product areas this squad is currently expected to cover."
-              count={`${projects.length} active`}
-              icon={Building2}
-            />
-            <TeamLaneCard
-              href="/org"
-              title="Org Chart"
-              description="Read escalation boundaries, reporting lines, and command structure before staffing decisions."
-              count={`${roleSummary.leaders} leads`}
-              icon={Network}
-            />
-          </div>
-        </section>
-
-        <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
-          <div className="border-b border-border px-6 py-5">
-            <h2 className="text-lg font-semibold">Execution Mix</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Adapter distribution, current roster health, and project load in one pass.
-            </p>
-          </div>
-          <div className="grid gap-4 px-6 py-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-                <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-                  <Cpu className="h-3.5 w-3.5" />
-                  Engine coverage
-                </div>
-                <div className="mt-3 flex items-end justify-between gap-3">
-                  <div>
-                    <div className="text-2xl font-semibold text-foreground">{roleSummary.codex}</div>
-                    <div className="text-sm text-muted-foreground">Codex lanes</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-semibold text-foreground">{roleSummary.claude}</div>
-                    <div className="text-sm text-muted-foreground">Claude lanes</div>
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
-                <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-                  <Building2 className="h-3.5 w-3.5" />
-                  Project load
-                </div>
-                <div className="mt-3 text-2xl font-semibold text-foreground">
-                  {roleSummary.engineers === 0 ? "n/a" : (projects.length / roleSummary.engineers).toFixed(1)}
-                </div>
-                <div className="mt-1 text-sm text-muted-foreground">Projects per engineer, based on current roster count.</div>
-              </div>
-            </div>
-
-            <div className="rounded-[1.35rem] border border-border bg-background">
-              <div className="border-b border-border px-4 py-3 text-sm font-medium text-foreground">Coverage notes</div>
-              <div className="grid gap-3 px-4 py-4">
-                {coverageNotes.map((note) => (
-                  <div key={note} className="rounded-[1rem] border border-border bg-card px-3 py-3 text-sm leading-6 text-muted-foreground">
-                    {note}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
-        <div className="border-b border-border px-6 py-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+      <Tabs value={teamView} onValueChange={(value) => setTeamView(value as "stage" | "roster" | "coverage")}>
+        <div className="rounded-[1.7rem] border border-border bg-card px-5 py-4 shadow-card">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Agent performance scorecard</h2>
+              <h2 className="text-lg font-semibold text-foreground">Team surfaces</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Runtime reliability, delivery throughput, and change-request pressure per agent.
+                Stage is now the primary squad surface. Roster and Coverage remain as operator support tabs.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                {performance?.summary.healthyAgents ?? 0} healthy
-              </span>
-              <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                {performance?.summary.warningAgents ?? 0} warning
-              </span>
-              <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                {performance?.summary.riskAgents ?? 0} risk
-              </span>
-              <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                {performance?.summary.priorityPreemptions7d ?? 0} priority preemptions
-              </span>
-            </div>
+            <PageTabBar
+              items={[
+                { value: "stage", label: "Stage" },
+                { value: "roster", label: "Roster" },
+                { value: "coverage", label: "Coverage" },
+              ]}
+              value={teamView}
+              onValueChange={(value) => setTeamView(value as "stage" | "roster" | "coverage")}
+            />
           </div>
         </div>
-        <div className="grid gap-4 px-6 py-6 lg:grid-cols-2 xl:grid-cols-3">
-          {(performance?.items ?? []).map((item) => (
-            <AgentPerformanceCard key={item.agentId} item={item} />
-          ))}
-        </div>
-      </section>
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <TeamRosterSection
-          title="Leadership roster"
-          subtitle="Planners, operators, and escalation owners steering routing, staffing, and recovery."
-          agents={laneRoster.leadership}
-        />
-        <TeamRosterSection
-          title="Execution roster"
-          subtitle="Builders and delivery owners sorted by the freshest heartbeat so active lanes stay on top."
-          agents={laneRoster.execution}
-        />
-        <TeamRosterSection
-          title="Verification roster"
-          subtitle="Review and QA lanes protecting close quality, release confidence, and regression evidence."
-          agents={laneRoster.review}
-        />
-      </div>
+        <TabsContent value="stage" className="space-y-6">
+          <SquadStageBoard model={stageModel} />
+        </TabsContent>
 
-      <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
-        <div className="border-b border-border px-6 py-5">
-          <h2 className="text-lg font-semibold text-foreground">Project coverage</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Product areas currently attached to this company. Ownership wiring still needs backend support, but coverage density is already visible.
-          </p>
-        </div>
-        <div className="divide-y divide-border">
-          {projects.length === 0 ? (
-            <div className="px-6 py-10 text-sm text-muted-foreground">No projects yet.</div>
-          ) : (
-            projects.map((project) => (
-              <Link
-                key={project.id}
-                to={`/projects/${project.urlKey ?? project.id}`}
-                className="flex items-start justify-between gap-4 px-6 py-4 no-underline transition-colors hover:bg-accent/35"
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-foreground">{project.name}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {project.workspaces.length} workspace{project.workspaces.length === 1 ? "" : "s"} · {project.status}
+        <TabsContent value="roster" className="space-y-6">
+          <div className="grid gap-6 xl:grid-cols-3">
+            <TeamRosterSection
+              title="Leadership roster"
+              subtitle="Planners, operators, and escalation owners steering routing, staffing, and recovery."
+              agents={laneRoster.leadership}
+            />
+            <TeamRosterSection
+              title="Execution roster"
+              subtitle="Builders and delivery owners sorted by the freshest heartbeat so active lanes stay on top."
+              agents={laneRoster.execution}
+            />
+            <TeamRosterSection
+              title="Verification roster"
+              subtitle="Review and QA lanes protecting close quality, release confidence, and regression evidence."
+              agents={laneRoster.review}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="coverage" className="space-y-6">
+          <div className="grid gap-6 xl:grid-cols-[1.04fr_0.96fr]">
+            <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
+              <div className="border-b border-border px-6 py-5">
+                <h2 className="text-lg font-semibold">Operating Lanes</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Keep the operating party visible so owners can read planners, builders, and verification lanes at a glance.
+                </p>
+              </div>
+              <div className="grid gap-4 px-6 py-6 md:grid-cols-3">
+                <TeamLaneCard
+                  href="/agents/all"
+                  title="Agents"
+                  description="Inspect execution lanes, current status, and runtime ownership from the full roster."
+                  count={`${agents.length} total`}
+                  icon={Bot}
+                />
+                <TeamLaneCard
+                  href="/projects"
+                  title="Projects"
+                  description="Check how many product areas this squad is currently expected to cover."
+                  count={`${projects.length} active`}
+                  icon={Building2}
+                />
+                <TeamLaneCard
+                  href="/org"
+                  title="Org Chart"
+                  description="Read escalation boundaries, reporting lines, and command structure before staffing decisions."
+                  count={`${roleSummary.leaders} leads`}
+                  icon={Network}
+                />
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
+              <div className="border-b border-border px-6 py-5">
+                <h2 className="text-lg font-semibold">Execution Mix</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Adapter distribution, current roster health, and project load in one pass.
+                </p>
+              </div>
+              <div className="grid gap-4 px-6 py-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                    <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
+                      <Cpu className="h-3.5 w-3.5" />
+                      Engine coverage
+                    </div>
+                    <div className="mt-3 flex items-end justify-between gap-3">
+                      <div>
+                        <div className="text-2xl font-semibold text-foreground">{roleSummary.codex}</div>
+                        <div className="text-sm text-muted-foreground">Codex lanes</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-semibold text-foreground">{roleSummary.claude}</div>
+                        <div className="text-sm text-muted-foreground">Claude lanes</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-[1.35rem] border border-border bg-background px-4 py-4">
+                    <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
+                      <Building2 className="h-3.5 w-3.5" />
+                      Project load
+                    </div>
+                    <div className="mt-3 text-2xl font-semibold text-foreground">
+                      {roleSummary.engineers === 0 ? "n/a" : (projects.length / roleSummary.engineers).toFixed(1)}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">Projects per engineer, based on current roster count.</div>
                   </div>
                 </div>
-                <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                  {project.urlKey ?? project.id.slice(0, 6)}
-                </span>
-              </Link>
-            ))
-          )}
-        </div>
-      </section>
+
+                <div className="rounded-[1.35rem] border border-border bg-background">
+                  <div className="border-b border-border px-4 py-3 text-sm font-medium text-foreground">Coverage notes</div>
+                  <div className="grid gap-3 px-4 py-4">
+                    {coverageNotes.map((note) => (
+                      <div key={note} className="rounded-[1rem] border border-border bg-card px-3 py-3 text-sm leading-6 text-muted-foreground">
+                        {note}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
+            <div className="border-b border-border px-6 py-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Agent performance scorecard</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Runtime reliability, delivery throughput, and change-request pressure per agent.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                    {performance?.summary.healthyAgents ?? 0} healthy
+                  </span>
+                  <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                    {performance?.summary.warningAgents ?? 0} warning
+                  </span>
+                  <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                    {performance?.summary.riskAgents ?? 0} risk
+                  </span>
+                  <span className="rounded-full border border-border bg-background px-2.5 py-1">
+                    {performance?.summary.priorityPreemptions7d ?? 0} priority preemptions
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-4 px-6 py-6 lg:grid-cols-2 xl:grid-cols-3">
+              {(performance?.items ?? []).map((item) => (
+                <AgentPerformanceCard key={item.agentId} item={item} />
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
+            <div className="border-b border-border px-6 py-5">
+              <h2 className="text-lg font-semibold text-foreground">Project coverage</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Product areas currently attached to this company. Ownership wiring still needs backend support, but coverage density is already visible.
+              </p>
+            </div>
+            <div className="divide-y divide-border">
+              {projects.length === 0 ? (
+                <div className="px-6 py-10 text-sm text-muted-foreground">No projects yet.</div>
+              ) : (
+                projects.map((project) => (
+                  <Link
+                    key={project.id}
+                    to={`/projects/${project.urlKey ?? project.id}`}
+                    className="flex items-start justify-between gap-4 px-6 py-4 no-underline transition-colors hover:bg-accent/35"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-foreground">{project.name}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {project.workspaces.length} workspace{project.workspaces.length === 1 ? "" : "s"} · {project.status}
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                      {project.urlKey ?? project.id.slice(0, 6)}
+                    </span>
+                  </Link>
+                ))
+              )}
+            </div>
+          </section>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -131,6 +131,19 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
 
   await page.goto(`${baseUrl}/${companyPrefix}/team`);
   await expect(page.getByRole("heading", { name: "Team", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Squad Stage", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Stage", exact: true })).toBeVisible();
+  await expect(page.getByTestId("squad-stage-scene-banner")).toBeVisible();
+  await expect(page.getByTestId("squad-stage-scene-dispatch")).toBeVisible();
+  await expect(page.getByTestId("squad-stage-scene-crew")).toBeVisible();
+  await expect(page.getByText("Smoke Engineer").first()).toBeVisible();
+  await expect(page.getByText("Active pulse").first()).toBeVisible();
+  await expect(page.getByText("Office map").first()).toBeVisible();
+  await expect(page.getByTestId("squad-stage-baton-planning-lead")).toBeVisible();
+  await expect(page.getByTestId("squad-stage-station-build")).toBeVisible();
+  await expect(page.getByTestId("squad-stage-room-build")).toBeVisible();
+  await expect(page.getByTestId("squad-stage-map-room-build")).toBeVisible();
+  await page.getByRole("tab", { name: "Roster", exact: true }).click();
   await expect(page.getByText("Leadership roster").first()).toBeVisible();
   await expect(page.getByText("Verification roster").first()).toBeVisible();
 
@@ -273,6 +286,129 @@ test("design guide shows delivery party blocked and qa state matrix", async ({ p
   await expect(qaFixture).toBeVisible();
   await expect(qaFixture.getByText("QA gate open").first()).toBeVisible();
   await expect(qaFixture.getByText("Verifying").first()).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
+test("design guide shows squad stage active and blocked state matrix", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const activeFixture = page.getByTestId("design-guide-squad-stage-active");
+  await expect(activeFixture).toBeVisible();
+  await expect(activeFixture.getByText("Smoke PM").first()).toBeVisible();
+  await expect(activeFixture.getByText("Cloud TL").first()).toBeVisible();
+  await expect(activeFixture.getByText("Smoke Engineer").first()).toBeVisible();
+  await expect(activeFixture.getByText("Smoke Reviewer").first()).toBeVisible();
+  await expect(activeFixture.getByText("Smoke QA Lead").first()).toBeVisible();
+  await expect(activeFixture.getByText("Handing off").first()).toBeVisible();
+  await expect(activeFixture.getByText("Implementing").first()).toBeVisible();
+  await expect(activeFixture.getByText("Reviewing").first()).toBeVisible();
+  await expect(activeFixture.getByText("Verifying").first()).toBeVisible();
+  await expect(activeFixture.getByText("Focused diff in progress").first()).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-baton-planning-lead")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-runner-planning-lead")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-scene-banner")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-scene-dispatch")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-scene-crew")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-station-review")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-room-review")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-packet-build")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-map-room-review")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-work-beam-build")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-work-beam-review")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-work-beam-qa")).toBeVisible();
+
+  const activeMotionStyles = await activeFixture.evaluate((element) => {
+    const actor = element.querySelector('[aria-label="Cloud TL · Handing off"]');
+    const motion = actor?.querySelector(".squad-stage-actor__motion");
+    const sprite = actor?.querySelector(".squad-stage-actor__sprite");
+    const prop = actor?.querySelector(".squad-stage-actor__prop");
+    const station = element.querySelector('[data-testid="squad-stage-station-review"] .squad-stage-station__sprite');
+    const room = element.querySelector('[data-testid="squad-stage-room-review"]');
+    const baton = element.querySelector('[data-testid="squad-stage-baton-planning-lead"] .squad-stage-flow-strip__baton');
+    const runner = element.querySelector('[data-testid="squad-stage-runner-planning-lead"]');
+    const buildBeam = element.querySelector('[data-testid="squad-stage-work-beam-build"]');
+    const packet = element.querySelector('[data-testid="squad-stage-packet-build"]');
+    const mapRoom = element.querySelector('[data-testid="squad-stage-map-room-review"]');
+    const banner = element.querySelector('[data-testid="squad-stage-scene-banner"]');
+    const dispatch = element.querySelector('[data-testid="squad-stage-scene-dispatch"]');
+    const crew = element.querySelector('[data-testid="squad-stage-scene-crew"]');
+    if (
+      !(motion instanceof HTMLElement)
+      || !(sprite instanceof HTMLElement)
+      || !(prop instanceof HTMLElement)
+      || !(station instanceof HTMLElement)
+      || !(room instanceof HTMLElement)
+      || !(baton instanceof HTMLElement)
+      || !(runner instanceof HTMLElement)
+      || !(buildBeam instanceof HTMLElement)
+      || !(packet instanceof HTMLElement)
+      || !(mapRoom instanceof HTMLElement)
+      || !(banner instanceof HTMLElement)
+      || !(dispatch instanceof HTMLElement)
+      || !(crew instanceof HTMLElement)
+    ) {
+      return null;
+    }
+
+    const motionStyle = window.getComputedStyle(motion);
+    const spriteStyle = window.getComputedStyle(sprite);
+    const propStyle = window.getComputedStyle(prop);
+    const stationStyle = window.getComputedStyle(station);
+    const roomStyle = window.getComputedStyle(room);
+    const batonStyle = window.getComputedStyle(baton);
+    const runnerStyle = window.getComputedStyle(runner);
+    const buildBeamStyle = window.getComputedStyle(buildBeam);
+    const packetStyle = window.getComputedStyle(packet);
+    const mapRoomStyle = window.getComputedStyle(mapRoom);
+    const bannerStyle = window.getComputedStyle(banner);
+    const dispatchStyle = window.getComputedStyle(dispatch);
+    const crewStyle = window.getComputedStyle(crew);
+
+    return {
+      motionAnimation: motionStyle.animationName,
+      spriteAnimation: spriteStyle.animationName,
+      spriteBackground: spriteStyle.backgroundImage,
+      propBackground: propStyle.backgroundImage,
+      stationBackground: stationStyle.backgroundImage,
+      roomBackground: roomStyle.backgroundImage,
+      batonAnimation: batonStyle.animationName,
+      runnerAnimation: runnerStyle.animationName,
+      buildBeamAnimation: buildBeamStyle.animationName,
+      packetAnimation: packetStyle.animationName,
+      mapRoomBorder: mapRoomStyle.borderColor,
+      bannerBackdrop: bannerStyle.backdropFilter,
+      dispatchShadow: dispatchStyle.boxShadow,
+      crewPosition: crewStyle.position,
+    };
+  });
+  expect(activeMotionStyles).not.toBeNull();
+  expect(activeMotionStyles?.motionAnimation).toContain("squad-stage-actor-handoff");
+  expect(activeMotionStyles?.spriteAnimation).toContain("squad-stage-sprite-strip-3");
+  expect(activeMotionStyles?.spriteBackground).toContain("/squad-stage/actors/char_");
+  expect(activeMotionStyles?.propBackground).toContain("/squad-stage/office/handoff-prop.svg");
+  expect(activeMotionStyles?.stationBackground).toContain("/squad-stage/office/review-station.svg");
+  expect(activeMotionStyles?.roomBackground).toContain("/squad-stage/office/review-room.svg");
+  expect(activeMotionStyles?.batonAnimation).toContain("squad-stage-baton-travel");
+  expect(activeMotionStyles?.runnerAnimation).toContain("squad-stage-runner-travel");
+  expect(activeMotionStyles?.buildBeamAnimation).toContain("squad-stage-work-beam-pulse");
+  expect(activeMotionStyles?.packetAnimation).toContain("squad-stage-packet-float");
+  expect(activeMotionStyles?.mapRoomBorder).not.toBe("");
+  expect(activeMotionStyles?.bannerBackdrop).toContain("blur");
+  expect(activeMotionStyles?.dispatchShadow).not.toBe("none");
+  expect(activeMotionStyles?.crewPosition).toBe("absolute");
+
+  const blockedFixture = page.getByTestId("design-guide-squad-stage-blocked");
+  await expect(blockedFixture).toBeVisible();
+  await expect(blockedFixture.getByText("Recovery Engineer").first()).toBeVisible();
+  await expect(blockedFixture.getByLabel("Queued Follow-up · Queued").first()).toBeVisible();
+  await expect(blockedFixture.getByText("Blocked").first()).toBeVisible();
+  await expect(blockedFixture.getByText("Fallback handoff armed").first()).toBeVisible();
+  await expect(blockedFixture.getByText("SMO-302 blocked recovery").first()).toBeVisible();
 
   expectHealthyDiagnostics(diagnostics);
 });
