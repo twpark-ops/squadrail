@@ -87,6 +87,7 @@ import {
   computeOrganizationalMemoryPenalty,
   computeRelatedIssueReuseBoost,
   computeScopeBoost,
+  computeSummaryMetadataBoost,
   computeSourceTypeBoost,
   computeSymbolBoost,
   computeTagBoost,
@@ -661,6 +662,13 @@ const DEFAULT_RETRIEVAL_RERANK_WEIGHTS = {
   symbolPartialBoost: 0.45,
   tagMatchBoostPerTag: 0.4,
   tagMatchMaxBoost: 1.2,
+  summaryOwnerTagMatchBoost: 0.75,
+  summarySupportTagMatchBoost: 0.35,
+  summaryAvoidTagPenalty: -0.9,
+  summaryFileContextBoost: 0.16,
+  summarySymbolContextBoost: 0.12,
+  summaryMaxBoost: 1.9,
+  summaryMinBoost: -1.9,
   latestBoost: 0.35,
   issueLinkMinBoost: 0.2,
   issueLinkWeightMultiplier: 0.8,
@@ -849,6 +857,34 @@ export function resolveRetrievalPolicyRerankConfig(input: {
     symbolPartialBoost: readConfiguredNumber(weightsRecord.symbolPartialBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.symbolPartialBoost),
     tagMatchBoostPerTag: readConfiguredNumber(weightsRecord.tagMatchBoostPerTag, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.tagMatchBoostPerTag),
     tagMatchMaxBoost: readConfiguredNumber(weightsRecord.tagMatchMaxBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.tagMatchMaxBoost),
+    summaryOwnerTagMatchBoost: readConfiguredNumber(
+      weightsRecord.summaryOwnerTagMatchBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.summaryOwnerTagMatchBoost,
+    ),
+    summarySupportTagMatchBoost: readConfiguredNumber(
+      weightsRecord.summarySupportTagMatchBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.summarySupportTagMatchBoost,
+    ),
+    summaryAvoidTagPenalty: readConfiguredNumber(
+      weightsRecord.summaryAvoidTagPenalty,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.summaryAvoidTagPenalty,
+    ),
+    summaryFileContextBoost: readConfiguredNumber(
+      weightsRecord.summaryFileContextBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.summaryFileContextBoost,
+    ),
+    summarySymbolContextBoost: readConfiguredNumber(
+      weightsRecord.summarySymbolContextBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.summarySymbolContextBoost,
+    ),
+    summaryMaxBoost: readConfiguredNumber(
+      weightsRecord.summaryMaxBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.summaryMaxBoost,
+    ),
+    summaryMinBoost: readConfiguredNumber(
+      weightsRecord.summaryMinBoost,
+      DEFAULT_RETRIEVAL_RERANK_WEIGHTS.summaryMinBoost,
+    ),
     latestBoost: readConfiguredNumber(weightsRecord.latestBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.latestBoost),
     issueLinkMinBoost: readConfiguredNumber(weightsRecord.issueLinkMinBoost, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.issueLinkMinBoost),
     issueLinkWeightMultiplier: readConfiguredNumber(weightsRecord.issueLinkWeightMultiplier, DEFAULT_RETRIEVAL_RERANK_WEIGHTS.issueLinkWeightMultiplier),
@@ -2165,6 +2201,7 @@ export function rerankRetrievalHits(input: {
         + executablePathBridgeBoost
         + symbolBoost
         + computeTagBoost(hit, input.signals, rerankConfig.weights)
+        + computeSummaryMetadataBoost(hit, input.signals, rerankConfig.weights)
         + computeLatestBoost(hit, rerankConfig.weights)
         + computeFreshnessBoost(hit, rerankConfig.weights)
         + temporal.score

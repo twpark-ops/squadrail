@@ -316,6 +316,11 @@ v1 summary shape:
 - retrieval top hit / brief trace에 summary source가 실제로 나타남
 - summary source가 raw code를 대체하지 않고 hybrid로 동작함
 
+현재 상태:
+
+- 2026-03-15 기준 scoring / personalization / rationale integration 구현 및 검증 완료
+- 다음 단계는 `Phase 4 pre/post proof runner`
+
 ### Verification
 
 - issue retrieval rerank test

@@ -15,7 +15,7 @@
 | 0 | Baseline fixture freeze | completed | strict/autonomy/browser/rag/domain-aware baseline 실행 완료, cleanup follow-up run bug는 residual risk |
 | 1 | Summary source contract | completed | shared source type, summary metadata, route validation, retrieval policy 반영 완료 |
 | 2 | Import-time summary generation | completed | importer/backfill에서 `code_summary` / `symbol_summary` 생성 및 source metadata sync 완료 |
-| 3 | Retrieval integration | pending | summary source weighting / trace |
+| 3 | Retrieval integration | completed | summary metadata boost와 rationale trace를 retrieval scoring에 통합 |
 | 4 | Live proof harness | pending | baseline vs summary-enabled diff |
 | 5 | Full live proof gate | pending | kernel/autonomy/browser/rag/domain-aware PM green |
 
@@ -188,7 +188,28 @@
 
 ### Phase 3
 
-- pending
+- retrieval scoring 통합:
+  - [retrieval/scoring.ts](/home/taewoong/company-project/squadall/server/src/services/retrieval/scoring.ts)
+    - `computeSummaryMetadataBoost()` 추가
+    - `code_summary` / `symbol_summary` hit가 `requiredKnowledgeTags`, `pmProjectSelection.ownerTags/supportTags/avoidTags`, `summaryKind`를 실제 rerank 점수에 반영
+    - hit rationale에 `summary_metadata_match`, `summary_avoid_penalty` 추가
+  - [issue-retrieval.ts](/home/taewoong/company-project/squadall/server/src/services/issue-retrieval.ts)
+    - default rerank weights에 summary metadata 전용 가중치 추가
+    - retrieval policy weight merge가 새 summary weight를 공식 지원
+    - rerank score 계산에 summary metadata boost를 포함
+- 테스트:
+  - [retrieval-scoring.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/retrieval-scoring.test.ts)
+    - owner/support/avoid tag 매칭과 rationale 반영 검증
+  - [retrieval-personalization.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/retrieval-personalization.test.ts)
+  - [retrieval-query.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/retrieval-query.test.ts)
+  - [issue-retrieval-internal-helpers.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/issue-retrieval-internal-helpers.test.ts)
+- 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/retrieval-scoring.test.ts src/__tests__/retrieval-personalization.test.ts src/__tests__/retrieval-query.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+- 결과:
+  - summary source는 이제 허용 source type이 아니라 실제 rerank 입력으로 반영된다
+  - Phase 4는 이 차이를 pre/post 비교 artifact와 live runner로 증명하는 단계다
 
 ### Phase 4
 

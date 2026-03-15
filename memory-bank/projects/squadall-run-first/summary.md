@@ -74,6 +74,31 @@
   - 다음 핵심은 `Phase 3 retrieval integration`이다.
   - 즉 summary source를 retrieval scoring / personalization / PM candidate trace에 실제 반영해야 pre/post live proof가 의미가 생긴다.
 
+## 2026-03-15 RAG meaning layer Phase 3 retrieval integration
+
+- `Phase 3`는 summary source를 실제 rerank 점수와 rationale에 반영하는 단계로 닫았다.
+- 핵심 변경:
+  - [`retrieval/scoring.ts`](/home/taewoong/company-project/squadall/server/src/services/retrieval/scoring.ts)
+    - `computeSummaryMetadataBoost()` 추가
+    - `requiredKnowledgeTags`, `pmProjectSelection.ownerTags/supportTags/avoidTags`, `summaryKind`를 읽어 summary hit를 가점/감점한다
+    - rationale에 `summary_metadata_match`, `summary_avoid_penalty`를 남긴다
+  - [`issue-retrieval.ts`](/home/taewoong/company-project/squadall/server/src/services/issue-retrieval.ts)
+    - default rerank weights에 summary metadata 전용 weight 추가
+    - retrieval policy weight merge가 새 summary weight를 공식 지원
+    - rerank score에 summary metadata boost를 포함
+- 테스트:
+  - [`retrieval-scoring.test.ts`](/home/taewoong/company-project/squadall/server/src/__tests__/retrieval-scoring.test.ts)
+  - [`retrieval-personalization.test.ts`](/home/taewoong/company-project/squadall/server/src/__tests__/retrieval-personalization.test.ts)
+  - [`retrieval-query.test.ts`](/home/taewoong/company-project/squadall/server/src/__tests__/retrieval-query.test.ts)
+  - [`issue-retrieval-internal-helpers.test.ts`](/home/taewoong/company-project/squadall/server/src/__tests__/issue-retrieval-internal-helpers.test.ts)
+- 검증:
+  - `pnpm --filter @squadrail/server exec vitest run src/__tests__/retrieval-scoring.test.ts src/__tests__/retrieval-personalization.test.ts src/__tests__/retrieval-query.test.ts src/__tests__/issue-retrieval-internal-helpers.test.ts`
+  - `pnpm --filter @squadrail/server typecheck`
+  - `pnpm --filter @squadrail/server build`
+- 현재 해석:
+  - summary source는 이제 retrieval에서 실제 랭킹 근거가 된다.
+  - 다음 단계는 `Phase 4 pre/post proof runner`로, 같은 scenario set에서 summary hit와 project selection 변화 artifact를 자동 비교하는 것이다.
+
 ## 2026-03-13 productization pivot: quick request -> clarification -> blueprint
 
 - lower delivery kernel은 제품 기준으로 이미 충분히 닫혔다.

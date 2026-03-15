@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isKnowledgeSummarySourceType } from "@squadrail/shared";
 import type {
   RetrievalHitView,
   RetrievalPolicyRerankConfig,
@@ -29,6 +30,13 @@ export interface RetrievalRerankWeights {
   symbolPartialBoost: number;
   tagMatchBoostPerTag: number;
   tagMatchMaxBoost: number;
+  summaryOwnerTagMatchBoost: number;
+  summarySupportTagMatchBoost: number;
+  summaryAvoidTagPenalty: number;
+  summaryFileContextBoost: number;
+  summarySymbolContextBoost: number;
+  summaryMaxBoost: number;
+  summaryMinBoost: number;
   latestBoost: number;
   issueLinkMinBoost: number;
   issueLinkWeightMultiplier: number;
@@ -307,6 +315,59 @@ export function computeTagBoost(hit: RetrievalHitView, signals: RetrievalSignals
   return Math.min(weights.tagMatchMaxBoost, matches * weights.tagMatchBoostPerTag);
 }
 
+function readProjectSelectionTags(metadata: Record<string, unknown>) {
+  const selection = metadata.pmProjectSelection;
+  if (!selection || typeof selection !== "object" || Array.isArray(selection)) {
+    return {
+      ownerTags: [] as string[],
+      supportTags: [] as string[],
+      avoidTags: [] as string[],
+    };
+  }
+
+  const record = selection as Record<string, unknown>;
+  return {
+    ownerTags: metadataStringArray(record, ["ownerTags"]).map((value) => value.toLowerCase()),
+    supportTags: metadataStringArray(record, ["supportTags"]).map((value) => value.toLowerCase()),
+    avoidTags: metadataStringArray(record, ["avoidTags"]).map((value) => value.toLowerCase()),
+  };
+}
+
+export function computeSummaryMetadataBoost(hit: RetrievalHitView, signals: RetrievalSignals, weights: RetrievalRerankWeights) {
+  if (!isKnowledgeSummarySourceType(hit.sourceType)) return 0;
+
+  const normalizedKnowledgeTags = uniqueNonEmpty(signals.knowledgeTags).map((value) => value.toLowerCase());
+  const documentSelection = readProjectSelectionTags(hit.documentMetadata);
+  const chunkSelection = readProjectSelectionTags(hit.chunkMetadata);
+  const ownerTags = uniqueNonEmpty([...documentSelection.ownerTags, ...chunkSelection.ownerTags]);
+  const supportTags = uniqueNonEmpty([...documentSelection.supportTags, ...chunkSelection.supportTags]);
+  const avoidTags = uniqueNonEmpty([...documentSelection.avoidTags, ...chunkSelection.avoidTags]);
+
+  let score = 0;
+  if (normalizedKnowledgeTags.length > 0) {
+    const ownerMatches = normalizedKnowledgeTags.filter((tag) => ownerTags.includes(tag)).length;
+    const supportMatches = normalizedKnowledgeTags.filter((tag) => supportTags.includes(tag)).length;
+    const avoidMatches = normalizedKnowledgeTags.filter((tag) => avoidTags.includes(tag)).length;
+
+    score += ownerMatches * weights.summaryOwnerTagMatchBoost;
+    score += supportMatches * weights.summarySupportTagMatchBoost;
+    score += avoidMatches * weights.summaryAvoidTagPenalty;
+  }
+
+  const summaryKind = typeof hit.chunkMetadata.summaryKind === "string"
+    ? hit.chunkMetadata.summaryKind
+    : typeof hit.documentMetadata.summaryKind === "string"
+      ? hit.documentMetadata.summaryKind
+      : null;
+  if (summaryKind === "file" || summaryKind === "module") {
+    score += weights.summaryFileContextBoost;
+  } else if (summaryKind === "symbol") {
+    score += weights.summarySymbolContextBoost;
+  }
+
+  return Math.min(weights.summaryMaxBoost, Math.max(weights.summaryMinBoost, score));
+}
+
 export function computeLatestBoost(hit: RetrievalHitView, weights: RetrievalRerankWeights) {
   if (hit.documentMetadata.isLatestForScope === true) return weights.latestBoost;
   return 0;
@@ -395,6 +456,9 @@ export function buildHitRationale(input: {
   }) > 0) reasons.push("executable_path_bridge");
   if (symbolBoost > 0) reasons.push("symbol_match");
   if (computeTagBoost(input.hit, input.signals, input.weights) > 0) reasons.push("tag_match");
+  const summaryMetadataBoost = computeSummaryMetadataBoost(input.hit, input.signals, input.weights);
+  if (summaryMetadataBoost > 0) reasons.push("summary_metadata_match");
+  if (summaryMetadataBoost < 0) reasons.push("summary_avoid_penalty");
   const relatedIssueReuseBoost = computeRelatedIssueReuseBoost({
     hit: input.hit,
     signals: input.signals,
