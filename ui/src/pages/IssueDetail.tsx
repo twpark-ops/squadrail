@@ -954,13 +954,38 @@ export function IssueDetail() {
     ? formatProtocolValue(primaryLiveRun.invocationSource)
     : null;
 
-  // Filter out runs already shown by the live widget to avoid duplication
+  // Group consecutive protocol-gate + implementation runs for the same engineer
+  // into a single logical execution, then filter out live-widget duplicates.
   const timelineRuns = useMemo(() => {
+    const raw = linkedRuns ?? [];
+    const grouped: typeof raw = [];
+    for (let i = 0; i < raw.length; i++) {
+      const current = raw[i];
+      const next = raw[i + 1];
+      // Merge consecutive assignment→automation runs from the same agent
+      if (
+        next &&
+        current.agentId === next.agentId &&
+        current.invocationSource === "assignment" &&
+        next.invocationSource === "automation" &&
+        current.status !== "running"
+      ) {
+        grouped.push({
+          ...current,
+          finishedAt: next.finishedAt ?? current.finishedAt,
+          usageJson: next.usageJson ?? current.usageJson,
+          resultJson: next.resultJson ?? current.resultJson,
+        });
+        i++; // skip the merged run
+      } else {
+        grouped.push(current);
+      }
+    }
     const liveIds = new Set<string>();
     for (const r of liveRuns ?? []) liveIds.add(r.id);
     if (activeRun) liveIds.add(activeRun.id);
-    if (liveIds.size === 0) return linkedRuns ?? [];
-    return (linkedRuns ?? []).filter((r) => !liveIds.has(r.runId));
+    if (liveIds.size === 0) return grouped;
+    return grouped.filter((r) => !liveIds.has(r.runId));
   }, [linkedRuns, liveRuns, activeRun]);
 
   const { data: allIssues } = useQuery({

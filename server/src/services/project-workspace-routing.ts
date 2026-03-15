@@ -238,6 +238,13 @@ function classifyUsageScore(input: {
 export function deriveProjectWorkspaceUsageFromContext(
   context: Record<string, unknown>,
 ): ProjectWorkspaceUsageProfile {
+  // Explicit override allows a single run to use implementation workspace
+  // even when the protocol message type would normally resolve to analysis.
+  const override = readNonEmptyString(context.workspaceUsageOverride);
+  if (override === "implementation" || override === "review" || override === "analysis") {
+    return override;
+  }
+
   const recipientRole = readNonEmptyString(context.protocolRecipientRole);
   const messageType = readNonEmptyString(context.protocolMessageType);
   const workflowStateAfter = readNonEmptyString(context.protocolWorkflowStateAfter);
