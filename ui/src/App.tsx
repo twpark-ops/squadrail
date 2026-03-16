@@ -134,7 +134,7 @@ function boardRoutes() {
       <Route path="company/settings" element={<Navigate to="/settings" replace />} />
       <Route path="org" element={routeElement(<OrgChart />)} />
       <Route path="team" element={routeElement(<Team />)} />
-      <Route path="agents" element={<Navigate to="/team" replace />} />
+      <Route path="agents" element={<Navigate to="all" replace />} />
       <Route path="agents/all" element={routeElement(<Agents />)} />
       <Route path="agents/active" element={routeElement(<Agents />)} />
       <Route path="agents/paused" element={routeElement(<Agents />)} />

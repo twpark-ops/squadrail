@@ -139,6 +139,7 @@ export const issuesApi = {
       assigneeUserId?: string;
       labelId?: string;
       q?: string;
+      includeSubtasks?: boolean;
     },
   ) => {
     const params = new URLSearchParams();
@@ -148,6 +149,7 @@ export const issuesApi = {
     if (filters?.assigneeUserId) params.set("assigneeUserId", filters.assigneeUserId);
     if (filters?.labelId) params.set("labelId", filters.labelId);
     if (filters?.q) params.set("q", filters.q);
+    if (filters?.includeSubtasks) params.set("includeSubtasks", "true");
     const qs = params.toString();
     return api.get<Issue[]>(`/companies/${companyId}/issues${qs ? `?${qs}` : ""}`);
   },

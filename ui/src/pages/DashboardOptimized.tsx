@@ -55,7 +55,7 @@ export function DashboardOptimized() {
     enabled: !!selectedCompanyId,
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: queryKeys.dashboard(selectedCompanyId!),
     queryFn: () => dashboardApi.summary(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -133,6 +133,26 @@ export function DashboardOptimized() {
 
   if (isLoading) {
     return <PageSkeleton variant="dashboard" />;
+  }
+
+  if (isError || (!isLoading && !data)) {
+    return (
+      <div className="space-y-6">
+        <HeroSection
+          eyebrow="Mission control"
+          title="Overview"
+          subtitle={<span>Unable to load dashboard data. The server may be starting up.</span>}
+          actions={
+            <button
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/18 hover:bg-accent"
+            >
+              Retry
+            </button>
+          }
+        />
+      </div>
+    );
   }
 
   const hasNoAgents = agents !== undefined && agents.length === 0;

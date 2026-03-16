@@ -20,8 +20,9 @@ import {
 import { StatusIcon } from "./StatusIcon";
 import { PriorityIcon } from "./PriorityIcon";
 import { Identity } from "./Identity";
+import { ListTree } from "lucide-react";
 import type { Issue } from "@squadrail/shared";
-import { issueUrl } from "../lib/utils";
+import { issueUrl, relativeTime } from "../lib/utils";
 
 const boardStatuses = [
   "backlog",
@@ -160,9 +161,15 @@ function KanbanCard({
             </span>
           )}
         </div>
-        <p className="mb-2 text-sm font-medium leading-snug line-clamp-2">{issue.title}</p>
-        <div className="flex items-center gap-2">
+        <p className="mb-2 text-sm font-medium leading-snug line-clamp-2" title={issue.title}>{issue.title}</p>
+        <div className="flex items-center gap-2 flex-wrap">
           <PriorityIcon priority={issue.priority} />
+          {issue.internalWorkItemSummary?.total ? (
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground border border-border rounded-full px-1.5 py-0.5" title={`${issue.internalWorkItemSummary.done}/${issue.internalWorkItemSummary.total} subtasks done`}>
+              <ListTree className="h-2.5 w-2.5" />
+              {issue.internalWorkItemSummary.done}/{issue.internalWorkItemSummary.total}
+            </span>
+          ) : null}
           {issue.assigneeAgentId && (() => {
             const name = agentName(issue.assigneeAgentId);
             return name ? (
@@ -173,6 +180,9 @@ function KanbanCard({
               </span>
             );
           })()}
+          <span className="text-[10px] text-muted-foreground/60 ml-auto tabular-nums">
+            {relativeTime(issue.updatedAt)}
+          </span>
         </div>
       </Link>
     </div>

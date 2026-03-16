@@ -119,6 +119,28 @@ function sortIssues(issues: Issue[], state: IssueViewState): Issue[] {
   return sorted;
 }
 
+/** Build a tree: root issues first, children nested under their parent. */
+function buildIssueTree(issues: Issue[]): Array<{ issue: Issue; children: Issue[] }> {
+  const childMap = new Map<string, Issue[]>();
+  const roots: Issue[] = [];
+  const issueById = new Map(issues.map((i) => [i.id, i]));
+
+  for (const issue of issues) {
+    if (issue.parentId && issueById.has(issue.parentId)) {
+      const siblings = childMap.get(issue.parentId) ?? [];
+      siblings.push(issue);
+      childMap.set(issue.parentId, siblings);
+    } else {
+      roots.push(issue);
+    }
+  }
+
+  return roots.map((root) => ({
+    issue: root,
+    children: childMap.get(root.id) ?? [],
+  }));
+}
+
 function countActiveFilters(state: IssueViewState): number {
   let count = 0;
   if (state.statuses.length > 0) count++;
@@ -639,13 +661,12 @@ export function IssuesList({
               </div>
             )}
             <CollapsibleContent>
-              {group.items.map((issue) => (
+              {buildIssueTree(group.items).map(({ issue, children }) => (
+                <div key={issue.id}>
                 <Link
-                  key={issue.id}
                   to={workIssuePath(issue.identifier ?? issue.id)}
                   className="flex cursor-pointer items-start gap-2 border-b border-border/85 py-3 pl-3 pr-4 text-sm text-inherit no-underline transition-colors last:border-b-0 hover:bg-accent/50"
                 >
-                  {/* Spacer matching caret width so status icon aligns with group title (hidden on mobile) */}
                   <div className="w-3.5 shrink-0 hidden sm:block" />
                   <div className="shrink-0" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
                     <StatusIcon
@@ -799,6 +820,47 @@ export function IssuesList({
                     </span>
                   </div>
                 </Link>
+                {children.length > 0 && (
+                  <div className="border-b border-border/85 last:border-b-0">
+                    {children.map((child) => (
+                      <Link
+                        key={child.id}
+                        to={workIssuePath(child.identifier ?? child.id)}
+                        className="flex cursor-pointer items-start gap-2 py-2.5 pl-10 pr-4 text-sm text-inherit no-underline transition-colors hover:bg-accent/50 border-l-2 border-primary/20 ml-6"
+                      >
+                        <div className="shrink-0" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+                          <StatusIcon
+                            status={child.status}
+                            onChange={(s) => onUpdateIssue(child.id, { status: s })}
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground font-mono shrink-0">
+                          {child.identifier ?? child.id.slice(0, 8)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm text-foreground/85">{child.title}</div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                            {buildIssueSignals(child).map((signal) => (
+                              <span
+                                key={`${child.id}:${signal.label}`}
+                                className={cn(
+                                  "rounded-full border px-1.5 py-0.5 text-[9px] font-medium",
+                                  signalToneClassName(signal.tone),
+                                )}
+                              >
+                                {signal.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <span className="text-xs text-muted-foreground hidden sm:inline shrink-0">
+                          {formatDate(child.createdAt)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                </div>
               ))}
             </CollapsibleContent>
           </Collapsible>

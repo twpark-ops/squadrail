@@ -67,8 +67,8 @@ export function Issues() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: queryKeys.issues.list(selectedCompanyId!),
-    queryFn: () => issuesApi.list(selectedCompanyId!),
+    queryKey: [...queryKeys.issues.list(selectedCompanyId!), "with-subtasks"],
+    queryFn: () => issuesApi.list(selectedCompanyId!, { includeSubtasks: true }),
     enabled: !!selectedCompanyId,
   });
 

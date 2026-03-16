@@ -80,11 +80,15 @@ export function CompanyRailItem({
           </div>
           <span
             className={cn(
-              "max-w-full truncate px-0.5 text-[7px] font-semibold uppercase tracking-[0.1em]",
+              "max-w-full px-0.5 font-semibold uppercase text-center leading-tight",
+              company.issuePrefix.length > 4
+                ? "text-[5.5px] tracking-[0.06em] break-all line-clamp-2"
+                : "text-[7px] tracking-[0.1em] truncate",
               isSelected
                 ? "text-foreground"
                 : "text-muted-foreground group-hover:text-foreground"
             )}
+            title={company.issuePrefix}
           >
             {company.issuePrefix}
           </span>

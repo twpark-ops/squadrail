@@ -12,17 +12,18 @@ const SHEET_HEIGHT = 96;
 type SpriteAnimationMode = "static" | "task" | "handoff" | "walk";
 
 function spriteConfigForMotion(motion: SquadStageActorModel["motion"]) {
+  // endCol must be one past the last visible frame so steps(N) lands on exact frame boundaries
   switch (motion) {
     case "walking":
-      return { row: 2, startCol: 0, endCol: 3, animationMode: "walk" as const };
+      return { row: 2, startCol: 0, endCol: 4, animationMode: "walk" as const };
     case "handoff":
-      return { row: 2, startCol: 1, endCol: 3, animationMode: "handoff" as const };
+      return { row: 2, startCol: 1, endCol: 4, animationMode: "handoff" as const };
     case "working":
-      return { row: 3, startCol: 4, endCol: 5, animationMode: "task" as const };
+      return { row: 3, startCol: 4, endCol: 6, animationMode: "task" as const };
     case "reviewing":
-      return { row: 1, startCol: 4, endCol: 5, animationMode: "task" as const };
+      return { row: 1, startCol: 4, endCol: 6, animationMode: "task" as const };
     case "verifying":
-      return { row: 0, startCol: 4, endCol: 5, animationMode: "task" as const };
+      return { row: 0, startCol: 4, endCol: 6, animationMode: "task" as const };
     case "blocked":
       return { row: 0, startCol: 6, endCol: 6, animationMode: "static" as const };
     case "offline":
