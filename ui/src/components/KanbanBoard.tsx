@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Link } from "@/lib/router";
 import {
   DndContext,
@@ -20,19 +20,22 @@ import {
 import { StatusIcon } from "./StatusIcon";
 import { PriorityIcon } from "./PriorityIcon";
 import { Identity } from "./Identity";
-import { ListTree } from "lucide-react";
+import { ChevronRight, ListTree } from "lucide-react";
+import { SubtaskProgressBar } from "./SubtaskProgressBar";
 import type { Issue } from "@squadrail/shared";
 import { issueUrl, relativeTime } from "../lib/utils";
 
-const boardStatuses = [
+const activeStatuses = [
   "backlog",
   "todo",
   "in_progress",
   "in_review",
   "blocked",
-  "done",
-  "cancelled",
 ];
+
+const completedStatuses = ["done", "cancelled"];
+
+const boardStatuses = [...activeStatuses, ...completedStatuses];
 
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -78,7 +81,7 @@ function KanbanColumn({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex-1 min-h-[140px] rounded-[1.1rem] p-2 space-y-2 transition-colors ${
+        className={`max-h-[calc(100vh-260px)] min-h-[80px] overflow-y-auto rounded-[1.1rem] p-2 space-y-2 transition-colors ${
           isOver ? "bg-accent/40" : "bg-muted/28"
         }`}
       >
@@ -165,10 +168,11 @@ function KanbanCard({
         <div className="flex items-center gap-2 flex-wrap">
           <PriorityIcon priority={issue.priority} />
           {issue.internalWorkItemSummary?.total ? (
-            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground border border-border rounded-full px-1.5 py-0.5" title={`${issue.internalWorkItemSummary.done}/${issue.internalWorkItemSummary.total} subtasks done`}>
-              <ListTree className="h-2.5 w-2.5" />
-              {issue.internalWorkItemSummary.done}/{issue.internalWorkItemSummary.total}
-            </span>
+            <SubtaskProgressBar
+              summary={issue.internalWorkItemSummary}
+              mode="compact"
+              className="min-w-[80px] max-w-[120px]"
+            />
           ) : null}
           {issue.assigneeAgentId && (() => {
             const name = agentName(issue.assigneeAgentId);
@@ -198,6 +202,17 @@ export function KanbanBoard({
   onUpdateIssue,
 }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  const completedCount = useMemo(
+    () => completedStatuses.reduce((sum, s) => sum + (issues.filter((i) => i.status === s).length), 0),
+    [issues],
+  );
+
+  const visibleStatuses = useMemo(
+    () => showCompleted ? boardStatuses : activeStatuses,
+    [showCompleted],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -265,7 +280,7 @@ export function KanbanBoard({
       onDragEnd={handleDragEnd}
     >
       <div className="-mx-2 flex gap-4 overflow-x-auto px-2 pb-4">
-        {boardStatuses.map((status) => (
+        {visibleStatuses.map((status) => (
           <KanbanColumn
             key={status}
             status={status}
@@ -274,6 +289,18 @@ export function KanbanBoard({
             liveIssueIds={liveIssueIds}
           />
         ))}
+        {!showCompleted && (
+          <button
+            className="flex w-[200px] min-w-[200px] shrink-0 flex-col items-center justify-center gap-2 rounded-[1.5rem] border border-dashed border-border bg-card/40 p-4 text-muted-foreground transition-colors hover:bg-accent/30"
+            onClick={() => setShowCompleted(true)}
+          >
+            <ChevronRight className="h-4 w-4" />
+            <span className="text-xs font-medium">
+              {completedCount} completed
+            </span>
+            <span className="text-[10px]">Click to show</span>
+          </button>
+        )}
       </div>
       <DragOverlay>
         {activeIssue ? (

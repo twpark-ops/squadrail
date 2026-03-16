@@ -60,7 +60,6 @@ import { BriefPanelV2 } from "../components/BriefPanelV2";
 import { ChangeReviewDesk } from "../components/ChangeReviewDesk";
 import { StatusBadgeV2 } from "../components/StatusBadgeV2";
 import {
-  DeliveryPartyStrip,
   type DeliveryPartySlot,
   type DeliveryPartySlotKey,
   type DeliveryPartySlotTone,
@@ -2014,8 +2013,8 @@ export function IssueDetail() {
   return (
     <div
       className={cn(
-        issueSection === "Changes" ? "max-w-5xl" : "max-w-2xl",
-        "space-y-6"
+        issueSection === "Changes" ? "max-w-5xl" : "max-w-4xl",
+        "space-y-4"
       )}
     >
       {/* Parent chain breadcrumb */}
@@ -2399,7 +2398,7 @@ export function IssueDetail() {
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <StatusIcon
             status={issue.status}
@@ -2605,19 +2604,8 @@ export function IssueDetail() {
         </div>
       )}
 
-      <DeliveryPartyStrip
-        headline={
-          activeDeliveryPartySlot
-            ? `${activeDeliveryPartySlot.label} is carrying the active lane`
-            : "Staffed protocol chain"
-        }
-        summaryLabel={activeDeliveryPartySlot?.statusLabel ?? null}
-        summaryTone={activeDeliveryPartySlot?.tone ?? null}
-        slots={deliveryPartySlots}
-      />
-
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card px-3 py-2.5">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Workflow className="h-3.5 w-3.5" />
             Workflow
@@ -2663,79 +2651,30 @@ export function IssueDetail() {
             </div>
           )}
         </div>
-        <div className="rounded-lg border border-border bg-card px-4 py-3">
+        <div className="rounded-lg border border-border bg-card px-3 py-2.5">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <ClipboardCheck className="h-3.5 w-3.5" />
             Protocol ownership
           </div>
-          <div className="mt-2 space-y-2 text-xs text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0">Tech Lead</span>
-              {protocolState?.techLeadAgentId &&
-              agentMap.get(protocolState.techLeadAgentId) ? (
-                <Identity
-                  name={
-                    agentMap.get(protocolState.techLeadAgentId)?.name ??
-                    protocolState.techLeadAgentId.slice(0, 8)
-                  }
-                  size="sm"
-                />
-              ) : (
-                <span>Unassigned</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0">Engineer</span>
-              {protocolState?.primaryEngineerAgentId &&
-              agentMap.get(protocolState.primaryEngineerAgentId) ? (
-                <Identity
-                  name={
-                    agentMap.get(protocolState.primaryEngineerAgentId)?.name ??
-                    protocolState.primaryEngineerAgentId.slice(0, 8)
-                  }
-                  size="sm"
-                />
-              ) : (
-                <span>Unassigned</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0">Reviewer</span>
-              {protocolState?.reviewerAgentId &&
-              agentMap.get(protocolState.reviewerAgentId) ? (
-                <Identity
-                  name={
-                    agentMap.get(protocolState.reviewerAgentId)?.name ??
-                    protocolState.reviewerAgentId.slice(0, 8)
-                  }
-                  size="sm"
-                />
-              ) : (
-                <span>Unassigned</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0">QA Gate</span>
-              {protocolState?.qaAgentId && agentMap.get(protocolState.qaAgentId) ? (
-                <Identity
-                  name={
-                    agentMap.get(protocolState.qaAgentId)?.name ??
-                    protocolState.qaAgentId.slice(0, 8)
-                  }
-                  size="sm"
-                />
-              ) : (
-                <span>Optional</span>
-              )}
-            </div>
+          <div className="mt-1.5 space-y-1.5 text-xs text-muted-foreground">
+            {deliveryPartySlots.map((slot) => (
+              <div key={slot.key} className="flex items-center gap-2">
+                <span className="w-16 shrink-0">{slot.label}</span>
+                {slot.agent ? (
+                  <Identity name={slot.agent.name} size="sm" />
+                ) : (
+                  <span>Unassigned</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
-        <div className="rounded-lg border border-border bg-card px-4 py-3">
+        <div className="rounded-lg border border-border bg-card px-3 py-2.5">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <ShieldAlert className="h-3.5 w-3.5" />
             Readiness
           </div>
-          <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+          <div className="mt-1.5 space-y-1.5 text-xs text-muted-foreground">
             <div>Review cycle: {protocolState?.currentReviewCycle ?? 0}</div>
             <div>Open violations: {openViolations.length}</div>
             <div>Timeout escalations: {openTimeoutAlertCount}</div>
@@ -2746,7 +2685,7 @@ export function IssueDetail() {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-medium text-muted-foreground">
             Attachments
@@ -2833,7 +2772,7 @@ export function IssueDetail() {
       <Tabs
         value={detailTab}
         onValueChange={setDetailTab}
-        className="space-y-3"
+        className="space-y-2"
       >
         <TabsList variant="line" className="w-full justify-start gap-1">
           <TabsTrigger value="brief" className="gap-1.5">
@@ -2855,6 +2794,10 @@ export function IssueDetail() {
           <TabsTrigger value="activity" className="gap-1.5">
             <ActivityIcon className="h-3.5 w-3.5" />
             Activity
+          </TabsTrigger>
+          <TabsTrigger value="delivery" className="gap-1.5">
+            <ClipboardCheck className="h-3.5 w-3.5" />
+            Delivery
           </TabsTrigger>
         </TabsList>
 
@@ -3608,7 +3551,7 @@ export function IssueDetail() {
 
         <TabsContent value="subissues">
           {childIssues.length === 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-muted-foreground">No sub-issues.</p>
                 {!issue.parentId && (
@@ -3624,7 +3567,7 @@ export function IssueDetail() {
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card px-4 py-4">
                 <div className="min-w-0 flex-1">
                   <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -3751,6 +3694,51 @@ export function IssueDetail() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="delivery">
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Staffed delivery chain for this issue. Click an agent to inspect their profile and run history.
+            </div>
+            <div className="space-y-2">
+              {deliveryPartySlots.map((slot) => {
+                const agent = slot.agentId ? agentMap.get(slot.agentId) : null;
+                const agentHref = agent ? `/agents/${agent.urlKey ?? slot.agentId}` : null;
+                const toneCls =
+                  slot.tone === "active" ? "border-cyan-300/70 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+                  : slot.tone === "done" ? "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : slot.tone === "blocked" ? "border-red-300/70 bg-red-500/10 text-red-700 dark:text-red-300"
+                  : slot.tone === "waiting" ? "border-amber-300/70 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  : "border-border bg-background text-muted-foreground";
+                return (
+                  <div key={slot.key} className="flex items-center gap-4 rounded-lg border border-border bg-card px-4 py-3">
+                    <div className="w-20 shrink-0">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{slot.label}</div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {slot.agent && agentHref ? (
+                        <Link to={agentHref} className="flex items-center gap-2 no-underline group">
+                          <Identity name={slot.agent.name} size="sm" />
+                          <span className="text-xs text-muted-foreground">
+                            {slot.agent.role}{slot.agent.adapterType ? ` · ${slot.agent.adapterType.replace(/_/g, " ")}` : ""}
+                          </span>
+                          <span className="text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                            View agent →
+                          </span>
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">{slot.helperText || "Unassigned"}</span>
+                      )}
+                    </div>
+                    <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase", toneCls)}>
+                      {slot.statusLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
 

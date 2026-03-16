@@ -5,10 +5,8 @@ import type { DashboardAgentPerformanceItem } from "@squadrail/shared";
 import {
   Bot,
   Building2,
-  Clock3,
   Cpu,
   Network,
-  ShieldCheck,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -22,7 +20,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
 import { EmptyState } from "../components/EmptyState";
-import { HeroSection } from "../components/HeroSection";
+import { ParentIssueSupervisionCard } from "../components/ParentIssueSupervisionCard";
 import {
   AgentJobIdentity,
   getAgentRolePresentation,
@@ -291,7 +289,7 @@ function AgentPerformanceCard({
 export function Team() {
   const { selectedCompanyId, selectedCompany } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const [teamView, setTeamView] = useState<"stage" | "roster" | "coverage">("stage");
+  const [teamView, setTeamView] = useState<"supervision" | "roster" | "coverage">("supervision");
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Team" }]);
@@ -404,104 +402,136 @@ export function Team() {
   }
 
   return (
-    <div className="space-y-8">
-      <HeroSection
-        eyebrow="Squad coverage"
-        title="Team"
-        subtitle={
-          <span>
-            Read leadership lanes, execution depth, and review capacity before assigning more work.
-            This surface is strongest when it answers who owns routing, who builds, and who closes.
-          </span>
-        }
-        actions={
-          <>
-            <Link
-              to="/agents/all"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
-            >
-              Open agents
-              <Sparkles className="h-4 w-4" />
-            </Link>
-            <Link
-              to="/org"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent hover:text-foreground"
-            >
-              Org chart
-              <Network className="h-4 w-4" />
-            </Link>
-          </>
-        }
-      />
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Leadership lanes
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Squad coverage
           </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">
-            {agentsQuery.isLoading ? "..." : roleSummary.leaders}
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">Operators, leads, and planners steering direction and escalation.</p>
+          <h1 className="mt-1 text-2xl font-semibold text-foreground">Team</h1>
         </div>
-        <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-            <Bot className="h-3.5 w-3.5" />
-            Engineers
-          </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">
-            {agentsQuery.isLoading ? "..." : roleSummary.engineers}
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">Execution lanes currently available for implementation and follow-through.</p>
-        </div>
-        <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Verification lanes
-          </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">
-            {agentsQuery.isLoading ? "..." : roleSummary.qa}
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">Reviewer and QA coverage available before close, release, or merge.</p>
-        </div>
-        <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
-          <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-            <Clock3 className="h-3.5 w-3.5" />
-            Live execution
-          </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">
-            {liveRunsQuery.isLoading ? "..." : liveAgentCount}
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">Agents currently attached to running or queued execution.</p>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/agents/all"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
+          >
+            Open agents
+            <Sparkles className="h-4 w-4" />
+          </Link>
+          <Link
+            to="/org"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent hover:text-foreground"
+          >
+            Org chart
+            <Network className="h-4 w-4" />
+          </Link>
         </div>
       </div>
 
-      <Tabs value={teamView} onValueChange={(value) => setTeamView(value as "stage" | "roster" | "coverage")}>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{roleSummary.leaders}</span> leadership
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{roleSummary.engineers}</span> engineers
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{roleSummary.qa}</span> verification
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{liveAgentCount}</span> live
+        </span>
+      </div>
+
+      <Tabs value={teamView} onValueChange={(value) => setTeamView(value as "supervision" | "roster" | "coverage")}>
         <div className="rounded-[1.7rem] border border-border bg-card px-5 py-4 shadow-card">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-foreground">Team surfaces</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Stage is now the primary squad surface. Roster and Coverage remain as operator support tabs.
+                Supervision is the primary squad surface. Roster and Coverage remain as operator support tabs.
               </p>
             </div>
             <PageTabBar
               items={[
-                { value: "stage", label: "Stage" },
+                { value: "supervision", label: "Supervision" },
                 { value: "roster", label: "Roster" },
                 { value: "coverage", label: "Coverage" },
               ]}
               value={teamView}
-              onValueChange={(value) => setTeamView(value as "stage" | "roster" | "coverage")}
+              onValueChange={(value) => setTeamView(value as "supervision" | "roster" | "coverage")}
             />
           </div>
         </div>
 
-        <TabsContent value="stage" className="space-y-6">
-          <div className="rounded-[2rem] border border-border bg-card p-8 text-center text-muted-foreground shadow-card">
-            Squad Stage has been removed. Use the Roster and Coverage tabs instead.
-          </div>
+        <TabsContent value="supervision" className="space-y-6">
+          {(() => {
+            const supervisionItems = teamSupervisionQuery.data?.items ?? [];
+            const supervisionSummary = teamSupervisionQuery.data?.summary;
+
+            // Group items by rootIssueId
+            const grouped = new Map<string, typeof supervisionItems>();
+            for (const item of supervisionItems) {
+              const group = grouped.get(item.rootIssueId) ?? [];
+              group.push(item);
+              grouped.set(item.rootIssueId, group);
+            }
+
+            if (teamSupervisionQuery.isLoading) {
+              return (
+                <div className="rounded-[2rem] border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground shadow-card">
+                  Loading supervision data...
+                </div>
+              );
+            }
+
+            if (supervisionItems.length === 0) {
+              return (
+                <div className="rounded-[2rem] border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground shadow-card">
+                  No active supervision items. All work is either queued or completed.
+                </div>
+              );
+            }
+
+            return (
+              <>
+                {supervisionSummary && (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-full border border-blue-300/60 bg-blue-500/10 px-2.5 py-1 font-medium text-blue-700 dark:text-blue-300">
+                      {supervisionSummary.active} active
+                    </span>
+                    <span className="rounded-full border border-red-300/60 bg-red-500/10 px-2.5 py-1 font-medium text-red-700 dark:text-red-300">
+                      {supervisionSummary.blocked} blocked
+                    </span>
+                    <span className="rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">
+                      {supervisionSummary.review} review
+                    </span>
+                    <span className="rounded-full border border-border bg-muted/50 px-2.5 py-1 font-medium text-muted-foreground">
+                      {supervisionSummary.queued} queued
+                    </span>
+                    <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium text-muted-foreground">
+                      {supervisionSummary.total} total
+                    </span>
+                  </div>
+                )}
+                <div className="grid gap-4 xl:grid-cols-2">
+                  {Array.from(grouped.entries()).map(([rootId, items]) => {
+                    const first = items[0];
+                    return (
+                      <ParentIssueSupervisionCard
+                        key={rootId}
+                        rootIssueId={rootId}
+                        rootIdentifier={first.rootIdentifier}
+                        rootTitle={first.rootTitle}
+                        rootProjectName={first.rootProjectName}
+                        items={items}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
         </TabsContent>
 
         <TabsContent value="roster" className="space-y-6">

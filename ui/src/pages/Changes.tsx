@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { Link } from "@/lib/router";
+import { Link, useSearchParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import {
   ExternalLink,
@@ -19,7 +19,8 @@ import { relativeTime } from "../lib/utils";
 import { changeIssuePath, workIssuePath } from "../lib/appRoutes";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
-import { HeroSection } from "../components/HeroSection";
+import { PageTabBar } from "../components/PageTabBar";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ChangeReviewDesk } from "../components/ChangeReviewDesk";
 import { MetricCardV2 } from "../components/MetricCardV2";
 import { StatusBadgeV2 } from "../components/StatusBadgeV2";
@@ -133,6 +134,16 @@ function ChangeLane({
 export function Changes() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const changesView =
+    (searchParams.get("view") as "desk" | "lanes" | "metrics") ?? "desk";
+  const setChangesView = (v: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("view", v);
+      return next;
+    });
+  };
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Changes" }]);
@@ -316,174 +327,308 @@ export function Changes() {
       cta: "Review closeout",
     },
   ] as const;
-  const sparseReviewMode =
-    reviewReady.length === 0 && mergeCandidates.length === 0;
-
   return (
-    <div className="space-y-6">
-      <HeroSection
-        eyebrow="Review workspace"
-        title="Changes"
-        subtitle="Review handoff, evidence, and merge readiness without bouncing back into the generic work queue."
-        actions={
-          primaryReviewRef ? (
-            <Link
-              to={workIssuePath(primaryReviewRef)}
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
-            >
-              Inspect linked work
-              <MoveRight className="h-4 w-4" />
-            </Link>
-          ) : undefined
-        }
-      />
-
-      {primaryReviewItem && (
-        <ChangeReviewDesk
-          companyId={selectedCompanyId}
-          issueId={primaryReviewItem.issueId}
-          issueRef={
-            primaryReviewItem.identifier ?? primaryReviewItem.issueId.slice(0, 8)
-          }
-          issueTitle={primaryReviewItem.title}
-          reviewHref={changeIssuePath(
-            primaryReviewItem.identifier ?? primaryReviewItem.issueId
-          )}
-          workHref={workIssuePath(
-            primaryReviewItem.identifier ?? primaryReviewItem.issueId
-          )}
-          surface={primaryReviewSurfaceQuery.data}
-          compact
-        />
-      )}
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCardV2
-          icon={Workflow}
-          value={changesInMotion.length}
-          label="Implementation In Motion"
-          description={
-            <span>Changes currently moving through execution lanes.</span>
-          }
-        />
-        <MetricCardV2
-          icon={TestTube2}
-          value={reviewReady.length}
-          label="Review Ready"
-          description={
-            <span>
-              Engineer handoff is done and a reviewer or QA decision is next.
-            </span>
-          }
-        />
-        <MetricCardV2
-          icon={ShieldCheck}
-          value={mergeCandidates.length}
-          label="Merge Candidates"
-          description={
-            <span>Approved work that is ready to close, merge, or export.</span>
-          }
-        />
-        <MetricCardV2
-          icon={GitCommitHorizontal}
-          value={recentlyClosed.length}
-          label="Recently Closed"
-          description={
-            <span>
-              Recently completed issues that may still need downstream release
-              follow-through.
-            </span>
-          }
-        />
-      </div>
-
-      <section
-        className={`grid gap-5 ${
-          sparseReviewMode
-            ? "xl:grid-cols-[0.88fr_1.12fr]"
-            : "xl:grid-cols-[0.92fr_1.08fr]"
-        }`}
-      >
-        <div className="space-y-6">
-          {sparseReviewMode ? (
-            <>
-              <section className="rounded-[1.45rem] border border-border bg-card px-4 py-4 shadow-card">
-                <div className="space-y-1">
-                  <h2 className="text-base font-semibold text-foreground">
-                    Review lanes are clear
-                  </h2>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Nothing is waiting on reviewer or merge handoff right now.
-                    Keep the desk compact and watch the next inflow instead of
-                    staring at empty review lanes.
-                  </p>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                  {reviewStack.map((item) => (
-                    <div
-                      key={item.title}
-                      className="rounded-[1rem] border border-border bg-background/70 px-4 py-3.5"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-foreground">
-                            {item.title}
-                          </div>
-                          <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                            {item.detail}
-                          </div>
-                        </div>
-                        <div className="text-xl font-semibold text-foreground">
-                          {item.count}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <ChangeLane
-                title="Implementation In Motion"
-                subtitle="Execution work that is most likely to become the next review handoff."
-                items={changesInMotion}
-              />
-            </>
-          ) : (
-            <>
-              <ChangeLane
-                title="Review Ready"
-                subtitle="Changes that already crossed the handoff boundary and need reviewer or QA attention."
-                items={reviewReady}
-              />
-              <ChangeLane
-                title="Merge Candidates"
-                subtitle="Approved work waiting for explicit close, merge export, or merge-candidate follow-through."
-                items={mergeCandidates}
-              />
-            </>
-          )}
+    <Tabs value={changesView} onValueChange={setChangesView}>
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Review workspace
+            </div>
+            <h1 className="mt-1 text-2xl font-semibold text-foreground">
+              Changes
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <PageTabBar
+              items={[
+                { value: "desk", label: "Desk" },
+                { value: "lanes", label: "Lanes" },
+                { value: "metrics", label: "Metrics" },
+              ]}
+              value={changesView}
+              onValueChange={setChangesView}
+            />
+            {primaryReviewRef && (
+              <Link
+                to={workIssuePath(primaryReviewRef)}
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
+              >
+                Inspect work
+                <MoveRight className="h-3.5 w-3.5" />
+              </Link>
+            )}
+          </div>
         </div>
 
-        <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">
-                Review desk
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                This tab exists to answer one question: can this change be
-                approved or closed with confidence?
-              </p>
+        {/* Compact summary bar */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+            <span className="tabular-nums text-foreground">
+              {changesInMotion.length}
+            </span>{" "}
+            in motion
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+            <span className="tabular-nums text-foreground">
+              {reviewReady.length}
+            </span>{" "}
+            review ready
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+            <span className="tabular-nums text-foreground">
+              {mergeCandidates.length}
+            </span>{" "}
+            merge candidates
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+            <span className="tabular-nums text-foreground">
+              {recentlyClosed.length}
+            </span>{" "}
+            recently closed
+          </span>
+        </div>
+
+        {/* Desk tab (default) — review desk + primary review */}
+        <TabsContent value="desk" className="mt-0 space-y-5">
+          {primaryReviewItem && (
+            <ChangeReviewDesk
+              companyId={selectedCompanyId}
+              issueId={primaryReviewItem.issueId}
+              issueRef={
+                primaryReviewItem.identifier ??
+                primaryReviewItem.issueId.slice(0, 8)
+              }
+              issueTitle={primaryReviewItem.title}
+              reviewHref={changeIssuePath(
+                primaryReviewItem.identifier ?? primaryReviewItem.issueId
+              )}
+              workHref={workIssuePath(
+                primaryReviewItem.identifier ?? primaryReviewItem.issueId
+              )}
+              surface={primaryReviewSurfaceQuery.data}
+              compact
+            />
+          )}
+
+          <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-foreground">
+                  Review desk
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This tab exists to answer one question: can this change be
+                  approved or closed with confidence?
+                </p>
+              </div>
+              <span className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                Evidence first
+              </span>
             </div>
-            <span className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
-              Evidence first
-            </span>
+
+            <div className="mt-4 grid gap-3">
+              {reviewStack.map((item) => (
+                <div
+                  key={item.title}
+                  className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-foreground">
+                        {item.title}
+                      </div>
+                      <div className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {item.detail}
+                      </div>
+                    </div>
+                    <div className="text-2xl font-semibold text-foreground">
+                      {item.count}
+                    </div>
+                  </div>
+                  {item.to && (
+                    <Link
+                      to={item.to}
+                      className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary no-underline hover:underline"
+                    >
+                      {item.cta}
+                      <MoveRight className="h-3.5 w-3.5" />
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              {reviewDesk.map((item) => (
+                <div
+                  key={item.title}
+                  className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {item.title}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-foreground">
+                    {item.description}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-[1rem] border border-border bg-background/72 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">
+                      Implementation trail
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Active engineering work that will soon become a review
+                      item.
+                    </div>
+                  </div>
+                  <Workflow className="h-4 w-4 text-primary" />
+                </div>
+                <div className="mt-4 space-y-3">
+                  {changesInMotion.length === 0 ? (
+                    <div className="rounded-[1rem] border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                      No implementation changes are currently moving.
+                    </div>
+                  ) : (
+                    changesInMotion.slice(0, 4).map((item) => (
+                      <Link
+                        key={item.issueId}
+                        to={changeIssuePath(item.identifier ?? item.issueId)}
+                        className="block rounded-[1rem] border border-border bg-card px-3 py-3 no-underline transition-colors hover:border-primary/18 hover:bg-accent/24"
+                      >
+                        <div className="text-sm font-semibold text-foreground">
+                          {item.title}
+                        </div>
+                        <div className="mt-1 text-sm leading-6 text-muted-foreground">
+                          {item.summary}
+                        </div>
+                      </Link>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-[1rem] border border-border bg-background/72 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">
+                      Close follow-through
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Completed work that may still need audit, release, or
+                      merge verification.
+                    </div>
+                  </div>
+                  <GitCommitHorizontal className="h-4 w-4 text-primary" />
+                </div>
+                <div className="mt-4 space-y-3">
+                  {recentlyClosed.length === 0 ? (
+                    <div className="rounded-[1rem] border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                      No recently closed changes yet.
+                    </div>
+                  ) : (
+                    recentlyClosed.slice(0, 4).map((item) => (
+                      <Link
+                        key={item.issueId}
+                        to={changeIssuePath(item.identifier ?? item.issueId)}
+                        className="block rounded-[1rem] border border-border bg-card px-3 py-3 no-underline transition-colors hover:border-primary/18 hover:bg-accent/24"
+                      >
+                        <div className="text-sm font-semibold text-foreground">
+                          {item.title}
+                        </div>
+                        <div className="mt-1 text-sm leading-6 text-muted-foreground">
+                          {item.summary}
+                        </div>
+                      </Link>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        </TabsContent>
+
+        {/* Lanes tab — change lanes */}
+        <TabsContent value="lanes" className="mt-0 space-y-5">
+          <ChangeLane
+            title="Implementation In Motion"
+            subtitle="Execution work that is most likely to become the next review handoff."
+            items={changesInMotion}
+          />
+          <ChangeLane
+            title="Review Ready"
+            subtitle="Changes that crossed the handoff boundary and need reviewer or QA attention."
+            items={reviewReady}
+          />
+          <ChangeLane
+            title="Merge Candidates"
+            subtitle="Approved work waiting for explicit close or merge follow-through."
+            items={mergeCandidates}
+          />
+          <ChangeLane
+            title="Recently Closed"
+            subtitle="Completed issues that may need downstream follow-through."
+            items={recentlyClosed}
+          />
+        </TabsContent>
+
+        {/* Metrics tab — dashboard cards */}
+        <TabsContent value="metrics" className="mt-0 space-y-6">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCardV2
+              icon={Workflow}
+              value={changesInMotion.length}
+              label="Implementation In Motion"
+              description={
+                <span>
+                  Changes currently moving through execution lanes.
+                </span>
+              }
+            />
+            <MetricCardV2
+              icon={TestTube2}
+              value={reviewReady.length}
+              label="Review Ready"
+              description={
+                <span>
+                  Engineer handoff is done and a reviewer or QA decision is
+                  next.
+                </span>
+              }
+            />
+            <MetricCardV2
+              icon={ShieldCheck}
+              value={mergeCandidates.length}
+              label="Merge Candidates"
+              description={
+                <span>
+                  Approved work that is ready to close, merge, or export.
+                </span>
+              }
+            />
+            <MetricCardV2
+              icon={GitCommitHorizontal}
+              value={recentlyClosed.length}
+              label="Recently Closed"
+              description={
+                <span>
+                  Recently completed issues that may still need downstream
+                  release follow-through.
+                </span>
+              }
+            />
           </div>
 
-          <div className="mt-4 grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
             {reviewStack.map((item) => (
               <div
                 key={item.title}
-                className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5"
+                className="rounded-[1rem] border border-border bg-card px-4 py-3.5 shadow-card"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -510,144 +655,8 @@ export function Changes() {
               </div>
             ))}
           </div>
-
-          <div className="mt-4 grid gap-3">
-            {reviewDesk.map((item) => (
-              <div
-                key={item.title}
-                className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5"
-              >
-                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  {item.title}
-                </div>
-                <div className="mt-2 text-sm leading-6 text-foreground">
-                  {item.description}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-[1rem] border border-border bg-background/72 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">
-                    Implementation trail
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    Active engineering work that will soon become a review item.
-                  </div>
-                </div>
-                <Workflow className="h-4 w-4 text-primary" />
-              </div>
-              <div className="mt-4 space-y-3">
-                {changesInMotion.length === 0 ? (
-                  <div className="rounded-[1rem] border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                    No implementation changes are currently moving.
-                  </div>
-                ) : (
-                  changesInMotion.slice(0, 4).map((item) => (
-                    <Link
-                      key={item.issueId}
-                      to={changeIssuePath(item.identifier ?? item.issueId)}
-                      className="block rounded-[1rem] border border-border bg-card px-3 py-3 no-underline transition-colors hover:border-primary/18 hover:bg-accent/24"
-                    >
-                      <div className="text-sm font-semibold text-foreground">
-                        {item.title}
-                      </div>
-                      <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                        {item.summary}
-                      </div>
-                    </Link>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-[1rem] border border-border bg-background/72 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">
-                    Close follow-through
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    Completed work that may still need audit, release, or merge
-                    verification.
-                  </div>
-                </div>
-                <GitCommitHorizontal className="h-4 w-4 text-primary" />
-              </div>
-              <div className="mt-4 space-y-3">
-                {recentlyClosed.length === 0 ? (
-                  <div className="rounded-[1rem] border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                    No recently closed changes yet.
-                  </div>
-                ) : (
-                  recentlyClosed.slice(0, 4).map((item) => (
-                    <Link
-                      key={item.issueId}
-                      to={changeIssuePath(item.identifier ?? item.issueId)}
-                      className="block rounded-[1rem] border border-border bg-card px-3 py-3 no-underline transition-colors hover:border-primary/18 hover:bg-accent/24"
-                    >
-                      <div className="text-sm font-semibold text-foreground">
-                        {item.title}
-                      </div>
-                      <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                        {item.summary}
-                      </div>
-                    </Link>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-      </section>
-
-      {sparseReviewMode ? (
-        recentlyClosed.length > 0 ? (
-          <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold text-foreground">
-                Recent change trail
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Closed work that still deserves merge, audit, or rollout
-                follow-through.
-              </p>
-            </div>
-            <ChangeLane
-              title="Recently Closed"
-              subtitle="Recently closed work that should still be easy to audit, export, or compare with landed code."
-              items={recentlyClosed}
-            />
-          </section>
-        ) : null
-      ) : (
-        <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-foreground">
-              Change lanes
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Secondary lanes that help operators compare active implementation
-              with already-closed work.
-            </p>
-          </div>
-          <div className="grid gap-5 xl:grid-cols-2">
-            <ChangeLane
-              title="Implementation In Motion"
-              subtitle="Changes currently backed by execution work, queued implementation, or follow-up engineering activity."
-              items={changesInMotion}
-            />
-            <ChangeLane
-              title="Recently Closed"
-              subtitle="Recently closed work that should still be easy to audit, export, or compare with landed code."
-              items={recentlyClosed}
-            />
-          </div>
-        </section>
-      )}
-    </div>
+        </TabsContent>
+      </div>
+    </Tabs>
   );
 }

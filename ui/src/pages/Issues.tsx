@@ -19,7 +19,8 @@ import {
   Users,
   Workflow,
 } from "lucide-react";
-import { HeroSection } from "../components/HeroSection";
+import { PageTabBar } from "../components/PageTabBar";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { QueueCardV2 } from "../components/QueueCardV2";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { appRoutes } from "../lib/appRoutes";
@@ -27,7 +28,7 @@ import { appRoutes } from "../lib/appRoutes";
 export function Issues() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
   const { data: agents } = useQuery({
@@ -161,193 +162,241 @@ export function Issues() {
     },
   ] as const;
 
-  return (
-    <div className="space-y-6">
-      <HeroSection
-        eyebrow="Delivery queue"
-        title="Work"
-        subtitle="Read execution flow, review pressure, and stalled ownership before dropping into the full issue browser."
-      />
+  const workView = (searchParams.get("view") as "board" | "list" | "queue") ?? "board";
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {focusCards.map((card) => (
-            <Link
-              key={card.label}
-              to={card.to}
-              className="rounded-[1.15rem] border border-border bg-card px-4 py-3.5 no-underline shadow-card transition-colors hover:border-primary/18 hover:bg-accent/24"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
-                    {card.label}
-                  </div>
-                  <div className="mt-1.5 text-[2rem] font-semibold text-foreground">
-                    {card.value}
-                  </div>
-                </div>
-                <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                  {card.tone}
-                </span>
-              </div>
-              <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                {card.description}
-              </div>
-            </Link>
-          ))}
+  const setWorkView = (v: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("view", v);
+      return next;
+    });
+  };
+
+  return (
+    <Tabs value={workView} onValueChange={setWorkView}>
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Delivery queue
+            </div>
+            <h1 className="mt-1 text-2xl font-semibold text-foreground">Work</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <PageTabBar
+              items={[
+                { value: "board", label: "Board" },
+                { value: "list", label: "List" },
+                { value: "queue", label: "Queue" },
+              ]}
+              value={workView}
+              onValueChange={setWorkView}
+            />
+            <div className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
+              {issueSummary.total} issues
+            </div>
+          </div>
         </div>
 
-        <section className="rounded-[1.45rem] border border-border bg-card px-5 py-4.5 shadow-card">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">
-                Work priorities
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                This page should let operators read queue shape before they ever
-                touch a filter.
-              </p>
-            </div>
-            <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+        {/* Compact summary bar — visible on Board & List tabs */}
+        {workView !== "queue" && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {focusCards.map((card) => (
+              <Link
+                key={card.label}
+                to={card.to}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent/24"
+              >
+                <span className="tabular-nums text-foreground">{card.value}</span>
+                <span>{card.label.toLowerCase()}</span>
+              </Link>
+            ))}
           </div>
+        )}
 
-          <div className="mt-4 space-y-3">
-            <div className="rounded-[1rem] border border-border bg-background/74 px-4 py-3.5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Workflow className="h-4 w-4 text-primary" />
-                Active flow
-              </div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                {issueSummary.active} active issues, {issueSummary.live}{" "}
-                currently attached to running or queued heartbeat work.
-              </div>
-            </div>
-            <div className="rounded-[1rem] border border-border bg-background/74 px-4 py-3.5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Users className="h-4 w-4 text-primary" />
-                Human attention
-              </div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                {humanDecisionQueue.length} human decisions and{" "}
-                {handoffQueue.length} close handoff blockers are visible before
-                the issue browser.
-              </div>
-            </div>
-            <div className="rounded-[1rem] border border-border bg-background/74 px-4 py-3.5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Clock3 className="h-4 w-4 text-primary" />
-                Stale pressure
-              </div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                {staleQueue.length} stale items and {issueSummary.blocked}{" "}
-                blocked issues should be triaged before queue churn gets worse.
-              </div>
-            </div>
-          </div>
-        </section>
-      </section>
+        {/* Board tab (default) */}
+        <TabsContent value="board" className="mt-0">
+          <IssuesList
+            issues={issues ?? []}
+            isLoading={isLoading}
+            error={error as Error | null}
+            agents={agents}
+            liveIssueIds={liveIssueIds}
+            viewStateKey="squadrail:work-view"
+            legacyViewStateKey="squadrail:issues-view"
+            viewMode="board"
+            initialAssignees={
+              searchParams.get("assignee")
+                ? [searchParams.get("assignee")!]
+                : undefined
+            }
+            onUpdateIssue={(id, data) => updateIssue.mutate({ id, data })}
+          />
+        </TabsContent>
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
+        {/* List tab */}
+        <TabsContent value="list" className="mt-0">
+          <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
+            <IssuesList
+              issues={issues ?? []}
+              isLoading={isLoading}
+              error={error as Error | null}
+              agents={agents}
+              liveIssueIds={liveIssueIds}
+              viewStateKey="squadrail:work-view"
+              legacyViewStateKey="squadrail:issues-view"
+              viewMode="list"
+              initialAssignees={
+                searchParams.get("assignee")
+                  ? [searchParams.get("assignee")!]
+                  : undefined
+              }
+              onUpdateIssue={(id, data) => updateIssue.mutate({ id, data })}
+            />
+          </section>
+        </TabsContent>
+
+        {/* Queue tab — operational dashboard */}
+        <TabsContent value="queue" className="mt-0 space-y-6">
+          <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {focusCards.map((card) => (
+                <Link
+                  key={card.label}
+                  to={card.to}
+                  className="rounded-[1.15rem] border border-border bg-card px-4 py-3.5 no-underline shadow-card transition-colors hover:border-primary/18 hover:bg-accent/24"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground">
+                        {card.label}
+                      </div>
+                      <div className="mt-1.5 text-[2rem] font-semibold text-foreground">
+                        {card.value}
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      {card.tone}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {card.description}
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            <section className="rounded-[1.45rem] border border-border bg-card px-5 py-4.5 shadow-card">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Work priorities
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Queue shape and pressure signals at a glance.
+                  </p>
+                </div>
+                <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div className="rounded-[1rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Workflow className="h-4 w-4 text-primary" />
+                    Active flow
+                  </div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    {issueSummary.active} active issues, {issueSummary.live}{" "}
+                    currently attached to running or queued heartbeat work.
+                  </div>
+                </div>
+                <div className="rounded-[1rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Users className="h-4 w-4 text-primary" />
+                    Human attention
+                  </div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    {humanDecisionQueue.length} human decisions and{" "}
+                    {handoffQueue.length} close handoff blockers are visible.
+                  </div>
+                </div>
+                <div className="rounded-[1rem] border border-border bg-background/74 px-4 py-3.5">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Clock3 className="h-4 w-4 text-primary" />
+                    Stale pressure
+                  </div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    {staleQueue.length} stale items and {issueSummary.blocked}{" "}
+                    blocked issues need triage.
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section className="space-y-4">
             <h2 className="text-lg font-semibold text-foreground">
               Operational lanes
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Categories are exposed on the page itself, not buried behind a
-              filter popover.
-            </p>
-          </div>
-        </div>
-        <div className="grid gap-4 xl:grid-cols-3">
-          <QueueCardV2
-            title="Execution now"
-            subtitle="Issues with active implementation ownership or follow-up execution in progress."
-            icon={Workflow}
-            items={executionQueue}
-            variant="execution"
-            emptyMessage="No implementation work is moving right now."
-            to="/changes"
-          />
-          <QueueCardV2
-            title="Needs review"
-            subtitle="Engineer handoff is done and a reviewer, QA, or lead decision is next."
-            icon={GitBranch}
-            items={reviewQueue}
-            variant="review"
-            emptyMessage="Nothing is waiting on review right now."
-            to="/changes"
-          />
-          <QueueCardV2
-            title="Blocked"
-            subtitle="Runtime, dependency, or ownership problems that are actively stalling work."
-            icon={ShieldAlert}
-            items={blockedQueue}
-            variant="blocked"
-            emptyMessage="No blocked work at the moment."
-            to="/runs"
-          />
-          <QueueCardV2
-            title="Handoff blockers"
-            subtitle="Approved or half-closed work that still needs an explicit close, merge handoff, or operator action."
-            icon={CircleDot}
-            items={handoffQueue}
-            variant="closure"
-            emptyMessage="No handoff blockers are waiting."
-            to="/changes"
-          />
-          <QueueCardV2
-            title="Waiting on human"
-            subtitle="Board or operator decisions that stall movement even when engineering work is complete."
-            icon={Users}
-            items={humanDecisionQueue}
-            variant="approval"
-            emptyMessage="No human decisions are waiting."
-            to="/changes"
-          />
-          <QueueCardV2
-            title="Ready to close"
-            subtitle="Approved work that only needs explicit close, merge, or export follow-through."
-            icon={CircleDot}
-            items={readyToCloseQueue}
-            variant="closure"
-            emptyMessage="Nothing is ready to close right now."
-            to="/changes"
-          />
-        </div>
-      </section>
-
-      <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              Queue browser
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Search, sort, and bulk review still live here, but the queue
-              framing now leads the page.
-            </p>
-          </div>
-          <div className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
-            {issueSummary.total} issues
-          </div>
-        </div>
-        <IssuesList
-          issues={issues ?? []}
-          isLoading={isLoading}
-          error={error as Error | null}
-          agents={agents}
-          liveIssueIds={liveIssueIds}
-          viewStateKey="squadrail:work-view"
-          legacyViewStateKey="squadrail:issues-view"
-          initialAssignees={
-            searchParams.get("assignee")
-              ? [searchParams.get("assignee")!]
-              : undefined
-          }
-          onUpdateIssue={(id, data) => updateIssue.mutate({ id, data })}
-        />
-      </section>
-    </div>
+            <div className="grid gap-4 xl:grid-cols-3">
+              <QueueCardV2
+                title="Execution now"
+                subtitle="Issues with active implementation ownership."
+                icon={Workflow}
+                items={executionQueue}
+                variant="execution"
+                emptyMessage="No implementation work is moving right now."
+                to="/changes"
+              />
+              <QueueCardV2
+                title="Needs review"
+                subtitle="Engineer handoff done, reviewer is next."
+                icon={GitBranch}
+                items={reviewQueue}
+                variant="review"
+                emptyMessage="Nothing is waiting on review right now."
+                to="/changes"
+              />
+              <QueueCardV2
+                title="Blocked"
+                subtitle="Runtime, dependency, or ownership problems."
+                icon={ShieldAlert}
+                items={blockedQueue}
+                variant="blocked"
+                emptyMessage="No blocked work at the moment."
+                to="/runs"
+              />
+              <QueueCardV2
+                title="Handoff blockers"
+                subtitle="Work needing explicit close or merge handoff."
+                icon={CircleDot}
+                items={handoffQueue}
+                variant="closure"
+                emptyMessage="No handoff blockers are waiting."
+                to="/changes"
+              />
+              <QueueCardV2
+                title="Waiting on human"
+                subtitle="Board or operator decisions stalling flow."
+                icon={Users}
+                items={humanDecisionQueue}
+                variant="approval"
+                emptyMessage="No human decisions are waiting."
+                to="/changes"
+              />
+              <QueueCardV2
+                title="Ready to close"
+                subtitle="Approved work approaching merge or close."
+                icon={CircleDot}
+                items={readyToCloseQueue}
+                variant="closure"
+                emptyMessage="Nothing is ready to close right now."
+                to="/changes"
+              />
+            </div>
+          </section>
+        </TabsContent>
+      </div>
+    </Tabs>
   );
 }

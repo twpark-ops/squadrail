@@ -20,6 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { CircleDot, Plus, Filter, ArrowUpDown, Layers, Check, X, ChevronRight, List, Columns3, User, Search } from "lucide-react";
 import { KanbanBoard } from "./KanbanBoard";
+import { SubtaskProgressBar } from "./SubtaskProgressBar";
 import type { Issue } from "@squadrail/shared";
 import { readJsonStorageAlias, writeJsonStorageAlias } from "../lib/storage-aliases";
 import { workIssuePath } from "../lib/appRoutes";
@@ -45,6 +46,7 @@ export type IssueViewState = {
   groupBy: "status" | "priority" | "assignee" | "none";
   viewMode: "list" | "board";
   collapsedGroups: string[];
+  collapsedParents: string[];
 };
 
 const defaultViewState: IssueViewState = {
@@ -57,6 +59,7 @@ const defaultViewState: IssueViewState = {
   groupBy: "none",
   viewMode: "list",
   collapsedGroups: [],
+  collapsedParents: [],
 };
 
 const quickFilterPresets = [
@@ -225,6 +228,7 @@ interface IssuesListProps {
   viewStateKey: string;
   legacyViewStateKey?: string;
   initialAssignees?: string[];
+  viewMode?: "list" | "board";
   onUpdateIssue: (id: string, data: Record<string, unknown>) => void;
 }
 
@@ -238,6 +242,7 @@ export function IssuesList({
   viewStateKey,
   legacyViewStateKey,
   initialAssignees,
+  viewMode: viewModeProp,
   onUpdateIssue,
 }: IssuesListProps) {
   const { selectedCompanyId } = useCompany();
@@ -254,6 +259,7 @@ export function IssuesList({
     }
     return getViewState(scopedKey, scopedLegacyKey);
   });
+  const effectiveViewMode = viewModeProp ?? viewState.viewMode;
   const [assigneePickerIssueId, setAssigneePickerIssueId] = useState<string | null>(null);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [issueSearch, setIssueSearch] = useState("");
@@ -375,23 +381,25 @@ export function IssuesList({
         </div>
 
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-          {/* View mode toggle */}
-          <div className="flex items-center border border-border rounded-md overflow-hidden mr-1">
-            <button
-              className={`p-1.5 transition-colors ${viewState.viewMode === "list" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => updateView({ viewMode: "list" })}
-              title="List view"
-            >
-              <List className="h-3.5 w-3.5" />
-            </button>
-            <button
-              className={`p-1.5 transition-colors ${viewState.viewMode === "board" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => updateView({ viewMode: "board" })}
-              title="Board view"
-            >
-              <Columns3 className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          {/* View mode toggle — hidden when controlled externally via viewMode prop */}
+          {!viewModeProp && (
+            <div className="flex items-center border border-border rounded-md overflow-hidden mr-1">
+              <button
+                className={`p-1.5 transition-colors ${effectiveViewMode === "list" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => updateView({ viewMode: "list" })}
+                title="List view"
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
+              <button
+                className={`p-1.5 transition-colors ${effectiveViewMode === "board" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => updateView({ viewMode: "board" })}
+                title="Board view"
+              >
+                <Columns3 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* Filter */}
           <Popover>
@@ -532,7 +540,7 @@ export function IssuesList({
           </Popover>
 
           {/* Sort (list view only) */}
-          {viewState.viewMode === "list" && (
+          {effectiveViewMode === "list" && (
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="text-xs">
@@ -576,7 +584,7 @@ export function IssuesList({
           )}
 
           {/* Group (list view only) */}
-          {viewState.viewMode === "list" && (
+          {effectiveViewMode === "list" && (
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="text-xs">
@@ -613,7 +621,7 @@ export function IssuesList({
       {isLoading && <PageSkeleton variant="issues-list" />}
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 
-      {!isLoading && filtered.length === 0 && viewState.viewMode === "list" && (
+      {!isLoading && filtered.length === 0 && effectiveViewMode === "list" && (
         <EmptyState
           icon={CircleDot}
           message="No issues match the current filters or search."
@@ -622,7 +630,7 @@ export function IssuesList({
         />
       )}
 
-      {viewState.viewMode === "board" ? (
+      {effectiveViewMode === "board" ? (
         <KanbanBoard
           issues={filtered}
           agents={agents}
@@ -665,9 +673,29 @@ export function IssuesList({
                 <div key={issue.id}>
                 <Link
                   to={workIssuePath(issue.identifier ?? issue.id)}
-                  className="flex cursor-pointer items-start gap-2 border-b border-border/85 py-3 pl-3 pr-4 text-sm text-inherit no-underline transition-colors last:border-b-0 hover:bg-accent/50"
+                  className={cn(
+                    "flex cursor-pointer items-start gap-2 border-b border-border/85 py-3 pl-3 pr-4 text-sm text-inherit no-underline transition-colors last:border-b-0 hover:bg-accent/50",
+                    children.length > 0 && "bg-muted/20",
+                  )}
                 >
-                  <div className="w-3.5 shrink-0 hidden sm:block" />
+                  {children.length > 0 ? (
+                    <button
+                      className="hidden w-3.5 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground sm:flex"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        updateView({
+                          collapsedParents: viewState.collapsedParents.includes(issue.id)
+                            ? viewState.collapsedParents.filter((id) => id !== issue.id)
+                            : [...viewState.collapsedParents, issue.id],
+                        });
+                      }}
+                    >
+                      <ChevronRight className={cn("h-3 w-3 transition-transform", !viewState.collapsedParents.includes(issue.id) && "rotate-90")} />
+                    </button>
+                  ) : (
+                    <div className="w-3.5 shrink-0 hidden sm:block" />
+                  )}
                   <div className="shrink-0" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
                     <StatusIcon
                       status={issue.status}
@@ -714,8 +742,28 @@ export function IssuesList({
                         <span className="text-[10px] text-muted-foreground">+{(issue.labels ?? []).length - 2} labels</span>
                       )}
                     </div>
+                    {issue.internalWorkItemSummary && issue.internalWorkItemSummary.total > 0 && (
+                      <SubtaskProgressBar
+                        summary={issue.internalWorkItemSummary}
+                        mode={children.length > 0 ? "full" : "compact"}
+                        className="mt-1.5"
+                      />
+                    )}
                   </div>
                   <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
+                    {children.length > 0 && issue.internalWorkItemSummary?.activeAssigneeAgentIds && issue.internalWorkItemSummary.activeAssigneeAgentIds.length > 0 && (
+                      <div className="hidden items-center -space-x-1.5 sm:flex">
+                        {issue.internalWorkItemSummary.activeAssigneeAgentIds.slice(0, 3).map((agentId) => {
+                          const name = agentName(agentId);
+                          return name ? <Identity key={agentId} name={name} size="xs" /> : null;
+                        })}
+                        {issue.internalWorkItemSummary.activeAssigneeAgentIds.length > 3 && (
+                          <span className="pl-2 text-[10px] text-muted-foreground">
+                            +{issue.internalWorkItemSummary.activeAssigneeAgentIds.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {liveIssueIds?.has(issue.id) && (
                       <span className="inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded-full bg-blue-500/10">
                         <span className="relative flex h-2 w-2">
@@ -820,7 +868,7 @@ export function IssuesList({
                     </span>
                   </div>
                 </Link>
-                {children.length > 0 && (
+                {children.length > 0 && !viewState.collapsedParents.includes(issue.id) && (
                   <div className="border-b border-border/85 last:border-b-0">
                     {children.map((child) => (
                       <Link

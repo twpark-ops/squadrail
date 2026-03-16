@@ -102,21 +102,20 @@ export function DeliveryPartyStrip({
 }: DeliveryPartyStripProps) {
   return (
     <div
-      className="rounded-xl border border-border/80 bg-card/80 px-4 py-4"
+      className="rounded-xl border border-border/80 bg-card/80 px-4 py-3.5"
       data-testid={testId}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Delivery party
-          </div>
-          <div className="mt-1 text-sm font-semibold text-foreground">{headline}</div>
-        </div>
+      <div className="mb-3 flex items-center gap-3">
+        <span className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Delivery party
+        </span>
+        <span className="text-xs text-muted-foreground/60">·</span>
+        <span className="text-xs text-muted-foreground">{headline}</span>
         {summaryLabel && summaryTone ? (
           <Badge
             variant="outline"
             className={cn(
-              "delivery-party-summary-badge rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.16em]",
+              "delivery-party-summary-badge ml-auto rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.14em]",
               deliveryPartyToneClassName(summaryTone),
             )}
           >
@@ -124,30 +123,25 @@ export function DeliveryPartyStrip({
           </Badge>
         ) : null}
       </div>
-      <div className="mt-4 grid gap-3 lg:grid-cols-4">
+      <div className="grid gap-3">
         {slots.map((slot) => {
           const contextRole = describeContextRole(slot);
           const presence = deliveryPartyPresenceClasses(slot.tone);
           return (
             <div
               key={slot.key}
-              className="delivery-party-slot rounded-xl border border-border/80 bg-background/80 px-3 py-3"
+              className="delivery-party-slot flex flex-wrap items-center gap-4 rounded-xl border border-border/80 bg-background/80 px-4 py-3"
               data-tone={slot.tone}
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {/* Role label */}
+              <div className="w-20 shrink-0">
+                <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   {slot.label}
                 </div>
-                <span
-                  className={cn(
-                    "delivery-party-status-badge inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
-                    deliveryPartyToneClassName(slot.tone),
-                  )}
-                >
-                  {slot.statusLabel}
-                </span>
               </div>
-              <div className="mt-3">
+
+              {/* Agent identity */}
+              <div className="min-w-0 flex-1">
                 {slot.agent ? (
                   <AgentJobIdentity
                     name={slot.agent.name}
@@ -161,35 +155,43 @@ export function DeliveryPartyStrip({
                     roleBadgeClassName="team-job-badge"
                   />
                 ) : (
-                  <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs leading-5 text-muted-foreground">
+                  <div className="text-xs leading-5 text-muted-foreground">
                     {slot.helperText}
                   </div>
                 )}
               </div>
-              {contextRole ? (
-                <div className="mt-3">
-                  <span className="delivery-party-context-badge inline-flex items-center rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+
+              {/* Badges + status */}
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {contextRole && (
+                  <span className="delivery-party-context-badge inline-flex items-center rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     {contextRole}
                   </span>
-                </div>
-              ) : null}
-              {slot.signalLabel ? (
-                <div className="mt-3">
+                )}
+                {slot.signalLabel && (
                   <span
                     className={cn(
-                      "delivery-party-signal-badge inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em]",
+                      "delivery-party-signal-badge inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em]",
                       deliveryPartyToneClassName(slot.tone),
                     )}
                   >
                     <span className="delivery-party-signal-dot" aria-hidden />
                     {slot.signalLabel}
                   </span>
-                </div>
-              ) : null}
-              {slot.detailText ? (
+                )}
+                <span
+                  className={cn(
+                    "delivery-party-status-badge inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em]",
+                    deliveryPartyToneClassName(slot.tone),
+                  )}
+                >
+                  {slot.statusLabel}
+                </span>
+              </div>
+              {slot.detailText && (
                 <div
                   className={cn(
-                    "delivery-party-detail mt-3 rounded-lg border px-3 py-2 text-xs leading-5",
+                    "delivery-party-detail shrink-0 basis-full rounded-lg border px-3.5 py-2 text-xs leading-5",
                     slot.tone === "blocked"
                       ? "border-red-300/70 bg-red-500/10 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200"
                       : slot.tone === "active"
@@ -199,7 +201,7 @@ export function DeliveryPartyStrip({
                 >
                   {slot.detailText}
                 </div>
-              ) : null}
+              )}
             </div>
           );
         })}
