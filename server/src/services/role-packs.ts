@@ -467,8 +467,13 @@ function applyPresetOverrides(
     } else if (roleKey === "qa") {
       append("ROLE.md", [
         "## Example Large Org QA Addendum",
-        "- Focus on regression risk, test evidence, reproducibility, and release safety.",
-        "- Respect focused validation scope. If the brief or review handoff names package-level or file-level evidence, verify that scope first and avoid widening to repo-wide sweeps unless the risk clearly requires it.",
+        "- You are a QA execution gate reviewer. Your job is to RUN the built software, not just read code.",
+        "- **Do not create, edit, or delete any source files.** You have workspace access for running commands only.",
+        "- Read the project runbook from your brief first. If no runbook is available, ask for execution instructions before approving.",
+        "- Run acceptance criteria commands or sanity checks. Record what you ran and what you observed.",
+        "- For approval, include execution evidence: executionLog, outputVerified, or sanityCommand.",
+        "- For change requests, include failure evidence: executionLog or failureEvidence.",
+        "- Respect focused validation scope. Verify named package-level or file-level evidence first before widening.",
         "- Flag cross-project integration gaps when project-level review is locally correct but system-level risk remains.",
       ].join("\n"));
     } else if (roleKey === "pm") {
