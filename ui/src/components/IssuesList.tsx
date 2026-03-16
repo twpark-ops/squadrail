@@ -166,20 +166,22 @@ function buildIssueSignals(issue: Issue): Array<{ label: string; tone: IssueSign
   }
 
   if (issue.internalWorkItemSummary?.total) {
+    const { total, done, blocked, inReview } = issue.internalWorkItemSummary;
+    const parts = [`${done}/${total} done`];
+    let tone: IssueSignalTone = "info";
+    if (blocked) {
+      parts.push(`${blocked} blocked`);
+      tone = "danger";
+    } else if (inReview) {
+      parts.push(`${inReview} review`);
+      tone = "warning";
+    }
     signals.push({
-      label: `${issue.internalWorkItemSummary.done}/${issue.internalWorkItemSummary.total} subtasks`,
-      tone: "info",
+      label: parts.join(" · "),
+      tone,
     });
-  }
-  if (issue.internalWorkItemSummary?.blocked) {
-    signals.push({
-      label: `${issue.internalWorkItemSummary.blocked} blocked`,
-      tone: "danger",
-    });
-  }
-  if (
+  } else if (
     issue.status === "in_review" ||
-    issue.internalWorkItemSummary?.inReview ||
     issue.internalWorkItemSummary?.reviewRequestedIssueId
   ) {
     signals.push({

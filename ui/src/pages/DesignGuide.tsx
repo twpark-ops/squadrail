@@ -850,6 +850,42 @@ const designGuideStageActive: SquadStageModel = {
       tone: "active",
     },
   ],
+  priorityIssues: [
+    {
+      id: "SMO-211",
+      href: "/work/SMO-211",
+      label: "SMO-211",
+      title: "Narrow export handoff and route the focused implementation slice",
+      projectLabel: "SwiftSight Cloud",
+      phaseLabel: "Implementation",
+      summary: "2 packets moving now",
+      tone: "active",
+      counts: {
+        total: 2,
+        blocked: 0,
+        review: 0,
+        active: 2,
+        queued: 0,
+      },
+    },
+    {
+      id: "SMO-205",
+      href: "/work/SMO-205",
+      label: "SMO-205",
+      title: "QA evidence check before release",
+      projectLabel: "SwiftSight Cloud",
+      phaseLabel: "QA gate",
+      summary: "1 packet moving now",
+      tone: "active",
+      counts: {
+        total: 1,
+        blocked: 0,
+        review: 0,
+        active: 1,
+        queued: 0,
+      },
+    },
+  ],
   officeMap: {
     rooms: [
       {
@@ -922,10 +958,13 @@ const designGuideStageBlocked: SquadStageModel = {
       subtitle: "Human request intake and PM shaping",
       stationLabel: "Intake podium",
       roomLabel: "Recovery intake room",
-      signal: "idle",
+      signal: "warning",
       primaryActor: null,
-      workSummary: "No intake queue is visible right now.",
+      workSummary: "Queued work waiting for actor assignment.",
       handoffLabel: "handoff -> Lead",
+      queuePackets: [
+        makeStagePacket({ id: "queue-planning-1", label: "SMO-410", detail: "Queued intake request", tone: "warning" }),
+      ],
     }),
     makeStageLane({
       id: "lead",
@@ -1073,6 +1112,25 @@ const designGuideStageBlocked: SquadStageModel = {
       summary: "Recovery lane is blocked. TL is queuing a fallback handoff before review can reopen.",
       href: "/work/SMO-302",
       tone: "blocked",
+    },
+  ],
+  priorityIssues: [
+    {
+      id: "SMO-302",
+      href: "/work/SMO-302",
+      label: "SMO-302",
+      title: "Recovery lane fallback after blocked build packet",
+      projectLabel: "SwiftSight Cloud",
+      phaseLabel: "Blocked",
+      summary: "1 blocked · 3 active packets",
+      tone: "blocked",
+      counts: {
+        total: 3,
+        blocked: 1,
+        review: 0,
+        active: 0,
+        queued: 2,
+      },
     },
   ],
   officeMap: {

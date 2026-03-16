@@ -68,14 +68,16 @@ export function SquadStageActor({
   actor,
   compact = false,
   decorative = false,
+  scene = false,
 }: {
   actor: SquadStageActorModel;
   compact?: boolean;
   decorative?: boolean;
+  scene?: boolean;
 }) {
   const presentation = getAgentRolePresentation(actor.role, actor.title);
   const sprite = spriteConfigForMotion(actor.motion);
-  const scale = compact ? 2.4 : 3.4;
+  const scale = compact ? 2.35 : scene ? 4.1 : 3.4;
   const sheetIndex = actor.spriteIndex % 6;
   const stateProp = statePropForMotion(actor.motion);
 
@@ -93,6 +95,7 @@ export function SquadStageActor({
   const actorClassName = cn(
     "squad-stage-actor group no-underline",
     compact ? "squad-stage-actor--compact" : "squad-stage-actor--full",
+    scene ? "squad-stage-actor--scene" : null,
     signalClassName(actor.signal),
   );
 
@@ -117,7 +120,14 @@ export function SquadStageActor({
         <presentation.icon className={cn("h-3 w-3", presentation.iconClassName)} />
       </span>
 
-      {!compact ? (
+      {scene && !compact ? (
+        <span className="squad-stage-actor__scene-chip">
+          <span className="squad-stage-actor__scene-name">{actor.name}</span>
+          <span className="squad-stage-actor__scene-status">{actor.statusLabel}</span>
+        </span>
+      ) : null}
+
+      {!compact && !scene ? (
         <span className="squad-stage-actor__meta">
           <span className="squad-stage-actor__name-row">
             <span className="squad-stage-actor__name">{actor.name}</span>

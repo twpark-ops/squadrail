@@ -135,9 +135,9 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await expect(page.getByRole("tab", { name: "Stage", exact: true })).toBeVisible();
   await expect(page.getByTestId("squad-stage-scene-banner")).toBeVisible();
   await expect(page.getByTestId("squad-stage-scene-dispatch")).toBeVisible();
-  await expect(page.getByTestId("squad-stage-scene-crew")).toBeVisible();
+  await expect(page.getByTestId("squad-stage-priority-strip")).toBeVisible();
   await expect(page.getByText("Smoke Engineer").first()).toBeVisible();
-  await expect(page.getByText("Active pulse").first()).toBeVisible();
+  await expect(page.getByText("Parent issue progress").first()).toBeVisible();
   await expect(page.getByText("Office map").first()).toBeVisible();
   await expect(page.getByTestId("squad-stage-baton-planning-lead")).toBeVisible();
   await expect(page.getByTestId("squad-stage-station-build")).toBeVisible();
@@ -313,7 +313,7 @@ test("design guide shows squad stage active and blocked state matrix", async ({ 
   await expect(activeFixture.getByTestId("squad-stage-runner-planning-lead")).toBeVisible();
   await expect(activeFixture.getByTestId("squad-stage-scene-banner")).toBeVisible();
   await expect(activeFixture.getByTestId("squad-stage-scene-dispatch")).toBeVisible();
-  await expect(activeFixture.getByTestId("squad-stage-scene-crew")).toBeVisible();
+  await expect(activeFixture.getByTestId("squad-stage-priority-strip")).toBeVisible();
   await expect(activeFixture.getByTestId("squad-stage-station-review")).toBeVisible();
   await expect(activeFixture.getByTestId("squad-stage-room-review")).toBeVisible();
   await expect(activeFixture.getByTestId("squad-stage-packet-build")).toBeVisible();
@@ -332,11 +332,11 @@ test("design guide shows squad stage active and blocked state matrix", async ({ 
     const baton = element.querySelector('[data-testid="squad-stage-baton-planning-lead"] .squad-stage-flow-strip__baton');
     const runner = element.querySelector('[data-testid="squad-stage-runner-planning-lead"]');
     const buildBeam = element.querySelector('[data-testid="squad-stage-work-beam-build"]');
-    const packet = element.querySelector('[data-testid="squad-stage-packet-build"]');
+    const packet = element.querySelector('[data-testid="squad-stage-packet-build"] .squad-stage-packet');
     const mapRoom = element.querySelector('[data-testid="squad-stage-map-room-review"]');
     const banner = element.querySelector('[data-testid="squad-stage-scene-banner"]');
     const dispatch = element.querySelector('[data-testid="squad-stage-scene-dispatch"]');
-    const crew = element.querySelector('[data-testid="squad-stage-scene-crew"]');
+    const priorityStrip = element.querySelector('[data-testid="squad-stage-priority-strip"]');
     if (
       !(motion instanceof HTMLElement)
       || !(sprite instanceof HTMLElement)
@@ -350,7 +350,7 @@ test("design guide shows squad stage active and blocked state matrix", async ({ 
       || !(mapRoom instanceof HTMLElement)
       || !(banner instanceof HTMLElement)
       || !(dispatch instanceof HTMLElement)
-      || !(crew instanceof HTMLElement)
+      || !(priorityStrip instanceof HTMLElement)
     ) {
       return null;
     }
@@ -367,7 +367,7 @@ test("design guide shows squad stage active and blocked state matrix", async ({ 
     const mapRoomStyle = window.getComputedStyle(mapRoom);
     const bannerStyle = window.getComputedStyle(banner);
     const dispatchStyle = window.getComputedStyle(dispatch);
-    const crewStyle = window.getComputedStyle(crew);
+    const priorityStyle = window.getComputedStyle(priorityStrip);
 
     return {
       motionAnimation: motionStyle.animationName,
@@ -383,7 +383,7 @@ test("design guide shows squad stage active and blocked state matrix", async ({ 
       mapRoomBorder: mapRoomStyle.borderColor,
       bannerBackdrop: bannerStyle.backdropFilter,
       dispatchShadow: dispatchStyle.boxShadow,
-      crewPosition: crewStyle.position,
+      priorityDisplay: priorityStyle.display,
     };
   });
   expect(activeMotionStyles).not.toBeNull();
@@ -400,7 +400,7 @@ test("design guide shows squad stage active and blocked state matrix", async ({ 
   expect(activeMotionStyles?.mapRoomBorder).not.toBe("");
   expect(activeMotionStyles?.bannerBackdrop).toContain("blur");
   expect(activeMotionStyles?.dispatchShadow).not.toBe("none");
-  expect(activeMotionStyles?.crewPosition).toBe("absolute");
+  expect(activeMotionStyles?.priorityDisplay).toBe("grid");
 
   const blockedFixture = page.getByTestId("design-guide-squad-stage-blocked");
   await expect(blockedFixture).toBeVisible();
@@ -409,6 +409,16 @@ test("design guide shows squad stage active and blocked state matrix", async ({ 
   await expect(blockedFixture.getByText("Blocked").first()).toBeVisible();
   await expect(blockedFixture.getByText("Fallback handoff armed").first()).toBeVisible();
   await expect(blockedFixture.getByText("SMO-302 blocked recovery").first()).toBeVisible();
+
+  // Verify primaryActor=null lane still renders queued packets (regression guard)
+  const planningLane = blockedFixture.locator('[data-lane="planning"]').first();
+  const queuePacket = blockedFixture.getByText("SMO-410").first();
+  const noActorLabel = blockedFixture.getByText("No active actor").first();
+  // Planning lane has no primaryActor but has queued work — both must be visible
+  if (await planningLane.count() > 0) {
+    await expect(noActorLabel).toBeVisible();
+    await expect(queuePacket).toBeVisible();
+  }
 
   expectHealthyDiagnostics(diagnostics);
 });

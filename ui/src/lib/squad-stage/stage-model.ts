@@ -84,10 +84,29 @@ export interface SquadStageSpotlight {
   tone: SquadStageSignal;
 }
 
+export interface SquadStagePriorityIssue {
+  id: string;
+  href: string;
+  label: string;
+  title: string;
+  projectLabel: string | null;
+  phaseLabel: string;
+  summary: string;
+  tone: SquadStageSignal;
+  counts: {
+    total: number;
+    blocked: number;
+    review: number;
+    active: number;
+    queued: number;
+  };
+}
+
 export interface SquadStageModel {
   companyLabel: string;
   lanes: SquadStageLane[];
   spotlights: SquadStageSpotlight[];
+  priorityIssues: SquadStagePriorityIssue[];
   officeMap: {
     rooms: Array<{
       laneId: SquadStageLaneId;
@@ -470,6 +489,115 @@ function buildSpotlights(supervision: DashboardTeamSupervisionItem[]): SquadStag
     }));
 }
 
+function tonePriority(signal: SquadStageSignal) {
+  switch (signal) {
+    case "blocked":
+      return 0;
+    case "active":
+      return 1;
+    case "warning":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function phaseLabelForItems(items: DashboardTeamSupervisionItem[]) {
+  if (items.some((item) => item.summaryKind === "blocked")) return "Blocked";
+  if (items.some((item) => item.kind === "qa")) return "QA gate";
+  if (items.some((item) => item.kind === "review" || item.summaryKind === "review")) return "Review";
+  if (items.some((item) => item.kind === "implementation")) return "Implementation";
+  if (items.some((item) => item.kind === "plan")) return "Planning";
+  return "Queued";
+}
+
+function summaryForPriorityIssue(issue: {
+  blocked: number;
+  review: number;
+  active: number;
+  queued: number;
+  total: number;
+}) {
+  if (issue.blocked > 0) {
+    return `${issue.blocked} blocked · ${issue.total} active packet${issue.total > 1 ? "s" : ""}`;
+  }
+  if (issue.review > 0) {
+    return `${issue.review} waiting for review or QA`;
+  }
+  if (issue.active > 0) {
+    return `${issue.active} packet${issue.active > 1 ? "s" : ""} moving now`;
+  }
+  if (issue.queued > 0) {
+    return `${issue.queued} queued for the next handoff`;
+  }
+  return "No active packet visible right now.";
+}
+
+function buildPriorityIssues(supervision: DashboardTeamSupervisionItem[]): SquadStagePriorityIssue[] {
+  const grouped = new Map<
+    string,
+    {
+      rootIssueId: string;
+      rootIdentifier: string | null;
+      rootTitle: string;
+      rootProjectName: string | null;
+      items: DashboardTeamSupervisionItem[];
+      lastUpdatedAt: number;
+    }
+  >();
+
+  for (const item of supervision) {
+    const existing = grouped.get(item.rootIssueId);
+    if (existing) {
+      existing.items.push(item);
+      existing.lastUpdatedAt = Math.max(existing.lastUpdatedAt, readDateValue(item.updatedAt));
+      continue;
+    }
+    grouped.set(item.rootIssueId, {
+      rootIssueId: item.rootIssueId,
+      rootIdentifier: item.rootIdentifier,
+      rootTitle: item.rootTitle,
+      rootProjectName: item.rootProjectName,
+      items: [item],
+      lastUpdatedAt: readDateValue(item.updatedAt),
+    });
+  }
+
+  return [...grouped.values()]
+    .map((group) => {
+      const counts = {
+        total: group.items.length,
+        blocked: group.items.filter((item) => item.summaryKind === "blocked").length,
+        review: group.items.filter((item) => item.summaryKind === "review").length,
+        active: group.items.filter((item) => item.summaryKind === "active").length,
+        queued: group.items.filter((item) => item.summaryKind === "queued").length,
+      };
+      const tone: SquadStageSignal =
+        counts.blocked > 0 ? "blocked" : counts.review > 0 || counts.active > 0 ? "active" : counts.queued > 0 ? "warning" : "idle";
+
+      return {
+        id: group.rootIssueId,
+        href: deriveIssueHref(group.rootIssueId, group.rootIdentifier),
+        label: group.rootIdentifier ?? group.rootTitle,
+        title: group.rootTitle,
+        projectLabel: group.rootProjectName,
+        phaseLabel: phaseLabelForItems(group.items),
+        summary: summaryForPriorityIssue(counts),
+        tone,
+        counts,
+        lastUpdatedAt: group.lastUpdatedAt,
+      };
+    })
+    .sort((left, right) => {
+      if (tonePriority(left.tone) !== tonePriority(right.tone)) {
+        return tonePriority(left.tone) - tonePriority(right.tone);
+      }
+      return right.lastUpdatedAt - left.lastUpdatedAt;
+    })
+    .slice(0, 4)
+    .map(({ lastUpdatedAt: _lastUpdatedAt, ...issue }) => issue);
+}
+
 export function buildSquadStageModel(input: {
   companyLabel: string;
   agents: TeamAgent[];
@@ -604,6 +732,7 @@ export function buildSquadStageModel(input: {
     companyLabel: input.companyLabel,
     lanes,
     spotlights: buildSpotlights(supervisionItems),
+    priorityIssues: buildPriorityIssues(supervisionItems),
     officeMap: {
       rooms: lanes.map((lane) => ({
         laneId: lane.id,

@@ -23,7 +23,6 @@ import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
 import { EmptyState } from "../components/EmptyState";
 import { HeroSection } from "../components/HeroSection";
-import { PageSkeleton } from "../components/PageSkeleton";
 import {
   AgentJobIdentity,
   getAgentRolePresentation,
@@ -68,6 +67,7 @@ function TeamRosterSection({
   title,
   subtitle,
   agents,
+  isLoading = false,
 }: {
   title: string;
   subtitle: string;
@@ -82,6 +82,7 @@ function TeamRosterSection({
     adapterType: string;
     lastHeartbeatAt: Date | string | null;
   }>;
+  isLoading?: boolean;
 }) {
   function describePresenceMode(agent: (typeof agents)[number]) {
     if (agent.status === "paused") return "paused";
@@ -122,7 +123,7 @@ function TeamRosterSection({
       <div className="grid gap-3 p-5">
         {agents.length === 0 ? (
           <div className="rounded-[1.35rem] border border-dashed border-border px-5 py-8 text-sm text-muted-foreground">
-            No agents assigned to this lane yet.
+            {isLoading ? "Loading roster..." : "No agents assigned to this lane yet."}
           </div>
         ) : (
           agents.map((agent, index) => {
@@ -328,12 +329,24 @@ export function Team() {
     refetchInterval: 10_000,
   });
 
+  const agents = agentsQuery.data ?? [];
+  const projects = projectsQuery.data ?? [];
+  const liveRuns = liveRunsQuery.data ?? [];
+  const performance = performanceQuery.data;
+  const performanceItems = performance?.items ?? [];
+  const performanceSummary = performance?.summary;
+  const isBaseLoading = agentsQuery.isLoading || projectsQuery.isLoading;
+  const isLiveStageSyncing =
+    agentsQuery.isLoading
+    || projectsQuery.isLoading
+    || liveRunsQuery.isLoading
+    || performanceQuery.isLoading
+    || teamSupervisionQuery.isLoading;
+
   const leadershipTitlePattern = /(lead|head|chief|director|manager|cto|ceo|owner)/i;
   const qaTitlePattern = /(qa|quality|review)/i;
 
   const roleSummary = useMemo(() => {
-    const agents = agentsQuery.data ?? [];
-
     return {
       leaders: agents.filter(
         (agent) =>
@@ -345,27 +358,32 @@ export function Team() {
       codex: agents.filter((agent) => agent.adapterType === "codex_local").length,
       claude: agents.filter((agent) => agent.adapterType === "claude_local").length,
     };
-  }, [agentsQuery.data]);
+  }, [agents]);
 
   const laneRoster = useMemo(() => {
-    const agents = [...(agentsQuery.data ?? [])].sort((left, right) => {
+    const sortedAgents = [...agents].sort((left, right) => {
       const leftHeartbeat = left.lastHeartbeatAt ? +new Date(left.lastHeartbeatAt) : 0;
       const rightHeartbeat = right.lastHeartbeatAt ? +new Date(right.lastHeartbeatAt) : 0;
       return rightHeartbeat - leftHeartbeat;
     });
 
     return {
-      leadership: agents.filter(
+      leadership: sortedAgents.filter(
         (agent) =>
           ["ceo", "cto", "pm"].includes(agent.role) || leadershipTitlePattern.test(agent.title ?? ""),
       ),
-      execution: agents.filter((agent) => agent.role === "engineer"),
-      review: agents.filter((agent) => agent.role === "qa" || qaTitlePattern.test(agent.title ?? "")),
+      execution: sortedAgents.filter((agent) => agent.role === "engineer"),
+      review: sortedAgents.filter((agent) => agent.role === "qa" || qaTitlePattern.test(agent.title ?? "")),
     };
-  }, [agentsQuery.data]);
+  }, [agents]);
 
   const coverageNotes = useMemo(() => {
-    const projects = projectsQuery.data ?? [];
+    if (isBaseLoading) {
+      return [
+        "Loading roster and project coverage before calculating staffing and ownership notes.",
+      ];
+    }
+
     const notes: string[] = [];
 
     if (roleSummary.leaders === 0) {
@@ -385,34 +403,25 @@ export function Team() {
     }
 
     return notes;
-  }, [projectsQuery.data, roleSummary.engineers, roleSummary.leaders, roleSummary.qa]);
+  }, [isBaseLoading, projects, roleSummary.engineers, roleSummary.leaders, roleSummary.qa]);
+
+  const liveAgentCount = new Set(liveRuns.map((run) => run.agentId)).size;
+  const stageModel = useMemo(
+    () =>
+      buildSquadStageModel({
+        companyLabel: selectedCompany?.name ?? "Company",
+        agents,
+        liveRuns,
+        performanceItems,
+        teamSupervision: teamSupervisionQuery.data,
+        projects,
+      }),
+    [agents, liveRuns, performanceItems, projects, selectedCompany?.name, teamSupervisionQuery.data],
+  );
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Users} message="Select a company to inspect the squad." />;
   }
-
-  if (
-    agentsQuery.isLoading
-    || projectsQuery.isLoading
-    || liveRunsQuery.isLoading
-    || performanceQuery.isLoading
-    || teamSupervisionQuery.isLoading
-  ) {
-    return <PageSkeleton variant="list" />;
-  }
-
-  const projects = projectsQuery.data ?? [];
-  const agents = agentsQuery.data ?? [];
-  const liveAgentCount = new Set((liveRunsQuery.data ?? []).map((run) => run.agentId)).size;
-  const performance = performanceQuery.data;
-  const stageModel = buildSquadStageModel({
-    companyLabel: selectedCompany?.name ?? "Company",
-    agents,
-    liveRuns: liveRunsQuery.data ?? [],
-    performanceItems: performance?.items ?? [],
-    teamSupervision: teamSupervisionQuery.data,
-    projects,
-  });
 
   return (
     <div className="space-y-8">
@@ -451,7 +460,9 @@ export function Team() {
             <ShieldCheck className="h-3.5 w-3.5" />
             Leadership lanes
           </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">{roleSummary.leaders}</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">
+            {agentsQuery.isLoading ? "..." : roleSummary.leaders}
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">Operators, leads, and planners steering direction and escalation.</p>
         </div>
         <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
@@ -459,7 +470,9 @@ export function Team() {
             <Bot className="h-3.5 w-3.5" />
             Engineers
           </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">{roleSummary.engineers}</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">
+            {agentsQuery.isLoading ? "..." : roleSummary.engineers}
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">Execution lanes currently available for implementation and follow-through.</p>
         </div>
         <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
@@ -467,7 +480,9 @@ export function Team() {
             <ShieldCheck className="h-3.5 w-3.5" />
             Verification lanes
           </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">{roleSummary.qa}</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">
+            {agentsQuery.isLoading ? "..." : roleSummary.qa}
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">Reviewer and QA coverage available before close, release, or merge.</p>
         </div>
         <div className="rounded-[1.6rem] border border-border bg-card px-5 py-5 shadow-card">
@@ -475,7 +490,9 @@ export function Team() {
             <Clock3 className="h-3.5 w-3.5" />
             Live execution
           </div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">{liveAgentCount}</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">
+            {liveRunsQuery.isLoading ? "..." : liveAgentCount}
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">Agents currently attached to running or queued execution.</p>
         </div>
       </div>
@@ -502,7 +519,7 @@ export function Team() {
         </div>
 
         <TabsContent value="stage" className="space-y-6">
-          <SquadStageBoard model={stageModel} />
+          <SquadStageBoard model={stageModel} isSyncing={isLiveStageSyncing} isBaseLoading={isBaseLoading} />
         </TabsContent>
 
         <TabsContent value="roster" className="space-y-6">
@@ -511,16 +528,19 @@ export function Team() {
               title="Leadership roster"
               subtitle="Planners, operators, and escalation owners steering routing, staffing, and recovery."
               agents={laneRoster.leadership}
+              isLoading={agentsQuery.isLoading}
             />
             <TeamRosterSection
               title="Execution roster"
               subtitle="Builders and delivery owners sorted by the freshest heartbeat so active lanes stay on top."
               agents={laneRoster.execution}
+              isLoading={agentsQuery.isLoading}
             />
             <TeamRosterSection
               title="Verification roster"
               subtitle="Review and QA lanes protecting close quality, release confidence, and regression evidence."
               agents={laneRoster.review}
+              isLoading={agentsQuery.isLoading}
             />
           </div>
         </TabsContent>
@@ -575,11 +595,15 @@ export function Team() {
                     </div>
                     <div className="mt-3 flex items-end justify-between gap-3">
                       <div>
-                        <div className="text-2xl font-semibold text-foreground">{roleSummary.codex}</div>
+                        <div className="text-2xl font-semibold text-foreground">
+                          {agentsQuery.isLoading ? "..." : roleSummary.codex}
+                        </div>
                         <div className="text-sm text-muted-foreground">Codex lanes</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-2xl font-semibold text-foreground">{roleSummary.claude}</div>
+                        <div className="text-2xl font-semibold text-foreground">
+                          {agentsQuery.isLoading ? "..." : roleSummary.claude}
+                        </div>
                         <div className="text-sm text-muted-foreground">Claude lanes</div>
                       </div>
                     </div>
@@ -590,7 +614,11 @@ export function Team() {
                       Project load
                     </div>
                     <div className="mt-3 text-2xl font-semibold text-foreground">
-                      {roleSummary.engineers === 0 ? "n/a" : (projects.length / roleSummary.engineers).toFixed(1)}
+                      {isBaseLoading
+                        ? "..."
+                        : roleSummary.engineers === 0
+                          ? "n/a"
+                          : (projects.length / roleSummary.engineers).toFixed(1)}
                     </div>
                     <div className="mt-1 text-sm text-muted-foreground">Projects per engineer, based on current roster count.</div>
                   </div>
@@ -621,24 +649,32 @@ export function Team() {
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {performance?.summary.healthyAgents ?? 0} healthy
+                    {performanceSummary?.healthyAgents ?? 0} healthy
                   </span>
                   <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {performance?.summary.warningAgents ?? 0} warning
+                    {performanceSummary?.warningAgents ?? 0} warning
                   </span>
                   <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {performance?.summary.riskAgents ?? 0} risk
+                    {performanceSummary?.riskAgents ?? 0} risk
                   </span>
                   <span className="rounded-full border border-border bg-background px-2.5 py-1">
-                    {performance?.summary.priorityPreemptions7d ?? 0} priority preemptions
+                    {performanceSummary?.priorityPreemptions7d ?? 0} priority preemptions
                   </span>
                 </div>
               </div>
             </div>
             <div className="grid gap-4 px-6 py-6 lg:grid-cols-2 xl:grid-cols-3">
-              {(performance?.items ?? []).map((item) => (
-                <AgentPerformanceCard key={item.agentId} item={item} />
-              ))}
+              {performanceItems.length > 0 ? (
+                performanceItems.map((item) => <AgentPerformanceCard key={item.agentId} item={item} />)
+              ) : performanceQuery.isLoading ? (
+                <div className="rounded-[1.35rem] border border-dashed border-border px-5 py-10 text-sm text-muted-foreground lg:col-span-2 xl:col-span-3">
+                  Loading agent performance scorecard...
+                </div>
+              ) : (
+                <div className="rounded-[1.35rem] border border-dashed border-border px-5 py-10 text-sm text-muted-foreground lg:col-span-2 xl:col-span-3">
+                  No performance signals yet.
+                </div>
+              )}
             </div>
           </section>
 
@@ -651,7 +687,9 @@ export function Team() {
             </div>
             <div className="divide-y divide-border">
               {projects.length === 0 ? (
-                <div className="px-6 py-10 text-sm text-muted-foreground">No projects yet.</div>
+                <div className="px-6 py-10 text-sm text-muted-foreground">
+                  {projectsQuery.isLoading ? "Loading projects..." : "No projects yet."}
+                </div>
               ) : (
                 projects.map((project) => (
                   <Link

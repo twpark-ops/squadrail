@@ -101,38 +101,38 @@ function scenePlacementForLane(laneId: SquadStageLane["id"]): CSSProperties {
     case "planning":
       return {
         ["--squad-stage-zone-left" as "--squad-stage-zone-left"]: "2%",
-        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "5%",
+        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "4%",
         ["--squad-stage-zone-width" as "--squad-stage-zone-width"]: "22%",
-        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "42%",
+        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "34%",
       } as CSSProperties;
     case "lead":
       return {
         ["--squad-stage-zone-left" as "--squad-stage-zone-left"]: "26.5%",
-        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "5%",
+        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "4%",
         ["--squad-stage-zone-width" as "--squad-stage-zone-width"]: "21%",
-        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "42%",
+        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "34%",
       } as CSSProperties;
     case "qa":
       return {
         ["--squad-stage-zone-left" as "--squad-stage-zone-left"]: "76%",
-        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "5%",
+        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "4%",
         ["--squad-stage-zone-width" as "--squad-stage-zone-width"]: "22%",
-        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "42%",
+        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "34%",
       } as CSSProperties;
     case "build":
       return {
-        ["--squad-stage-zone-left" as "--squad-stage-zone-left"]: "11.5%",
-        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "49%",
-        ["--squad-stage-zone-width" as "--squad-stage-zone-width"]: "31%",
-        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "45%",
+        ["--squad-stage-zone-left" as "--squad-stage-zone-left"]: "10%",
+        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "41%",
+        ["--squad-stage-zone-width" as "--squad-stage-zone-width"]: "31.5%",
+        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "36%",
       } as CSSProperties;
     case "review":
     default:
       return {
-        ["--squad-stage-zone-left" as "--squad-stage-zone-left"]: "48.5%",
-        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "49%",
-        ["--squad-stage-zone-width" as "--squad-stage-zone-width"]: "28%",
-        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "45%",
+        ["--squad-stage-zone-left" as "--squad-stage-zone-left"]: "46%",
+        ["--squad-stage-zone-top" as "--squad-stage-zone-top"]: "41%",
+        ["--squad-stage-zone-width" as "--squad-stage-zone-width"]: "30%",
+        ["--squad-stage-zone-height" as "--squad-stage-zone-height"]: "36%",
       } as CSSProperties;
   }
 }
@@ -209,6 +209,71 @@ function ambientActorBlueprints(lane: SquadStageLane): Array<{
   return items;
 }
 
+function queueActorPlacementForLane(laneId: SquadStageLane["id"], index: number): CSSProperties {
+  const placements: Record<SquadStageLane["id"], Array<{ left: string; bottom: string }>> = {
+    planning: [
+      { left: "24%", bottom: "22%" },
+      { left: "40%", bottom: "19%" },
+      { left: "55%", bottom: "22%" },
+    ],
+    lead: [
+      { left: "24%", bottom: "23%" },
+      { left: "43%", bottom: "20%" },
+      { left: "58%", bottom: "24%" },
+    ],
+    build: [
+      { left: "58%", bottom: "18%" },
+      { left: "74%", bottom: "22%" },
+      { left: "84%", bottom: "18%" },
+    ],
+    review: [
+      { left: "26%", bottom: "14%" },
+      { left: "43%", bottom: "18%" },
+      { left: "58%", bottom: "14%" },
+    ],
+    qa: [
+      { left: "54%", bottom: "17%" },
+      { left: "68%", bottom: "21%" },
+      { left: "82%", bottom: "17%" },
+    ],
+  };
+  const slot = placements[laneId][index] ?? placements[laneId][placements[laneId].length - 1]!;
+  return {
+    ["--squad-stage-queue-left" as "--squad-stage-queue-left"]: slot.left,
+    ["--squad-stage-queue-bottom" as "--squad-stage-queue-bottom"]: slot.bottom,
+  } as CSSProperties;
+}
+
+function queuePacketPlacementForLane(laneId: SquadStageLane["id"], index: number): CSSProperties {
+  const placements: Record<SquadStageLane["id"], Array<{ left: string; bottom: string }>> = {
+    planning: [
+      { left: "61%", bottom: "9%" },
+      { left: "72%", bottom: "11%" },
+    ],
+    lead: [
+      { left: "64%", bottom: "10%" },
+      { left: "76%", bottom: "12%" },
+    ],
+    build: [
+      { left: "20%", bottom: "8%" },
+      { left: "34%", bottom: "10%" },
+    ],
+    review: [
+      { left: "66%", bottom: "8%" },
+      { left: "78%", bottom: "10%" },
+    ],
+    qa: [
+      { left: "22%", bottom: "8%" },
+      { left: "36%", bottom: "10%" },
+    ],
+  };
+  const slot = placements[laneId][index] ?? placements[laneId][placements[laneId].length - 1]!;
+  return {
+    ["--squad-stage-packet-left" as "--squad-stage-packet-left"]: slot.left,
+    ["--squad-stage-packet-bottom" as "--squad-stage-packet-bottom"]: slot.bottom,
+  } as CSSProperties;
+}
+
 function shouldRenderWorkBeam(lane: SquadStageLane) {
   const motion = lane.primaryActor?.motion;
   return motion === "working" || motion === "reviewing" || motion === "verifying" || motion === "handoff" || motion === "blocked";
@@ -248,38 +313,6 @@ function handoffRunnerForConnection(source: SquadStageLane, target: SquadStageLa
   };
 }
 
-function defaultDecorativeRole(laneId: SquadStageLane["id"]) {
-  switch (laneId) {
-    case "planning":
-      return "pm";
-    case "lead":
-      return "cto";
-    case "review":
-      return "reviewer";
-    case "qa":
-      return "qa";
-    case "build":
-    default:
-      return "engineer";
-  }
-}
-
-function defaultSpriteIndex(laneId: SquadStageLane["id"]) {
-  switch (laneId) {
-    case "planning":
-      return 0;
-    case "lead":
-      return 4;
-    case "review":
-      return 3;
-    case "qa":
-      return 5;
-    case "build":
-    default:
-      return 1;
-  }
-}
-
 function sceneBannerSummary(model: SquadStageModel) {
   if (model.summary.blockedIssues > 0) {
     return `${model.summary.blockedIssues} blocked lane${model.summary.blockedIssues > 1 ? "s" : ""} need operator attention.`;
@@ -291,127 +324,6 @@ function sceneBannerSummary(model: SquadStageModel) {
     return `${model.summary.queuedIssues} queued packet${model.summary.queuedIssues > 1 ? "s" : ""} are warming up for the next handoff.`;
   }
   return "The floor is warm and ready for the next delivery cycle.";
-}
-
-function sceneCrewBlueprints(model: SquadStageModel): Array<{
-  id: string;
-  label: string;
-  detail: string;
-  actor: SquadStageActorModel;
-  style: CSSProperties;
-}> {
-  const laneById = new Map(model.lanes.map((lane) => [lane.id, lane]));
-  const crew: Array<{
-    id: string;
-    label: string;
-    detail: string;
-    actor: SquadStageActorModel;
-    style: CSSProperties;
-  }> = [];
-
-  const pushCrew = (input: {
-    id: string;
-    laneId: SquadStageLane["id"];
-    left: string;
-    top: string;
-    motion: SquadStageActorModel["motion"];
-    label: string;
-    detail: string;
-    signal?: SquadStageActorModel["signal"];
-    name?: string;
-  }) => {
-    const lane = laneById.get(input.laneId);
-    if (!lane) return;
-    const baseActor = lane.primaryActor ?? lane.queueActors[0] ?? lane.actors[0] ?? null;
-    const signal = input.signal ?? lane.signal;
-    crew.push({
-      id: input.id,
-      label: input.label,
-      detail: input.detail,
-      actor: {
-        id: input.id,
-        href: "#",
-        name: input.name ?? baseActor?.name ?? input.label,
-        role: baseActor?.role ?? defaultDecorativeRole(input.laneId),
-        title: baseActor?.title ?? input.label,
-        icon: baseActor?.icon,
-        adapterType: "decorative",
-        laneId: input.laneId,
-        spriteIndex: baseActor?.spriteIndex ?? defaultSpriteIndex(input.laneId),
-        motion: input.motion,
-        signal,
-        presence: signal === "blocked" ? "paused" : signal === "active" ? "ready" : "standby",
-        statusLabel: input.label,
-        subtitle: input.detail,
-        liveRun: null,
-        performance: null,
-        focusIssueLabel: null,
-        focusIssueHref: null,
-      },
-      style: {
-        ["--squad-stage-crew-left" as "--squad-stage-crew-left"]: input.left,
-        ["--squad-stage-crew-top" as "--squad-stage-crew-top"]: input.top,
-      } as CSSProperties,
-    });
-  };
-
-  pushCrew({
-    id: "scene-crew-dispatch",
-    laneId: "lead",
-    left: "49%",
-    top: "44%",
-    motion: model.summary.activeIssues > 0 ? "handoff" : "idle",
-    label: "Dispatch",
-    detail: `${model.companyLabel} control point`,
-    signal: model.summary.blockedIssues > 0 ? "blocked" : model.summary.activeIssues > 0 ? "active" : "idle",
-    name: "Dispatch Lead",
-  });
-  pushCrew({
-    id: "scene-crew-intake",
-    laneId: "planning",
-    left: "20%",
-    top: "34%",
-    motion: laneById.get("planning")?.signal === "warning" ? "walking" : "idle",
-    label: "Intake relay",
-    detail: "Briefs and clarifications move toward routing.",
-    signal: laneById.get("planning")?.signal ?? "idle",
-    name: "Intake Relay",
-  });
-  pushCrew({
-    id: "scene-crew-build",
-    laneId: "build",
-    left: "25%",
-    top: "73%",
-    motion: laneById.get("build")?.signal === "blocked" ? "blocked" : laneById.get("build")?.signal === "active" ? "working" : "walking",
-    label: "Build wing",
-    detail: "Implementation packets cycle through the bench.",
-    signal: laneById.get("build")?.signal ?? "idle",
-    name: "Build Runner",
-  });
-  pushCrew({
-    id: "scene-crew-review",
-    laneId: "review",
-    left: "61%",
-    top: "72%",
-    motion: laneById.get("review")?.signal === "active" ? "reviewing" : "walking",
-    label: "Review relay",
-    detail: "Diff handoff keeps flowing toward release.",
-    signal: laneById.get("review")?.signal ?? "idle",
-    name: "Review Relay",
-  });
-  pushCrew({
-    id: "scene-crew-qa",
-    laneId: "qa",
-    left: "82%",
-    top: "37%",
-    motion: laneById.get("qa")?.signal === "blocked" ? "blocked" : laneById.get("qa")?.signal === "active" ? "verifying" : "walking",
-    label: "Release watch",
-    detail: "Acceptance packets hold at the gate until sign-off.",
-    signal: laneById.get("qa")?.signal ?? "idle",
-    name: "Release Watch",
-  });
-
-  return crew;
 }
 
 function SquadStageSceneBanner({ model }: { model: SquadStageModel }) {
@@ -434,10 +346,10 @@ function SquadStageSceneBanner({ model }: { model: SquadStageModel }) {
 }
 
 function SquadStageSceneDispatch({ model }: { model: SquadStageModel }) {
-  const topSpotlights = model.spotlights.slice(0, 2);
+  const topSpotlights = model.spotlights.slice(0, 1);
   return (
     <div className="squad-stage-scene__dispatch" data-testid="squad-stage-scene-dispatch">
-      <div className="squad-stage-scene__dispatch-title">Dispatch board</div>
+      <div className="squad-stage-scene__dispatch-title">Current focus</div>
       <div className="squad-stage-scene__dispatch-copy">
         {topSpotlights[0]?.summary ?? "No urgent packet is pinned to dispatch right now."}
       </div>
@@ -459,25 +371,47 @@ function SquadStageSceneDispatch({ model }: { model: SquadStageModel }) {
   );
 }
 
-function SquadStageSceneCrew({ model }: { model: SquadStageModel }) {
-  const crew = sceneCrewBlueprints(model);
+function SquadStagePriorityIssues({ model }: { model: SquadStageModel }) {
   return (
-    <div className="squad-stage-scene__crew" data-testid="squad-stage-scene-crew" aria-label="Company floor crew">
-      {crew.map((member) => (
-        <div
-          key={member.id}
-          className={cn("squad-stage-scene__crew-node", `squad-stage-scene__crew-node--${member.actor.signal}`)}
-          style={member.style}
-          data-testid={member.id}
-        >
-          <SquadStageActor actor={member.actor} compact decorative />
-          <div className="squad-stage-scene__crew-label">
-            <span>{member.label}</span>
-            <span>{member.detail}</span>
-          </div>
+    <section className="squad-stage-priority-strip" data-testid="squad-stage-priority-strip">
+      <div className="squad-stage-priority-strip__header">
+        <div>
+          <div className="squad-stage-priority-strip__eyebrow">Parent issue progress</div>
+          <h3 className="squad-stage-priority-strip__title">What the squad is actually moving right now</h3>
         </div>
-      ))}
-    </div>
+      </div>
+      <div className="squad-stage-priority-strip__grid">
+        {model.priorityIssues.length > 0 ? (
+          model.priorityIssues.map((issue) => (
+            <Link
+              key={issue.id}
+              to={issue.href}
+              className={cn("squad-stage-priority-card", `squad-stage-priority-card--${issue.tone}`)}
+              data-testid={`squad-stage-priority-issue-${issue.id}`}
+            >
+              <div className="squad-stage-priority-card__header">
+                <span className="squad-stage-priority-card__label">{issue.label}</span>
+                <span className={cn("squad-stage-priority-card__phase", `squad-stage-priority-card__phase--${issue.tone}`)}>
+                  {issue.phaseLabel}
+                </span>
+              </div>
+              <div className="squad-stage-priority-card__title" title={issue.title}>
+                {issue.title}
+              </div>
+              <div className="squad-stage-priority-card__summary">{issue.summary}</div>
+              <div className="squad-stage-priority-card__meta">
+                <span>{issue.counts.total} packet{issue.counts.total > 1 ? "s" : ""}</span>
+                {issue.projectLabel ? <span>{issue.projectLabel}</span> : null}
+              </div>
+            </Link>
+          ))
+        ) : (
+          <div className="squad-stage-priority-strip__empty">
+            No parent issue is pushing the floor right now. The next assigned request will land here first.
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -583,7 +517,6 @@ function SquadStagePacketCard({
       )}
       data-motion={lane.primaryActor?.motion ?? "idle"}
       data-lane={lane.id}
-      data-testid={compact ? undefined : `squad-stage-packet-${lane.id}`}
       style={{ ["--squad-stage-accent" as "--squad-stage-accent"]: lane.accentColor } as CSSProperties}
     >
       <span className="squad-stage-packet__route" aria-hidden />
@@ -625,22 +558,14 @@ function SquadStageOfficeMap({ model }: { model: SquadStageModel }) {
 }
 
 function SquadStageSceneZone({ lane }: { lane: SquadStageLane }) {
-  const LaneIcon = laneIcon(lane.id);
   const actorAnchor = actorAnchorForLane(lane);
   const actorSide = actorAnchor < 50 ? "left" : "right";
-  const countBadges = [
-    lane.actors.length > 0 ? `${lane.actors.length} rostered` : null,
-    lane.queueCount > 0 ? `${lane.queueCount} queued` : null,
-  ].filter((value): value is string => Boolean(value));
-  const isQuietLane =
-    lane.signal === "idle"
-    && !lane.primaryActor
-    && lane.queueActors.length === 0
-    && lane.queuePackets.length === 0
-    && !lane.spotlight;
+  const hasQueue = lane.queueActors.length > 0 || lane.queuePackets.length > 0;
+  const queueActors = lane.queueActors.slice(0, 3);
+  const queuePackets = lane.queuePackets.slice(0, 2);
 
   return (
-    <article
+    <section
       className={cn("squad-stage-zone", "squad-stage-lane", signalClassName(lane.signal))}
       data-lane={lane.id}
       style={{
@@ -649,37 +574,34 @@ function SquadStageSceneZone({ lane }: { lane: SquadStageLane }) {
       } as CSSProperties}
       data-testid={`squad-stage-lane-${lane.id}`}
     >
-      <div className="squad-stage-zone__header squad-stage-lane__header">
-        <div>
-          <div className="squad-stage-zone__title-row squad-stage-lane__title-row">
-            <span className="squad-stage-zone__icon squad-stage-lane__icon">
-              <LaneIcon className="h-3.5 w-3.5" />
-            </span>
-            <h3 className="squad-stage-zone__title squad-stage-lane__title">{lane.title}</h3>
-            <span className={cn("squad-stage-zone__signal-chip", "squad-stage-lane__signal-chip", `squad-stage-zone__signal-chip--${lane.signal}`, `squad-stage-lane__signal-chip--${lane.signal}`)}>
-              <span className={cn("squad-stage-dot", signalDotClassName(lane.signal))} aria-hidden />
-              {signalLabel(lane.signal)}
-            </span>
-          </div>
-          <p className="squad-stage-zone__subtitle squad-stage-lane__subtitle">{lane.subtitle}</p>
-        </div>
-        {countBadges.length > 0 ? (
-          <div className="squad-stage-zone__counts squad-stage-lane__counts">
-            {countBadges.map((countLabel) => (
-              <span key={countLabel}>{countLabel}</span>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
       <div className="squad-stage-zone__arena squad-stage-lane__arena">
         <div className="squad-stage-zone__backdrop squad-stage-lane__backdrop" data-testid={`squad-stage-room-${lane.id}`} aria-hidden />
         <div className="squad-stage-zone__track squad-stage-lane__track" aria-hidden />
-        <div className="squad-stage-zone__room-chip squad-stage-lane__room-chip">
-          {lane.roomLabel}
+        <div className="squad-stage-zone__plate">
+          <div className="squad-stage-zone__plate-title">
+            <span className={cn("squad-stage-dot", signalDotClassName(lane.signal))} aria-hidden />
+            <span>{lane.title}</span>
+            <span className="squad-stage-zone__plate-state">{signalLabel(lane.signal)}</span>
+          </div>
+          <div className="squad-stage-zone__plate-room" title={lane.roomLabel}>{lane.roomLabel}</div>
+          <div className="squad-stage-zone__plate-station" title={lane.stationLabel}>{lane.stationLabel}</div>
         </div>
         {lane.contextLabel ? (
-          <div className="squad-stage-zone__context-chip squad-stage-lane__context-chip">{lane.contextLabel}</div>
+          <div
+            className="squad-stage-zone__context-chip squad-stage-lane__context-chip"
+            title={lane.contextLabel}
+          >
+            {lane.contextLabel}
+          </div>
+        ) : null}
+        {lane.spotlight ? (
+          <Link
+            to={lane.spotlight.href ?? "#"}
+            className={cn("squad-stage-zone__ticket", `squad-stage-zone__ticket--${lane.spotlight.tone}`)}
+            title={lane.spotlight.label}
+          >
+            {lane.spotlight.label}
+          </Link>
         ) : null}
         {lane.handoffLabel ? (
           <div
@@ -727,65 +649,85 @@ function SquadStageSceneZone({ lane }: { lane: SquadStageLane }) {
                   <SquadStageActor actor={ambient.actor} compact decorative />
                 </span>
               ))}
-              <SquadStageActor actor={lane.primaryActor} />
-              {lane.packet ? <SquadStagePacketCard lane={lane} packet={lane.packet} /> : null}
+              {queueActors.map((actor, index) => (
+                <span
+                  key={actor.id}
+                  className="squad-stage-zone__queue-actor"
+                  style={queueActorPlacementForLane(lane.id, index)}
+                >
+                  <SquadStageActor actor={actor} compact scene />
+                </span>
+              ))}
+              {queuePackets.map((packet, index) => (
+                <span
+                  key={packet.id}
+                  className="squad-stage-zone__queue-packet"
+                  style={queuePacketPlacementForLane(lane.id, index)}
+                >
+                  <SquadStagePacketCard lane={lane} packet={packet} compact />
+                </span>
+              ))}
+              <SquadStageActor actor={lane.primaryActor} scene />
+              {lane.packet ? (
+                <span
+                  className="squad-stage-zone__primary-packet"
+                  data-testid={`squad-stage-packet-${lane.id}`}
+                >
+                  <SquadStagePacketCard lane={lane} packet={lane.packet} compact />
+                </span>
+              ) : null}
             </div>
           ) : (
             <div className="squad-stage-zone__empty-state squad-stage-lane__empty-state">
               <span className="squad-stage-zone__empty-ghost squad-stage-lane__empty-ghost" aria-hidden />
               <span>{lane.signal === "idle" ? "Station idle" : "No active actor"}</span>
+              {queueActors.map((actor, index) => (
+                <span
+                  key={actor.id}
+                  className="squad-stage-zone__queue-actor"
+                  style={queueActorPlacementForLane(lane.id, index)}
+                >
+                  <SquadStageActor actor={actor} compact scene />
+                </span>
+              ))}
+              {queuePackets.map((packet, index) => (
+                <span
+                  key={packet.id}
+                  className="squad-stage-zone__queue-packet"
+                  style={queuePacketPlacementForLane(lane.id, index)}
+                >
+                  <SquadStagePacketCard lane={lane} packet={packet} compact />
+                </span>
+              ))}
+              {lane.packet ? (
+                <span
+                  className="squad-stage-zone__primary-packet"
+                  data-testid={`squad-stage-packet-${lane.id}`}
+                >
+                  <SquadStagePacketCard lane={lane} packet={lane.packet} compact />
+                </span>
+              ) : null}
             </div>
           )}
         </div>
       </div>
 
       <div className="squad-stage-zone__footer squad-stage-lane__footer">
-        {isQuietLane ? (
-          <div className="squad-stage-zone__quiet squad-stage-lane__quiet">
-            <span className="squad-stage-zone__quiet-copy squad-stage-lane__quiet-copy">
-              {lane.id === "planning" ? "Warm intake standby" : "Warm standby"}
-            </span>
-            {lane.handoffLabel ? (
-              <span className="squad-stage-zone__quiet-handoff squad-stage-lane__quiet-handoff">
-                {lane.handoffLabel}
+        <div className="squad-stage-zone__hud">
+          <span className="squad-stage-zone__hud-copy">
+            {lane.primaryActor ? lane.primaryActor.statusLabel : "Warm standby"}
+          </span>
+          <div className="squad-stage-zone__hud-metrics">
+            {hasQueue ? (
+              <span className="squad-stage-zone__summary-chip">
+                Queue {lane.queueActors.length + lane.queuePackets.length}
               </span>
             ) : null}
+            {lane.handoffLabel ? <span className="squad-stage-zone__handoff squad-stage-lane__handoff">{lane.handoffLabel}</span> : null}
           </div>
-        ) : (
-          <>
-            <div className="squad-stage-zone__queue-pocket squad-stage-lane__queue-pocket">
-              <span className="squad-stage-zone__queue-label squad-stage-lane__queue-label">Queue pocket</span>
-              <div className="squad-stage-zone__queue-actors squad-stage-lane__queue-actors">
-                {lane.queueActors.length > 0 ? (
-                  lane.queueActors.map((actor) => (
-                    <SquadStageActor key={actor.id} actor={actor} compact />
-                  ))
-                ) : (
-                  <span className="squad-stage-zone__queue-empty squad-stage-lane__queue-empty">clear</span>
-                )}
-              </div>
-              {lane.queuePackets.length > 0 ? (
-                <div className="squad-stage-zone__queue-packets squad-stage-lane__queue-packets">
-                  {lane.queuePackets.map((packet) => (
-                    <SquadStagePacketCard key={packet.id} lane={lane} packet={packet} compact />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="squad-stage-zone__summary squad-stage-lane__summary">
-              <p>{lane.workSummary}</p>
-              {lane.spotlight ? (
-                <Link to={lane.spotlight.href ?? "#"} className={cn("squad-stage-zone__spotlight", "squad-stage-lane__spotlight", `squad-stage-zone__spotlight--${lane.spotlight.tone}`, `squad-stage-lane__spotlight--${lane.spotlight.tone}`)}>
-                  {lane.spotlight.label}
-                </Link>
-              ) : null}
-              {lane.handoffLabel ? <span className="squad-stage-zone__handoff squad-stage-lane__handoff">{lane.handoffLabel}</span> : null}
-            </div>
-          </>
-        )}
+        </div>
       </div>
-    </article>
+    </section>
   );
 }
 
@@ -809,7 +751,32 @@ function SquadStageLaneLedger({ lanes }: { lanes: SquadStageModel["lanes"] }) {
   );
 }
 
-export function SquadStageBoard({ model }: { model: SquadStageModel }) {
+export function SquadStageBoard({
+  model,
+  isSyncing = false,
+  isBaseLoading = false,
+}: {
+  model: SquadStageModel;
+  isSyncing?: boolean;
+  isBaseLoading?: boolean;
+}) {
+  if (isBaseLoading) {
+    return (
+      <section className="squad-stage-shell rounded-[2rem] border border-border bg-card shadow-card" data-testid="squad-stage-board">
+        <div className="squad-stage-shell__header">
+          <div>
+            <p className="squad-stage-shell__eyebrow">Team stage</p>
+            <h2 className="squad-stage-shell__title">Squad Stage</h2>
+            <p className="squad-stage-shell__subtitle">Loading team data…</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-center py-24 text-muted-foreground animate-pulse">
+          Connecting to live floor
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="squad-stage-shell rounded-[2rem] border border-border bg-card shadow-card" data-testid="squad-stage-board">
       <div className="squad-stage-shell__header">
@@ -821,6 +788,7 @@ export function SquadStageBoard({ model }: { model: SquadStageModel }) {
           </p>
         </div>
         <div className="squad-stage-shell__stats">
+          <span>{isSyncing ? "syncing live floor" : "live floor ready"}</span>
           <span>{model.summary.hotActors} hot actors</span>
           <span>{model.summary.activeIssues} active items</span>
           <span>{model.summary.blockedIssues} blocked</span>
@@ -832,19 +800,22 @@ export function SquadStageBoard({ model }: { model: SquadStageModel }) {
         <SquadStageFlowStrip lanes={model.lanes} />
       </div>
 
+      <SquadStagePriorityIssues model={model} />
+
       <div className="squad-stage-shell__body squad-stage-shell__body--scene">
         <div className="squad-stage-scene-wrap">
-          <div className="squad-stage-scene">
+          <div className="squad-stage-scene__meta">
             <SquadStageSceneBanner model={model} />
+            <SquadStageSceneDispatch model={model} />
+          </div>
+          <div className="squad-stage-scene">
             <div className="squad-stage-scene__glow" aria-hidden />
             <div className="squad-stage-scene__concourse" aria-hidden />
             <div className="squad-stage-scene__floor" aria-hidden />
             <div className="squad-stage-scene__hub" aria-hidden>
               <span className="squad-stage-scene__hub-label">Dispatch</span>
             </div>
-            <SquadStageSceneDispatch model={model} />
             <SquadStageSceneConnections lanes={model.lanes} />
-            <SquadStageSceneCrew model={model} />
             <div className="squad-stage-scene__lanes">
               {model.lanes.map((lane) => (
                 <SquadStageSceneZone key={lane.id} lane={lane} />
@@ -870,29 +841,6 @@ export function SquadStageBoard({ model }: { model: SquadStageModel }) {
               </div>
             ) : null}
             <SquadStageOfficeMap model={model} />
-          </div>
-
-          <div className="squad-stage-rail__panel">
-            <h3>Active pulse</h3>
-            <p className="squad-stage-rail__panel-copy">
-              Highest-priority work items currently shaping the squad rhythm.
-            </p>
-            <div className="squad-stage-rail__spotlights">
-              {model.spotlights.length > 0 ? (
-                model.spotlights.map((spotlight) => (
-                  <Link
-                    key={spotlight.id}
-                    to={spotlight.href}
-                    className={cn("squad-stage-rail__spotlight", `squad-stage-rail__spotlight--${spotlight.tone}`)}
-                  >
-                    <span className="squad-stage-rail__spotlight-label">{spotlight.label}</span>
-                    <span className="squad-stage-rail__spotlight-summary">{spotlight.summary}</span>
-                  </Link>
-                ))
-              ) : (
-                <div className="squad-stage-rail__empty">No active delivery pulse right now.</div>
-              )}
-            </div>
           </div>
 
           <div className="squad-stage-rail__panel">

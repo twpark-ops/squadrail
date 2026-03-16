@@ -1443,6 +1443,32 @@ export function IssueDetail() {
     );
   }, [allIssues, issue]);
 
+  const subtaskOverview = useMemo(() => {
+    const summary = issue?.internalWorkItemSummary;
+    if (!summary) {
+      return {
+        total: childIssues.length,
+        done: childIssues.filter((child) => child.status === "done" || child.status === "cancelled").length,
+        blocked: childIssues.filter((child) => child.status === "blocked").length,
+        inReview: childIssues.filter((child) => child.status === "in_review").length,
+        open: childIssues.filter((child) => !["done", "cancelled"].includes(child.status)).length,
+      };
+    }
+
+    return {
+      total: summary.total,
+      done: summary.done,
+      blocked: summary.blocked,
+      inReview: summary.inReview,
+      open: summary.todo + summary.inProgress + summary.inReview + summary.blocked,
+    };
+  }, [childIssues, issue?.internalWorkItemSummary]);
+
+  const subtaskProgressPercent = useMemo(() => {
+    if (subtaskOverview.total <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((subtaskOverview.done / subtaskOverview.total) * 100)));
+  }, [subtaskOverview.done, subtaskOverview.total]);
+
   const dependencyGraphItems = useMemo(
     () => readDependencyGraphSnapshot(protocolState ?? null),
     [protocolState]
@@ -3599,8 +3625,36 @@ export function IssueDetail() {
             </div>
           ) : (
             <div className="space-y-3">
-              {!issue.parentId && (
-                <div className="flex items-center justify-end">
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card px-4 py-4">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    Parent issue progress
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">
+                    {subtaskOverview.done}/{subtaskOverview.total} subtasks closed
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width] duration-300"
+                      style={{ width: `${subtaskProgressPercent}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                    <span className="rounded-full border border-border px-2 py-0.5">
+                      {subtaskOverview.open} open
+                    </span>
+                    <span className="rounded-full border border-border px-2 py-0.5">
+                      {subtaskOverview.blocked} blocked
+                    </span>
+                    <span className="rounded-full border border-border px-2 py-0.5">
+                      {subtaskOverview.inReview} in review
+                    </span>
+                    <span className="rounded-full border border-border px-2 py-0.5">
+                      {subtaskOverview.total} total
+                    </span>
+                  </div>
+                </div>
+                {!issue.parentId && (
                   <Button
                     type="button"
                     size="sm"
@@ -3609,81 +3663,70 @@ export function IssueDetail() {
                   >
                     New subtask
                   </Button>
-                </div>
-              )}
-              {issue.internalWorkItemSummary &&
-                issue.internalWorkItemSummary.total > 0 && (
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                      <div className="font-medium text-foreground">Open</div>
-                      <div>
-                        {issue.internalWorkItemSummary.todo +
-                          issue.internalWorkItemSummary.inProgress +
-                          issue.internalWorkItemSummary.inReview +
-                          issue.internalWorkItemSummary.blocked}
-                        {" / "}
-                        {issue.internalWorkItemSummary.total}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                      <div className="font-medium text-foreground">Blocked</div>
-                      <div>{issue.internalWorkItemSummary.blocked}</div>
-                    </div>
-                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                      <div className="font-medium text-foreground">
-                        In Review
-                      </div>
-                      <div>{issue.internalWorkItemSummary.inReview}</div>
-                    </div>
-                    <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
-                      <div className="font-medium text-foreground">Done</div>
-                      <div>{issue.internalWorkItemSummary.done}</div>
-                    </div>
-                  </div>
                 )}
-              <div className="border border-border rounded-lg divide-y divide-border">
-                {childIssues.map((child) => (
-                  <Link
-                    key={child.id}
-                    to={`/issues/${child.identifier ?? child.id}`}
-                    className="flex items-center justify-between px-3 py-2 text-sm hover:bg-accent/20 transition-colors"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <StatusIcon status={child.status} />
-                      <PriorityIcon priority={child.priority} />
-                      <span className="font-mono text-muted-foreground shrink-0">
-                        {child.identifier ?? child.id.slice(0, 8)}
-                      </span>
-                      <span className="truncate">{child.title}</span>
-                      {child.labels?.some((label) => label.name.startsWith("work:")) && (
-                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          {(child.labels.find((label) => label.name.startsWith("work:"))?.name ?? "work:item").replace("work:", "")}
-                        </span>
-                      )}
-                      {child.labels?.some((label) => label.name === "watch:reviewer") && (
-                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Reviewer watch
-                        </span>
-                      )}
-                      {child.labels?.some((label) => label.name === "watch:lead") && (
-                        <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Lead watch
-                        </span>
-                      )}
-                    </div>
-                    {child.assigneeAgentId &&
-                      (() => {
-                        const name = agentMap.get(child.assigneeAgentId)?.name;
-                        return name ? (
-                          <Identity name={name} size="sm" />
-                        ) : (
-                          <span className="text-muted-foreground font-mono">
-                            {child.assigneeAgentId.slice(0, 8)}
+              </div>
+              <div className="grid gap-3 xl:grid-cols-2">
+                {childIssues.map((child) => {
+                  const workLabel =
+                    child.labels?.find((label) => label.name.startsWith("work:"))?.name.replace("work:", "") ?? null;
+                  const reviewerWatch = child.labels?.some((label) => label.name === "watch:reviewer");
+                  const leadWatch = child.labels?.some((label) => label.name === "watch:lead");
+                  const assigneeName = child.assigneeAgentId ? agentMap.get(child.assigneeAgentId)?.name ?? null : null;
+
+                  return (
+                    <Link
+                      key={child.id}
+                      to={`/issues/${child.identifier ?? child.id}`}
+                      className="rounded-xl border border-border bg-card px-4 py-4 text-sm no-underline transition-colors hover:border-primary/20 hover:bg-accent/20"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span className="font-mono">{child.identifier ?? child.id.slice(0, 8)}</span>
+                            <StatusBadge status={child.status} />
+                          </div>
+                          <div className="mt-2 line-clamp-2 text-sm font-semibold text-foreground">
+                            {child.title}
+                          </div>
+                        </div>
+                        <div className="shrink-0">
+                          <PriorityIcon priority={child.priority} />
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {workLabel ? (
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {workLabel}
                           </span>
-                        );
-                      })()}
-                  </Link>
-                ))}
+                        ) : null}
+                        {reviewerWatch ? (
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            Reviewer watch
+                          </span>
+                        ) : null}
+                        {leadWatch ? (
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            Lead watch
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {assigneeName ? (
+                            <Identity name={assigneeName} size="sm" />
+                          ) : (
+                            <span className="rounded-full border border-dashed border-border px-2 py-0.5">
+                              Unassigned
+                            </span>
+                          )}
+                        </div>
+                        <span>Updated {relativeTime(child.updatedAt)}</span>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}
