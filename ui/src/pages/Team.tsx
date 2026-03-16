@@ -28,8 +28,6 @@ import {
   getAgentRolePresentation,
 } from "../components/agent-presence-primitives";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { SquadStageBoard } from "../components/squad-stage/SquadStageBoard";
-import { buildSquadStageModel } from "../lib/squad-stage/stage-model";
 
 function TeamLaneCard({
   title,
@@ -336,12 +334,6 @@ export function Team() {
   const performanceItems = performance?.items ?? [];
   const performanceSummary = performance?.summary;
   const isBaseLoading = agentsQuery.isLoading || projectsQuery.isLoading;
-  const isLiveStageSyncing =
-    agentsQuery.isLoading
-    || projectsQuery.isLoading
-    || liveRunsQuery.isLoading
-    || performanceQuery.isLoading
-    || teamSupervisionQuery.isLoading;
 
   const leadershipTitlePattern = /(lead|head|chief|director|manager|cto|ceo|owner)/i;
   const qaTitlePattern = /(qa|quality|review)/i;
@@ -406,18 +398,6 @@ export function Team() {
   }, [isBaseLoading, projects, roleSummary.engineers, roleSummary.leaders, roleSummary.qa]);
 
   const liveAgentCount = new Set(liveRuns.map((run) => run.agentId)).size;
-  const stageModel = useMemo(
-    () =>
-      buildSquadStageModel({
-        companyLabel: selectedCompany?.name ?? "Company",
-        agents,
-        liveRuns,
-        performanceItems,
-        teamSupervision: teamSupervisionQuery.data,
-        projects,
-      }),
-    [agents, liveRuns, performanceItems, projects, selectedCompany?.name, teamSupervisionQuery.data],
-  );
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Users} message="Select a company to inspect the squad." />;
@@ -519,7 +499,9 @@ export function Team() {
         </div>
 
         <TabsContent value="stage" className="space-y-6">
-          <SquadStageBoard model={stageModel} isSyncing={isLiveStageSyncing} isBaseLoading={isBaseLoading} />
+          <div className="rounded-[2rem] border border-border bg-card p-8 text-center text-muted-foreground shadow-card">
+            Squad Stage has been removed. Use the Roster and Coverage tabs instead.
+          </div>
         </TabsContent>
 
         <TabsContent value="roster" className="space-y-6">
