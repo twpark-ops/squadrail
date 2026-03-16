@@ -634,6 +634,11 @@ export function issueProtocolService(db: Db) {
       }
     }
 
+    // Legacy compatibility: QA agent can act as reviewer only when explicitly
+    // assigned to both roles on the same issue. This overlap is deprecated —
+    // the target model is separate reviewer (code review) and QA (execution
+    // verification) gates. Remove this fallback once all orgs have distinct
+    // reviewer and QA agents.
     if (message.messageType === "START_REVIEW" && before === "submitted_for_review" && message.sender.role === "qa") {
       const qaActsAsAssignedReviewer =
         message.sender.actorType === "agent"

@@ -216,6 +216,7 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
     Object.entries(
       await withProtocolTransportGuards(
         ensurePathInEnv({ ...process.env, ...env }),
+        { readOnlyWorkspace: context.readOnlyWorkspace === true },
       ),
     ).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );

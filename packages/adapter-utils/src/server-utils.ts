@@ -166,6 +166,29 @@ exec "$REAL_BINARY" "$@"
 `;
 }
 
+function buildGitWriteGuardScript() {
+  const blockedSubcommands = ["commit", "add", "push", "stash", "rebase", "merge", "cherry-pick", "reset", "checkout -- ", "restore"];
+  const pattern = blockedSubcommands.join("|");
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_GIT="$(command -v git.real 2>/dev/null || echo /usr/bin/git)"
+BLOCK_MESSAGE="[squadrail] QA workspace is read-only. git write operations (commit, add, push, etc.) are blocked. QA may only run commands for execution verification."
+
+if [[ "\${SQUADRAIL_WORKSPACE_READ_ONLY:-}" == "1" ]]; then
+  subcmd="\${1:-}"
+  case "$subcmd" in
+    ${blockedSubcommands.map((cmd) => cmd.split(" ")[0]).join("|")})
+      printf '%s\\n' "$BLOCK_MESSAGE" >&2
+      exit 97
+      ;;
+  esac
+fi
+
+exec "$REAL_GIT" "$@"
+`;
+}
+
 async function ensureProtocolTransportGuardDir() {
   if (!protocolTransportGuardDirPromise) {
     protocolTransportGuardDirPromise = (async () => {
@@ -174,6 +197,12 @@ async function ensureProtocolTransportGuardDir() {
         process.env[SQUADRAIL_PROTOCOL_HELPER_ENV_VAR] ?? null,
       );
       await fs.mkdir(guardDir, { recursive: true });
+      // Backup real git before shim replaces it
+      const realGitPath = path.join(guardDir, "git.real");
+      const whichGit = await new Promise<string>((resolve) => {
+        const cp = require("node:child_process").execFileSync("which", ["git"], { encoding: "utf8" });
+        resolve(cp.trim());
+      }).catch(() => "/usr/bin/git");
       await Promise.all([
         fs.writeFile(path.join(guardDir, "python"), buildPythonProtocolGuardScript(helperPath), { mode: 0o755 }),
         fs.writeFile(path.join(guardDir, "python3"), buildPythonProtocolGuardScript(helperPath), { mode: 0o755 }),
@@ -182,6 +211,8 @@ async function ensureProtocolTransportGuardDir() {
           buildHttpProtocolGuardScript("/usr/bin/curl", "curl", helperPath),
           { mode: 0o755 },
         ),
+        fs.writeFile(path.join(guardDir, "git"), buildGitWriteGuardScript(), { mode: 0o755 }),
+        fs.symlink(whichGit, realGitPath).catch(() => null), // OK if exists
       ]);
       return guardDir;
     })();
@@ -191,6 +222,7 @@ async function ensureProtocolTransportGuardDir() {
 
 export async function withProtocolTransportGuards(
   env: NodeJS.ProcessEnv,
+  options?: { readOnlyWorkspace?: boolean },
 ): Promise<NodeJS.ProcessEnv> {
   const helperPath = await resolveProtocolHelperPath(env[SQUADRAIL_PROTOCOL_HELPER_ENV_VAR] ?? null);
   const guardDir = await ensureProtocolTransportGuardDir();
@@ -200,6 +232,9 @@ export async function withProtocolTransportGuards(
     env.PATH = [guardDir, ...pathEntries].join(":");
   }
   env[SQUADRAIL_PROTOCOL_HELPER_ENV_VAR] = helperPath;
+  if (options?.readOnlyWorkspace) {
+    env.SQUADRAIL_WORKSPACE_READ_ONLY = "1";
+  }
   return env;
 }
 

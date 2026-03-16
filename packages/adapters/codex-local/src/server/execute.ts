@@ -327,6 +327,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     Object.entries(
       await withProtocolTransportGuards(
         ensurePathInEnv({ ...process.env, ...env }),
+        { readOnlyWorkspace: context.readOnlyWorkspace === true },
       ),
     ).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );

@@ -24,10 +24,10 @@ This document defines the changes needed to align the implementation with the pr
 
 | Aspect | Current | Target |
 |--------|---------|--------|
-| Child issues | Hidden (`hiddenAt` timestamp) | **Visible subtasks** |
-| Coordination root | Cancelled or stays assigned | **Parent stays open, shows progress** |
-| List views | Filter out `hiddenAt IS NOT NULL` | **Show parent + indent subtasks** |
-| Progress | Not aggregated | **Parent shows subtask completion ratio** |
+| Child issues | Hidden (`hiddenAt` timestamp) | **Visible subtasks** (done: parentId model) |
+| Coordination root | Cancelled or stays assigned | **Parent stays open, shows progress** (done: parentId-based) |
+| List views | Filter out `hiddenAt IS NOT NULL` | **Phase 1: root-only default** (done), `?parentId=` and `?includeSubtasks=true` supported. **Phase 2: indent subtasks in UI** (planned) |
+| Progress | Not aggregated | **Parent shows subtask completion ratio** (planned) |
 
 ### 2. Execution Flow
 

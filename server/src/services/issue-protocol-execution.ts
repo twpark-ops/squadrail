@@ -365,6 +365,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       wakeHints: {
         ...wakeHints,
         ...(engineerSelfStart ? { workspaceUsageOverride: "implementation" } : {}),
+        ...(recipient.role === "qa" ? { readOnlyWorkspace: true } : {}),
       },
       source,
       reason: reviewerWatchActive ? reviewerWatchReason(input.message.messageType) : reason,
@@ -421,7 +422,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
         protocolMessageId: input.protocolMessageId,
         message: input.message,
         protocolPayload,
-        wakeHints,
+        wakeHints: { ...wakeHints, readOnlyWorkspace: true },
         source,
         reason: "issue_ready_for_qa_gate",
         recipient: {
