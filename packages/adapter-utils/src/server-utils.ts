@@ -734,6 +734,17 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- Valid `approvalMode` values are exactly: `agent_review`, `tech_lead_review`, or `human_override`.");
     }
 
+    if (protocolRequirement.key === "qa_gate_reviewer") {
+      lines.push("- You are the QA execution gate reviewer. Your role is to EXECUTE the built software, not just read code or diffs.");
+      lines.push("- **Do not create, edit, or delete any source files.** You have implementation workspace access for running commands only. Code changes are the engineer's responsibility.");
+      lines.push("- Start by reading the project runbook from your brief. If no runbook is available, send `ASK_CLARIFICATION` requesting execution instructions before approving.");
+      lines.push("- Run the acceptance criteria commands or sanity checks in the project workspace. Record what you ran and what you observed.");
+      lines.push("- Do not approve based on code reading alone. You must execute at least one verification command.");
+      lines.push("- For `START_REVIEW`, describe your execution plan: which commands, fixtures, or probes you will use.");
+      lines.push("- For `APPROVE_IMPLEMENTATION`, include execution evidence in payload: `executionLog` (commands run + output), `outputVerified` (expected vs actual), `sanityCommand` (primary check command), and optionally `fixtureUsed`.");
+      lines.push("- For `REQUEST_CHANGES`, include the failure output as evidence: `executionLog` (failed command + output), `failureEvidence` (what went wrong), and `expectedBehavior` (what should have happened).");
+    }
+
     if (protocolRequirement.key === "approval_tech_lead") {
       lines.push("- Approval wakes are not complete until a closing decision is recorded in protocol.");
       lines.push("- For `CLOSE_TASK.payload.mergeStatus`, use exactly one of: `merged`, `merge_not_required`, `pending_external_merge`.");

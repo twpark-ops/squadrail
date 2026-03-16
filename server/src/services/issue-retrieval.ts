@@ -1287,6 +1287,22 @@ export function buildRetrievalBriefDraft(input: {
     recipientRole: input.recipientRole,
   });
 
+  // QA execution gate: pin runbook/test_report to the top of the brief and
+  // warn when no runbook is available.
+  let briefHits = input.hits;
+  if (briefScope === "qa") {
+    const hasRunbookHit = input.hits.some((hit) => hit.sourceType === "runbook");
+    if (!hasRunbookHit && !input.quality.degradedReasons.includes("qa_runbook_missing")) {
+      input.quality.degradedReasons.push("qa_runbook_missing");
+    }
+    // Pin runbook and test_report hits to the top so QA reads execution
+    // context before code/issue/review evidence.
+    const pinnedTypes = new Set(["runbook", "test_report"]);
+    const pinned = input.hits.filter((hit) => pinnedTypes.has(hit.sourceType));
+    const rest = input.hits.filter((hit) => !pinnedTypes.has(hit.sourceType));
+    briefHits = [...pinned, ...rest];
+  }
+
   return {
     briefScope,
     contentMarkdown: renderRetrievedBriefMarkdown({
@@ -1294,7 +1310,7 @@ export function buildRetrievalBriefDraft(input: {
       issue: input.issue,
       message: input.message,
       queryText: input.queryText,
-      hits: input.hits,
+      hits: briefHits,
       maxEvidenceItems: input.maxEvidenceItems,
     }),
     contentJson: buildTaskBriefContentJson({
@@ -1632,7 +1648,8 @@ export function defaultPolicyTemplate(input: {
   const boardSources = ["prd", "adr", "issue", "review", "protocol_message", "runbook", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES];
   const ctoSources = [...KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES, "issue", "review", "protocol_message"];
   const pmSources = ["prd", "issue", "adr", "runbook", "protocol_message", "review", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES];
-  const qaSources = ["test_report", "issue", "review", "code", "adr", "runbook", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES];
+  // QA sources: runbook first — QA must know HOW to execute before reviewing evidence.
+  const qaSources = ["runbook", "test_report", "issue", "review", "code", "adr", ...KNOWLEDGE_SUMMARY_SOURCE_TYPES];
 
   const sourceMap: Record<RetrievalTargetRole, string[]> = {
     engineer: engineerSources,

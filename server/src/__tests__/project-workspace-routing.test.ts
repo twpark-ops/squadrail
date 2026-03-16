@@ -149,7 +149,7 @@ describe("deriveProjectWorkspaceUsageFromContext – override paths", () => {
         protocolMessageType: "START_QA",
         protocolWorkflowStateAfter: "under_qa_review",
       }),
-    ).toBe("review");
+    ).toBe("implementation");
   });
 
   it("returns 'review' for APPROVE_IMPLEMENTATION message type", () => {

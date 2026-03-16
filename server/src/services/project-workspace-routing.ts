@@ -249,16 +249,23 @@ export function deriveProjectWorkspaceUsageFromContext(
   const messageType = readNonEmptyString(context.protocolMessageType);
   const workflowStateAfter = readNonEmptyString(context.protocolWorkflowStateAfter);
 
+  // QA gets implementation workspace for execution access (read + run commands).
+  // Write guard is enforced by adapter prompt, not by workspace type.
+  if (
+    recipientRole === "qa"
+    || workflowStateAfter === "qa_pending"
+    || workflowStateAfter === "under_qa_review"
+  ) {
+    return "implementation";
+  }
+
   if (
     recipientRole === "reviewer"
-    || recipientRole === "qa"
     || messageType === "START_REVIEW"
     || messageType === "REQUEST_CHANGES"
     || messageType === "APPROVE_IMPLEMENTATION"
     || workflowStateAfter === "submitted_for_review"
     || workflowStateAfter === "under_review"
-    || workflowStateAfter === "qa_pending"
-    || workflowStateAfter === "under_qa_review"
     || workflowStateAfter === "approved"
   ) {
     return "review";

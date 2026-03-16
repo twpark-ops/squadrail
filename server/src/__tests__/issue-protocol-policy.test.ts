@@ -805,4 +805,115 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     });
     expect(violation?.message).toContain("repeated failure signals");
   });
+
+  describe("QA execution evidence gate", () => {
+    function makeQaApproval(payloadOverrides: Record<string, unknown> = {}) {
+      return {
+        message: {
+          messageType: "APPROVE_IMPLEMENTATION" as const,
+          sender: { actorType: "agent" as const, actorId: "qa-1", role: "qa" },
+          recipients: [{ recipientType: "agent" as const, recipientId: "eng-1", role: "engineer" }],
+          workflowStateBefore: "under_qa_review",
+          workflowStateAfter: "approved",
+          summary: "QA approves",
+          payload: {
+            approvalSummary: "Tests pass",
+            approvalChecklist: ["sanity passed"],
+            verifiedEvidence: ["go test output"],
+            residualRisks: ["none"],
+            ...payloadOverrides,
+          },
+          artifacts: [],
+        },
+        latestReviewPayload: {
+          implementationSummary: "done",
+          evidence: ["tests passed"],
+          reviewChecklist: ["review"],
+          changedFiles: ["src/app.ts"],
+          diffSummary: "Changed app.ts",
+          testResults: ["go test ./internal/storage -count=1 PASS"],
+          residualRisks: ["none"],
+        },
+        latestReviewArtifacts: [{ kind: "diff" as const, metadata: {} }],
+      };
+    }
+
+    it("rejects QA APPROVE without execution evidence", () => {
+      const violation = evaluateProtocolEvidenceRequirement(makeQaApproval());
+      expect(violation).toMatchObject({
+        violationCode: "missing_qa_execution_evidence",
+      });
+    });
+
+    it("accepts QA APPROVE with executionLog", () => {
+      const violation = evaluateProtocolEvidenceRequirement(
+        makeQaApproval({ executionLog: "go test ./internal/storage -count=1 → PASS" }),
+      );
+      expect(violation).toBeNull();
+    });
+
+    it("accepts QA APPROVE with outputVerified", () => {
+      const violation = evaluateProtocolEvidenceRequirement(
+        makeQaApproval({ outputVerified: "expected: nested path preserved, actual: nested path preserved" }),
+      );
+      expect(violation).toBeNull();
+    });
+
+    it("accepts QA APPROVE with sanityCommand", () => {
+      const violation = evaluateProtocolEvidenceRequirement(
+        makeQaApproval({ sanityCommand: "go test ./internal/storage -count=1" }),
+      );
+      expect(violation).toBeNull();
+    });
+
+    function makeQaRequestChanges(payloadOverrides: Record<string, unknown> = {}) {
+      return {
+        message: {
+          messageType: "REQUEST_CHANGES" as const,
+          sender: { actorType: "agent" as const, actorId: "qa-1", role: "qa" },
+          recipients: [{ recipientType: "agent" as const, recipientId: "eng-1", role: "engineer" }],
+          workflowStateBefore: "under_qa_review",
+          workflowStateAfter: "changes_requested",
+          summary: "QA requests changes",
+          payload: {
+            reviewSummary: "Test failed",
+            requiredEvidence: ["fix failing test"],
+            changeRequests: [{ description: "Fix test", affectedFiles: ["src/app.ts"] }],
+            severity: "must_fix",
+            mustFixBeforeApprove: true,
+            ...payloadOverrides,
+          },
+          artifacts: [],
+        },
+      };
+    }
+
+    it("rejects QA REQUEST_CHANGES without failure evidence", () => {
+      const violation = evaluateProtocolEvidenceRequirement(makeQaRequestChanges());
+      expect(violation).toMatchObject({
+        violationCode: "missing_qa_execution_evidence",
+      });
+    });
+
+    it("accepts QA REQUEST_CHANGES with executionLog", () => {
+      const violation = evaluateProtocolEvidenceRequirement(
+        makeQaRequestChanges({ executionLog: "go test ./internal/storage -count=1 → FAIL: nested path flattened" }),
+      );
+      expect(violation).toBeNull();
+    });
+
+    it("accepts QA REQUEST_CHANGES with failureEvidence", () => {
+      const violation = evaluateProtocolEvidenceRequirement(
+        makeQaRequestChanges({ failureEvidence: "expected nested/file.txt but got file.txt" }),
+      );
+      expect(violation).toBeNull();
+    });
+
+    it("does not require execution evidence for reviewer APPROVE", () => {
+      const reviewerApproval = makeQaApproval();
+      reviewerApproval.message.sender = { actorType: "agent", actorId: "rev-1", role: "reviewer" };
+      const violation = evaluateProtocolEvidenceRequirement(reviewerApproval);
+      expect(violation).toBeNull();
+    });
+  });
 });

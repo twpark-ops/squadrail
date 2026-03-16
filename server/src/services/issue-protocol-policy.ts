@@ -15,7 +15,7 @@ type ReviewSubmissionPayloadLike = Record<string, unknown> | null | undefined;
 type ReviewSubmissionContractMode = "legacy" | "strict";
 
 export interface ProtocolPolicyViolationResult {
-  violationCode: "missing_required_artifact" | "close_without_verification";
+  violationCode: "missing_required_artifact" | "missing_qa_execution_evidence" | "close_without_verification";
   message: string;
 }
 
@@ -182,6 +182,27 @@ function validateApprovalContract(payload: Record<string, unknown> | null | unde
   return null;
 }
 
+function validateQaFailureEvidence(payload: Record<string, unknown> | null | undefined) {
+  const p = payload ?? {};
+  const hasExecutionLog = Boolean(readString(p.executionLog));
+  const hasFailureEvidence = Boolean(readString(p.failureEvidence));
+  if (!hasExecutionLog && !hasFailureEvidence) {
+    return "QA REQUEST_CHANGES requires execution failure evidence: executionLog or failureEvidence";
+  }
+  return null;
+}
+
+function validateQaExecutionEvidence(payload: Record<string, unknown> | null | undefined) {
+  const p = payload ?? {};
+  const hasExecutionLog = Boolean(readString(p.executionLog));
+  const hasOutputVerified = Boolean(readString(p.outputVerified));
+  const hasSanityCommand = Boolean(readString(p.sanityCommand));
+  if (!hasExecutionLog && !hasOutputVerified && !hasSanityCommand) {
+    return "QA approval requires at least one execution evidence field: executionLog, outputVerified, or sanityCommand";
+  }
+  return null;
+}
+
 function validateCloseTaskContract(payload: Record<string, unknown> | null | undefined) {
   const closePayload = payload ?? {};
   if (!readString(closePayload.closureSummary)) {
@@ -235,6 +256,17 @@ export function evaluateProtocolEvidenceRequirement(input: {
         message: `Missing required artifact: ${reviewViolation}`,
       };
     }
+
+    // QA REQUEST_CHANGES must include execution failure evidence.
+    if (message.sender.role === "qa") {
+      const qaViolation = validateQaFailureEvidence(message.payload as Record<string, unknown> | null);
+      if (qaViolation) {
+        return {
+          violationCode: "missing_qa_execution_evidence",
+          message: qaViolation,
+        };
+      }
+    }
     return null;
   }
 
@@ -245,6 +277,17 @@ export function evaluateProtocolEvidenceRequirement(input: {
         violationCode: "missing_required_artifact",
         message: `Missing required artifact: ${approvalViolation}`,
       };
+    }
+
+    // QA execution evidence gate: QA must prove they ran the software.
+    if (message.sender.role === "qa") {
+      const qaViolation = validateQaExecutionEvidence(message.payload as Record<string, unknown> | null);
+      if (qaViolation) {
+        return {
+          violationCode: "missing_qa_execution_evidence",
+          message: qaViolation,
+        };
+      }
     }
 
     const mode = determineReviewSubmissionContractMode(latestReviewPayload);
