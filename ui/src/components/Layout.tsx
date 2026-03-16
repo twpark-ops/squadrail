@@ -332,9 +332,21 @@ export function Layout() {
                       <div className="text-sm font-semibold text-amber-950">
                         Setup is still in progress for {selectedCompany.name}
                       </div>
-                      <div className="mt-1 text-sm text-amber-900/90">
-                        Current status: {setupProgress.status}. Finish engine, workspace, knowledge, and first-issue readiness in the setup console.
-                      </div>
+                      <ul className="mt-2 space-y-1 text-xs text-amber-900/80">
+                        {[
+                          { done: setupProgress.steps.companyReady, label: "Company created" },
+                          { done: setupProgress.steps.squadReady, label: "Team blueprint applied" },
+                          { done: setupProgress.steps.engineReady, label: "Execution engine configured" },
+                          { done: setupProgress.steps.workspaceConnected, label: "Primary workspace connected" },
+                          { done: setupProgress.steps.knowledgeSeeded, label: "Knowledge base seeded" },
+                          { done: setupProgress.steps.firstIssueReady, label: "First quick request submitted" },
+                        ].map((item) => (
+                          <li key={item.label} className="flex items-center gap-1.5">
+                            <span className={item.done ? "text-emerald-600" : "text-amber-400"}>{item.done ? "✓" : "○"}</span>
+                            <span className={item.done ? "line-through opacity-60" : ""}>{item.label}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button

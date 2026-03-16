@@ -654,8 +654,12 @@ export function IssuesList({
       {!isLoading && filtered.length === 0 && effectiveViewMode === "list" && (
         <EmptyState
           icon={CircleDot}
-          message="No issues match the current filters or search."
-          action="Create Issue"
+          message={
+            issues.length === 0
+              ? "No issues yet. Submit a quick request to get started — the PM will structure and route it."
+              : "No issues match the current filters or search."
+          }
+          action={issues.length === 0 ? "New Quick Request" : "Create Issue"}
           onAction={() => openNewIssue(newIssueDefaults())}
         />
       )}

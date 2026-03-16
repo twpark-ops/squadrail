@@ -2017,6 +2017,27 @@ export function IssueDetail() {
         "space-y-4"
       )}
     >
+      {/* Post-onboarding welcome banner: shown only when arriving from the onboarding wizard
+           via ?source=onboarding query param. Dismissed once PM structures the request. */}
+      {searchParams.get("source") === "onboarding"
+        && protocolMessages.length <= 1
+        && protocolState?.workflowState !== "done"
+        && protocolState?.workflowState !== "cancelled"
+        && (
+        <div className="rounded-[1.2rem] border border-blue-200 bg-blue-50/60 px-5 py-4 text-sm dark:border-blue-900/40 dark:bg-blue-950/20">
+          <p className="font-semibold text-blue-900 dark:text-blue-200">Quick request submitted</p>
+          <p className="mt-1 text-blue-800/80 dark:text-blue-300/70">
+            Your PM agent is picking up this request. Protocol messages will appear below as the team structures and executes the work.
+          </p>
+          <ol className="mt-3 space-y-1 text-xs text-blue-700/70 dark:text-blue-400/60 list-decimal list-inside">
+            <li>PM reviews and structures the request</li>
+            <li>PM may ask clarification questions (check your Inbox)</li>
+            <li>Work gets routed to engineers via project projection</li>
+            <li>Review, QA, and close follow automatically</li>
+          </ol>
+        </div>
+      )}
+
       {/* Parent chain breadcrumb */}
       {ancestors.length > 0 && (
         <nav className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">

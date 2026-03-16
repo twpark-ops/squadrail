@@ -796,7 +796,7 @@ export function OnboardingWizard() {
       reset();
       closeOnboarding();
       if (companyPrefix) {
-        navigate(`/${companyPrefix}${appRoutes.work}/${issueRef}`);
+        navigate(`/${companyPrefix}${appRoutes.work}/${issueRef}?source=onboarding`);
         return;
       }
       navigate(appRoutes.overview);
