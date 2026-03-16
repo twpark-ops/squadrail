@@ -43,7 +43,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 - coordinated burn-in은 `root CLO 1개 -> multi-project child fan-out -> reviewer -> QA -> done`까지 실데이터로 닫혔다.
 - 따라서 즉시 다음 우선순위는 `blocked / legacy / protocol semantics cleanup`이다.
 
-## `.paperclip`에서 채택한 백엔드 참고점
+## upstream에서 채택한 백엔드 참고점
 
 전체를 가져오지는 않는다. 아래 두 축만 흡수한다.
 

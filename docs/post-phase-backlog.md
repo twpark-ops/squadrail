@@ -15,7 +15,7 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 ### P0. Visual Rebuild
 
-목표: `Paperclip` 흔적이 남은 기존 콘솔 스타일을 버리고, 반자율 개발 조직에 맞는 새 제품 시각언어를 만든다.
+목표: `upstream` 흔적이 남은 기존 콘솔 스타일을 버리고, 반자율 개발 조직에 맞는 새 제품 시각언어를 만든다.
 
 진행 상태:
 
@@ -39,7 +39,7 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 ### P0. UI Rebuild Spec
 
-목표: Paperclip control-plane UI를 탈피할 새 제품 정보 구조를 고정한다.
+목표: upstream control-plane UI를 탈피할 새 제품 정보 구조를 고정한다.
 
 산출물:
 
@@ -226,18 +226,18 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 - 이 단계는 instrumentation 이후 실제 병목이 보일 때 들어간다.
 
-## `.paperclip`에서 가져온 참고점
+## upstream에서 가져온 참고점
 
-`.paperclip` 전체를 가져올 필요는 없다. 아래 두 축만 흡수하면 된다.
+upstream 전체를 가져올 필요는 없다. 아래 두 축만 흡수하면 된다.
 
 1. `issue/project/agent` 단위의 git visibility 아이디어
-   - 참고: `.paperclip/doc/plugins/ideas-from-opencode.md`
+   - 참고: upstream doc/plugins/ideas-from-opencode.md
    - 채택 포인트:
      - issue/project/agent에 git tab 또는 git card 제공
      - branch/worktree/dirty state/diff/commits를 한 곳에서 보여주기
 
 2. release worktree lifecycle 규칙
-   - 참고: `.paperclip/scripts/release-start.sh`, `.paperclip/scripts/release-lib.sh`
+   - 참고: upstream scripts/release-start.sh, upstream scripts/release-lib.sh
    - 채택 포인트:
      - branch에 연결된 worktree 재사용
      - 경로 충돌 방지

@@ -1,0 +1,44 @@
+@startuml
+title QA Execution Gate
+
+actor Human
+participant PM
+participant TL as "Tech Lead"
+participant ENG as "Engineer"
+participant REV as "Reviewer"
+participant QA as "QA Engineer"
+participant QAL as "QA Lead"
+database KC as "Project QA Contract"
+
+Human -> PM: Request feature / bug fix
+PM -> TL: Structured issue + acceptance criteria
+TL -> ENG: Assign implementation owner
+TL -> REV: Assign reviewer
+TL -> QA: Assign QA gate owner (optional)
+
+ENG -> ENG: Implement change
+ENG -> REV: SUBMIT_FOR_REVIEW + diff/test artifacts
+REV -> REV: Review code / design / tests
+
+alt Reviewer rejects
+  REV -> ENG: REQUEST_CHANGES
+else Reviewer approves and QA gate exists
+  REV -> QA: APPROVE_IMPLEMENTATION => qa_pending
+  QA -> KC: Load sanity profile / tool / fixture contract
+  QAL -> QA: Validation policy / required evidence
+  QA -> QA: Execute project-defined sanity tools
+  QA -> QA: Run fixture-based validation
+  QA -> TL: REQUEST_CHANGES with evidence
+  QA -> TL: or APPROVE_IMPLEMENTATION with evidence
+end
+
+TL -> TL: CLOSE_TASK only after approval
+
+note right of QA
+QA is not a second reviewer.
+QA must execute the built program,
+use project tools/fixtures,
+and attach structured evidence.
+end note
+
+@enduml

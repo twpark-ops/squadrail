@@ -12,7 +12,7 @@
 - review / approval / close
 - real-org E2E
 
-하지만 현재 UI는 아직 `Paperclip식 control plane` 성격이 강하다.
+하지만 현재 UI는 아직 `기존 control plane` 성격이 강하다.
 
 - 회사/에이전트/프로젝트/설정 중심 탐색
 - 운영 콘솔 중심 정보 구조
@@ -374,4 +374,4 @@ UI가 즉시 답해야 하는 질문은 다섯 가지다.
 
 즉 다음 구현 기준은:
 
-> Paperclip식 control plane을 버리고, Work / Changes / Runs / Knowledge 중심의 반자율 개발 조직 워크스페이스로 재구성한다.
+> 기존 control plane을 버리고, Work / Changes / Runs / Knowledge 중심의 반자율 개발 조직 워크스페이스로 재구성한다.

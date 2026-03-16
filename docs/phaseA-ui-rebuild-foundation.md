@@ -4,7 +4,7 @@
 
 ## 목표
 
-Phase A의 목표는 기존 Paperclip식 control-plane navigation을 해체하고, 새 제품 정보 구조를 실제 app shell에 반영하는 것이다.
+Phase A의 목표는 기존 기존 control-plane navigation을 해체하고, 새 제품 정보 구조를 실제 app shell에 반영하는 것이다.
 
 이번 단계는 `최종 UI 완성`이 아니라 아래 세 가지를 닫는 데 집중한다.
 
