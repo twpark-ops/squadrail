@@ -118,7 +118,9 @@ export function activityService(db: Db) {
             eq(activityLog.companyId, run.companyId),
             eq(activityLog.runId, runId),
             eq(activityLog.entityType, "issue"),
-            isNull(issues.parentId),
+            // No parentId filter: runs may target subtasks and those must be visible
+            // in the run detail view. Company-level activity feed (forCompany) still
+            // filters to root issues only via its own isNull(issues.parentId) guard.
           ),
         )
         .orderBy(issueIdAsText);
@@ -144,7 +146,6 @@ export function activityService(db: Db) {
           and(
             eq(issues.companyId, run.companyId),
             eq(issues.id, contextIssueId),
-            isNull(issues.parentId),
           ),
         )
         .then((rows) => rows[0] ?? null);

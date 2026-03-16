@@ -57,6 +57,8 @@ export interface IssueFilters {
   projectId?: string;
   labelId?: string;
   q?: string;
+  parentId?: string;
+  includeSubtasks?: boolean;
 }
 
 type IssueRow = typeof issues.$inferSelect;
@@ -488,8 +490,13 @@ export function issueService(db: Db) {
           )!,
         );
       }
-      // Show root issues only in list views; subtasks are fetched via parentId filter.
-      conditions.push(isNull(issues.parentId));
+      // Subtask visibility: parentId filter takes precedence, then includeSubtasks flag.
+      // Default: root issues only (backward compatible).
+      if (filters?.parentId) {
+        conditions.push(eq(issues.parentId, filters.parentId));
+      } else if (!filters?.includeSubtasks) {
+        conditions.push(isNull(issues.parentId));
+      }
 
       const priorityOrder = sql`CASE ${issues.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END`;
       const searchOrder = sql<number>`

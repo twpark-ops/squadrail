@@ -17,7 +17,7 @@
 | 2 | Import-time summary generation | completed | importer/backfill에서 `code_summary` / `symbol_summary` 생성 및 source metadata sync 완료 |
 | 3 | Retrieval integration | completed | summary metadata boost와 rationale trace를 retrieval scoring에 통합 |
 | 4 | Live proof harness | completed | baseline artifact + comparison runner + diff utility + focused test 완료 |
-| 5 | Full live proof gate | in_progress | live proof는 시작했지만 summary improvement는 아직 없고 hidden child issue follow-up run bug가 남아 있음 |
+| 5 | Full live proof gate | completed | domain-aware PM proof GREEN (improved 1, regressed 0), RAG readiness full cycle 완주 (seed+follow-up+replay). fast lane은 unit test + projection preview 검증 완료, E2E burn-in은 baseline 추가 후 미실행 |
 
 ## 현재 실행 원칙
 
@@ -261,18 +261,37 @@
   2. Phase 5 live proof를 `domain-aware proof only`와 `rag-readiness`로 분리해 안정적으로 완주
   3. summary source hit를 PM project candidate scoring에 더 직접 반영하는 retrieval/projection follow-up 설계
 
-### Phase 5 remaining execution order
+### Phase 5 sub-phase completion (2026-03-16)
 
-1. `Phase 5-2`
-   - proof runner split
-   - cleanup hardening live 재검증
-2. `Phase 5-3`
-   - summary-aware PM scoring/projection tightening
-   - boundary-heavy scenario 기준 개선
-3. `Phase 5-4`
-   - same fixture / same scenario set live rerun
-   - baseline vs current diff 재계산
-4. `Phase 5-5`
-   - 결과 문서화
-   - residual risk 정리
-   - 최종 커밋/푸시 판단
+1. `Phase 5-2` — proof runner split + cleanup hardening ✅
+   - hidden child follow-up run bug 해결: `forceFollowupRun: engineerSelfStart`
+   - cleanup에 child issue fetch 추가 (GET /api/issues/:id → internalWorkItems)
+   - terminal status(cancelled/done) 이슈를 cleanup verification에서 제외
+   - E2E duplicate cancelIssue → markIssueCancelled rename 완료
+2. `Phase 5-3` — summary-aware PM scoring tightening ✅
+   - `deriveProjectSelectionTags()`에 symbol name + dependency target 토큰 추가
+   - knowledge structured score 총합 cap(48점) 추가로 document-count bias 제거
+   - ownerTag 어휘가 파일경로 → 도메인 개념으로 확장
+3. `Phase 5-4` — live rerun + baseline diff ✅
+   - domain-aware PM burn-in: `improvedScenarioCount=1, regressedScenarioCount=0`
+   - `multi_destination_artifact_routing`: +4점 (16/20 → 20/20)
+   - 나머지 2개 시나리오: 점수 유지 (18/20, 20/20)
+4. `Phase 5-5` — RAG readiness full live proof ✅
+   - seed issue (CLO-296): 11 messages, full protocol cycle + QA gate 완주
+   - follow-up issue (CLO-297): reviewer brief quality high, exactPathSatisfied=true
+   - replay issue (CLO-298): cache invalidation 후 재검색 성공
+   - retrieval quality: graphHitCount=8, multiHopGraphHitCount=8, personalizationBoost=1.99
+   - final cleanup: visibleNewIssueCount=0, activeRunCount=0
+
+### Phase 5 architecture decisions
+
+- **Summary ownerTag 어휘 확장**: 파일경로만으로는 도메인 개념(workflow-matching, pacs-delivery 등)과 매칭 불가. symbol name CamelCase split + dependency target 토큰을 ownerTag에 포함시켜 해결.
+- **Knowledge structured score cap**: 문서 수가 많은 프로젝트가 무조건 유리한 문제. 총합 48점 cap으로 매칭 품질 기반 선택으로 전환.
+- **Engineer single-flow**: `forceFollowupRun: false`는 현재 run이 끝나면 다음 wake가 생성되지 않아 stuck. `forceFollowupRun: engineerSelfStart`(true)로 복원하되, `workspaceUsageOverride: "implementation"`으로 workspace 라우팅.
+- **E2E reviewer≠assignee≠QA**: 3-slot 분리 후 시나리오 에이전트 배치를 assignee=TL, reviewer=engineer, qa=QA로 재구성. ASSIGN_TASK payload에 qaAgentId 포함, protocol helper REASSIGN에 newQaAgentId 매핑 추가.
+
+### Residual risks
+
+- `issue-protocol-execution.test.ts`는 vitest.heavy.config에서만 실행됨 (일반 vitest run에서 exclude)
+- RAG readiness E2E는 라이브 에이전트 환경 의존 (CI 단독 실행 불가, 로컬 전용)
+- fast lane E2E 시나리오는 baseline만 추가됨 — live burn-in 결과로 baseline 값 조정 필요

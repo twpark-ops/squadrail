@@ -62,6 +62,25 @@ export const DOMAIN_AWARE_PM_SCENARIOS = {
       "partial delivery failure와 validation 정책을 acceptance criteria에 반영했는가",
     ],
   },
+  simple_storage_logging: {
+    key: "simple_storage_logging",
+    label: "simple storage logging (fast lane)",
+    request: [
+      "SafeJoin 함수에 디버그 로깅을 추가해서 path 정규화 과정을 운영자가 추적할 수 있게 해줘.",
+      "",
+      "- 기존 동작 변경 없이 로깅만 추가",
+      "- 빠른 turnaround이 중요해",
+    ].join("\n"),
+    expectedPrimaryProjects: ["swiftsight-agent"],
+    expectedTopProjects: ["swiftsight-agent"],
+    requiredKnowledgeTags: ["storage", "logging"],
+    minimumAcceptanceCriteria: 1,
+    clarificationMode: "reviewer",
+    manualReviewChecklist: [
+      "PM이 스코프를 단일 파일 수정으로 좁게 유지했는가",
+      "QA gate 없이 reviewer 직접 승인 경로를 선택했는가",
+    ],
+  },
 };
 
 export function listDomainAwarePmScenarioKeys() {
@@ -118,10 +137,20 @@ export function evaluateDomainAwarePmPreview(preview, scenario) {
   if (checks.definitionOfDoneSufficient) score += 2;
   if (!checks.projectConfidenceWarning) score += 2;
 
+  // Fast lane verification: mirror isComplexIntake() logic from execution-lanes.ts.
+  // Complex = explicitQa OR coordinationOnly OR crossProject>1 OR critical OR tags>2.
+  const qaAssigned = Boolean(preview?.staffing?.qaAgentId);
+  const tags = (scenario.requiredKnowledgeTags ?? []).length;
+  const isFastLaneScenario = tags <= 2
+    && scenario.clarificationMode !== "human_board"  // human_board implies coordinationOnly
+    && (scenario.expectedTopProjects ?? []).length <= 1;  // single project
+  const fastLaneCorrect = isFastLaneScenario ? !qaAssigned : qaAssigned || true;
+  if (fastLaneCorrect && isFastLaneScenario) score += 2;
+
   return {
     score,
-    maxScore: 12,
-    checks,
+    maxScore: isFastLaneScenario ? 14 : 12,
+    checks: { ...checks, fastLaneCorrect },
     selectedProjectName: preview?.selectedProjectName ?? null,
     topCandidates: candidates.slice(0, 3).map((candidate) => ({
       projectName: candidate?.projectName ?? null,

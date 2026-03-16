@@ -700,15 +700,14 @@ export function renderSquadrailRuntimeNote(input: {
     ) {
       lines.splice(3, 0, "- Do not start file reads, design notes, or implementation planning before the first protocol action is sent.");
       lines.push("- If you accept and can continue immediately, follow `ACK_ASSIGNMENT` with `START_IMPLEMENTATION` in the same run.");
-      lines.push("- After `START_IMPLEMENTATION`, continue working in this run if a `workspaceUsageOverride` of `implementation` was provided; the server coalesces the workspace context automatically.");
-      lines.push("- If the current workspace is shared or analysis-only and no override was provided, stop and let the server route you to the correct workspace on the next wake.");
+      lines.push("- After `START_IMPLEMENTATION`, the server coalesces workspace context automatically via `workspaceUsageOverride`. Continue implementing in this run without waiting for a separate wake.");
+      lines.push("- If the workspace is shared or analysis-only and no override is present, complete the protocol actions (ACK + START) and stop. The server routes your next wake to an isolated implementation workspace.");
     }
 
     if (protocolRequirement.key === "implementation_engineer") {
       lines.push("- Work only inside the isolated implementation workspace and finish with review handoff or explicit progress.");
       lines.push("- Stay inside the assigned issue scope. Do not make opportunistic cleanup, refactors, or warning-only fixes outside the requested acceptance criteria.");
-      lines.push("- Only run commands that are explicitly required by the issue or directly necessary to make the requested tests pass.");
-      lines.push("- Do not run golangci-lint, repo-wide lint, or unrelated validation unless the assignment explicitly requires it.");
+      lines.push("- Run only the exact test suite, build, or lint commands needed to verify acceptance criteria. Do not run golangci-lint, repo-wide lint, complexity checks, or unrelated validation.");
       lines.push("- Once the required edits are complete and the named acceptance tests pass, submit for review immediately instead of continuing with extra tooling.");
       lines.push("- If a non-required command fails after the acceptance criteria are already satisfied, do not widen scope chasing it; hand off with the exact required evidence.");
       lines.push("- For `SUBMIT_FOR_REVIEW`, use `workflowStateAfter: \"submitted_for_review\"` exactly.");
@@ -836,8 +835,8 @@ export function renderSquadrailRuntimeNote(input: {
   ) {
     lines.push("Workspace guardrail:");
     lines.push(`- Current workspaceUsage is \`${workspaceUsage}\`, so this run is not the final implementation workspace.`);
-    lines.push("- You may acknowledge or start implementation in protocol, but do not modify repository files in this run.");
-    lines.push("- Do not edit repository files in this run; the server will route the next wake to an isolated implementation workspace.");
+    lines.push("- You may acknowledge assignment and start implementation in protocol, but do not modify repository files in this workspace.");
+    lines.push("- The server will coalesce workspace context on your next wake. If `workspaceUsageOverride` is provided, you will land in the correct implementation workspace automatically.");
     lines.push("");
   }
 

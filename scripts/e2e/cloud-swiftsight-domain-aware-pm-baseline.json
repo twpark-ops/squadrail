@@ -38,6 +38,17 @@
       "overallMaxScore": 20,
       "selectedProjectName": "swiftsight-report-server",
       "deliveryClosed": true
+    },
+    {
+      "scenario": "simple_storage_logging",
+      "previewScore": 10,
+      "previewMaxScore": 14,
+      "deliveryScore": 8,
+      "deliveryMaxScore": 8,
+      "overallScore": 18,
+      "overallMaxScore": 22,
+      "selectedProjectName": "swiftsight-agent",
+      "deliveryClosed": true
     }
   ]
 }
