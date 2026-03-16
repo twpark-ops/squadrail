@@ -27,7 +27,7 @@
 
 **Squadrail** is an open-source control plane for AI agent teams working on real engineering tasks.
 
-The project builds on top of [**Paperclip**](https://github.com/drivecore/mycoder) and extends it into a delivery-focused orchestration system — adding typed protocol messaging, role-based agent workflows, structured review handoffs, runtime recovery, and graph-assisted knowledge retrieval as first-class operating surfaces.
+The project builds on top of [**Paperclip**](https://github.com/paperclipai/paperclip) and extends it into a delivery-focused orchestration system — adding typed protocol messaging, role-based agent workflows, structured review handoffs, runtime recovery, and graph-assisted knowledge retrieval as first-class operating surfaces.
 
 <br/>
 
