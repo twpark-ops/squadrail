@@ -121,6 +121,39 @@ describe("activity service", () => {
     ]);
   });
 
+  it("includes subtask issues in run detail (issuesForRun does not filter by parentId)", async () => {
+    // The issuesForRun query should NOT filter by parentId, so subtasks appear in results.
+    // We mock a run with an activity entry for an issue that has a parentId set.
+    const subtaskIssue = {
+      issueId: "subtask-1",
+      identifier: "CLO-5",
+      title: "Subtask under parent issue",
+      status: "in_progress",
+      priority: "medium",
+      parentId: "parent-issue-1",
+    };
+    const { db } = createActivityDbMock({
+      selectResults: [
+        // First select: heartbeatRuns row for the run
+        [{
+          companyId: "company-1",
+          contextSnapshot: { issueId: "subtask-1" },
+        }],
+        // Second select: selectDistinctOn for activity-linked issues
+        // This returns the subtask (it has parentId but issuesForRun does not filter it out)
+        [subtaskIssue],
+      ],
+    });
+    const service = activityService(db as never);
+
+    const rows = await service.issuesForRun("run-subtask-1");
+
+    // The subtask issue should appear in the results
+    expect(rows).toEqual([
+      expect.objectContaining({ issueId: "subtask-1", title: "Subtask under parent issue" }),
+    ]);
+  });
+
   it("creates activity rows through the insert path", async () => {
     const created = {
       id: "activity-1",

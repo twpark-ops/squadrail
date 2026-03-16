@@ -177,6 +177,78 @@ describe("execution lanes", () => {
     });
   });
 
+  it("returns deep for coordinationOnly issues", () => {
+    expect(resolveExecutionLane({
+      issueProjectId: "project-1",
+      mentionedProjectCount: 1,
+      labelNames: [],
+      recipientRole: "engineer",
+      messageType: "ASSIGN_TASK",
+      coordinationOnly: true,
+    })).toBe("deep");
+  });
+
+  it("returns deep for plan work items", () => {
+    expect(resolveExecutionLane({
+      issueProjectId: "project-1",
+      mentionedProjectCount: 1,
+      labelNames: [],
+      recipientRole: "engineer",
+      messageType: "ASSIGN_TASK",
+      internalWorkItemKind: "plan",
+    })).toBe("deep");
+  });
+
+  it("returns deep for REQUEST_HUMAN_DECISION", () => {
+    expect(resolveExecutionLane({
+      issueProjectId: "project-1",
+      mentionedProjectCount: 1,
+      labelNames: [],
+      recipientRole: "engineer",
+      messageType: "REQUEST_HUMAN_DECISION",
+    })).toBe("deep");
+  });
+
+  it("returns deep for clarification-heavy questions", () => {
+    expect(resolveExecutionLane({
+      issueProjectId: "project-1",
+      mentionedProjectCount: 1,
+      labelNames: [],
+      recipientRole: "engineer",
+      messageType: "ASSIGN_TASK",
+      questionType: "requirement",
+    })).toBe("deep");
+  });
+
+  it("returns normal as default fallthrough", () => {
+    expect(resolveExecutionLane({
+      issueProjectId: "project-1",
+      mentionedProjectCount: 1,
+      labelNames: [],
+      recipientRole: "engineer",
+      messageType: "ASSIGN_TASK",
+      workflowStateAfter: "assigned",
+      exactPaths: ["src/a.ts", "src/b.ts", "lib/c.ts"],
+      acceptanceCriteriaCount: 2,
+      symbolHintCount: 3,
+    })).toBe("normal");
+  });
+
+  it("blocks fast lane for reviewer recipient", () => {
+    // This input would be fast except recipientRole is "reviewer"
+    expect(resolveExecutionLane({
+      issueProjectId: "project-1",
+      mentionedProjectCount: 1,
+      labelNames: [],
+      recipientRole: "reviewer",
+      messageType: "ASSIGN_TASK",
+      workflowStateAfter: "assigned",
+      exactPaths: ["src/a.ts"],
+      acceptanceCriteriaCount: 2,
+      symbolHintCount: 1,
+    })).toBe("normal");
+  });
+
   describe("deriveProductLane", () => {
     const fast = {
       qaAgentId: null,

@@ -57,6 +57,7 @@ const {
   mockKnowledgeListTaskBriefs,
   mockKnowledgeListDocuments,
   mockSummarizeIssueFailureLearning,
+  mockIssueList,
 } = vi.hoisted(() => ({
   mockEnqueueAfterDbCommit: vi.fn(),
   mockEnsureMembership: vi.fn(),
@@ -114,6 +115,7 @@ const {
   mockKnowledgeListTaskBriefs: vi.fn(),
   mockKnowledgeListDocuments: vi.fn().mockResolvedValue([]),
   mockSummarizeIssueFailureLearning: vi.fn(),
+  mockIssueList: vi.fn(),
 }));
 
 vi.mock("@squadrail/db", async (importOriginal) => {
@@ -206,7 +208,7 @@ vi.mock("../services/index.js", () => ({
     listInternalWorkItems: mockIssueListInternalWorkItems,
     getInternalWorkItemSummary: mockIssueGetInternalWorkItemSummary,
     createInternalWorkItem: mockIssueCreateInternalWorkItem,
-    list: vi.fn(),
+    list: mockIssueList,
     listComments: vi.fn(),
     listAttachments: vi.fn(),
     createAttachmentMetadata: vi.fn(),
@@ -309,6 +311,7 @@ async function invokeRoute(input: {
   path: string;
   method: "get" | "post" | "patch";
   params?: Record<string, string>;
+  query?: Record<string, string>;
   body?: unknown;
   actor?: BoardActor;
   headers?: Record<string, string>;
@@ -318,7 +321,7 @@ async function invokeRoute(input: {
   const req = {
     params: input.params ?? {},
     body: input.body ?? {},
-    query: {},
+    query: input.query ?? {},
     actor: input.actor ?? buildBoardActor(),
     header(name: string) {
       const headers = input.headers ?? {};
@@ -4564,5 +4567,41 @@ describe("issue routes wakeup handling", () => {
         }),
       }),
     );
+  });
+
+  describe("GET /companies/:companyId/issues parentId validation", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockEnsureMembership.mockResolvedValue(true);
+      mockAccessCanUser.mockResolvedValue(true);
+      mockAccessHasPermission.mockResolvedValue(true);
+      mockIssueList.mockResolvedValue([]);
+    });
+
+    it("returns 400 for invalid parentId query param", async () => {
+      const response = await invokeRoute({
+        path: "/companies/:companyId/issues",
+        method: "get",
+        params: { companyId: "company-1" },
+        query: { parentId: "not-a-uuid" },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.body).toEqual({ error: "parentId must be a valid UUID" });
+    });
+
+    it("passes includeSubtasks=true to service", async () => {
+      await invokeRoute({
+        path: "/companies/:companyId/issues",
+        method: "get",
+        params: { companyId: "company-1" },
+        query: { includeSubtasks: "true" },
+      });
+
+      expect(mockIssueList).toHaveBeenCalledWith(
+        "company-1",
+        expect.objectContaining({ includeSubtasks: true }),
+      );
+    });
   });
 });

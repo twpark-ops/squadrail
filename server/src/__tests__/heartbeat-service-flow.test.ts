@@ -280,7 +280,7 @@ describe("heartbeat service flow coverage", () => {
     });
   });
 
-  it("skips wakeups for hidden issues before creating follow-up runs", async () => {
+  it("skips wakeups for subtask issues before creating follow-up runs", async () => {
     const { db, insertValues } = createHeartbeatDbMock({
       selectRows: new Map([
         [agents, [[makeAgent()]]],
@@ -288,7 +288,7 @@ describe("heartbeat service flow coverage", () => {
           id: "issue-hidden",
           companyId: "company-1",
           priority: "high",
-
+          parentId: "root-issue-1",
           executionRunId: null,
           executionAgentNameKey: null,
         }]]],
@@ -315,7 +315,7 @@ describe("heartbeat service flow coverage", () => {
     expect(run).toBeNull();
     expect(insertValues.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
       status: "skipped",
-      reason: "issue_hidden",
+      reason: "issue_is_subtask",
     });
     expect(insertValues.some((entry) => entry.table === heartbeatRuns)).toBe(false);
   });

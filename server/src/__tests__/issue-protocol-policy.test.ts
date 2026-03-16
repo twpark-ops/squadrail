@@ -806,6 +806,84 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     expect(violation?.message).toContain("repeated failure signals");
   });
 
+  it("rejects CLOSE_TASK with passed_with_known_risk and empty remainingRisks", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "close with known risk",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Closed with known risk acknowledged.",
+          verificationSummary: "Verification evidence reviewed.",
+          rollbackPlan: "Revert the merge commit if needed.",
+          finalArtifacts: ["pr://42"],
+          finalTestStatus: "passed_with_known_risk",
+          mergeStatus: "merge_not_required",
+          remainingRisks: [],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "close_without_verification",
+    });
+    expect(violation?.message).toContain("residual risks");
+  });
+
+  it("rejects CLOSE_TASK with moved_to_followup and empty followUpIssueIds", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "close moved to followup",
+        payload: {
+          closeReason: "moved_to_followup",
+          closureSummary: "Moved to followup issue for continuation.",
+          verificationSummary: "Verification evidence reviewed.",
+          rollbackPlan: "Revert the merge commit if needed.",
+          finalArtifacts: ["pr://42"],
+          finalTestStatus: "passed",
+          mergeStatus: "merge_not_required",
+          followUpIssueIds: [],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(violation).toMatchObject({
+      violationCode: "close_without_verification",
+    });
+    expect(violation?.message).toContain("follow-up issues");
+  });
+
   describe("QA execution evidence gate", () => {
     function makeQaApproval(payloadOverrides: Record<string, unknown> = {}) {
       return {

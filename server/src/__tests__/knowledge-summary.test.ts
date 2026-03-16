@@ -63,6 +63,151 @@ describe("knowledge summary service", () => {
     });
   });
 
+  it("includes symbol name tokens in ownerTags via CamelCase splitting", () => {
+    // The camelCase splitter uses /([a-z])([A-Z])/ so it only splits on
+    // lowercase→uppercase boundaries.  "WorkflowMatcher" → "Workflow_Matcher"
+    // → ["workflow", "matcher"].  "DeliveryQueue" → "Delivery_Queue" → ["delivery", "queue"].
+    // All-uppercase prefixes like "PACS" have no lowercase→uppercase boundary
+    // and stay as one token, so we use a mixed-case symbol name instead.
+    const drafts = buildKnowledgeSummaryDrafts({
+      sourceDocumentId: "22222222-2222-2222-2222-222222222222",
+      relativePath: "src/domain/workflow-matcher.ts",
+      language: "typescript",
+      sourceType: "code",
+      baseTags: ["project-x"],
+      codeChunks: [{
+        chunkIndex: 0,
+        symbolName: "WorkflowMatcher",
+        textContent: "export class WorkflowMatcher {}",
+        metadata: {},
+      }],
+      codeGraph: {
+        symbols: [
+          {
+            symbolKey: "WorkflowMatcher",
+            symbolName: "WorkflowMatcher",
+            symbolKind: "class",
+            startLine: 1,
+            endLine: 5,
+            metadata: { exported: true },
+          },
+          {
+            symbolKey: "DeliveryQueue",
+            symbolName: "DeliveryQueue",
+            symbolKind: "class",
+            startLine: 7,
+            endLine: 12,
+            metadata: { exported: true },
+          },
+        ],
+        edges: [],
+      },
+    });
+
+    const fileDraft = drafts.find((d) => d.metadata.summaryKind === "file");
+    expect(fileDraft).toBeDefined();
+    const ownerTags = fileDraft!.metadata.requiredKnowledgeTags;
+    expect(ownerTags).toEqual(expect.arrayContaining(["workflow", "matcher"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["delivery", "queue"]));
+  });
+
+  it("includes dependency target tokens in ownerTags", () => {
+    const drafts = buildKnowledgeSummaryDrafts({
+      sourceDocumentId: "33333333-3333-3333-3333-333333333333",
+      relativePath: "src/services/handler.ts",
+      language: "typescript",
+      sourceType: "code",
+      baseTags: ["core"],
+      codeChunks: [{
+        chunkIndex: 0,
+        symbolName: "handler",
+        textContent: "export function handler() {}",
+        metadata: {},
+      }],
+      codeGraph: {
+        symbols: [{
+          symbolKey: "handler",
+          symbolName: "handler",
+          symbolKind: "function",
+          startLine: 1,
+          endLine: 1,
+          metadata: { exported: true },
+        }],
+        edges: [
+          {
+            fromSymbolKey: "handler",
+            targetSymbolName: "workflowService",
+            edgeType: "calls",
+          },
+          {
+            fromSymbolKey: "handler",
+            targetSymbolName: "dicomParser",
+            edgeType: "calls",
+          },
+        ],
+      },
+    });
+
+    const fileDraft = drafts.find((d) => d.metadata.summaryKind === "file");
+    expect(fileDraft).toBeDefined();
+    const ownerTags = fileDraft!.metadata.requiredKnowledgeTags;
+    expect(ownerTags).toEqual(expect.arrayContaining(["workflow"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["service"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["dicom"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["parser"]));
+  });
+
+  it("handles null/undefined symbolNames gracefully", () => {
+    const drafts = buildKnowledgeSummaryDrafts({
+      sourceDocumentId: "44444444-4444-4444-4444-444444444444",
+      relativePath: "src/utils/safe-parse.ts",
+      language: "typescript",
+      sourceType: "code",
+      baseTags: ["utils"],
+      codeChunks: [{
+        chunkIndex: 0,
+        symbolName: "safeParse",
+        textContent: "export function safeParse() {}",
+        metadata: {},
+      }],
+      codeGraph: {
+        symbols: [
+          {
+            symbolKey: "null-symbol",
+            symbolName: null as unknown as string,
+            symbolKind: "function",
+            startLine: 1,
+            endLine: 1,
+          },
+          {
+            symbolKey: "undef-symbol",
+            symbolName: undefined as unknown as string,
+            symbolKind: "function",
+            startLine: 2,
+            endLine: 2,
+          },
+          {
+            symbolKey: "ValidName",
+            symbolName: "ValidName",
+            symbolKind: "function",
+            startLine: 3,
+            endLine: 3,
+            metadata: { exported: true },
+          },
+        ],
+        edges: [],
+      },
+    });
+
+    // Should not crash and should produce drafts
+    expect(drafts.length).toBeGreaterThan(0);
+    const fileDraft = drafts.find((d) => d.metadata.summaryKind === "file");
+    expect(fileDraft).toBeDefined();
+    const ownerTags = fileDraft!.metadata.requiredKnowledgeTags;
+    expect(ownerTags).toEqual(expect.arrayContaining(["valid"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["name"]));
+  });
+
   it("syncs summary documents and updates the source document metadata", async () => {
     const createDocument = vi.fn()
       .mockResolvedValueOnce({ id: "code-summary-doc" })
