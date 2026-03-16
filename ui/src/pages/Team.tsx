@@ -289,7 +289,7 @@ function AgentPerformanceCard({
 export function Team() {
   const { selectedCompanyId, selectedCompany } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const [teamView, setTeamView] = useState<"supervision" | "roster" | "coverage">("supervision");
+  const [teamView, setTeamView] = useState<"supervision" | "roster" | "scorecard" | "coverage">("supervision");
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Team" }]);
@@ -441,9 +441,27 @@ export function Team() {
         <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
           <span className="tabular-nums text-foreground">{liveAgentCount}</span> live
         </span>
+        {performanceSummary && (
+          <>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/60 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-300">
+              <span className="tabular-nums">{performanceSummary.healthyAgents}</span> healthy
+            </span>
+            {performanceSummary.warningAgents > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">
+                <span className="tabular-nums">{performanceSummary.warningAgents}</span> warning
+              </span>
+            )}
+            {performanceSummary.riskAgents > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-300/60 bg-red-500/10 px-2.5 py-1 font-medium text-red-700 dark:text-red-300">
+                <span className="tabular-nums">{performanceSummary.riskAgents}</span> risk
+              </span>
+            )}
+          </>
+        )}
       </div>
 
-      <Tabs value={teamView} onValueChange={(value) => setTeamView(value as "supervision" | "roster" | "coverage")}>
+      <Tabs value={teamView} onValueChange={(value) => setTeamView(value as "supervision" | "roster" | "scorecard" | "coverage")}>
         <div className="rounded-[1.7rem] border border-border bg-card px-5 py-4 shadow-card">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -456,10 +474,11 @@ export function Team() {
               items={[
                 { value: "supervision", label: "Supervision" },
                 { value: "roster", label: "Roster" },
+                { value: "scorecard", label: "Scorecard" },
                 { value: "coverage", label: "Coverage" },
               ]}
               value={teamView}
-              onValueChange={(value) => setTeamView(value as "supervision" | "roster" | "coverage")}
+              onValueChange={(value) => setTeamView(value as "supervision" | "roster" | "scorecard" | "coverage")}
             />
           </div>
         </div>
@@ -555,6 +574,139 @@ export function Team() {
               isLoading={agentsQuery.isLoading}
             />
           </div>
+        </TabsContent>
+
+        <TabsContent value="scorecard" className="space-y-6">
+          {(() => {
+            const totalRuns7d = performanceItems.reduce((s, i) => s + i.totalRuns7d, 0);
+            const successfulRuns7d = performanceItems.reduce((s, i) => s + i.successfulRuns7d, 0);
+            const avgSuccessRate = performanceItems.length > 0
+              ? Math.round(performanceItems.reduce((s, i) => s + i.successRate7d, 0) / performanceItems.length)
+              : 0;
+            const totalOpenLoad = performanceItems.reduce((s, i) => s + i.openIssueCount, 0);
+            const totalReviewBounces = performanceItems.reduce((s, i) => s + i.reviewBounceCount30d, 0);
+            const totalQaBounces = performanceItems.reduce((s, i) => s + i.qaBounceCount30d, 0);
+            const avgRunDuration = performanceItems.filter((i) => i.averageRunDurationMs7d).length > 0
+              ? Math.round(
+                  performanceItems
+                    .filter((i) => i.averageRunDurationMs7d)
+                    .reduce((s, i) => s + (i.averageRunDurationMs7d ?? 0), 0) /
+                  performanceItems.filter((i) => i.averageRunDurationMs7d).length / 60000
+                )
+              : null;
+
+            return (
+              <>
+                {/* Team-level aggregate metrics */}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-[1.35rem] border border-border bg-card px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Throughput (7d)
+                    </div>
+                    <div className="mt-2 text-3xl font-semibold text-foreground">
+                      {successfulRuns7d}<span className="text-lg text-muted-foreground">/{totalRuns7d}</span>
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Successful runs out of total runs in the last 7 days.
+                    </div>
+                  </div>
+                  <div className="rounded-[1.35rem] border border-border bg-card px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Avg success rate
+                    </div>
+                    <div className={cn("mt-2 text-3xl font-semibold", avgSuccessRate >= 80 ? "text-emerald-600" : avgSuccessRate >= 60 ? "text-amber-600" : "text-red-600")}>
+                      {avgSuccessRate}%
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Average across all agents over the past week.
+                    </div>
+                  </div>
+                  <div className="rounded-[1.35rem] border border-border bg-card px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Avg run duration
+                    </div>
+                    <div className="mt-2 text-3xl font-semibold text-foreground">
+                      {avgRunDuration ? `${avgRunDuration}m` : "n/a"}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Average execution time per run across agents.
+                    </div>
+                  </div>
+                  <div className="rounded-[1.35rem] border border-border bg-card px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Open load
+                    </div>
+                    <div className="mt-2 text-3xl font-semibold text-foreground">
+                      {totalOpenLoad}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Total open issues assigned across the squad.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quality signals */}
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="rounded-[1.35rem] border border-border bg-card px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Review bounces (30d)
+                    </div>
+                    <div className={cn("mt-2 text-2xl font-semibold", totalReviewBounces > 5 ? "text-amber-600" : "text-foreground")}>
+                      {totalReviewBounces}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Times reviewers sent changes back for rework.
+                    </div>
+                  </div>
+                  <div className="rounded-[1.35rem] border border-border bg-card px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      QA bounces (30d)
+                    </div>
+                    <div className={cn("mt-2 text-2xl font-semibold", totalQaBounces > 3 ? "text-red-600" : "text-foreground")}>
+                      {totalQaBounces}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Times QA gate rejected and required rework.
+                    </div>
+                  </div>
+                  <div className="rounded-[1.35rem] border border-border bg-card px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Priority preemptions (7d)
+                    </div>
+                    <div className="mt-2 text-2xl font-semibold text-foreground">
+                      {performanceSummary?.priorityPreemptions7d ?? 0}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Higher-priority work interrupted an agent's current task.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Per-agent scorecard */}
+                <section className="rounded-[1.8rem] border border-border bg-card shadow-card">
+                  <div className="border-b border-border px-6 py-5">
+                    <h2 className="text-lg font-semibold text-foreground">Agent performance</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Runtime reliability, delivery throughput, and change-request pressure per agent.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 px-6 py-6 lg:grid-cols-2 xl:grid-cols-3">
+                    {performanceItems.length > 0 ? (
+                      performanceItems.map((item) => <AgentPerformanceCard key={item.agentId} item={item} />)
+                    ) : performanceQuery.isLoading ? (
+                      <div className="rounded-[1.35rem] border border-dashed border-border px-5 py-10 text-sm text-muted-foreground lg:col-span-2 xl:col-span-3">
+                        Loading agent performance scorecard...
+                      </div>
+                    ) : (
+                      <div className="rounded-[1.35rem] border border-dashed border-border px-5 py-10 text-sm text-muted-foreground lg:col-span-2 xl:col-span-3">
+                        No performance signals yet.
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            );
+          })()}
         </TabsContent>
 
         <TabsContent value="coverage" className="space-y-6">

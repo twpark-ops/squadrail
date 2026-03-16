@@ -122,8 +122,36 @@ function sortIssues(issues: Issue[], state: IssueViewState): Issue[] {
   return sorted;
 }
 
+/** Compute subtask summary from children when the server doesn't provide one. */
+function computeChildSummary(children: Issue[]): import("@squadrail/shared").IssueInternalWorkItemSummary {
+  const summary = {
+    total: children.length,
+    backlog: 0, todo: 0, inProgress: 0, inReview: 0, blocked: 0, done: 0, cancelled: 0,
+    activeAssigneeAgentIds: [] as string[],
+    blockerIssueId: null as string | null,
+    reviewRequestedIssueId: null as string | null,
+  };
+  const activeAgents = new Set<string>();
+  for (const child of children) {
+    if (child.status === "backlog") summary.backlog++;
+    else if (child.status === "todo") summary.todo++;
+    else if (child.status === "in_progress") summary.inProgress++;
+    else if (child.status === "in_review") summary.inReview++;
+    else if (child.status === "blocked") summary.blocked++;
+    else if (child.status === "done") summary.done++;
+    else if (child.status === "cancelled") summary.cancelled++;
+    if (["todo", "in_progress", "in_review", "blocked"].includes(child.status) && child.assigneeAgentId) {
+      activeAgents.add(child.assigneeAgentId);
+    }
+    if (child.status === "blocked") summary.blockerIssueId = child.id;
+    if (child.status === "in_review") summary.reviewRequestedIssueId = child.id;
+  }
+  summary.activeAssigneeAgentIds = [...activeAgents];
+  return summary;
+}
+
 /** Build a tree: root issues first, children nested under their parent. */
-function buildIssueTree(issues: Issue[]): Array<{ issue: Issue; children: Issue[] }> {
+function buildIssueTree(issues: Issue[]): Array<{ issue: Issue; children: Issue[]; summary: import("@squadrail/shared").IssueInternalWorkItemSummary | null }> {
   const childMap = new Map<string, Issue[]>();
   const roots: Issue[] = [];
   const issueById = new Map(issues.map((i) => [i.id, i]));
@@ -138,10 +166,12 @@ function buildIssueTree(issues: Issue[]): Array<{ issue: Issue; children: Issue[
     }
   }
 
-  return roots.map((root) => ({
-    issue: root,
-    children: childMap.get(root.id) ?? [],
-  }));
+  return roots.map((root) => {
+    const children = childMap.get(root.id) ?? [];
+    const summary = root.internalWorkItemSummary
+      ?? (children.length > 0 ? computeChildSummary(children) : null);
+    return { issue: root, children, summary };
+  });
 }
 
 function countActiveFilters(state: IssueViewState): number {
@@ -669,7 +699,7 @@ export function IssuesList({
               </div>
             )}
             <CollapsibleContent>
-              {buildIssueTree(group.items).map(({ issue, children }) => (
+              {buildIssueTree(group.items).map(({ issue, children, summary }) => (
                 <div key={issue.id}>
                 <Link
                   to={workIssuePath(issue.identifier ?? issue.id)}
@@ -742,24 +772,24 @@ export function IssuesList({
                         <span className="text-[10px] text-muted-foreground">+{(issue.labels ?? []).length - 2} labels</span>
                       )}
                     </div>
-                    {issue.internalWorkItemSummary && issue.internalWorkItemSummary.total > 0 && (
+                    {summary && summary.total > 0 && (
                       <SubtaskProgressBar
-                        summary={issue.internalWorkItemSummary}
+                        summary={summary}
                         mode={children.length > 0 ? "full" : "compact"}
                         className="mt-1.5"
                       />
                     )}
                   </div>
                   <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
-                    {children.length > 0 && issue.internalWorkItemSummary?.activeAssigneeAgentIds && issue.internalWorkItemSummary.activeAssigneeAgentIds.length > 0 && (
+                    {children.length > 0 && summary?.activeAssigneeAgentIds && summary.activeAssigneeAgentIds.length > 0 && (
                       <div className="hidden items-center -space-x-1.5 sm:flex">
-                        {issue.internalWorkItemSummary.activeAssigneeAgentIds.slice(0, 3).map((agentId) => {
+                        {summary.activeAssigneeAgentIds.slice(0, 3).map((agentId) => {
                           const name = agentName(agentId);
                           return name ? <Identity key={agentId} name={name} size="xs" /> : null;
                         })}
-                        {issue.internalWorkItemSummary.activeAssigneeAgentIds.length > 3 && (
+                        {summary.activeAssigneeAgentIds.length > 3 && (
                           <span className="pl-2 text-[10px] text-muted-foreground">
-                            +{issue.internalWorkItemSummary.activeAssigneeAgentIds.length - 3}
+                            +{summary.activeAssigneeAgentIds.length - 3}
                           </span>
                         )}
                       </div>
