@@ -372,4 +372,4 @@ pnpm vitest run server/src/__tests__/issues-routes.test.ts server/src/__tests__/
 - product direction is `standardized software delivery org kernel`
 - not arbitrary workflow builder
 - immediate productization target is `quick request -> clarification -> blueprint -> bulk provisioning`
-- `peer mode` is deferred optional feature, not current priority
+- parallelism is achieved via subtask decomposition + TL staffing, not peer pairing

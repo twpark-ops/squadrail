@@ -205,7 +205,6 @@ blueprint는 최소 아래를 가져야 한다.
 - generic workflow builder
 - non-software teams full support
 - fancy character UI
-- peer-to-peer agent chat
 - sprint/capacity 고도화
 
 ## 6. Phase Plan

@@ -36,10 +36,9 @@
 
 추가 제품 판단:
 
-- `peer engineer` (예: Codex + Claude 같은 child에서 상호 보완) 모드는 유효한 확장 방향이다.
-- 다만 이 기능은 현재 커널의 필수가 아니라 `optional team preset`에 가깝다.
-- 기본 실행 모델은 계속 `single engineer per child + reviewer + QA`로 유지한다.
-- 따라서 peer mode는 현재 burn-in / blocked semantics 정리 이후의 후순위 항목으로 다룬다.
+- 기본 실행 모델은 `single engineer per child + reviewer + QA`로 유지한다.
+- 병렬화는 subtask 분해 + TL staffing으로 달성한다 (같은 이슈에 2명이 아닌, 이슈를 나눠서 각각 실행).
+- 프로토콜/heartbeat/workspace 모두 단일 엔지니어 기준이며, 이 구조가 현재 제품 north star에 맞다.
 
 ## 재정렬된 우선순위
 

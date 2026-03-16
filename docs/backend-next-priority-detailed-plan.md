@@ -57,7 +57,7 @@
 현재 immediate next backend/product follow-up을 다음 우선순위로 고정하고, 각 항목을 바로 구현 가능한 슬라이스로 풀어 적는다. 현재 핵심 목표는 coverage 총량이 아니라 상위 제품 플로우를 닫는 것이다. coverage `80.23%`는 유지보수 기준선으로 남기되, immediate next는 `quick request -> clarification -> blueprint -> bulk provisioning` productization이다.
 
 현재 제품 방향은 계속 `standardized software delivery org kernel`이다.
-즉 지금은 새 protocol/kernel 확장이나 peer mode 실험보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
+즉 지금은 새 protocol/kernel 확장보다, dispatch 정책 / 운영 scorecard / human-reviewed merge assistance를 제품 수준으로 닫는 것이 우선이다.
 
 ## 현재 최우선 제품 트랙
 
@@ -857,9 +857,8 @@
 
 ## 당장 하지 않을 것
 
-1. peer mode
-2. arbitrary workflow builder 방향
-3. 새로운 protocol/kernel 대확장
+1. arbitrary workflow builder 방향
+2. 새로운 protocol/kernel 대확장
 4. UI-only follow-up 로컬 변경 개입
 5. `memory-bank/README.md` 수정
 
