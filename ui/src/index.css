@@ -1184,10 +1184,7 @@ a.squadrail-project-mention-chip {
   50% { opacity: 0.95; }
 }
 
-@keyframes squad-stage-track-glow {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 0.9; }
-}
+/* squad-stage-track-glow removed — sprite animations deleted */
 
 @keyframes squad-stage-chip-pulse {
   0%, 100% { opacity: 0.88; }
@@ -1222,27 +1219,7 @@ a.squadrail-project-mention-chip {
   50% { box-shadow: 0 0 0.75rem color-mix(in oklab, var(--squad-stage-accent) 38%, transparent); }
 }
 
-@keyframes squad-stage-runner-travel {
-  0% { offset-distance: 0%; opacity: 0.3; }
-  20% { opacity: 1; }
-  80% { opacity: 1; }
-  100% { offset-distance: 100%; opacity: 0.36; }
-}
-
-@keyframes squad-stage-sprite-strip-4 {
-  from { background-position: var(--squad-stage-sprite-start-x) var(--squad-stage-sprite-row-y); }
-  to { background-position: var(--squad-stage-sprite-end-x) var(--squad-stage-sprite-row-y); }
-}
-
-@keyframes squad-stage-sprite-strip-3 {
-  from { background-position: var(--squad-stage-sprite-start-x) var(--squad-stage-sprite-row-y); }
-  to { background-position: var(--squad-stage-sprite-end-x) var(--squad-stage-sprite-row-y); }
-}
-
-@keyframes squad-stage-sprite-strip-2 {
-  from { background-position: var(--squad-stage-sprite-start-x) var(--squad-stage-sprite-row-y); }
-  to { background-position: var(--squad-stage-sprite-end-x) var(--squad-stage-sprite-row-y); }
-}
+/* squad-stage-runner-travel + sprite-strip keyframes removed */
 
 .squad-stage-shell {
   overflow: hidden;
@@ -2480,6 +2457,7 @@ a.squadrail-project-mention-chip {
 }
 
 .squad-stage-actor__sprite {
+  display: block;
   image-rendering: pixelated;
   position: relative;
   z-index: 1;
@@ -2855,7 +2833,7 @@ a.squadrail-project-mention-chip {
 
 .squad-stage-scene .squad-stage-zone .squad-stage-lane__arena {
   margin: 0;
-  min-height: 15.5rem;
+  min-height: 0;
 }
 
 .squad-stage-scene .squad-stage-zone .squad-stage-lane__active-slot {
