@@ -38,6 +38,8 @@ tmp/
 .claude/settings.local.json
 .squadrail-local/
 .serena/
+.symphony/
 bootstrap-bundles/
 ui-review-screenshots/
 test-results/
+capture.PNG

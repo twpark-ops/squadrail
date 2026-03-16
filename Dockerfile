@@ -1,9 +1,17 @@
-FROM node:lts-trixie-slim AS base
+# ── Base ──
+FROM node:22-bookworm-slim AS base
+
+LABEL org.opencontainers.image.title="Squadrail" \
+      org.opencontainers.image.description="Protocol-first orchestration for autonomous software delivery" \
+      org.opencontainers.image.source="https://github.com/twpark-ops/squadrail" \
+      org.opencontainers.image.licenses="MIT"
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl git \
   && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 
+# ── Dependencies ──
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
@@ -20,6 +28,7 @@ COPY packages/adapters/openclaw/package.json packages/adapters/openclaw/
 COPY packages/adapters/opencode-local/package.json packages/adapters/opencode-local/
 RUN pnpm install --frozen-lockfile
 
+# ── Build ──
 FROM base AS build
 WORKDIR /app
 COPY --from=deps /app /app
@@ -28,9 +37,11 @@ RUN pnpm --filter @squadrail/ui build
 RUN pnpm --filter @squadrail/server build
 RUN test -f server/dist/index.js || (echo "ERROR: server build output missing" && exit 1)
 
+# ── Production ──
 FROM base AS production
 WORKDIR /app
 COPY --from=build /app /app
+
 RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest \
   && groupadd --system squadrail \
   && useradd --system --gid squadrail --home-dir /squadrail --create-home squadrail \
@@ -57,6 +68,9 @@ ENV NODE_ENV=production \
   SQUADRAIL_CONFIG=/squadrail/instances/default/config.json \
   SQUADRAIL_DEPLOYMENT_MODE=authenticated \
   SQUADRAIL_DEPLOYMENT_EXPOSURE=private
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:3100/api/health || exit 1
 
 VOLUME ["/squadrail"]
 EXPOSE 3100

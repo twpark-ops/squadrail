@@ -6,8 +6,6 @@ ARG HOST_UID=10001
 
 ENV DEBIAN_FRONTEND=noninteractive \
   SQUADRAIL_HOME=/squadrail \
-  SQUADRAIL_HOME=/squadrail \
-  SQUADRAIL_OPEN_ON_LISTEN=false \
   SQUADRAIL_OPEN_ON_LISTEN=false \
   HOST=0.0.0.0 \
   PORT=3100 \

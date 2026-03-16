@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/twpark-ops/squadrail/blob/master/LICENSE">
+  <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
   </a>
   <a href="https://github.com/twpark-ops/squadrail/stargazers">
@@ -27,7 +27,7 @@
 
 Squadrail is an open-source control plane for AI agent teams working on real engineering tasks.
 
-The project started by taking product inspiration from **Paperclip** and then pushing it in a more delivery-specific direction: issues, protocol messages, reviews, runtime recovery, and knowledge retrieval are all treated as first-class operating surfaces.
+Issues, protocol messages, reviews, runtime recovery, and knowledge retrieval are all treated as first-class operating surfaces.
 
 At the product level, Squadrail focuses on five things:
 
