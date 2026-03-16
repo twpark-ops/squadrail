@@ -1000,4 +1000,90 @@ describe("issue service", () => {
       },
     });
   });
+
+  it("filters to children of a specific parent when parentId is provided", async () => {
+    const child1 = makeIssue({
+      id: "issue-child-1",
+      parentId: "parent-1",
+      title: "Child issue 1",
+    });
+    const child2 = makeIssue({
+      id: "issue-child-2",
+      parentId: "parent-1",
+      title: "Child issue 2",
+    });
+    const label = makeLabel({ id: "label-child", name: "child" });
+    const { db } = createIssueDbMock({
+      selectResults: [
+        [child1, child2],
+        [
+          { issueId: "issue-child-1", label },
+          { issueId: "issue-child-2", label },
+        ],
+        [],
+      ],
+    });
+    const service = issueService(db as never);
+
+    const rows = await service.list("company-1", { parentId: "parent-1" });
+
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.id)).toEqual(["issue-child-1", "issue-child-2"]);
+    expect(rows.every((r) => r.labelIds.includes("label-child"))).toBe(true);
+  });
+
+  it("returns all issues (root + subtasks) when includeSubtasks is true", async () => {
+    const root = makeIssue({
+      id: "issue-root",
+      parentId: null,
+      title: "Root issue",
+    });
+    const child = makeIssue({
+      id: "issue-child",
+      parentId: "issue-root",
+      title: "Child issue",
+    });
+    const label = makeLabel({ id: "label-all", name: "all" });
+    const { db } = createIssueDbMock({
+      selectResults: [
+        [root, child],
+        [
+          { issueId: "issue-root", label },
+          { issueId: "issue-child", label },
+        ],
+        [],
+      ],
+    });
+    const service = issueService(db as never);
+
+    const rows = await service.list("company-1", { includeSubtasks: true });
+
+    // Both root and child issues are returned (no parentId IS NULL filter applied)
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.id)).toEqual(["issue-root", "issue-child"]);
+  });
+
+  it("defaults to root issues only when no parentId or includeSubtasks", async () => {
+    const root = makeIssue({
+      id: "issue-root-only",
+      parentId: null,
+      title: "Root only issue",
+    });
+    const label = makeLabel({ id: "label-root-only", name: "root" });
+    const { db } = createIssueDbMock({
+      selectResults: [
+        [root],
+        [{ issueId: "issue-root-only", label }],
+        [],
+      ],
+    });
+    const service = issueService(db as never);
+
+    // Calling list with empty filters should only return root issues (parentId IS NULL)
+    const rows = await service.list("company-1", {});
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe("issue-root-only");
+    expect(rows[0]!.parentId).toBeNull();
+  });
 });

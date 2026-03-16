@@ -8,6 +8,12 @@ import {
 import { conflict, unprocessable } from "../errors.js";
 import { isComplexIntake } from "./execution-lanes.js";
 
+// Caps prevent document-count bias: ~3 strong matches at ~16 pts each = 48.
+const KNOWLEDGE_STRUCTURED_CAP_WITH_INTENT = 48;
+const KNOWLEDGE_STRUCTURED_CAP_DEFAULT = 36;
+const KNOWLEDGE_AMBIENT_CAP_WITH_INTENT = 8;
+const KNOWLEDGE_AMBIENT_CAP_DEFAULT = 12;
+
 export interface PmIntakeAgent {
   id: string;
   companyId: string;
@@ -416,11 +422,9 @@ function scoreProjectCandidate(
     }
   }
 
-  // Cap total knowledge structured score to prevent document-count bias.
-  // Top-3 document scores dominate; remaining contribute diminishing returns.
-  const knowledgeStructuredCap = hasKnowledgeIntent ? 48 : 36;
+  const knowledgeStructuredCap = hasKnowledgeIntent ? KNOWLEDGE_STRUCTURED_CAP_WITH_INTENT : KNOWLEDGE_STRUCTURED_CAP_DEFAULT;
   score += Math.min(knowledgeStructuredCap, knowledgeStructuredScore);
-  const ambientKnowledgeCap = hasKnowledgeIntent ? 8 : 12;
+  const ambientKnowledgeCap = hasKnowledgeIntent ? KNOWLEDGE_AMBIENT_CAP_WITH_INTENT : KNOWLEDGE_AMBIENT_CAP_DEFAULT;
   const ambientKnowledgeScore = knowledgeAmbientSignals
     .sort((left, right) => right.score - left.score)
     .slice(0, 3)

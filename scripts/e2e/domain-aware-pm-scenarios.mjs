@@ -141,7 +141,9 @@ export function evaluateDomainAwarePmPreview(preview, scenario) {
   // Complex = explicitQa OR coordinationOnly OR crossProject>1 OR critical OR tags>2.
   const qaAssigned = Boolean(preview?.staffing?.qaAgentId);
   const tags = (scenario.requiredKnowledgeTags ?? []).length;
+  const scenarioPriority = scenario.priority ?? "high";
   const isFastLaneScenario = tags <= 2
+    && scenarioPriority !== "critical"
     && scenario.clarificationMode !== "human_board"  // human_board implies coordinationOnly
     && (scenario.expectedTopProjects ?? []).length <= 1;  // single project
   const fastLaneCorrect = isFastLaneScenario ? !qaAssigned : qaAssigned || true;

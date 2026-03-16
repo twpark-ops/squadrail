@@ -165,6 +165,16 @@ describe("execution lanes", () => {
     it("returns false for zero knowledge tags", () => {
       expect(isComplexIntake({ ...simple, requiredKnowledgeTagCount: 0 })).toBe(false);
     });
+
+    it("treats critical priority as complex even with 2 tags", () => {
+      expect(isComplexIntake({
+        explicitQaRequested: false,
+        coordinationOnly: false,
+        crossProjectCount: 1,
+        priority: "critical",
+        requiredKnowledgeTagCount: 2,
+      })).toBe(true);
+    });
   });
 
   describe("deriveProductLane", () => {

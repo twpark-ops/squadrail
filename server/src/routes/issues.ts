@@ -11,6 +11,7 @@ import {
   createIssueProtocolMessageSchema,
   type CreateIssueProtocolMessage,
   updateIssueSchema,
+  isUuidLike,
 } from "@squadrail/shared";
 import type { StorageService } from "../storage/types.js";
 import { validate } from "../middleware/validate.js";
@@ -1703,6 +1704,12 @@ export function issueRoutes(db: Db, storage: StorageService) {
       return;
     }
 
+    const parentIdRaw = req.query.parentId as string | undefined;
+    if (parentIdRaw && !isUuidLike(parentIdRaw)) {
+      res.status(400).json({ error: "parentId must be a valid UUID" });
+      return;
+    }
+
     const result = await svc.list(companyId, {
       status: req.query.status as string | undefined,
       assigneeAgentId: req.query.assigneeAgentId as string | undefined,
@@ -1710,7 +1717,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       projectId: req.query.projectId as string | undefined,
       labelId: req.query.labelId as string | undefined,
       q: req.query.q as string | undefined,
-      parentId: req.query.parentId as string | undefined,
+      parentId: parentIdRaw,
       includeSubtasks: req.query.includeSubtasks === "true",
     });
     res.json(result);

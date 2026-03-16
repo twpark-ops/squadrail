@@ -1022,4 +1022,118 @@ describe("pm intake helpers", () => {
     expect(preview.projectCandidates[0]?.projectName).toBe("swiftcl");
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_support_tags");
   });
+
+  it("caps knowledge structured score to prevent document-count bias", () => {
+    // Two projects: one with 3 high-match documents, one with 10 high-match documents.
+    // Both should score similarly because the structured knowledge cap limits the contribution.
+    // KNOWLEDGE_STRUCTURED_CAP_WITH_INTENT = 48 (when requiredKnowledgeTags are present)
+    const makeOwnerDoc = (id: string, projectId: string) => ({
+      id,
+      companyId: "company-1",
+      projectId,
+      sourceType: "adr",
+      authorityLevel: "canonical",
+      title: `Routing policy doc ${id}`,
+      path: `docs/${id}.md`,
+      rawContent: "Multi-destination artifact routing validation and policy enforcement.",
+      metadata: {
+        pmProjectSelection: {
+          ownerTags: ["artifact-routing", "pacs-destinations", "workflow-compiler"],
+        },
+      },
+    });
+
+    const fewDocs = Array.from({ length: 3 }, (_, i) =>
+      makeOwnerDoc(`doc-few-${i}`, "project-few"),
+    );
+    const manyDocs = Array.from({ length: 10 }, (_, i) =>
+      makeOwnerDoc(`doc-many-${i}`, "project-many"),
+    );
+
+    const previewFew = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Route artifacts to PACS destinations",
+        description: "## Human Intake Request\n\nRoute artifacts to PACS destinations using routing policy.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-few",
+          companyId: "company-1",
+          name: "router-few",
+          urlKey: "router-few",
+        },
+      ],
+      knowledgeDocuments: fewDocs as any[],
+      agents: [
+        ...agents,
+        {
+          id: "eng-few",
+          companyId: "company-1",
+          name: "Few Engineer",
+          urlKey: "router-few-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ] as any[],
+      request: {
+        requiredKnowledgeTags: ["artifact-routing", "pacs-destinations", "workflow-compiler"],
+      },
+    });
+
+    const previewMany = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Route artifacts to PACS destinations",
+        description: "## Human Intake Request\n\nRoute artifacts to PACS destinations using routing policy.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-many",
+          companyId: "company-1",
+          name: "router-many",
+          urlKey: "router-many",
+        },
+      ],
+      knowledgeDocuments: manyDocs as any[],
+      agents: [
+        ...agents,
+        {
+          id: "eng-many",
+          companyId: "company-1",
+          name: "Many Engineer",
+          urlKey: "router-many-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ] as any[],
+      request: {
+        requiredKnowledgeTags: ["artifact-routing", "pacs-destinations", "workflow-compiler"],
+      },
+    });
+
+    const scoreFew = previewFew.projectCandidates[0]!.score;
+    const scoreMany = previewMany.projectCandidates[0]!.score;
+
+    // Both projects hit the knowledge structured cap (48), so the scores should be
+    // very close despite the 3x difference in document count.
+    // The difference should only come from ambient text overlap (capped independently).
+    expect(Math.abs(scoreFew - scoreMany)).toBeLessThanOrEqual(12);
+    // Both scores should be positive and meaningful
+    expect(scoreFew).toBeGreaterThan(0);
+    expect(scoreMany).toBeGreaterThan(0);
+    // The structured cap (48) is the dominant scoring factor for knowledge-tagged requests
+    expect(scoreFew).toBeGreaterThanOrEqual(48);
+    expect(scoreMany).toBeGreaterThanOrEqual(48);
+  });
 });
