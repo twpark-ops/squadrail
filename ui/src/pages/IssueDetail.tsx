@@ -3640,7 +3640,7 @@ export function IssueDetail() {
                   return (
                     <Link
                       key={child.id}
-                      to={`/issues/${child.identifier ?? child.id}`}
+                      to={`${issueBasePath}/${child.identifier ?? child.id}`}
                       className="rounded-xl border border-border bg-card px-4 py-4 text-sm no-underline transition-colors hover:border-primary/20 hover:bg-accent/20"
                     >
                       <div className="flex items-start justify-between gap-3">

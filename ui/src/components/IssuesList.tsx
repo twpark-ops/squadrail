@@ -276,7 +276,7 @@ export function IssuesList({
   onUpdateIssue,
 }: IssuesListProps) {
   const { selectedCompanyId } = useCompany();
-  const { openNewIssue } = useDialog();
+  const { openNewIssue, openOnboarding } = useDialog();
 
   // Scope the storage key per company so folding/view state is independent across companies.
   const scopedKey = selectedCompanyId ? `${viewStateKey}:${selectedCompanyId}` : viewStateKey;
@@ -317,7 +317,12 @@ export function IssuesList({
 
   const { data: searchedIssues = [] } = useQuery({
     queryKey: queryKeys.issues.search(selectedCompanyId!, normalizedIssueSearch, projectId),
-    queryFn: () => issuesApi.list(selectedCompanyId!, { q: normalizedIssueSearch, projectId }),
+    queryFn: () =>
+      issuesApi.list(selectedCompanyId!, {
+        q: normalizedIssueSearch,
+        projectId,
+        includeSubtasks: true,
+      }),
     enabled: !!selectedCompanyId && normalizedIssueSearch.length > 0,
   });
 
@@ -331,6 +336,8 @@ export function IssuesList({
     const filteredByControls = applyFilters(sourceIssues, viewState);
     return sortIssues(filteredByControls, viewState);
   }, [issues, searchedIssues, viewState, normalizedIssueSearch]);
+
+  const filteredTree = useMemo(() => buildIssueTree(filtered), [filtered]);
 
   const { data: labels } = useQuery({
     queryKey: queryKeys.issues.labels(selectedCompanyId!),
@@ -349,28 +356,31 @@ export function IssuesList({
 
   const groupedContent = useMemo(() => {
     if (viewState.groupBy === "none") {
-      return [{ key: "__all", label: null as string | null, items: filtered }];
+      return [{ key: "__all", label: null as string | null, items: filteredTree }];
     }
     if (viewState.groupBy === "status") {
-      const groups = groupBy(filtered, (i) => i.status);
+      const groups = groupBy(filteredTree, ({ issue }) => issue.status);
       return statusOrder
         .filter((s) => groups[s]?.length)
         .map((s) => ({ key: s, label: statusLabel(s), items: groups[s]! }));
     }
     if (viewState.groupBy === "priority") {
-      const groups = groupBy(filtered, (i) => i.priority);
+      const groups = groupBy(filteredTree, ({ issue }) => issue.priority);
       return priorityOrder
         .filter((p) => groups[p]?.length)
         .map((p) => ({ key: p, label: statusLabel(p), items: groups[p]! }));
     }
     // assignee
-    const groups = groupBy(filtered, (i) => i.assigneeAgentId ?? "__unassigned");
+    const groups = groupBy(
+      filteredTree,
+      ({ issue }) => issue.assigneeAgentId ?? "__unassigned",
+    );
     return Object.keys(groups).map((key) => ({
       key,
       label: key === "__unassigned" ? "Unassigned" : (agentName(key) ?? key.slice(0, 8)),
       items: groups[key]!,
     }));
-  }, [filtered, viewState.groupBy, agents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filteredTree, viewState.groupBy, agents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const newIssueDefaults = (groupKey?: string) => {
     const defaults: Record<string, string> = {};
@@ -660,7 +670,13 @@ export function IssuesList({
               : "No issues match the current filters or search."
           }
           action={issues.length === 0 ? "New Quick Request" : "Create Issue"}
-          onAction={() => openNewIssue(newIssueDefaults())}
+          onAction={() => {
+            if (issues.length === 0 && selectedCompanyId) {
+              openOnboarding({ companyId: selectedCompanyId, initialStep: 4 });
+              return;
+            }
+            openNewIssue(newIssueDefaults());
+          }}
         />
       )}
 
@@ -703,7 +719,7 @@ export function IssuesList({
               </div>
             )}
             <CollapsibleContent>
-              {buildIssueTree(group.items).map(({ issue, children, summary }) => (
+              {group.items.map(({ issue, children, summary }) => (
                 <div key={issue.id}>
                 <Link
                   to={workIssuePath(issue.identifier ?? issue.id)}
