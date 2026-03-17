@@ -1023,6 +1023,121 @@ describe("pm intake helpers", () => {
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_support_tags");
   });
 
+  it("handles zero knowledge documents without error", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "General intake with no knowledge",
+        description: "## Human Intake Request\n\nGeneral intake with no knowledge documents.\n",
+        priority: "medium",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-cloud",
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+          urlKey: "swiftsight-cloud",
+        },
+      ],
+      knowledgeDocuments: [],
+      agents: [
+        ...agents,
+        {
+          id: "eng-1",
+          companyId: "company-1",
+          name: "Cloud Engineer",
+          urlKey: "swiftsight-cloud-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ],
+      request: {},
+    });
+
+    expect(preview.selectedProjectId).toBe("project-cloud");
+    expect(preview.draft.workItems).toHaveLength(1);
+  });
+
+  it("falls back to first project when all candidates score 0", () => {
+    // No knowledge docs, ambiguous description that matches nothing.
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Unrelated request",
+        description: "## Human Intake Request\n\nCompletely unrelated request with no keyword overlap.\n",
+        priority: "low",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-alpha",
+          companyId: "company-1",
+          name: "alpha-service",
+          urlKey: "alpha-service",
+        },
+        {
+          id: "project-beta",
+          companyId: "company-1",
+          name: "beta-service",
+          urlKey: "beta-service",
+        },
+      ],
+      knowledgeDocuments: [],
+      agents: [
+        ...agents,
+        {
+          id: "eng-1",
+          companyId: "company-1",
+          name: "Alpha Engineer",
+          urlKey: "alpha-service-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ],
+      request: {},
+    });
+
+    // When all candidates score 0, fallback selects the first project.
+    expect(preview.selectedProjectId).toBeTruthy();
+    expect(preview.warnings).toContain("project_match_low_confidence");
+  });
+
+  it("throws when no active engineer exists", () => {
+    // PM + reviewer + tech lead (manager) — but no engineer role agent.
+    // The tech lead is resolved first; once past that gate, the engineer lookup fails.
+    expect(() => buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Route intake without engineer",
+        description: "## Human Intake Request\n\nRoute intake without any engineer available.\n",
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-cloud",
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+          urlKey: "swiftsight-cloud",
+        },
+      ],
+      agents: [
+        agents[0], // PM
+        agents[1], // Reviewer (Cloud Reviewer, role: reviewer)
+        agents[3], // Tech Lead (Cloud TL, role: manager)
+      ],
+      request: {},
+    })).toThrow("No active engineer agent is available for PM intake projection");
+  });
+
   it("caps knowledge structured score to prevent document-count bias", () => {
     // Two projects: one with 3 high-match documents, one with 10 high-match documents.
     // Both should score similarly because the structured knowledge cap limits the contribution.
