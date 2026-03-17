@@ -79,6 +79,10 @@ export {
   ROLE_PACK_FILE_NAMES,
   ROLE_PACK_ROLE_KEYS,
   ISSUE_DOCUMENT_KEYS,
+  ONBOARDING_USE_CASES,
+  ONBOARDING_DEPLOYMENT_MODES,
+  ONBOARDING_AUTONOMY_MODES,
+  ONBOARDING_RUNTIME_PREFERENCES,
   ROLE_PACK_CUSTOM_BASE_ROLE_KEYS,
   type CompanyStatus,
   type DeploymentMode,
@@ -159,6 +163,10 @@ export {
   type RolePackFileName,
   type RolePackRoleKey,
   type IssueDocumentKey,
+  type OnboardingUseCase,
+  type OnboardingDeploymentMode,
+  type OnboardingAutonomyMode,
+  type OnboardingRuntimePreference,
   type RolePackCustomBaseRoleKey,
   type RolePackPresetKey,
 } from "./constants.js";
@@ -230,6 +238,7 @@ export type {
   IssueMergeCandidate,
   IssueChangeSurface,
   IssueDeliverable,
+  IssueRuntimeSummary,
   IssueDocumentFormat,
   IssueDocumentSummary,
   IssueDocument,
@@ -326,6 +335,8 @@ export type {
   SidebarBadges,
   SetupProgress,
   SetupProgressView,
+  OnboardingProfileV1,
+  OnboardingMetadata,
   DoctorCheck,
   DoctorReport,
   DoctorWorkspaceTarget,
@@ -665,6 +676,10 @@ export {
   type UpdateIssueProtocolState,
 } from "./validators/index.js";
 
+export {
+  computeOnboardingRecommendations,
+  type OnboardingRecommendation,
+} from "./onboarding-recommendations.js";
 export { API_PREFIX, API } from "./api.js";
 export { normalizeAgentUrlKey, deriveAgentUrlKey, isUuidLike } from "./agent-url-key.js";
 export { deriveProjectUrlKey, normalizeProjectUrlKey } from "./project-url-key.js";

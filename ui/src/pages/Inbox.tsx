@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { approvalsApi } from "../api/approvals";
 import { accessApi } from "../api/access";
 import { ApiError } from "../api/client";
+import { companiesApi } from "../api/companies";
 import { dashboardApi } from "../api/dashboard";
 import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
@@ -433,6 +434,14 @@ export function Inbox() {
     enabled: !!selectedCompanyId,
   });
 
+  const { data: setupProgress } = useQuery({
+    queryKey: queryKeys.companies.setupProgress(selectedCompanyId!),
+    queryFn: () => companiesApi.getSetupProgress(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  const firstIssueCreated = setupProgress?.steps?.firstIssueReady ?? false;
+
   useEffect(() => {
     setBreadcrumbs([{ label: "Inbox" }]);
   }, [setBreadcrumbs]);
@@ -821,7 +830,13 @@ export function Inbox() {
         {allLoaded && visibleSections.length === 0 && (
           <EmptyState
             icon={InboxIcon}
-            message={tab === "new" ? "You're all caught up!" : "No inbox items match these filters."}
+            message={
+              tab === "new"
+                ? !firstIssueCreated
+                  ? "Submit a quick request to get started. Clarifications from the PM will appear here."
+                  : "You're all caught up!"
+                : "No inbox items match these filters."
+            }
           />
         )}
 

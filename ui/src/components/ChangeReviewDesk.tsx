@@ -13,10 +13,11 @@ import {
   MessageSquare,
   Rocket,
   ShieldCheck,
+  Terminal,
   TestTube2,
   XCircle,
 } from "lucide-react";
-import type { IssueChangeSurface } from "@squadrail/shared";
+import type { IssueChangeSurface, IssueRuntimeSummary } from "@squadrail/shared";
 import {
   issuesApi,
   type MergeAutomationActionResult,
@@ -114,6 +115,37 @@ function countLabel(value: number, singular: string, plural = `${singular}s`) {
   return `${value} ${value === 1 ? singular : plural}`;
 }
 
+const VALID_SOURCES = new Set(["project_shared", "project_isolated"]);
+const VALID_STATES = new Set(["fresh", "reused_clean", "resumed_dirty", "recreated_clean", "recovered_existing"]);
+
+function deriveRuntimeSummaryFromSurface(surface: IssueChangeSurface | null | undefined): IssueRuntimeSummary | null {
+  if (!surface) return null;
+  const src = surface.workspaceSource;
+  const st = surface.workspaceState;
+  if (!src && !st && !surface.workspacePath) return null;
+
+  const bindingMeta = asRecord(surface.workspaceBindingArtifact?.metadata);
+  const boundWs = asRecord(bindingMeta?.workspace);
+  const rawUsage = readString(boundWs?.workspaceUsage) ?? readString(bindingMeta?.workspaceUsage);
+  const usage = rawUsage && ["analysis", "implementation", "review"].includes(rawUsage)
+    ? rawUsage as IssueRuntimeSummary["workspaceUsage"]
+    : surface.workspaceBindingArtifact ? "implementation" : null;
+  const source = src && VALID_SOURCES.has(src) ? src as IssueRuntimeSummary["workspaceSource"] : null;
+  const state = st && VALID_STATES.has(st) ? st as IssueRuntimeSummary["workspaceState"] : null;
+
+  const sourcePart = source === "project_isolated" ? "Isolated" : source === "project_shared" ? "Shared project" : "Unknown";
+  const usagePart = usage ?? "workspace";
+  const statePart = state ? state.replace(/_/g, " ") : null;
+  const label = source === "project_isolated"
+    ? `${sourcePart} ${usagePart} worktree`
+    : `${sourcePart} workspace · ${usagePart}`;
+  const headline = statePart ? `${label} · ${statePart}` : label;
+  const severity: IssueRuntimeSummary["severity"] =
+    state === "resumed_dirty" ? "risk" : state === "recovered_existing" ? "warning" : "info";
+
+  return { workspaceUsage: usage, workspaceSource: source, workspaceState: state, workspacePath: surface.workspacePath, branchName: surface.branchName, headline, detail: null, severity };
+}
+
 export function ChangeReviewDesk({
   companyId,
   issueId,
@@ -166,6 +198,10 @@ export function ChangeReviewDesk({
 
   const diffPreview = useMemo(
     () => (surface ? readDiffPreview(surface) : null),
+    [surface]
+  );
+  const runtimeSummary = useMemo(
+    () => deriveRuntimeSummaryFromSurface(surface),
     [surface]
   );
   const automationSummary = useMemo(
@@ -325,6 +361,20 @@ export function ChangeReviewDesk({
           </Button>
         </div>
       </div>
+
+      {runtimeSummary && (
+        <div className={
+          "mt-3 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs"
+          + (runtimeSummary.severity === "risk"
+            ? " border-red-300/70 bg-red-500/5 text-red-700"
+            : runtimeSummary.severity === "warning"
+              ? " border-amber-300/70 bg-amber-500/5 text-amber-700"
+              : " border-border bg-muted/30 text-muted-foreground")
+        }>
+          <Terminal className="h-3 w-3 shrink-0" />
+          <span className="font-medium">{runtimeSummary.headline}</span>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-[1rem] border border-border bg-background/72 px-4 py-3.5">

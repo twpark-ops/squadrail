@@ -33,6 +33,7 @@ export {
   setIssueMergeAutomationGitExecutorForTests,
 } from "./issue-merge-automation.js";
 export { buildIssueChangeSurface } from "./issue-change-surface.js";
+export { computeIssueRuntimeSummary } from "./issue-runtime-summary.js";
 export { computeIssueProgressSnapshot, computeSimplifiedIssueProgressSnapshot } from "./issue-progress-snapshot.js";
 export { knowledgeService } from "./knowledge.js";
 export { knowledgeSetupService, buildOrgSyncView, buildProjectSyncIssues } from "./knowledge-setup.js";

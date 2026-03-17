@@ -48,6 +48,7 @@ export type {
   IssueMergeCandidate,
   IssueChangeSurface,
   IssueDeliverable,
+  IssueRuntimeSummary,
   IssueDocumentFormat,
   IssueDocumentSummary,
   IssueDocument,
@@ -116,7 +117,7 @@ export type {
 } from "./dashboard.js";
 export type { ActivityEvent } from "./activity.js";
 export type { SidebarBadges } from "./sidebar-badges.js";
-export type { SetupProgress, SetupProgressView, DoctorCheck, DoctorReport, DoctorWorkspaceTarget } from "./setup.js";
+export type { SetupProgress, SetupProgressView, OnboardingProfileV1, OnboardingMetadata, DoctorCheck, DoctorReport, DoctorWorkspaceTarget } from "./setup.js";
 export type { WorkflowTemplate, WorkflowTemplatesView } from "./workflow-template.js";
 export type {
   TeamBlueprintProjectTemplate,

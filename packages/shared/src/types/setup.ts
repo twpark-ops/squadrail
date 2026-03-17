@@ -26,6 +26,33 @@ export interface SetupProgressView extends SetupProgress {
   };
 }
 
+/**
+ * Onboarding interview profile captured in Step 0 of the wizard.
+ * Used by computeOnboardingRecommendations() to auto-suggest blueprint,
+ * adapter, and workspace guidance before the user proceeds.
+ */
+export interface OnboardingProfileV1 {
+  useCase: "solo_builder" | "software_team" | "ops_control_plane" | "evaluation_lab";
+  deploymentMode: "local_single_host" | "private_network" | "public_service";
+  autonomyMode: "guided" | "balanced" | "aggressive";
+  runtimePreference: "codex_local" | "claude_local" | "openclaw" | "decide_later";
+  createdAt: string;
+}
+
+/**
+ * Typed view of onboarding metadata stored inside SetupProgress.metadata.
+ * The wizard persists the onboarding issue ID here so downstream surfaces
+ * can identify the "first success" issue without relying on query params.
+ */
+export interface OnboardingMetadata {
+  /** Whether the first issue has been created during onboarding. */
+  firstIssueReady?: boolean;
+  /** The issue ID created during the onboarding wizard quick-request step. */
+  onboardingIssueId?: string;
+  /** Interview profile captured at wizard Step 0. */
+  profile?: OnboardingProfileV1;
+}
+
 export interface DoctorCheck {
   code: string;
   category: DoctorCheckCategory;

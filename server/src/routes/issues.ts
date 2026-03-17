@@ -39,6 +39,7 @@ import {
   runMergeAutomationAction,
 } from "../services/index.js";
 import { buildIssueChangeSurface } from "../services/issue-change-surface.js";
+import { computeIssueRuntimeSummary } from "../services/issue-runtime-summary.js";
 import { computeIssueProgressSnapshot, computeSimplifiedIssueProgressSnapshot } from "../services/issue-progress-snapshot.js";
 import { issueMergeCandidateService } from "../services/issue-merge-candidates.js";
 import { summarizeIssueFailureLearning } from "../services/failure-learning.js";
@@ -1838,12 +1839,21 @@ export function issueRoutes(db: Db, storage: StorageService) {
       internalWorkItemSummary,
       protocolMessages: protocolMessages as import("@squadrail/shared").IssueProtocolMessage[],
     });
+    // Compute runtime summary from the change surface (best-effort, non-blocking).
+    let runtimeSummary: import("@squadrail/shared").IssueRuntimeSummary | null = null;
+    try {
+      const changeSurface = await loadIssueChangeSurface(issue);
+      runtimeSummary = computeIssueRuntimeSummary(changeSurface);
+    } catch {
+      // Non-critical — runtime banner is purely informational.
+    }
     res.json({
       ...issue,
       ancestors,
       internalWorkItems,
       internalWorkItemSummary,
       progressSnapshot,
+      ...(runtimeSummary ? { runtimeSummary } : {}),
       project: project ?? null,
       goal: goal ?? null,
       mentionedProjects,

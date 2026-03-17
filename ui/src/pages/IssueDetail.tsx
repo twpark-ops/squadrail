@@ -11,6 +11,7 @@ import { activityApi } from "../api/activity";
 import { heartbeatsApi } from "../api/heartbeats";
 import { agentsApi } from "../api/agents";
 import { authApi } from "../api/auth";
+import { companiesApi } from "../api/companies";
 import { knowledgeApi } from "../api/knowledge";
 import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
@@ -113,7 +114,9 @@ import type {
   IssueProtocolState,
   IssueProtocolViolation,
   IssueReviewCycle,
+  IssueRuntimeSummary,
   IssueTaskBrief,
+  OnboardingMetadata,
 } from "@squadrail/shared";
 import { ISSUE_DOCUMENT_KEYS } from "@squadrail/shared";
 import {
@@ -1454,6 +1457,17 @@ export function IssueDetail() {
     enabled: !!selectedCompanyId,
   });
 
+  const { data: setupProgress } = useQuery({
+    queryKey: queryKeys.companies.setupProgress(selectedCompanyId!),
+    queryFn: () => companiesApi.getSetupProgress(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  const onboardingMeta = setupProgress?.metadata as OnboardingMetadata | undefined;
+  const isOnboardingIssue = Boolean(
+    onboardingMeta?.onboardingIssueId && onboardingMeta.onboardingIssueId === issue?.id
+  );
+
   const retrievalRunHitsQueries = useQueries({
     queries: (changeSurface?.retrievalContext.latestRuns ?? [])
       .slice(0, 3)
@@ -2115,26 +2129,35 @@ export function IssueDetail() {
         "space-y-4"
       )}
     >
-      {/* Post-onboarding welcome banner: shown only when arriving from the onboarding wizard
-           via ?source=onboarding query param. Dismissed once PM structures the request. */}
-      {searchParams.get("source") === "onboarding"
-        && protocolMessages.length <= 1
-        && protocolState?.workflowState !== "done"
-        && protocolState?.workflowState !== "cancelled"
-        && (
-        <div className="rounded-[1.2rem] border border-blue-200 bg-blue-50/60 px-5 py-4 text-sm dark:border-blue-900/40 dark:bg-blue-950/20">
-          <p className="font-semibold text-blue-900 dark:text-blue-200">Quick request submitted</p>
-          <p className="mt-1 text-blue-800/80 dark:text-blue-300/70">
-            Your PM agent is picking up this request. Protocol messages will appear below as the team structures and executes the work.
-          </p>
-          <ol className="mt-3 space-y-1 text-xs text-blue-700/70 dark:text-blue-400/60 list-decimal list-inside">
-            <li>PM reviews and structures the request</li>
-            <li>PM may ask clarification questions (check your Inbox)</li>
-            <li>Work gets routed to engineers via project projection</li>
-            <li>Review, QA, and close follow automatically</li>
-          </ol>
-        </div>
-      )}
+      {/* Post-onboarding welcome banner: shown when this issue is the onboarding issue
+           (identified via setupProgress.metadata.onboardingIssueId). Message varies by state. */}
+      {isOnboardingIssue && issue?.status !== "done" && issue?.status !== "cancelled" && (() => {
+        const hasPendingClarification = pendingClarificationRequests.length > 0;
+        const wfState = protocolState?.workflowState;
+        let bannerTitle = "Welcome to your first issue";
+        let bannerMessage = "Your PM is structuring this request. Watch for clarification questions in the Inbox.";
+
+        if (hasPendingClarification) {
+          bannerTitle = "Clarification needed";
+          bannerMessage = "A clarification is waiting — check your Inbox to keep things moving.";
+        } else if (wfState === "implementing") {
+          bannerTitle = "Implementation underway";
+          bannerMessage = "Your team is building the solution. Progress updates appear in the protocol timeline below.";
+        } else if (
+          wfState === "submitted_for_review" ||
+          wfState === "under_review"
+        ) {
+          bannerTitle = "Review in progress";
+          bannerMessage = "The implementation is being reviewed. You will see the outcome here shortly.";
+        }
+
+        return (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+            <div className="text-sm font-medium text-foreground">{bannerTitle}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{bannerMessage}</div>
+          </div>
+        );
+      })()}
 
       {/* Parent chain breadcrumb */}
       {ancestors.length > 0 && (
@@ -2657,6 +2680,23 @@ export function IssueDetail() {
 
         {issue.progressSnapshot && (
           <ProgressHeroStrip snapshot={issue.progressSnapshot} agentMap={agentMap} />
+        )}
+
+        {issue.runtimeSummary && (
+          <div className={cn(
+            "flex items-center gap-3 rounded-lg border px-3 py-2 text-xs",
+            issue.runtimeSummary.severity === "risk"
+              ? "border-red-300/70 bg-red-500/5 text-red-700"
+              : issue.runtimeSummary.severity === "warning"
+                ? "border-amber-300/70 bg-amber-500/5 text-amber-700"
+                : "border-border bg-muted/30 text-muted-foreground"
+          )}>
+            <Terminal className="h-3.5 w-3.5 shrink-0" />
+            <span className="font-medium">{issue.runtimeSummary.headline}</span>
+            {issue.runtimeSummary.detail && (
+              <span className="text-muted-foreground">{issue.runtimeSummary.detail}</span>
+            )}
+          </div>
         )}
 
         <div className="flex flex-wrap items-center gap-2">

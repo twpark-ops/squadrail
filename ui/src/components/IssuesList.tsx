@@ -3,6 +3,7 @@ import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
+import { companiesApi } from "../api/companies";
 import { issuesApi } from "../api/issues";
 import { queryKeys } from "../lib/queryKeys";
 import { groupBy } from "../lib/groupBy";
@@ -318,6 +319,18 @@ export function IssuesList({
 }: IssuesListProps) {
   const { selectedCompanyId } = useCompany();
   const { openNewIssue, openOnboarding } = useDialog();
+
+  const { data: setupProgress } = useQuery({
+    queryKey: queryKeys.companies.setupProgress(selectedCompanyId!),
+    queryFn: () => companiesApi.getSetupProgress(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+
+  // Derive first-success state from setupProgress + issue data.
+  const firstIssueCreated = setupProgress?.steps?.firstIssueReady ?? false;
+  const closedRootIssueCount = issues.filter(
+    (i) => i.parentId === null && (i.status === "done" || i.status === "cancelled"),
+  ).length;
 
   // Scope the storage key per company so folding/view state is independent across companies.
   const scopedKey = selectedCompanyId ? `${viewStateKey}:${selectedCompanyId}` : viewStateKey;
@@ -707,17 +720,19 @@ export function IssuesList({
           icon={CircleDot}
           message={
             issues.length === 0
-              ? "No issues yet. Submit a quick request to get started — the PM will structure and route it."
+              ? !firstIssueCreated
+                ? "Submit a quick request to get started — the PM will structure and route it."
+                : "Your first request is being processed. Check the Board tab to follow progress."
               : "No issues match the current filters or search."
           }
-          action={issues.length === 0 ? "New Quick Request" : "Create Issue"}
-          onAction={() => {
-            if (issues.length === 0 && selectedCompanyId) {
-              openOnboarding({ companyId: selectedCompanyId, initialStep: 4 });
-              return;
-            }
-            openNewIssue(newIssueDefaults());
-          }}
+          action={issues.length === 0 && !firstIssueCreated ? "New Quick Request" : issues.length > 0 ? "Create Issue" : undefined}
+          onAction={
+            issues.length === 0 && !firstIssueCreated && selectedCompanyId
+              ? () => openOnboarding({ companyId: selectedCompanyId, initialStep: 4 })
+              : issues.length > 0
+                ? () => openNewIssue(newIssueDefaults())
+                : undefined
+          }
         />
       )}
 

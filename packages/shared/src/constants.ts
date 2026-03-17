@@ -600,6 +600,18 @@ export const ISSUE_DOCUMENT_KEYS = [
 ] as const;
 export type IssueDocumentKey = (typeof ISSUE_DOCUMENT_KEYS)[number];
 
+export const ONBOARDING_USE_CASES = ["solo_builder", "software_team", "ops_control_plane", "evaluation_lab"] as const;
+export type OnboardingUseCase = (typeof ONBOARDING_USE_CASES)[number];
+
+export const ONBOARDING_DEPLOYMENT_MODES = ["local_single_host", "private_network", "public_service"] as const;
+export type OnboardingDeploymentMode = (typeof ONBOARDING_DEPLOYMENT_MODES)[number];
+
+export const ONBOARDING_AUTONOMY_MODES = ["guided", "balanced", "aggressive"] as const;
+export type OnboardingAutonomyMode = (typeof ONBOARDING_AUTONOMY_MODES)[number];
+
+export const ONBOARDING_RUNTIME_PREFERENCES = ["codex_local", "claude_local", "openclaw", "decide_later"] as const;
+export type OnboardingRuntimePreference = (typeof ONBOARDING_RUNTIME_PREFERENCES)[number];
+
 export const ROLE_PACK_PRESET_KEYS = [
   "squadrail_default_v1",
   "example_product_squad_v1",

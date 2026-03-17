@@ -104,6 +104,7 @@ export interface Issue {
   goal?: Goal | null;
   mentionedProjects?: Project[];
   progressSnapshot?: IssueProgressSnapshot;
+  runtimeSummary?: IssueRuntimeSummary;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -436,6 +437,27 @@ export interface IssueDocumentRevision {
   createdByAgentId: string | null;
   createdByUserId: string | null;
   createdAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Issue Runtime Summary
+// ---------------------------------------------------------------------------
+
+export interface IssueRuntimeSummary {
+  workspaceUsage: "analysis" | "implementation" | "review" | null;
+  workspaceSource: "project_shared" | "project_isolated" | null;
+  workspaceState:
+    | "fresh"
+    | "reused_clean"
+    | "resumed_dirty"
+    | "recreated_clean"
+    | "recovered_existing"
+    | null;
+  workspacePath: string | null;
+  branchName: string | null;
+  headline: string;
+  detail: string | null;
+  severity: "info" | "warning" | "risk";
 }
 
 // ---------------------------------------------------------------------------

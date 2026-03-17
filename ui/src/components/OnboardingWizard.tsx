@@ -4,13 +4,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AdapterEnvironmentTestResult,
   IssuePriority,
+  OnboardingProfileV1,
   TeamBlueprint,
   TeamBlueprintApplyResult,
   TeamBlueprintKey,
   TeamBlueprintPreviewRequest,
   TeamBlueprintPreviewResult,
 } from "@squadrail/shared";
-import { buildDefaultTeamBlueprintPreviewRequest } from "@squadrail/shared";
+import {
+  buildDefaultTeamBlueprintPreviewRequest,
+  computeOnboardingRecommendations,
+  ONBOARDING_USE_CASES,
+  ONBOARDING_DEPLOYMENT_MODES,
+  ONBOARDING_AUTONOMY_MODES,
+  ONBOARDING_RUNTIME_PREFERENCES,
+} from "@squadrail/shared";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { companiesApi } from "../api/companies";
@@ -48,6 +56,7 @@ import {
   Building2,
   Check,
   ChevronDown,
+  ClipboardList,
   FolderOpen,
   GitBranch,
   ListChecks,
@@ -57,8 +66,35 @@ import {
   X,
 } from "lucide-react";
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 0 | 1 | 2 | 3 | 4;
 type AdapterType = "claude_local" | "codex_local";
+
+// ── Profile step card descriptions ──────────────────────────────────
+const PROFILE_USE_CASE_OPTIONS: { value: OnboardingProfileV1["useCase"]; label: string; description: string }[] = [
+  { value: "solo_builder", label: "Solo builder", description: "I'm working alone on personal or small projects" },
+  { value: "software_team", label: "Software team", description: "We're a team building software together" },
+  { value: "ops_control_plane", label: "Ops control plane", description: "I need to operate and monitor AI delivery at scale" },
+  { value: "evaluation_lab", label: "Evaluation lab", description: "I want to test and evaluate agent capabilities" },
+];
+
+const PROFILE_DEPLOYMENT_OPTIONS: { value: OnboardingProfileV1["deploymentMode"]; label: string; description: string }[] = [
+  { value: "local_single_host", label: "Local single host", description: "Everything runs on my machine" },
+  { value: "private_network", label: "Private network", description: "Deployed on a private network (Tailscale, VPN, internal)" },
+  { value: "public_service", label: "Public service", description: "Internet-facing deployment with authentication" },
+];
+
+const PROFILE_AUTONOMY_OPTIONS: { value: OnboardingProfileV1["autonomyMode"]; label: string; description: string }[] = [
+  { value: "guided", label: "Guided", description: "I want to review every step before agents proceed" },
+  { value: "balanced", label: "Balanced", description: "Auto-proceed on routine work, ask me for important decisions" },
+  { value: "aggressive", label: "Aggressive", description: "Maximize agent autonomy, minimal human gates" },
+];
+
+const PROFILE_RUNTIME_OPTIONS: { value: OnboardingProfileV1["runtimePreference"]; label: string; description: string }[] = [
+  { value: "codex_local", label: "OpenAI Codex (local)", description: "OpenAI Codex (local)" },
+  { value: "claude_local", label: "Anthropic Claude Code (local)", description: "Anthropic Claude Code (local)" },
+  { value: "openclaw", label: "OpenClaw (remote)", description: "OpenClaw (remote)" },
+  { value: "decide_later", label: "Decide later", description: "I'll configure this later" },
+];
 
 const NEW_WORKSPACE_OPTION = "__new__";
 const QUICK_REQUEST_PRIORITY_OPTIONS: IssuePriority[] = [
@@ -128,13 +164,20 @@ export function OnboardingWizard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const initialStep = onboardingOptions.initialStep ?? 1;
+  const initialStep = onboardingOptions.initialStep ?? 0;
   const existingCompanyId = onboardingOptions.companyId ?? null;
 
   const [step, setStep] = useState<Step>(initialStep);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
+
+  // Step 0 — Profile interview
+  const [profileUseCase, setProfileUseCase] = useState<OnboardingProfileV1["useCase"]>("solo_builder");
+  const [profileDeploymentMode, setProfileDeploymentMode] = useState<OnboardingProfileV1["deploymentMode"]>("local_single_host");
+  const [profileAutonomyMode, setProfileAutonomyMode] = useState<OnboardingProfileV1["autonomyMode"]>("balanced");
+  const [profileRuntimePreference, setProfileRuntimePreference] = useState<OnboardingProfileV1["runtimePreference"]>("decide_later");
+  const [profileCompleted, setProfileCompleted] = useState(false);
 
   // Step 1
   const [companyName, setCompanyName] = useState("");
@@ -182,6 +225,22 @@ export function OnboardingWizard() {
     null
   );
 
+  const currentProfile = useMemo<OnboardingProfileV1>(
+    () => ({
+      useCase: profileUseCase,
+      deploymentMode: profileDeploymentMode,
+      autonomyMode: profileAutonomyMode,
+      runtimePreference: profileRuntimePreference,
+      createdAt: new Date().toISOString(),
+    }),
+    [profileUseCase, profileDeploymentMode, profileAutonomyMode, profileRuntimePreference],
+  );
+
+  const profileRecommendation = useMemo(
+    () => (profileCompleted ? computeOnboardingRecommendations(currentProfile) : null),
+    [profileCompleted, currentProfile],
+  );
+
   const quickRequestRef = useRef<HTMLTextAreaElement>(null);
   const autoResizeQuickRequest = useCallback(() => {
     const element = quickRequestRef.current;
@@ -193,7 +252,7 @@ export function OnboardingWizard() {
   useEffect(() => {
     if (!onboardingOpen) return;
     const companyId = onboardingOptions.companyId ?? null;
-    setStep(onboardingOptions.initialStep ?? 1);
+    setStep(onboardingOptions.initialStep ?? 0);
     setCreatedCompanyId(companyId);
     setCreatedCompanyPrefix(null);
   }, [
@@ -419,10 +478,15 @@ export function OnboardingWizard() {
   ]);
 
   function reset() {
-    setStep(1);
+    setStep(0);
     setLoading(false);
     setError(null);
     setModelOpen(false);
+    setProfileUseCase("solo_builder");
+    setProfileDeploymentMode("local_single_host");
+    setProfileAutonomyMode("balanced");
+    setProfileRuntimePreference("decide_later");
+    setProfileCompleted(false);
     setCompanyName("");
     setCompanyGoal("");
     setSelectedTeamBlueprintKey(null);
@@ -590,6 +654,10 @@ export function OnboardingWizard() {
         await queryClient.invalidateQueries({
           queryKey: queryKeys.goals.list(company.id),
         });
+      }
+      // Auto-select the recommended blueprint if profile was completed
+      if (profileRecommendation) {
+        setSelectedTeamBlueprintKey(profileRecommendation.blueprintKey as TeamBlueprintKey);
       }
       setStep(2);
     } catch (err) {
@@ -778,6 +846,8 @@ export function OnboardingWizard() {
       await companiesApi.updateSetupProgress(createdCompanyId, {
         metadata: {
           firstIssueReady: true,
+          onboardingIssueId: response.issue.id,
+          ...(profileCompleted ? { profile: currentProfile } : {}),
         },
       });
       await Promise.all([
@@ -808,9 +878,30 @@ export function OnboardingWizard() {
     }
   }
 
+  function handleStep0Next() {
+    setProfileCompleted(true);
+    setError(null);
+    // Pre-select adapter and blueprint based on recommendation
+    const rec = computeOnboardingRecommendations({
+      useCase: profileUseCase,
+      deploymentMode: profileDeploymentMode,
+      autonomyMode: profileAutonomyMode,
+      runtimePreference: profileRuntimePreference,
+      createdAt: new Date().toISOString(),
+    });
+    if (rec.adapterSuggestion === "codex_local" || rec.adapterSuggestion === "claude_local") {
+      setAdapterType(rec.adapterSuggestion as AdapterType);
+    }
+    setStep(1);
+  }
+
   function handleKeyDown(event: React.KeyboardEvent) {
     if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
     event.preventDefault();
+    if (step === 0) {
+      handleStep0Next();
+      return;
+    }
     if (step === 1 && companyName.trim()) {
       void handleStep1Next();
       return;
@@ -830,7 +921,8 @@ export function OnboardingWizard() {
 
   if (!onboardingOpen) return null;
 
-  const stepOrder: Step[] = [1, 2, 3, 4];
+  const TOTAL_STEPS = 5;
+  const stepOrder: Step[] = [0, 1, 2, 3, 4];
   const stepDetails: Record<
     Step,
     {
@@ -841,6 +933,14 @@ export function OnboardingWizard() {
       icon: typeof Building2;
     }
   > = {
+    0: {
+      eyebrow: "Profile",
+      title: "Tell us about your setup",
+      description:
+        "Answer four quick questions so we can recommend the right team shape, execution engine, and workspace configuration.",
+      note: "Your answers pre-fill the next steps. You can always override any recommendation.",
+      icon: ClipboardList,
+    },
     1: {
       eyebrow: "Company setup",
       title: "Create the operating company",
@@ -920,11 +1020,11 @@ export function OnboardingWizard() {
                           Progress
                         </div>
                         <div className="mt-1 text-base font-semibold text-foreground">
-                          Step {step} of 4
+                          Step {step} of {TOTAL_STEPS - 1}
                         </div>
                       </div>
                       <div className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                        {Math.round((step / 4) * 100)}%
+                        {Math.round((step / (TOTAL_STEPS - 1)) * 100)}%
                       </div>
                     </div>
                     <div className="mt-4 flex gap-2">
@@ -1071,7 +1171,7 @@ export function OnboardingWizard() {
                       {currentStepDetail.eyebrow}
                     </span>
                     <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                      Step {step} of 4
+                      Step {step} of {TOTAL_STEPS - 1}
                     </span>
                   </div>
                   <div className="mt-5 flex items-start gap-4">
@@ -1091,8 +1191,60 @@ export function OnboardingWizard() {
 
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-8">
                   <div className="mx-auto max-w-3xl space-y-6 pb-6">
+                    {step === 0 && (
+                      <div className="space-y-6">
+                        <ProfileCardGroup
+                          label="What are you building?"
+                          options={PROFILE_USE_CASE_OPTIONS}
+                          value={profileUseCase}
+                          onChange={setProfileUseCase}
+                        />
+                        <ProfileCardGroup
+                          label="How will you deploy?"
+                          options={PROFILE_DEPLOYMENT_OPTIONS}
+                          value={profileDeploymentMode}
+                          onChange={setProfileDeploymentMode}
+                        />
+                        <ProfileCardGroup
+                          label="How much autonomy for agents?"
+                          options={PROFILE_AUTONOMY_OPTIONS}
+                          value={profileAutonomyMode}
+                          onChange={setProfileAutonomyMode}
+                        />
+                        <ProfileCardGroup
+                          label="Preferred runtime engine?"
+                          options={PROFILE_RUNTIME_OPTIONS}
+                          value={profileRuntimePreference}
+                          onChange={setProfileRuntimePreference}
+                        />
+                      </div>
+                    )}
+
                     {step === 1 && (
                       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+                        {profileRecommendation && (
+                          <div className="col-span-full rounded-[1.35rem] border border-sky-300/65 bg-sky-50/70 px-5 py-4 text-sm text-sky-900">
+                            <div className="font-semibold">Recommendation based on your profile</div>
+                            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                              <div className="rounded-[1rem] border border-sky-200/80 bg-white/70 px-3 py-2">
+                                <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700/80">Blueprint</div>
+                                <div className="mt-1 font-medium">{profileRecommendation.blueprintKey.replaceAll("_", " ")}</div>
+                              </div>
+                              <div className="rounded-[1rem] border border-sky-200/80 bg-white/70 px-3 py-2">
+                                <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700/80">Adapter</div>
+                                <div className="mt-1 font-medium">{profileRecommendation.adapterSuggestion.replaceAll("_", " ")}</div>
+                              </div>
+                              <div className="rounded-[1rem] border border-sky-200/80 bg-white/70 px-3 py-2">
+                                <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700/80">Workspace</div>
+                                <div className="mt-1 text-xs leading-5">{profileRecommendation.workspaceGuidance}</div>
+                              </div>
+                              <div className="rounded-[1rem] border border-sky-200/80 bg-white/70 px-3 py-2">
+                                <div className="text-[11px] font-medium uppercase tracking-wide text-sky-700/80">Autonomy</div>
+                                <div className="mt-1 text-xs leading-5">{profileRecommendation.autonomyNote}</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <section className="rounded-[1.7rem] border border-border bg-card/92 p-5 shadow-card">
                           <div className="flex items-start gap-3">
                             <div className="rounded-[1rem] border border-primary/10 bg-primary/8 p-2 text-primary">
@@ -2019,7 +2171,7 @@ export function OnboardingWizard() {
                 <div className="border-t border-border/80 px-6 py-4 md:px-8">
                   <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
                     <div>
-                      {step > 1 && step > (onboardingOptions.initialStep ?? 1) && (
+                      {step > 0 && step > (onboardingOptions.initialStep ?? 0) && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -2034,6 +2186,16 @@ export function OnboardingWizard() {
                     </div>
 
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                      {step === 0 && (
+                        <Button
+                          size="sm"
+                          className="rounded-full"
+                          onClick={handleStep0Next}
+                        >
+                          <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
+                          Continue
+                        </Button>
+                      )}
                       {step === 1 && (
                         <Button
                           size="sm"
@@ -2109,6 +2271,61 @@ export function OnboardingWizard() {
         </div>
       </DialogPortal>
     </Dialog>
+  );
+}
+
+function ProfileCardGroup<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: T; label: string; description: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <section className="rounded-[1.7rem] border border-border bg-card/92 p-5 shadow-card">
+      <div className="text-lg font-semibold text-foreground">{label}</div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {options.map((option) => {
+          const active = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "rounded-[1.25rem] border px-4 py-4 text-left transition-colors",
+                active
+                  ? "border-primary/16 bg-[color-mix(in_oklab,var(--primary)_9%,white)]"
+                  : "border-border bg-background hover:border-primary/12 hover:bg-accent/32",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className={cn(
+                    "h-4 w-4 shrink-0 rounded-full border-2 transition-colors",
+                    active ? "border-primary bg-primary" : "border-border bg-background",
+                  )}
+                >
+                  {active && (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <div className="h-1.5 w-1.5 rounded-full bg-white" />
+                    </div>
+                  )}
+                </div>
+                <span className="text-sm font-semibold text-foreground">{option.label}</span>
+              </div>
+              <p className="mt-2 pl-6 text-xs leading-5 text-muted-foreground">
+                {option.description}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
