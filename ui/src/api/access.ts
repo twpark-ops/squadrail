@@ -1,5 +1,9 @@
-import type { AgentAdapterType, JoinRequest } from "@squadrail/shared";
+import type { AgentAdapterType, CompanyMembership, JoinRequest, PermissionKey, PrincipalPermissionGrant } from "@squadrail/shared";
 import { api } from "./client";
+
+export type MemberWithGrants = CompanyMembership & {
+  grants: PrincipalPermissionGrant[];
+};
 
 type InviteSummary = {
   id: string;
@@ -96,4 +100,14 @@ export const accessApi = {
 
   claimBoard: (token: string, code: string) =>
     api.post<{ claimed: true; userId: string }>(`/board-claim/${token}/claim`, { code }),
+
+  listMembers: (companyId: string) =>
+    api.get<MemberWithGrants[]>(`/companies/${companyId}/members`),
+
+  updateMemberPermissions: (
+    companyId: string,
+    memberId: string,
+    grants: Array<{ permissionKey: PermissionKey; scope?: Record<string, unknown> | null }>,
+  ) =>
+    api.patch<CompanyMembership>(`/companies/${companyId}/members/${memberId}/permissions`, { grants }),
 };

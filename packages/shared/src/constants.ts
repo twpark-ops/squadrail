@@ -600,6 +600,9 @@ export const ISSUE_DOCUMENT_KEYS = [
 ] as const;
 export type IssueDocumentKey = (typeof ISSUE_DOCUMENT_KEYS)[number];
 
+export const COMPANY_ROLE_TEMPLATES = ["owner", "admin", "operator", "viewer"] as const;
+export type CompanyRoleTemplate = (typeof COMPANY_ROLE_TEMPLATES)[number];
+
 export const ONBOARDING_USE_CASES = ["solo_builder", "software_team", "ops_control_plane", "evaluation_lab"] as const;
 export type OnboardingUseCase = (typeof ONBOARDING_USE_CASES)[number];
 
@@ -618,3 +621,9 @@ export const ROLE_PACK_PRESET_KEYS = [
   "example_large_org_v1",
 ] as const;
 export type RolePackPresetKey = (typeof ROLE_PACK_PRESET_KEYS)[number];
+
+export const COMMAND_COMPOSER_MODES = ["ask", "task", "decision"] as const;
+export type CommandComposerMode = (typeof COMMAND_COMPOSER_MODES)[number];
+
+export const COMMAND_COMPOSER_SCOPES = ["company", "project", "issue"] as const;
+export type CommandComposerScope = (typeof COMMAND_COMPOSER_SCOPES)[number];

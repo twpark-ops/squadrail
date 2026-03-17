@@ -4,7 +4,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToast } from "../context/ToastContext";
 import { companiesApi } from "../api/companies";
-import { accessApi } from "../api/access";
+import { accessApi, type MemberWithGrants } from "../api/access";
 import { knowledgeApi, type RetrievalPolicyRecord } from "../api/knowledge";
 import { projectsApi } from "../api/projects";
 import { queryKeys } from "../lib/queryKeys";
@@ -21,7 +21,7 @@ import {
   describeTeamBlueprintParameterChanges,
 } from "../components/TeamBlueprintParameterEditor";
 import { Field, ToggleField, HintIcon } from "../components/agent-config-primitives";
-import { Layers3, SearchCheck, Settings, ShieldCheck } from "lucide-react";
+import { Layers3, SearchCheck, Settings, ShieldCheck, Users } from "lucide-react";
 import {
   canDeleteSavedTeamBlueprint,
   buildNextSavedTeamBlueprintVersionLabel,
@@ -50,6 +50,12 @@ import {
   type RolePackWithLatestRevision,
   type WorkflowTemplate,
   type WorkflowTemplateActionType,
+  type CompanyRoleTemplate,
+  COMPANY_ROLE_TEMPLATES,
+  ROLE_TEMPLATE_DEFINITIONS,
+  resolveRoleTemplate,
+  permissionsForRoleTemplate,
+  type PermissionKey,
 } from "@squadrail/shared";
 
 const ENGINE_OPTIONS = [
@@ -176,6 +182,18 @@ function createWorkflowTemplateDraft(actionType: WorkflowTemplateActionType): Wo
 
 function stringifyWorkflowTemplateFields(fields: Record<string, string>) {
   return JSON.stringify(fields, null, 2);
+}
+
+function roleTemplateBadgeTone(role: CompanyRoleTemplate) {
+  if (role === "owner") return "border-purple-300 bg-purple-50 text-purple-700";
+  if (role === "admin") return "border-blue-300 bg-blue-50 text-blue-700";
+  if (role === "operator") return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  return "border-slate-300 bg-slate-100 text-slate-700"; // viewer
+}
+
+function roleTemplateLabel(role: CompanyRoleTemplate) {
+  const def = ROLE_TEMPLATE_DEFINITIONS.find((d) => d.key === role);
+  return def?.label ?? role;
 }
 
 function downloadJsonFile(filename: string, data: unknown) {
@@ -559,6 +577,14 @@ export function CompanySettings() {
 
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteRoleTemplate, setInviteRoleTemplate] = useState<CompanyRoleTemplate>("operator");
+
+  const { data: members = [], isLoading: isMembersLoading } = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.access.members(selectedCompanyId) : ["access", "members", "__none__"],
+    queryFn: () => accessApi.listMembers(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+    retry: false,
+  });
 
   const generalDirty =
     !!selectedCompany &&
@@ -616,11 +642,18 @@ export function CompanySettings() {
   });
 
   const inviteMutation = useMutation({
-    mutationFn: () =>
-      accessApi.createCompanyInvite(selectedCompanyId!, {
+    mutationFn: () => {
+      const grants = permissionsForRoleTemplate(inviteRoleTemplate);
+      return accessApi.createCompanyInvite(selectedCompanyId!, {
         allowedJoinTypes: "both",
         expiresInHours: 72,
-      }),
+        defaultsPayload: {
+          human: { grants },
+          agent: { grants },
+          roleTemplate: inviteRoleTemplate,
+        },
+      });
+    },
     onSuccess: (invite) => {
       setInviteError(null);
       const base = window.location.origin.replace(/\/+$/, "");
@@ -634,6 +667,19 @@ export function CompanySettings() {
       setInviteError(err instanceof Error ? err.message : "Failed to create invite");
     },
   });
+  const memberRoleMutation = useMutation({
+    mutationFn: ({ memberId, roleTemplate }: { memberId: string; roleTemplate: CompanyRoleTemplate }) => {
+      const grants = permissionsForRoleTemplate(roleTemplate).map((g) => ({
+        permissionKey: g.permissionKey as PermissionKey,
+        scope: g.scope,
+      }));
+      return accessApi.updateMemberPermissions(selectedCompanyId!, memberId, grants);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.access.members(selectedCompanyId!) });
+    },
+  });
+
   const archiveMutation = useMutation({
     mutationFn: ({
       companyId,
@@ -4150,6 +4196,66 @@ export function CompanySettings() {
         </div>
       </div>
 
+      {/* Members */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          <Users className="h-3.5 w-3.5" />
+          Members
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          {isMembersLoading ? (
+            <p className="text-xs text-muted-foreground">Loading members...</p>
+          ) : members.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No members found.</p>
+          ) : (
+            <div className="space-y-2">
+              {members.map((member) => {
+                const grantKeys = member.grants.map((g) => g.permissionKey);
+                const derivedRole = resolveRoleTemplate(member.membershipRole, grantKeys);
+                return (
+                  <div key={member.id} className="flex flex-col gap-2 rounded-md border border-border px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${roleTemplateBadgeTone(derivedRole)}`}>
+                        {roleTemplateLabel(derivedRole)}
+                      </span>
+                      <span className="text-sm font-medium text-foreground">
+                        {member.principalType === "user" ? member.principalId : `Agent ${member.principalId.slice(0, 8)}`}
+                      </span>
+                      <span className="text-xs text-muted-foreground">({member.principalType})</span>
+                      {member.status !== "active" && (
+                        <span className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+                          {member.status}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {COMPANY_ROLE_TEMPLATES.map((rt) => (
+                        <button
+                          key={rt}
+                          type="button"
+                          disabled={memberRoleMutation.isPending}
+                          className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                            derivedRole === rt
+                              ? roleTemplateBadgeTone(rt)
+                              : "border-border bg-background text-muted-foreground hover:bg-muted/50"
+                          }`}
+                          onClick={() => {
+                            if (derivedRole === rt) return;
+                            memberRoleMutation.mutate({ memberId: member.id, roleTemplate: rt });
+                          }}
+                        >
+                          {roleTemplateLabel(rt)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Invites */}
       <div className="space-y-4">
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -4158,7 +4264,36 @@ export function CompanySettings() {
         <div className="space-y-3 rounded-md border border-border px-4 py-4">
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Generate a link to invite humans or agents to this company.</span>
-            <HintIcon text="Invite links expire after 72 hours and allow both human and agent joins." />
+            <HintIcon text="Invite links expire after 72 hours and allow both human and agent joins. The selected role template sets default permissions for new members." />
+          </div>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Default role:</span>
+              {COMPANY_ROLE_TEMPLATES.map((rt) => {
+                const def = ROLE_TEMPLATE_DEFINITIONS.find((d) => d.key === rt);
+                return (
+                  <button
+                    key={rt}
+                    type="button"
+                    className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      inviteRoleTemplate === rt
+                        ? roleTemplateBadgeTone(rt)
+                        : "border-border bg-background text-muted-foreground hover:bg-muted/50"
+                    }`}
+                    title={def?.description ?? ""}
+                    onClick={() => setInviteRoleTemplate(rt)}
+                  >
+                    {def?.label ?? rt}
+                  </button>
+                );
+              })}
+            </div>
+            {(() => {
+              const def = ROLE_TEMPLATE_DEFINITIONS.find((d) => d.key === inviteRoleTemplate);
+              return def ? (
+                <p className="text-[11px] text-muted-foreground">{def.description}</p>
+              ) : null;
+            })()}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={() => inviteMutation.mutate()} disabled={inviteMutation.isPending}>
@@ -4179,7 +4314,7 @@ export function CompanySettings() {
           {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
           {inviteLink && (
             <div className="rounded-md border border-border bg-muted/30 p-2">
-              <div className="text-xs text-muted-foreground">Share link</div>
+              <div className="text-xs text-muted-foreground">Share link (role: {roleTemplateLabel(inviteRoleTemplate)})</div>
               <div className="mt-1 break-all font-mono text-xs">{inviteLink}</div>
             </div>
           )}

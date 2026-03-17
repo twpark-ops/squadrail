@@ -203,6 +203,7 @@ export type {
   Invite,
   JoinRequest,
   InstanceUserRoleGrant,
+  CompanyRoleTemplateDefinition,
 } from "./access.js";
 export type {
   CompanyPortabilityInclude,

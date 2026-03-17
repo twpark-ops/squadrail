@@ -169,6 +169,12 @@ export {
   type OnboardingRuntimePreference,
   type RolePackCustomBaseRoleKey,
   type RolePackPresetKey,
+  COMPANY_ROLE_TEMPLATES,
+  type CompanyRoleTemplate,
+  COMMAND_COMPOSER_MODES,
+  COMMAND_COMPOSER_SCOPES,
+  type CommandComposerMode,
+  type CommandComposerScope,
 } from "./constants.js";
 export type { ProtocolRunRequirement } from "./protocol-run-requirements.js";
 export { resolveProtocolRunRequirement } from "./protocol-run-requirements.js";
@@ -374,6 +380,7 @@ export type {
   Invite,
   JoinRequest,
   InstanceUserRoleGrant,
+  CompanyRoleTemplateDefinition,
   CompanyPortabilityInclude,
   CompanyPortabilitySecretRequirement,
   CompanyPortabilityCompanyManifestEntry,
@@ -731,3 +738,15 @@ export {
   type ProtocolClarificationMessageLike,
   type ResolvedHumanClarification,
 } from "./protocol-clarifications.js";
+
+export {
+  deriveBudgetGuardrailStatus,
+  type BudgetGuardrailStatus,
+  type BudgetGuardrailLevel,
+} from "./budget-guardrail.js";
+
+export {
+  ROLE_TEMPLATE_DEFINITIONS,
+  resolveRoleTemplate,
+  permissionsForRoleTemplate,
+} from "./role-templates.js";

@@ -83,6 +83,25 @@ export function accessService(db: Db) {
       .orderBy(sql`${companyMemberships.createdAt} desc`);
   }
 
+  async function listMembersWithGrants(companyId: string) {
+    const members = await listMembers(companyId);
+    const grants = await db
+      .select()
+      .from(principalPermissionGrants)
+      .where(eq(principalPermissionGrants.companyId, companyId));
+    const grantsByPrincipal = new Map<string, typeof grants>();
+    for (const grant of grants) {
+      const key = `${grant.principalType}:${grant.principalId}`;
+      const existing = grantsByPrincipal.get(key) ?? [];
+      existing.push(grant);
+      grantsByPrincipal.set(key, existing);
+    }
+    return members.map((member) => ({
+      ...member,
+      grants: grantsByPrincipal.get(`${member.principalType}:${member.principalId}`) ?? [],
+    }));
+  }
+
   async function setMemberPermissions(
     companyId: string,
     memberId: string,
@@ -258,6 +277,7 @@ export function accessService(db: Db) {
     getMembership,
     ensureMembership,
     listMembers,
+    listMembersWithGrants,
     setMemberPermissions,
     promoteInstanceAdmin,
     demoteInstanceAdmin,

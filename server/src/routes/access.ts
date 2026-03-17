@@ -1162,7 +1162,7 @@ export function accessRoutes(
   router.get("/companies/:companyId/members", async (req, res) => {
     const companyId = req.params.companyId as string;
     await assertCompanyPermission(req, companyId, "users:manage_permissions");
-    const members = await access.listMembers(companyId);
+    const members = await access.listMembersWithGrants(companyId);
     res.json(members);
   });
 

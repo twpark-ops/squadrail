@@ -18,9 +18,11 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { SidebarSection } from "./SidebarSection";
 import { SidebarNavItem } from "./SidebarNavItem";
+import { BudgetGuardrailPill } from "./BudgetGuardrailPill";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { useTheme } from "../context/ThemeContext";
+import { useBudgetGuardrail } from "../hooks/useBudgetGuardrail";
 import { heartbeatsApi } from "../api/heartbeats";
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,7 @@ export function Sidebar({ width }: { width?: number }) {
   const { openNewIssue } = useDialog();
   const { selectedCompanyId, selectedCompany } = useCompany();
   const { theme, toggleTheme } = useTheme();
+  const { status: budgetStatus } = useBudgetGuardrail();
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.liveRuns(selectedCompanyId!),
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
@@ -67,6 +70,7 @@ export function Sidebar({ width }: { width?: number }) {
                 <span className="rounded-full border border-border/75 bg-background/80 px-1.75 py-0.5 font-['IBM_Plex_Mono'] text-[8px] font-semibold uppercase tracking-[0.08em]">
                   {liveRunCount > 0 ? `${liveRunCount} live` : "idle"}
                 </span>
+                {budgetStatus && <BudgetGuardrailPill status={budgetStatus} compact />}
               </div>
             </div>
           </div>

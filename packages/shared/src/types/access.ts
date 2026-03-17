@@ -1,5 +1,6 @@
 import type {
   AgentAdapterType,
+  CompanyRoleTemplate,
   InstanceUserRole,
   InviteJoinType,
   InviteType,
@@ -78,4 +79,11 @@ export interface InstanceUserRoleGrant {
   role: InstanceUserRole;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface CompanyRoleTemplateDefinition {
+  key: CompanyRoleTemplate;
+  label: string;
+  description: string;
+  permissions: string[];
 }

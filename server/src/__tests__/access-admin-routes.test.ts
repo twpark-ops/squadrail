@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockIsInstanceAdmin,
   mockListMembers,
+  mockListMembersWithGrants,
   mockSetMemberPermissions,
   mockPromoteInstanceAdmin,
   mockDemoteInstanceAdmin,
@@ -15,6 +16,7 @@ const {
 } = vi.hoisted(() => ({
   mockIsInstanceAdmin: vi.fn(),
   mockListMembers: vi.fn(),
+  mockListMembersWithGrants: vi.fn(),
   mockSetMemberPermissions: vi.fn(),
   mockPromoteInstanceAdmin: vi.fn(),
   mockDemoteInstanceAdmin: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock("../services/index.js", () => ({
     hasPermission: vi.fn(),
     canUser: vi.fn(),
     listMembers: mockListMembers,
+    listMembersWithGrants: mockListMembersWithGrants,
     setMemberPermissions: mockSetMemberPermissions,
     promoteInstanceAdmin: mockPromoteInstanceAdmin,
     demoteInstanceAdmin: mockDemoteInstanceAdmin,
@@ -123,12 +126,13 @@ describe("access admin and board-claim routes", () => {
   });
 
   it("lists company members for board operators", async () => {
-    mockListMembers.mockResolvedValue([
+    mockListMembersWithGrants.mockResolvedValue([
       {
         id: "member-1",
         companyId: "company-1",
         principalType: "user",
         principalId: "user-2",
+        grants: [],
       },
     ]);
     const app = createApp();
@@ -140,9 +144,10 @@ describe("access admin and board-claim routes", () => {
       expect.objectContaining({
         id: "member-1",
         companyId: "company-1",
+        grants: [],
       }),
     ]);
-    expect(mockListMembers).toHaveBeenCalledWith("company-1");
+    expect(mockListMembersWithGrants).toHaveBeenCalledWith("company-1");
   });
 
   it("patches member permissions inside the company scope", async () => {

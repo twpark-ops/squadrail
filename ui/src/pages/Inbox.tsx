@@ -45,11 +45,19 @@ import { Identity } from "../components/Identity";
 import { PageTabBar } from "../components/PageTabBar";
 import { workIssuePath } from "../lib/appRoutes";
 import type {
+  CompanyRoleTemplate,
   DashboardProtocolQueueItem,
   DashboardTeamSupervisionItem,
   HeartbeatRun,
   Issue,
   JoinRequest,
+  PermissionKey,
+} from "@squadrail/shared";
+import {
+  COMPANY_ROLE_TEMPLATES,
+  ROLE_TEMPLATE_DEFINITIONS,
+  permissionsForRoleTemplate,
+  resolveRoleTemplate,
 } from "@squadrail/shared";
 
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -424,6 +432,7 @@ export function Inbox() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [allCategoryFilter, setAllCategoryFilter] = useState<InboxCategoryFilter>("everything");
   const [allApprovalFilter, setAllApprovalFilter] = useState<InboxApprovalFilter>("all");
+  const [joinRequestRoles, setJoinRequestRoles] = useState<Record<string, CompanyRoleTemplate>>({});
 
   const pathSegment = location.pathname.split("/").pop() ?? "new";
   const tab: InboxTab = pathSegment === "all" ? "all" : "new";
@@ -595,14 +604,42 @@ export function Inbox() {
   });
 
   const approveJoinMutation = useMutation({
-    mutationFn: (joinRequest: JoinRequest) =>
-      accessApi.approveJoinRequest(selectedCompanyId!, joinRequest.id),
+    mutationFn: async (joinRequest: JoinRequest) => {
+      const approved = await accessApi.approveJoinRequest(selectedCompanyId!, joinRequest.id);
+      // After approval, apply the selected role template permissions
+      const selectedRole = joinRequestRoles[joinRequest.id] ?? "operator";
+      if (selectedRole !== "viewer") {
+        // Fetch members to find the newly created membership
+        try {
+          const members = await accessApi.listMembers(selectedCompanyId!);
+          const principalId = joinRequest.requestType === "human"
+            ? joinRequest.requestingUserId
+            : (approved as JoinRequest).createdAgentId;
+          if (principalId) {
+            const member = members.find(
+              (m) => m.principalId === principalId && m.principalType === (joinRequest.requestType === "human" ? "user" : "agent"),
+            );
+            if (member) {
+              const grants = permissionsForRoleTemplate(selectedRole).map((g) => ({
+                permissionKey: g.permissionKey as PermissionKey,
+                scope: g.scope,
+              }));
+              await accessApi.updateMemberPermissions(selectedCompanyId!, member.id, grants);
+            }
+          }
+        } catch {
+          // Non-critical: permissions can be set later from CompanySettings > Members
+        }
+      }
+      return approved;
+    },
     onSuccess: () => {
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.access.joinRequests(selectedCompanyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(selectedCompanyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.access.members(selectedCompanyId!) });
     },
     onError: (err) => {
       setActionError(err instanceof Error ? err.message : "Failed to approve join request");
@@ -939,47 +976,82 @@ export function Inbox() {
               Join Requests
             </h3>
             <div className="grid gap-3">
-              {joinRequests.map((joinRequest) => (
+              {joinRequests.map((joinRequest) => {
+                const selectedRole = joinRequestRoles[joinRequest.id] ?? "operator";
+                return (
                 <div key={joinRequest.id} className="rounded-xl border border-border bg-card p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">
-                        {joinRequest.requestType === "human"
-                          ? "Human join request"
-                          : `Agent join request${joinRequest.agentName ? `: ${joinRequest.agentName}` : ""}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        requested {timeAgo(joinRequest.createdAt)} from IP {joinRequest.requestIp}
-                      </p>
-                      {joinRequest.requestEmailSnapshot && (
-                        <p className="text-xs text-muted-foreground">
-                          email: {joinRequest.requestEmailSnapshot}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">
+                          {joinRequest.requestType === "human"
+                            ? "Human join request"
+                            : `Agent join request${joinRequest.agentName ? `: ${joinRequest.agentName}` : ""}`}
                         </p>
-                      )}
-                      {joinRequest.adapterType && (
-                        <p className="text-xs text-muted-foreground">adapter: {joinRequest.adapterType}</p>
-                      )}
+                        <p className="text-xs text-muted-foreground">
+                          requested {timeAgo(joinRequest.createdAt)} from IP {joinRequest.requestIp}
+                        </p>
+                        {joinRequest.requestEmailSnapshot && (
+                          <p className="text-xs text-muted-foreground">
+                            email: {joinRequest.requestEmailSnapshot}
+                          </p>
+                        )}
+                        {joinRequest.adapterType && (
+                          <p className="text-xs text-muted-foreground">adapter: {joinRequest.adapterType}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={approveJoinMutation.isPending || rejectJoinMutation.isPending}
+                          onClick={() => rejectJoinMutation.mutate(joinRequest)}
+                        >
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={approveJoinMutation.isPending || rejectJoinMutation.isPending}
+                          onClick={() => approveJoinMutation.mutate(joinRequest)}
+                        >
+                          Approve as {ROLE_TEMPLATE_DEFINITIONS.find((d) => d.key === selectedRole)?.label ?? selectedRole}
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={approveJoinMutation.isPending || rejectJoinMutation.isPending}
-                        onClick={() => rejectJoinMutation.mutate(joinRequest)}
-                      >
-                        Reject
-                      </Button>
-                      <Button
-                        size="sm"
-                        disabled={approveJoinMutation.isPending || rejectJoinMutation.isPending}
-                        onClick={() => approveJoinMutation.mutate(joinRequest)}
-                      >
-                        Approve
-                      </Button>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] text-muted-foreground mr-1">Role:</span>
+                      {COMPANY_ROLE_TEMPLATES.map((rt) => {
+                        const def = ROLE_TEMPLATE_DEFINITIONS.find((d) => d.key === rt);
+                        const isSelected = selectedRole === rt;
+                        const toneMap: Record<string, string> = {
+                          owner: "border-purple-300 bg-purple-50 text-purple-700",
+                          admin: "border-blue-300 bg-blue-50 text-blue-700",
+                          operator: "border-emerald-300 bg-emerald-50 text-emerald-700",
+                          viewer: "border-slate-300 bg-slate-100 text-slate-700",
+                        };
+                        return (
+                          <button
+                            key={rt}
+                            type="button"
+                            className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                              isSelected
+                                ? toneMap[rt] ?? "border-border"
+                                : "border-border bg-background text-muted-foreground hover:bg-muted/50"
+                            }`}
+                            title={def?.description ?? ""}
+                            onClick={() =>
+                              setJoinRequestRoles((prev) => ({ ...prev, [joinRequest.id]: rt }))
+                            }
+                          >
+                            {def?.label ?? rt}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </>

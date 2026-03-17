@@ -1,10 +1,12 @@
 import { useEffect, useMemo } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
+import { deriveBudgetGuardrailStatus } from "@squadrail/shared";
 import { dashboardApi } from "../api/dashboard";
 import { activityApi } from "../api/activity";
 import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
+import { costsApi } from "../api/costs";
 import { heartbeatsApi } from "../api/heartbeats";
 import { useCompany } from "../context/CompanyContext";
 import { useDialog } from "../context/DialogContext";
@@ -16,6 +18,7 @@ import { ActivityRow } from "../components/ActivityRow";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
+import { BudgetGuardrailStrip } from "../components/BudgetGuardrailStrip";
 import { HeroSection } from "../components/HeroSection";
 import {
   AlertTriangle,
@@ -85,6 +88,18 @@ export function DashboardOptimized() {
     queryKey: queryKeys.issues.list(selectedCompanyId!),
     queryFn: () => issuesApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
+  });
+
+  // MTD by-agent costs for the budget guardrail strip top-burn section
+  const mtdFrom = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  }, []);
+  const { data: mtdByAgent } = useQuery({
+    queryKey: queryKeys.costs(selectedCompanyId!, mtdFrom, undefined),
+    queryFn: () => costsApi.byAgent(selectedCompanyId!, mtdFrom, undefined),
+    enabled: !!selectedCompanyId,
+    staleTime: 60_000,
   });
 
   const recentActivity = useMemo(
@@ -168,6 +183,14 @@ export function DashboardOptimized() {
   const humanDecisionCount = data?.protocol.awaitingHumanDecisionCount ?? 0;
   const attention = data?.attention;
   const knowledge = data?.knowledge;
+  const budgetGuardrail = useMemo(() => {
+    if (!data) return null;
+    return deriveBudgetGuardrailStatus(
+      data.costs.monthSpendCents,
+      data.costs.monthBudgetCents,
+    );
+  }, [data]);
+
   const prioritySignals = data
     ? [
         {
@@ -275,6 +298,10 @@ export function DashboardOptimized() {
               </Link>
             ))}
           </section>
+
+          {budgetGuardrail && (
+            <BudgetGuardrailStrip status={budgetGuardrail} topAgents={mtdByAgent} />
+          )}
 
           <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
             <div className="space-y-3">

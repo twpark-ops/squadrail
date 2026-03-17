@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { CircleDollarSign, FolderKanban, Wallet, Workflow } from "lucide-react";
+import { deriveBudgetGuardrailStatus } from "@squadrail/shared";
 
 import { Button } from "@/components/ui/button";
 
@@ -16,7 +17,7 @@ import { SupportPanel } from "../components/SupportPanel";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
-import { formatCents, formatTokens } from "../lib/utils";
+import { cn, formatCents, formatTokens } from "../lib/utils";
 
 type DatePreset = "mtd" | "7d" | "30d" | "ytd" | "all" | "custom";
 
@@ -92,6 +93,25 @@ export function Costs() {
     [data],
   );
 
+  // Budget guardrail derivation from the MTD summary
+  const guardrail = useMemo(() => {
+    if (!data?.summary) return null;
+    return deriveBudgetGuardrailStatus(
+      data.summary.spendCents,
+      data.summary.budgetCents,
+    );
+  }, [data?.summary]);
+
+  // Agent burn ranking — top 5 by cost
+  const agentBurnRanking = useMemo(
+    () =>
+      [...(data?.byAgent ?? [])]
+        .filter((a) => a.costCents > 0)
+        .sort((a, b) => b.costCents - a.costCents)
+        .slice(0, 5),
+    [data?.byAgent],
+  );
+
   if (!selectedCompanyId) {
     return <EmptyState icon={CircleDollarSign} message="Select a company to view operating costs." />;
   }
@@ -109,6 +129,102 @@ export function Costs() {
         subtitle="Track spend, utilization, and where model usage is accumulating across agents and projects."
         eyebrow="Operating Spend"
       />
+
+      {/* Budget Guardrail Status Card */}
+      {guardrail && guardrail.monthBudgetCents > 0 && (
+        <div
+          className={cn(
+            "rounded-[1.6rem] border px-6 py-5 shadow-card",
+            guardrail.status === "healthy" && "border-emerald-300/30 bg-card dark:border-emerald-400/20",
+            guardrail.status === "warning" && "border-amber-300/30 bg-[color-mix(in_oklab,var(--card)_96%,#fef3c7)] dark:border-amber-400/20 dark:bg-[color-mix(in_oklab,var(--card)_96%,#451a03)]",
+            guardrail.status === "critical" && "border-red-300/30 bg-[color-mix(in_oklab,var(--card)_96%,#fee2e2)] dark:border-red-400/20 dark:bg-[color-mix(in_oklab,var(--card)_96%,#450a0a)]",
+            guardrail.status === "exceeded" && "border-red-400/40 bg-[color-mix(in_oklab,var(--card)_94%,#fee2e2)] dark:border-red-500/30 dark:bg-[color-mix(in_oklab,var(--card)_94%,#450a0a)]",
+          )}
+        >
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Budget guardrail
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                  {formatCents(guardrail.monthSpendCents)}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  / {formatCents(guardrail.monthBudgetCents)}
+                </span>
+              </div>
+            </div>
+            <div
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
+                guardrail.status === "healthy" && "border-emerald-300/40 text-emerald-700 dark:border-emerald-400/20 dark:text-emerald-300",
+                guardrail.status === "warning" && "border-amber-300/40 text-amber-700 dark:border-amber-400/20 dark:text-amber-300",
+                guardrail.status === "critical" && "border-red-300/40 text-red-700 dark:border-red-400/20 dark:text-red-300",
+                guardrail.status === "exceeded" && "animate-pulse border-red-400/50 text-red-800 dark:border-red-500/30 dark:text-red-200",
+              )}
+            >
+              {guardrail.headline}
+            </div>
+          </div>
+
+          {/* Utilization progress bar */}
+          <div className="mt-4">
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted/50">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-500",
+                  guardrail.status === "healthy" && "bg-emerald-500 dark:bg-emerald-400",
+                  guardrail.status === "warning" && "bg-amber-500 dark:bg-amber-400",
+                  guardrail.status === "critical" && "bg-red-500 dark:bg-red-400",
+                  guardrail.status === "exceeded" && "bg-red-600 dark:bg-red-500",
+                )}
+                style={{ width: `${Math.min(guardrail.utilizationPercent, 100)}%` }}
+              />
+            </div>
+            <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
+              <span>{guardrail.utilizationPercent}% utilized</span>
+              <span>{formatCents(Math.max(0, guardrail.monthBudgetCents - guardrail.monthSpendCents))} remaining</span>
+            </div>
+          </div>
+
+          {/* Top agent burn ranking */}
+          {agentBurnRanking.length > 0 && (
+            <div className="mt-4 border-t border-border/60 pt-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                Top agent burn
+              </div>
+              <div className="mt-2.5 space-y-2">
+                {agentBurnRanking.map((agent, index) => {
+                  const agentPercent = guardrail.monthBudgetCents > 0
+                    ? Math.round((agent.costCents / guardrail.monthBudgetCents) * 100)
+                    : 0;
+                  return (
+                    <div key={agent.agentId} className="flex items-center gap-3">
+                      <span className="w-4 text-right text-[10px] font-medium text-muted-foreground">
+                        {index + 1}
+                      </span>
+                      <Identity name={agent.agentName ?? agent.agentId.slice(0, 8)} size="sm" />
+                      <div className="flex-1">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/40">
+                          <div
+                            className="h-full rounded-full bg-foreground/20"
+                            style={{ width: `${Math.min(agentPercent, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <span className="text-xs font-medium text-foreground">
+                        {formatCents(agent.costCents)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{agentPercent}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SupportMetricCard

@@ -7,6 +7,7 @@ export const appRoutes = {
   team: "/team",
   settings: "/settings",
   docs: "/docs",
+  costs: "/costs",
 } as const;
 
 export function workIssuePath(issueRef: string) {
