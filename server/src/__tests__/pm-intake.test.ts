@@ -141,6 +141,7 @@ describe("pm intake helpers", () => {
           id: "project-cloud",
           companyId: "company-1",
           name: "swiftsight-cloud",
+          description: "Cloud control plane for operator-facing workflow diagnostics, registry visibility, and settings service responses.",
           urlKey: "swiftsight-cloud",
           primaryWorkspace: {
             repoRef: "swiftsight-cloud",
@@ -562,6 +563,7 @@ describe("pm intake helpers", () => {
           id: "project-swiftcl",
           companyId: "company-1",
           name: "swiftcl",
+          description: "Compiler and CLI workspace for workflow validation, DSL authoring, and compile-time checks.",
           urlKey: "swiftcl",
           primaryWorkspace: {
             repoRef: "swiftcl",
@@ -809,6 +811,7 @@ describe("pm intake helpers", () => {
           id: "project-cloud",
           companyId: "company-1",
           name: "swiftsight-cloud",
+          description: "Cloud control plane for operator-facing workflow diagnostics, registry visibility, and settings service responses.",
           urlKey: "swiftsight-cloud",
           primaryWorkspace: {
             repoRef: "swiftsight-cloud",
@@ -819,6 +822,7 @@ describe("pm intake helpers", () => {
           id: "project-swiftcl",
           companyId: "company-1",
           name: "swiftcl",
+          description: "Compiler and CLI workspace for workflow validation, DSL authoring, and compile-time checks.",
           urlKey: "swiftcl",
           primaryWorkspace: {
             repoRef: "swiftcl",
@@ -838,9 +842,9 @@ describe("pm intake helpers", () => {
           rawContent: "Cloud is the operator-facing owner for workflow mismatch diagnostics and settings visibility.",
           metadata: {
             pmProjectSelection: {
-              ownerTags: ["workflow-matching", "operator-diagnostics"],
+              ownerTags: ["workflow-matching", "dicom-metadata", "operator-diagnostics"],
             },
-            requiredKnowledgeTags: ["workflow-matching", "operator-diagnostics"],
+            requiredKnowledgeTags: ["workflow-matching", "dicom-metadata", "operator-diagnostics"],
           },
         },
         {
@@ -905,16 +909,22 @@ describe("pm intake helpers", () => {
         },
       ] as any[],
       request: {
-        requiredKnowledgeTags: ["workflow-matching", "operator-diagnostics"],
+        requiredKnowledgeTags: ["workflow-matching", "dicom-metadata", "operator-diagnostics"],
       },
     });
-
+    expect(preview.selectedProjectName).toBe("swiftsight-cloud");
     const topProjectNames = preview.projectCandidates.slice(0, 2).map((candidate) => candidate.projectName);
-    expect(topProjectNames).toContain("swiftsight-cloud");
+    expect(topProjectNames).toEqual(["swiftsight-cloud", "swiftcl"]);
     expect(
       preview.projectCandidates.some((candidate) =>
         candidate.projectName === "swiftsight-cloud"
-        && candidate.reasons.join(" ").includes("knowledge_owner_tags"),
+        && candidate.reasons.join(" ").includes("operator_surface_terms"),
+      ),
+    ).toBe(true);
+    expect(
+      preview.projectCandidates.some((candidate) =>
+        candidate.projectName === "swiftcl"
+        && candidate.reasons.join(" ").includes("operator_surface_avoids_compiler"),
       ),
     ).toBe(true);
   });
@@ -1021,6 +1031,182 @@ describe("pm intake helpers", () => {
     expect(preview.selectedProjectName).toBe("swiftcl");
     expect(preview.projectCandidates[0]?.projectName).toBe("swiftcl");
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_support_tags");
+  });
+
+  it("routes symptom-first DICOM persistence issues to cloud when DB storage ownership outweighs parser-only matches", () => {
+    const preview = buildPmIntakeProjectionPreview({
+      issue: {
+        id: "issue-1",
+        companyId: "company-1",
+        title: "Siemens series_name DB storage bug",
+        description: [
+          "## Human Intake Request",
+          "",
+          "Siemens 벤더 DICOM에서 series_name이 DB에 ProtocolName(0018,1030) 대신 SeriesDescription(0008,103E) 값으로 저장되는 문제를 고쳐줘.",
+          "- 어떤 프로젝트를 고쳐야 하는지 사용자는 모르는 상태라고 가정해",
+          "- focused verification이면 충분해",
+        ].join("\n"),
+        priority: "high",
+        projectId: null,
+      },
+      projects: [
+        {
+          id: "project-cloud",
+          companyId: "company-1",
+          name: "swiftsight-cloud",
+          description: "DB-backed registry persistence for series and report metadata across Hasura, Temporal workflows, and release-safe cloud delivery.",
+          urlKey: "swiftsight-cloud",
+          primaryWorkspace: {
+            repoRef: "swiftsight-cloud",
+            cwd: "/tmp/swiftsight-cloud",
+          },
+        },
+        {
+          id: "project-agent",
+          companyId: "company-1",
+          name: "swiftsight-agent",
+          description: "Edge/runtime agent repo for DICOM parsing, vendor detection, and upload coordination.",
+          urlKey: "swiftsight-agent",
+          primaryWorkspace: {
+            repoRef: "swiftsight-agent",
+            cwd: "/tmp/swiftsight-agent",
+          },
+        },
+      ],
+      knowledgeDocuments: [
+        {
+          id: "doc-cloud-series",
+          companyId: "company-1",
+          projectId: "project-cloud",
+          sourceType: "code_summary",
+          authorityLevel: "canonical",
+          title: "registry series persistence summary",
+          path: "internal/server/registry/series.go",
+          rawContent:
+            "RegisterSeries persists series_name into the registry database and controls how SeriesDescription is written for cloud storage.",
+          metadata: {
+            summaryVersion: 1,
+            summaryKind: "file",
+            sourcePath: "internal/server/registry/series.go",
+            sourceLanguage: "go",
+            tags: ["registry", "series", "database", "persistence"],
+            requiredKnowledgeTags: ["registry", "series", "database", "persistence"],
+            pmProjectSelection: {
+              ownerTags: ["series", "name", "registry", "database", "persistence"],
+              supportTags: ["protocol", "description", "storage", "cloud"],
+            },
+          },
+        },
+        {
+          id: "doc-cloud-usage",
+          companyId: "company-1",
+          projectId: "project-cloud",
+          sourceType: "code_summary",
+          authorityLevel: "canonical",
+          title: "usage event series name summary",
+          path: "internal/temporal/workflow/usage_events.go",
+          rawContent:
+            "Usage events map SeriesName from DICOM SeriesDescription and billing metadata after workflow persistence.",
+          metadata: {
+            pmProjectSelection: {
+              supportTags: ["dicom", "series", "name", "workflow", "persistence"],
+            },
+          },
+        },
+        {
+          id: "doc-cloud-migration",
+          companyId: "company-1",
+          projectId: "project-cloud",
+          sourceType: "code_summary",
+          authorityLevel: "canonical",
+          title: "series_name migration summary",
+          path: "hasura/migrations/default/1772539906630_alter_table_registry_report_review_status_add_column_series_name/up.sql",
+          rawContent:
+            "This migration adds the series_name column used by cloud registry persistence after DICOM metadata is normalized.",
+          metadata: {
+            pmProjectSelection: {
+              supportTags: ["series-name", "database", "persistence", "registry"],
+            },
+          },
+        },
+        {
+          id: "doc-agent-parser",
+          companyId: "company-1",
+          projectId: "project-agent",
+          sourceType: "code_summary",
+          authorityLevel: "canonical",
+          title: "dicom parser summary",
+          path: "internal/dicom/parser.go",
+          rawContent:
+            "The parser extracts ProtocolName and SeriesDescription from vendor DICOM metadata before upload.",
+          metadata: {
+            pmProjectSelection: {
+              ownerTags: ["dicom", "metadata", "parser", "vendor"],
+              supportTags: ["series", "name", "protocol", "description"],
+            },
+          },
+        },
+        {
+          id: "doc-agent-vendor",
+          companyId: "company-1",
+          projectId: "project-agent",
+          sourceType: "code_summary",
+          authorityLevel: "canonical",
+          title: "vendor-specific DICOM handling summary",
+          path: "internal/dicom/vendor.go",
+          rawContent:
+            "Siemens vendor-specific DICOM parsing logic maps ProtocolName and SeriesDescription before upload coordination.",
+          metadata: {
+            pmProjectSelection: {
+              ownerTags: ["siemens", "dicom", "vendor"],
+              supportTags: ["protocol", "description", "parser"],
+            },
+          },
+        },
+      ] as any[],
+      agents: [
+        ...agents,
+        {
+          id: "cloud-reviewer",
+          companyId: "company-1",
+          name: "Cloud Reviewer",
+          urlKey: "cloud-reviewer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Reviewer",
+        },
+        {
+          id: "cloud-engineer",
+          companyId: "company-1",
+          name: "Cloud Engineer",
+          urlKey: "swiftsight-cloud-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+        {
+          id: "agent-engineer",
+          companyId: "company-1",
+          name: "Agent Engineer",
+          urlKey: "swiftsight-agent-engineer",
+          role: "engineer",
+          status: "active",
+          reportsTo: "tl-1",
+          title: "Engineer",
+        },
+      ] as any[],
+      request: {
+        requiredKnowledgeTags: ["dicom-metadata", "series-name"],
+      },
+    });
+
+    expect(preview.selectedProjectName).toBe("swiftsight-cloud");
+    expect(preview.projectCandidates[0]?.projectName).toBe("swiftsight-cloud");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_owner_tags");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("project_context");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_lexical_terms");
   });
 
   it("handles zero knowledge documents without error", () => {

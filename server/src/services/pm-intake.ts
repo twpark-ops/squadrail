@@ -138,17 +138,282 @@ function compactLine(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const PM_GENERIC_TOKEN_STOPWORDS = new Set([
+  "change",
+  "changes",
+  "field",
+  "fields",
+  "fix",
+  "issue",
+  "issues",
+  "metadata",
+  "problem",
+  "project",
+  "projects",
+  "request",
+  "requests",
+  "should",
+  "user",
+  "users",
+  "value",
+  "values",
+  "verification",
+  "workflow",
+  "name",
+]);
+
+const PM_LEXICAL_SIGNAL_ALLOWLIST = new Set([
+  "db",
+  "database",
+  "dicom",
+  "diagnostics",
+  "operator",
+  "persistence",
+  "persist",
+  "protocol",
+  "protocolname",
+  "registry",
+  "series",
+  "seriesdescription",
+  "seriesname",
+  "series_name",
+  "siemens",
+  "storage",
+  "vendor",
+  "workflow",
+]);
+
+const PM_OPERATOR_FACING_PHRASES = [
+  "운영자",
+  "설명 가능",
+  "설명할 수",
+  "설명 가능하게",
+  "보여줘",
+  "보여 주",
+  "빠르게 판단",
+  "operator",
+  "visibility",
+  "diagnostic",
+  "diagnostics",
+  "explain",
+  "explanation",
+];
+
+const PM_WORKFLOW_INVESTIGATION_PHRASES = [
+  "workflow mismatch",
+  "workflow matching",
+  "match trace",
+  "매칭되지",
+  "매칭되지 않았",
+  "조건이 안 맞",
+  "study 단위",
+];
+
+const PM_COMPILER_AUTHORING_PHRASES = [
+  "compiler",
+  "compile",
+  "compile-time",
+  "validation",
+  "validator",
+  "dsl",
+  "hcl",
+  "cli",
+  "lsp",
+  "정책",
+  "컴파일",
+  "미리 막",
+];
+
+const PM_OPERATOR_SURFACE_PROJECT_TERMS = [
+  "cloud",
+  "operator",
+  "control plane",
+  "settings",
+  "backend",
+  "registry",
+  "visibility",
+  "service api",
+  "temporal",
+  "orchestration",
+  "delivery",
+];
+
+const PM_COMPILER_PROJECT_TERMS = [
+  "compiler",
+  "compile time",
+  "validation",
+  "cli",
+  "tree sitter",
+  "lsp",
+  "hcl",
+  "dsl",
+];
+
+const PM_WORKFLOW_BOUNDARY_SUPPORT_TERMS = [
+  "workflow matching",
+  "match trace",
+  "compiler",
+];
+
+interface PmRequestRoutingSignals {
+  operatorFacingExplainability: boolean;
+  workflowInvestigation: boolean;
+  compilerAuthoring: boolean;
+}
+
+function normalizePmSearchText(value: string | null | undefined) {
+  if (!value) return "";
+  return compactLine(value)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_./:-]+/g, " ")
+    .toLowerCase();
+}
+
+function collapsePmSearchText(value: string | null | undefined) {
+  if (!value) return "";
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function lowerCaseText(value: string | null | undefined) {
+  return typeof value === "string" ? value.toLowerCase() : "";
+}
+
+function textIncludesAny(value: string | null | undefined, phrases: string[]) {
+  const source = lowerCaseText(value);
+  return phrases.some((phrase) => source.includes(phrase));
+}
+
 function tokenize(value: string | null | undefined) {
-  if (!value) return [];
-  return value
-    .toLowerCase()
+  return normalizePmSearchText(value)
     .split(/[^a-z0-9]+/i)
     .map((token) => token.trim())
     .filter((token) => token.length >= 2);
 }
 
 function tokenizeKnowledgeTags(values: string[]) {
-  return uniqueStrings(values.flatMap((value) => tokenize(value)));
+  return uniqueStrings(
+    values.flatMap((value) =>
+      tokenize(value).filter((token) => token.length >= 3 && !PM_GENERIC_TOKEN_STOPWORDS.has(token)),
+    ),
+  );
+}
+
+function buildPmLexicalVariants(
+  value: string | null | undefined,
+  options?: { allowBroadTokens?: boolean },
+) {
+  const source = typeof value === "string" ? value : "";
+  const candidates = source.match(/\b[A-Za-z][A-Za-z0-9_./:-]{1,63}\b/g) ?? [];
+  const variants: string[] = [];
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (trimmed.length < 2) continue;
+    const normalized = normalizePmSearchText(trimmed);
+    const collapsed = collapsePmSearchText(trimmed);
+    const hasCompoundSyntax = /[A-Z]|[_./:-]/.test(trimmed);
+    if (
+      normalized.length >= 3
+      && (
+        hasCompoundSyntax
+        || normalized.includes(" ")
+        || PM_LEXICAL_SIGNAL_ALLOWLIST.has(normalized)
+      )
+    ) {
+      variants.push(normalized);
+    }
+    if (
+      collapsed.length >= 3
+      && collapsed.length <= 48
+      && (
+        hasCompoundSyntax
+        || PM_LEXICAL_SIGNAL_ALLOWLIST.has(collapsed)
+      )
+    ) {
+      variants.push(collapsed);
+    }
+  }
+
+  const signalTokens = (options?.allowBroadTokens ? tokenize(source) : []).filter((token) =>
+    token === "db"
+    || PM_LEXICAL_SIGNAL_ALLOWLIST.has(token)
+  );
+
+  return uniqueStrings([...variants, ...signalTokens]);
+}
+
+function buildRequestLexicalTerms(requestText: string, requestKnowledgeTags: string[]) {
+  return uniqueStrings([
+    ...requestKnowledgeTags.flatMap((value) => buildPmLexicalVariants(value)),
+    ...buildPmLexicalVariants(requestText, { allowBroadTokens: true }),
+  ]).slice(0, 20);
+}
+
+function derivePmRequestRoutingSignals(requestText: string, requestKnowledgeTags: string[]): PmRequestRoutingSignals {
+  const requestSource = [requestText, ...requestKnowledgeTags].join("\n");
+  return {
+    operatorFacingExplainability: textIncludesAny(requestSource, PM_OPERATOR_FACING_PHRASES),
+    workflowInvestigation: textIncludesAny(requestSource, PM_WORKFLOW_INVESTIGATION_PHRASES),
+    compilerAuthoring: textIncludesAny(requestSource, PM_COMPILER_AUTHORING_PHRASES),
+  };
+}
+
+function buildRoutingLexicalTerms(signals: PmRequestRoutingSignals) {
+  const terms: string[] = [];
+  if (signals.operatorFacingExplainability) {
+    terms.push("operator diagnostics", "settings visibility", "control plane");
+  }
+  if (signals.workflowInvestigation) {
+    terms.push("workflow mismatch", "workflow matching", "match trace");
+  }
+  if (signals.compilerAuthoring) {
+    terms.push("workflow compiler", "compile time", "validation");
+  }
+  return uniqueStrings(terms);
+}
+
+function scoreLexicalSignalsAgainstTexts(input: {
+  texts: Array<string | null | undefined>;
+  requestLexicalTerms: string[];
+  matchCap: number;
+}) {
+  if (input.requestLexicalTerms.length === 0) {
+    return {
+      score: 0,
+      matches: [] as string[],
+    };
+  }
+
+  const targets = input.texts
+    .map((text) => ({
+      normalized: normalizePmSearchText(text),
+      collapsed: collapsePmSearchText(text),
+    }))
+    .filter((target) => target.normalized.length > 0 || target.collapsed.length > 0);
+  const matchedTerms = uniqueStrings(
+    input.requestLexicalTerms.filter((term) => {
+      const normalizedTerm = normalizePmSearchText(term);
+      const collapsedTerm = collapsePmSearchText(term);
+      if (!normalizedTerm && !collapsedTerm) return false;
+      return targets.some((target) => (
+        (normalizedTerm.length > 0 && target.normalized.includes(normalizedTerm))
+        || (collapsedTerm.length > 0 && target.collapsed.includes(collapsedTerm))
+      ));
+    }),
+  );
+  const score = matchedTerms.reduce((sum, term) => {
+    if (term === "db") return sum + 3;
+    if (term === "workflow") return sum + 1;
+    if (term.includes(" ")) return sum + 7;
+    if (term.length >= 12) return sum + 6;
+    if (term.length >= 8) return sum + 5;
+    if (term.length >= 6) return sum + 4;
+    return sum + 2;
+  }, 0);
+
+  return {
+    score: Math.min(input.matchCap, score),
+    matches: matchedTerms,
+  };
 }
 
 function readStringArray(value: unknown) {
@@ -161,6 +426,10 @@ function readStringArray(value: unknown) {
 function readRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function isAmbientWorkflowContextTag(value: string) {
+  return value === "dicom" || value === "dicom-metadata";
 }
 
 function uniqueStrings(values: Array<string | null | undefined>) {
@@ -217,6 +486,8 @@ function scoreKnowledgeDocumentForProject(input: {
   requestLower: string;
   requestTokens: Set<string>;
   requestKnowledgeTags: string[];
+  requestLexicalTerms: string[];
+  requestRoutingSignals: PmRequestRoutingSignals;
 }) {
   const metadata = readRecord(input.document.metadata);
   const projectSelection = readRecord(metadata.pmProjectSelection);
@@ -262,6 +533,29 @@ function scoreKnowledgeDocumentForProject(input: {
     ...knowledgeTagTokens.filter((tag) => documentTagSet.has(tag)),
   ]);
   const summarySource = isKnowledgeSummarySourceType(input.document.sourceType);
+  const workflowMismatchOperatorSurface =
+    input.requestRoutingSignals.operatorFacingExplainability
+    && input.requestRoutingSignals.workflowInvestigation
+    && !input.requestRoutingSignals.compilerAuthoring;
+
+  const focusedOwnerTagMatches = workflowMismatchOperatorSurface
+    ? ownerTagMatches.filter((tag) => !isAmbientWorkflowContextTag(tag))
+    : ownerTagMatches;
+  const ambientOwnerTagMatches = workflowMismatchOperatorSurface
+    ? ownerTagMatches.filter(isAmbientWorkflowContextTag)
+    : [];
+  const focusedSupportTagMatches = workflowMismatchOperatorSurface
+    ? supportTagMatches.filter((tag) => !isAmbientWorkflowContextTag(tag))
+    : supportTagMatches;
+  const ambientSupportTagMatches = workflowMismatchOperatorSurface
+    ? supportTagMatches.filter(isAmbientWorkflowContextTag)
+    : [];
+  const focusedGenericTagMatches = workflowMismatchOperatorSurface
+    ? genericTagMatches.filter((tag) => !isAmbientWorkflowContextTag(tag))
+    : genericTagMatches;
+  const ambientGenericTagMatches = workflowMismatchOperatorSurface
+    ? genericTagMatches.filter(isAmbientWorkflowContextTag)
+    : [];
 
   const ownerTagWeight = summarySource ? 14 : 12;
   const supportTagWeight = summarySource ? 7 : 6;
@@ -273,7 +567,7 @@ function scoreKnowledgeDocumentForProject(input: {
   const genericTokenWeight = summarySource ? 2 : input.document.sourceType === "runbook" ? 1 : 1;
   const ambientTextCap = summarySource ? 8 : input.document.sourceType === "runbook" ? 3 : 6;
   const ambientMultiplier = summarySource ? 1.35 : input.document.sourceType === "runbook" ? 0.55 : 1;
-  const structuredScoreCap = summarySource ? 24 : 18;
+  const structuredScoreCap = summarySource ? 28 : 22;
 
   const reasons: string[] = [];
   let structuredScore = 0;
@@ -287,22 +581,56 @@ function scoreKnowledgeDocumentForProject(input: {
   const supportTokenMatches = knowledgeTagTokens.filter((tag) => supportTagSet.has(tag) && !supportTagMatchSet.has(tag));
   const avoidTokenMatches = knowledgeTagTokens.filter((tag) => avoidTagSet.has(tag) && !avoidTagMatchSet.has(tag));
   const genericTokenMatches = knowledgeTagTokens.filter((tag) => documentTagSet.has(tag) && !genericTagMatchSet.has(tag));
+  const focusedOwnerTokenMatches = workflowMismatchOperatorSurface
+    ? ownerTokenMatches.filter((tag) => !isAmbientWorkflowContextTag(tag))
+    : ownerTokenMatches;
+  const ambientOwnerTokenMatches = workflowMismatchOperatorSurface
+    ? ownerTokenMatches.filter(isAmbientWorkflowContextTag)
+    : [];
+  const focusedSupportTokenMatches = workflowMismatchOperatorSurface
+    ? supportTokenMatches.filter((tag) => !isAmbientWorkflowContextTag(tag))
+    : supportTokenMatches;
+  const ambientSupportTokenMatches = workflowMismatchOperatorSurface
+    ? supportTokenMatches.filter(isAmbientWorkflowContextTag)
+    : [];
+  const focusedGenericTokenMatches = workflowMismatchOperatorSurface
+    ? genericTokenMatches.filter((tag) => !isAmbientWorkflowContextTag(tag))
+    : genericTokenMatches;
+  const ambientGenericTokenMatches = workflowMismatchOperatorSurface
+    ? genericTokenMatches.filter(isAmbientWorkflowContextTag)
+    : [];
 
-  if (ownerTagMatches.length > 0) {
-    structuredScore += ownerTagMatches.length * ownerTagWeight;
-    reasons.push(`knowledge_owner_tags:${ownerTagMatches.join(",")}`);
+  if (focusedOwnerTagMatches.length > 0) {
+    structuredScore += focusedOwnerTagMatches.length * ownerTagWeight;
+    reasons.push(`knowledge_owner_tags:${focusedOwnerTagMatches.join(",")}`);
   }
-  if (ownerTokenMatches.length > 0) {
-    structuredScore += ownerTokenMatches.length * ownerTokenWeight;
-    reasons.push(`knowledge_owner_tag_tokens:${uniqueStrings(ownerTokenMatches).join(",")}`);
+  if (ambientOwnerTagMatches.length > 0) {
+    structuredScore += ambientOwnerTagMatches.length;
+    reasons.push(`knowledge_context_tags:${ambientOwnerTagMatches.join(",")}`);
   }
-  if (supportTagMatches.length > 0) {
-    structuredScore += supportTagMatches.length * supportTagWeight;
-    reasons.push(`knowledge_support_tags:${supportTagMatches.join(",")}`);
+  if (focusedOwnerTokenMatches.length > 0) {
+    structuredScore += focusedOwnerTokenMatches.length * ownerTokenWeight;
+    reasons.push(`knowledge_owner_tag_tokens:${uniqueStrings(focusedOwnerTokenMatches).join(",")}`);
   }
-  if (supportTokenMatches.length > 0) {
-    structuredScore += supportTokenMatches.length * supportTokenWeight;
-    reasons.push(`knowledge_support_tag_tokens:${uniqueStrings(supportTokenMatches).join(",")}`);
+  if (ambientOwnerTokenMatches.length > 0) {
+    structuredScore += ambientOwnerTokenMatches.length;
+    reasons.push(`knowledge_context_tag_tokens:${uniqueStrings(ambientOwnerTokenMatches).join(",")}`);
+  }
+  if (focusedSupportTagMatches.length > 0) {
+    structuredScore += focusedSupportTagMatches.length * supportTagWeight;
+    reasons.push(`knowledge_support_tags:${focusedSupportTagMatches.join(",")}`);
+  }
+  if (ambientSupportTagMatches.length > 0) {
+    structuredScore += ambientSupportTagMatches.length;
+    reasons.push(`knowledge_context_support_tags:${ambientSupportTagMatches.join(",")}`);
+  }
+  if (focusedSupportTokenMatches.length > 0) {
+    structuredScore += focusedSupportTokenMatches.length * supportTokenWeight;
+    reasons.push(`knowledge_support_tag_tokens:${uniqueStrings(focusedSupportTokenMatches).join(",")}`);
+  }
+  if (ambientSupportTokenMatches.length > 0) {
+    structuredScore += ambientSupportTokenMatches.length;
+    reasons.push(`knowledge_context_support_tag_tokens:${uniqueStrings(ambientSupportTokenMatches).join(",")}`);
   }
   if (avoidTagMatches.length > 0) {
     structuredScore -= avoidTagMatches.length * avoidTagWeight;
@@ -312,13 +640,35 @@ function scoreKnowledgeDocumentForProject(input: {
     structuredScore -= avoidTokenMatches.length * avoidTokenWeight;
     reasons.push(`knowledge_avoid_tag_tokens:${uniqueStrings(avoidTokenMatches).join(",")}`);
   }
-  if (genericTagMatches.length > 0) {
-    structuredScore += genericTagMatches.length * genericTagWeight;
-    reasons.push(`knowledge_tags:${genericTagMatches.join(",")}`);
+  if (focusedGenericTagMatches.length > 0) {
+    structuredScore += focusedGenericTagMatches.length * genericTagWeight;
+    reasons.push(`knowledge_tags:${focusedGenericTagMatches.join(",")}`);
   }
-  if (genericTokenMatches.length > 0) {
-    structuredScore += genericTokenMatches.length * genericTokenWeight;
-    reasons.push(`knowledge_tag_tokens:${uniqueStrings(genericTokenMatches).join(",")}`);
+  if (ambientGenericTagMatches.length > 0) {
+    structuredScore += ambientGenericTagMatches.length;
+    reasons.push(`knowledge_context_generic_tags:${ambientGenericTagMatches.join(",")}`);
+  }
+  if (focusedGenericTokenMatches.length > 0) {
+    structuredScore += focusedGenericTokenMatches.length * genericTokenWeight;
+    reasons.push(`knowledge_tag_tokens:${uniqueStrings(focusedGenericTokenMatches).join(",")}`);
+  }
+  if (ambientGenericTokenMatches.length > 0) {
+    structuredScore += ambientGenericTokenMatches.length;
+    reasons.push(`knowledge_context_generic_tag_tokens:${uniqueStrings(ambientGenericTokenMatches).join(",")}`);
+  }
+
+  const lexicalMatch = scoreLexicalSignalsAgainstTexts({
+    texts: [
+      input.document.path ?? null,
+      input.document.title ?? null,
+      input.document.rawContent.slice(0, 1_800),
+    ],
+    requestLexicalTerms: input.requestLexicalTerms,
+    matchCap: summarySource ? 20 : 14,
+  });
+  if (lexicalMatch.matches.length > 0) {
+    structuredScore += lexicalMatch.score;
+    reasons.push(`knowledge_lexical_terms:${lexicalMatch.matches.join(",")}`);
   }
   structuredScore = Math.min(structuredScoreCap, structuredScore);
 
@@ -348,6 +698,7 @@ function scoreProjectCandidate(
   issueProjectId: string | null,
   requestKnowledgeTags: string[],
   knowledgeDocuments: PmIntakeKnowledgeDocument[],
+  requestRoutingSignals: PmRequestRoutingSignals,
 ) {
   if (issueProjectId && issueProjectId === project.id) {
     return {
@@ -359,6 +710,10 @@ function scoreProjectCandidate(
   const requestLower = requestText.toLowerCase();
   const requestTokens = new Set(tokenize(requestText));
   const knowledgeTagTokens = tokenizeKnowledgeTags(requestKnowledgeTags);
+  const requestLexicalTerms = uniqueStrings([
+    ...buildRequestLexicalTerms(requestText, requestKnowledgeTags),
+    ...buildRoutingLexicalTerms(requestRoutingSignals),
+  ]);
   const reasons: string[] = [];
   const hasKnowledgeIntent = requestKnowledgeTags.length > 0;
   let score = 0;
@@ -388,6 +743,84 @@ function scoreProjectCandidate(
     }
   }
 
+  const projectLexicalScore = scoreLexicalSignalsAgainstTexts({
+    texts: [
+      project.name,
+      project.urlKey ?? null,
+      ...buildProjectContextTexts(project),
+    ],
+    requestLexicalTerms,
+    matchCap: hasKnowledgeIntent ? 8 : 10,
+  });
+  if (projectLexicalScore.matches.length > 0) {
+    score += projectLexicalScore.score;
+    reasons.push(`project_lexical_terms:${projectLexicalScore.matches.join(",")}`);
+  }
+
+  if (requestRoutingSignals.operatorFacingExplainability) {
+    const operatorSurfaceScore = scoreLexicalSignalsAgainstTexts({
+      texts: [
+        project.name,
+        project.urlKey ?? null,
+        ...buildProjectContextTexts(project),
+      ],
+      requestLexicalTerms: PM_OPERATOR_SURFACE_PROJECT_TERMS,
+      matchCap: requestRoutingSignals.workflowInvestigation ? 28 : 20,
+    });
+    if (operatorSurfaceScore.matches.length > 0) {
+      score += operatorSurfaceScore.score;
+      reasons.push(`operator_surface_terms:${operatorSurfaceScore.matches.join(",")}`);
+    }
+
+    if (!requestRoutingSignals.compilerAuthoring) {
+      const compilerSurfaceScore = scoreLexicalSignalsAgainstTexts({
+        texts: [
+          project.name,
+          project.urlKey ?? null,
+          ...buildProjectContextTexts(project),
+        ],
+        requestLexicalTerms: PM_COMPILER_PROJECT_TERMS,
+        matchCap: requestRoutingSignals.workflowInvestigation ? 18 : 12,
+      });
+      if (compilerSurfaceScore.matches.length > 0) {
+        score -= compilerSurfaceScore.score;
+        reasons.push(`operator_surface_avoids_compiler:${compilerSurfaceScore.matches.join(",")}`);
+      }
+    }
+  }
+
+  if (requestRoutingSignals.compilerAuthoring) {
+    const compilerSurfaceScore = scoreLexicalSignalsAgainstTexts({
+      texts: [
+        project.name,
+        project.urlKey ?? null,
+        ...buildProjectContextTexts(project),
+      ],
+      requestLexicalTerms: PM_COMPILER_PROJECT_TERMS,
+      matchCap: 16,
+    });
+    if (compilerSurfaceScore.matches.length > 0) {
+      score += compilerSurfaceScore.score;
+      reasons.push(`compiler_surface_terms:${compilerSurfaceScore.matches.join(",")}`);
+    }
+  }
+
+  if (requestRoutingSignals.workflowInvestigation) {
+    const workflowBoundaryScore = scoreLexicalSignalsAgainstTexts({
+      texts: [
+        project.name,
+        project.urlKey ?? null,
+        ...buildProjectContextTexts(project),
+      ],
+      requestLexicalTerms: PM_WORKFLOW_BOUNDARY_SUPPORT_TERMS,
+      matchCap: requestRoutingSignals.operatorFacingExplainability ? 12 : 16,
+    });
+    if (workflowBoundaryScore.matches.length > 0) {
+      score += workflowBoundaryScore.score;
+      reasons.push(`workflow_boundary_terms:${workflowBoundaryScore.matches.join(",")}`);
+    }
+  }
+
   if (hasKnowledgeIntent && knowledgeTagTokens.length > 0) {
     const projectKnowledgeContext = uniqueStrings([
       project.name,
@@ -409,6 +842,8 @@ function scoreProjectCandidate(
       requestLower,
       requestTokens,
       requestKnowledgeTags,
+      requestLexicalTerms,
+      requestRoutingSignals,
     });
     knowledgeStructuredScore += knowledgeScore.structuredScore;
     if (knowledgeScore.structuredScore !== 0) {
@@ -631,6 +1066,7 @@ export function buildPmIntakeProjectionPreview(
 
   const requestText = extractHumanRequest(input.issue.description) || input.issue.title;
   const requestKnowledgeTags = uniqueStrings(input.request.requiredKnowledgeTags ?? []);
+  const requestRoutingSignals = derivePmRequestRoutingSignals(requestText, requestKnowledgeTags);
   const projectCandidates = companyProjects
     .map((project) => {
       const scored = scoreProjectCandidate(
@@ -639,6 +1075,7 @@ export function buildPmIntakeProjectionPreview(
         input.issue.projectId,
         requestKnowledgeTags,
         companyKnowledgeDocuments,
+        requestRoutingSignals,
       );
       return {
         project,
