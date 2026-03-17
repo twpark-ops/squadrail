@@ -21,7 +21,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { CircleDot, Plus, Filter, ArrowUpDown, Layers, Check, X, ChevronRight, List, Columns3, User, Search } from "lucide-react";
 import { KanbanBoard } from "./KanbanBoard";
 import { SubtaskProgressBar } from "./SubtaskProgressBar";
-import type { Issue } from "@squadrail/shared";
+import type { Issue, IssueProgressPhase } from "@squadrail/shared";
 import { readJsonStorageAlias, writeJsonStorageAlias } from "../lib/storage-aliases";
 import { workIssuePath } from "../lib/appRoutes";
 
@@ -191,6 +191,47 @@ interface Agent {
   role?: string;
   title?: string | null;
   icon?: string | null;
+}
+
+/* ── Progress phase chip ── */
+
+const PHASE_CHIP_STYLES: Record<string, string> = {
+  intake: "border-slate-300/70 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+  clarification: "border-amber-300/70 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  planning: "border-blue-300/70 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  implementing: "border-violet-300/70 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+  review: "border-indigo-300/70 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300",
+  qa: "border-teal-300/70 bg-teal-500/10 text-teal-700 dark:text-teal-300",
+  merge: "border-cyan-300/70 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+  blocked: "border-rose-300/70 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  done: "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  cancelled: "border-gray-300/70 bg-gray-500/10 text-gray-500 dark:text-gray-400",
+};
+
+const PHASE_CHIP_LABELS: Record<string, string> = {
+  intake: "Intake",
+  clarification: "Clarification",
+  planning: "Planning",
+  implementing: "Implementing",
+  review: "Review",
+  qa: "QA",
+  merge: "Merge",
+  blocked: "Blocked",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
+function ProgressPhaseChip({ phase }: { phase: IssueProgressPhase }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0",
+        PHASE_CHIP_STYLES[phase] ?? PHASE_CHIP_STYLES.intake,
+      )}
+    >
+      {PHASE_CHIP_LABELS[phase] ?? phase}
+    </span>
+  );
 }
 
 type IssueSignalTone = "default" | "warning" | "danger" | "info";
@@ -756,7 +797,12 @@ export function IssuesList({
                     {issue.identifier ?? issue.id.slice(0, 8)}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-foreground">{issue.title}</div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="truncate font-medium text-foreground">{issue.title}</div>
+                      {issue.progressSnapshot?.phase && (
+                        <ProgressPhaseChip phase={issue.progressSnapshot.phase} />
+                      )}
+                    </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       {buildIssueSignals(issue).map((signal) => (
                         <span

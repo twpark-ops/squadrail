@@ -1,0 +1,69 @@
+@startuml
+title Batch B Onboarding, First Success, And Runtime Awareness (2026-03-17)
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
+
+package "Current Foundations" {
+  [OnboardingWizard\n4-step flow] as Wizard
+  [SetupProgress\nstate machine] as Setup
+  [Clarification surfaces\nInbox / IssueDetail / Rail] as Clarification
+  [Workspace routing\nanalysis/implementation/review] as Routing
+  [IssueChangeSurface\nworkspace fields] as ChangeSurface
+}
+
+package "Reference Patterns" {
+  [Interview-first\nonboarding] as RefInterview
+  [WorktreeBanner] as RefBanner
+}
+
+package "Batch B Target" {
+  [Onboarding Profile] as Profile
+  [First-success guidance] as Success
+  [IssueRuntimeSummary] as Runtime
+}
+
+package "Primary UI Surfaces" {
+  [IssueDetail] as IssueDetail
+  [Inbox] as Inbox
+  [Overview / Layout] as Overview
+  [Runs] as Runs
+  [Changes] as Changes
+}
+
+Wizard --> Profile : add pre-profile recommendation
+Setup --> Profile : store in metadata
+Clarification --> Success : strengthen existing cues
+Wizard --> Success : onboarding source issue banner
+Routing --> Runtime
+ChangeSurface --> Runtime
+RefInterview --> Profile
+RefBanner --> Runtime
+
+Success --> IssueDetail
+Success --> Inbox
+Success --> Overview
+
+Runtime --> IssueDetail
+Runtime --> Runs
+Runtime --> Changes
+
+note bottom of Success
+Goal:
+"What happens next?"
+"Where should I answer?"
+"Is PM still structuring?"
+end note
+
+note bottom of Runtime
+Runtime truth is not hidden infra.
+Translate it as:
+- shared vs isolated
+- analysis / implementation / review
+- fresh / reused / dirty resume
+end note
+
+@enduml

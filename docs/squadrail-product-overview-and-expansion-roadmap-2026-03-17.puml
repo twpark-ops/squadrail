@@ -1,0 +1,105 @@
+@startuml
+title Squadrail Product Overview And Expansion Roadmap (2026-03-17)
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment left
+
+package "Current Squadrail Product Loop" {
+  [Human Quick Request] as Human
+  [PM Structuring] as PM
+  [Clarification Loop] as Clarification
+  [Team Blueprint\nProvisioning] as Blueprint
+  [Protocol Execution] as Execution
+  [Review / QA / Close] as Review
+  [Runs / Team /\nIssue Visibility] as Visibility
+  [Knowledge / Retrieval /\nFeedback Metrics] as Knowledge
+  [Governance / Budget /\nApproval Gates] as Governance
+
+  Human --> PM
+  PM --> Clarification
+  PM --> Blueprint
+  Blueprint --> Execution
+  Clarification --> Execution
+  Execution --> Review
+  Review --> Visibility
+  Execution --> Knowledge
+  Review --> Governance
+  Governance --> Execution
+}
+
+package "Primary Product Question" {
+  [Parent Issue Progress\n(main user question)] as ParentIssue
+  [Team / Stage / Operations View\n(supporting surface)] as TeamView
+}
+
+Visibility --> ParentIssue
+Visibility --> TeamView
+ParentIssue -[hidden]-> TeamView : should rank higher
+
+package "Reference Product Patterns" {
+  [Interview-first\nOnboarding] as RefOnboarding
+  [Issue Documents] as RefDocuments
+  [Artifact / Preview\nModel] as RefArtifacts
+  [Budget / Quota\nVisibility] as RefCosts
+  [Worktree\nAwareness] as RefWorktree
+  [Command Composer] as RefComposer
+  [Minimal\nCollaboration] as RefCollab
+  [Plugin Surface] as RefPlugins
+}
+
+package "Recommended Next Batches" {
+  [Batch A\nParent issue progress\n+ documents\n+ artifacts] as BatchA
+  [Batch B\nInterview onboarding\n+ first-success guidance\n+ worktree banner] as BatchB
+  [Batch C\nBudget/quota surface\n+ command composer\n+ collaboration templates] as BatchC
+  [Batch D\nPlugin / extension\nsurface] as BatchD
+}
+
+RefDocuments --> BatchA
+RefArtifacts --> BatchA
+RefOnboarding --> BatchB
+RefWorktree --> BatchB
+RefCosts --> BatchC
+RefComposer --> BatchC
+RefCollab --> BatchC
+RefPlugins --> BatchD
+
+BatchA --> BatchB
+BatchB --> BatchC
+BatchC --> BatchD
+
+ParentIssue --> BatchA
+Knowledge --> BatchA
+Governance --> BatchC
+
+note right of BatchA
+Highest ROI
+- issue-centric clarity
+- plan/spec/deliverables
+- fewer comments as storage
+end note
+
+note right of BatchB
+First-success acceleration
+- easier first run
+- better runtime context
+end note
+
+note right of BatchC
+Operator hardening
+- cost safety
+- execution control
+- shared usage path
+end note
+
+note right of BatchD
+Late-stage extensibility
+- notifier
+- exporter
+- preview deploy
+- command contribution
+end note
+
+@enduml

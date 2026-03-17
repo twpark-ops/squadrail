@@ -33,6 +33,7 @@ export {
   setIssueMergeAutomationGitExecutorForTests,
 } from "./issue-merge-automation.js";
 export { buildIssueChangeSurface } from "./issue-change-surface.js";
+export { computeIssueProgressSnapshot, computeSimplifiedIssueProgressSnapshot } from "./issue-progress-snapshot.js";
 export { knowledgeService } from "./knowledge.js";
 export { knowledgeSetupService, buildOrgSyncView, buildProjectSyncIssues } from "./knowledge-setup.js";
 export { knowledgeEmbeddingService, normalizeEmbeddingInput } from "./knowledge-embeddings.js";
@@ -57,6 +58,7 @@ export { rolePackService, buildDefaultRolePackFiles } from "./role-packs.js";
 export { doctorService } from "./doctor.js";
 export { logActivity, type LogActivityInput } from "./activity-log.js";
 export { operatingAlertService } from "./operating-alerts.js";
+export { createIssueDocumentService } from "./issue-documents.js";
 export { publishLiveEvent, subscribeCompanyLiveEvents, registerLiveEventSink } from "./live-events.js";
 export { buildIssueRevertAssist, buildRevertAssistContextBody } from "./revert-assist.js";
 export { createStorageServiceFromConfig, getStorageService } from "../storage/index.js";

@@ -86,21 +86,36 @@ import {
   Workflow,
   XCircle,
   Lightbulb,
+  Package,
   Pin,
   PinOff,
+  ScrollText,
+  ShieldCheck,
+  Terminal,
+  ExternalLink,
+  FilePenLine,
+  Plus,
+  Save,
+  History,
+  ChevronLeft,
 } from "lucide-react";
 import type {
   ActivityEvent,
   Agent,
   DashboardBriefSnapshot,
   IssueChangeSurface,
+  IssueDeliverable,
+  IssueDocumentSummary,
   IssueAttachment,
+  IssueProgressSnapshot,
+  IssueProgressPhase,
   IssueProtocolMessage,
   IssueProtocolState,
   IssueProtocolViolation,
   IssueReviewCycle,
   IssueTaskBrief,
 } from "@squadrail/shared";
+import { ISSUE_DOCUMENT_KEYS } from "@squadrail/shared";
 import {
   deriveLatestHumanClarificationResolution,
   derivePendingHumanClarifications,
@@ -1142,6 +1157,77 @@ function ActorIdentity({
   return <Identity name={id || "Unknown"} size="sm" />;
 }
 
+/* ── Progress snapshot helpers ── */
+
+const PHASE_BADGE_STYLES: Record<IssueProgressPhase, string> = {
+  intake: "border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  clarification: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-900 dark:text-amber-300",
+  planning: "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-600 dark:bg-blue-900 dark:text-blue-300",
+  implementing: "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-600 dark:bg-violet-900 dark:text-violet-300",
+  review: "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-600 dark:bg-indigo-900 dark:text-indigo-300",
+  qa: "border-teal-300 bg-teal-50 text-teal-700 dark:border-teal-600 dark:bg-teal-900 dark:text-teal-300",
+  merge: "border-cyan-300 bg-cyan-50 text-cyan-700 dark:border-cyan-600 dark:bg-cyan-900 dark:text-cyan-300",
+  blocked: "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-600 dark:bg-rose-900 dark:text-rose-300",
+  done: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-900 dark:text-emerald-300",
+  cancelled: "border-gray-300 bg-gray-50 text-gray-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400",
+};
+
+const PHASE_LABELS: Record<IssueProgressPhase, string> = {
+  intake: "Intake",
+  clarification: "Clarification",
+  planning: "Planning",
+  implementing: "Implementing",
+  review: "Review",
+  qa: "QA",
+  merge: "Merge",
+  blocked: "Blocked",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
+function ProgressPhaseBadge({ phase }: { phase: IssueProgressPhase }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0",
+        PHASE_BADGE_STYLES[phase] ?? PHASE_BADGE_STYLES.intake,
+      )}
+    >
+      {PHASE_LABELS[phase] ?? phase}
+    </span>
+  );
+}
+
+function ProgressHeroStrip({
+  snapshot,
+  agentMap,
+}: {
+  snapshot: IssueProgressSnapshot;
+  agentMap: Map<string, Agent>;
+}) {
+  const ownerAgent = snapshot.activeOwnerAgentId
+    ? agentMap.get(snapshot.activeOwnerAgentId)
+    : null;
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm">
+      <ProgressPhaseBadge phase={snapshot.phase} />
+      <span className="truncate text-muted-foreground">{snapshot.headline}</span>
+      {ownerAgent && (
+        <span className="ml-auto shrink-0">
+          <Identity name={ownerAgent.name} size="sm" />
+        </span>
+      )}
+      {snapshot.phase === "blocked" && snapshot.blockedReason && (
+        <span className="ml-auto shrink-0 flex items-center gap-1 text-rose-600 dark:text-rose-400 text-xs">
+          <TriangleAlert className="h-3 w-3" />
+          {snapshot.blockedReason.replace(/_/g, " ")}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function IssueDetail() {
   const { issueId } = useParams<{ issueId: string }>();
   const location = useLocation();
@@ -1258,6 +1344,18 @@ export function IssueDetail() {
     queryKey: queryKeys.issues.attachments(issueId!),
     queryFn: () => issuesApi.listAttachments(issueId!),
     enabled: !!issueId,
+  });
+
+  const { data: deliverables } = useQuery({
+    queryKey: queryKeys.issues.deliverables(issueId!),
+    queryFn: () => issuesApi.deliverables(issueId!),
+    enabled: !!issueId,
+  });
+
+  const { data: issueDocuments, refetch: refetchDocuments } = useQuery({
+    queryKey: queryKeys.issues.documents(issueId!),
+    queryFn: () => issuesApi.documents.list(issue!.companyId, issueId!),
+    enabled: !!issueId && !!issue,
   });
 
   const { data: liveRuns } = useQuery({
@@ -2557,6 +2655,10 @@ export function IssueDetail() {
           }}
         />
 
+        {issue.progressSnapshot && (
+          <ProgressHeroStrip snapshot={issue.progressSnapshot} agentMap={agentMap} />
+        )}
+
         <div className="flex flex-wrap items-center gap-2">
           <Button
             asChild
@@ -2812,6 +2914,15 @@ export function IssueDetail() {
             <ListTree className="h-3.5 w-3.5" />
             Sub-issues
           </TabsTrigger>
+          <TabsTrigger value="documents" className="gap-1.5">
+            <FilePenLine className="h-3.5 w-3.5" />
+            Documents
+            {(issueDocuments?.length ?? 0) > 0 && (
+              <span className="ml-0.5 text-[10px] text-muted-foreground">
+                {issueDocuments!.length}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="activity" className="gap-1.5">
             <ActivityIcon className="h-3.5 w-3.5" />
             Activity
@@ -2819,6 +2930,10 @@ export function IssueDetail() {
           <TabsTrigger value="delivery" className="gap-1.5">
             <ClipboardCheck className="h-3.5 w-3.5" />
             Delivery
+          </TabsTrigger>
+          <TabsTrigger value="deliverables" className="gap-1.5">
+            <Package className="h-3.5 w-3.5" />
+            Deliverables
           </TabsTrigger>
         </TabsList>
 
@@ -3761,6 +3876,19 @@ export function IssueDetail() {
             </div>
           </div>
         </TabsContent>
+
+        <TabsContent value="documents">
+          <DocumentsPanel
+            companyId={issue.companyId}
+            issueId={issue.id}
+            documents={issueDocuments ?? []}
+            onMutated={refetchDocuments}
+          />
+        </TabsContent>
+
+        <TabsContent value="deliverables">
+          <DeliverablesPanel deliverables={deliverables ?? []} />
+        </TabsContent>
       </Tabs>
 
       {linkedApprovals && linkedApprovals.length > 0 && (
@@ -3905,6 +4033,428 @@ export function IssueDetail() {
           agents={agents ?? []}
           projects={orderedProjects}
         />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Deliverables Panel                                                 */
+/* ------------------------------------------------------------------ */
+
+const DELIVERABLE_KIND_GROUP: Record<string, string> = {
+  file: "Files",
+  diff: "Code / Review",
+  approval: "Code / Review",
+  workspace_binding: "Code / Review",
+  test_run: "Verification",
+  build_run: "Verification",
+  run_log: "Verification",
+  report: "Reports",
+  preview: "Reports",
+};
+
+const DELIVERABLE_GROUP_ORDER = ["Files", "Code / Review", "Verification", "Reports"];
+
+function deliverableIcon(kind: IssueDeliverable["kind"]) {
+  switch (kind) {
+    case "file":
+      return <AttachmentIcon className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "diff":
+      return <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "approval":
+      return <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "test_run":
+      return <TestTube2 className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "build_run":
+      return <Package className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "workspace_binding":
+      return <Terminal className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "run_log":
+      return <ScrollText className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "report":
+      return <ScrollText className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "preview":
+      return <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />;
+    default:
+      return <AttachmentIcon className="h-3.5 w-3.5 text-muted-foreground" />;
+  }
+}
+
+function DeliverablesPanel({ deliverables }: { deliverables: IssueDeliverable[] }) {
+  if (deliverables.length === 0) {
+    return (
+      <div className="py-8 text-center text-sm text-muted-foreground">
+        No deliverables yet
+      </div>
+    );
+  }
+
+  // Group by kind → group label
+  const grouped = new Map<string, IssueDeliverable[]>();
+  for (const d of deliverables) {
+    const group = DELIVERABLE_KIND_GROUP[d.kind] ?? "Files";
+    const list = grouped.get(group) ?? [];
+    list.push(d);
+    grouped.set(group, list);
+  }
+
+  return (
+    <div className="space-y-4">
+      {DELIVERABLE_GROUP_ORDER.filter((g) => grouped.has(g)).map((groupLabel) => (
+        <div key={groupLabel}>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {groupLabel}
+          </h4>
+          <div className="space-y-1">
+            {grouped.get(groupLabel)!.map((d) => (
+              <div
+                key={d.id}
+                className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm"
+              >
+                {deliverableIcon(d.kind)}
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {d.href ? (
+                    <a
+                      href={d.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline"
+                    >
+                      {d.label}
+                    </a>
+                  ) : (
+                    d.label
+                  )}
+                </span>
+                <Badge variant="outline" className="shrink-0 text-[10px]">
+                  {d.source === "attachment" ? "file" : "artifact"}
+                </Badge>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {relativeTime(d.createdAt)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Documents Panel
+// ---------------------------------------------------------------------------
+
+const DOCUMENT_KEY_LABELS: Record<string, string> = {
+  plan: "Plan",
+  spec: "Spec",
+  "decision-log": "Decision Log",
+  "qa-notes": "QA Notes",
+  "release-note": "Release Note",
+};
+
+function DocumentsPanel({
+  companyId,
+  issueId,
+  documents,
+  onMutated,
+}: {
+  companyId: string;
+  issueId: string;
+  documents: IssueDocumentSummary[];
+  onMutated: () => void;
+}) {
+  const { pushToast } = useToast();
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [editorBody, setEditorBody] = useState("");
+  const [editorTitle, setEditorTitle] = useState("");
+  const [baseRevisionNumber, setBaseRevisionNumber] = useState<
+    number | undefined
+  >(undefined);
+  const [saving, setSaving] = useState(false);
+  const [showRevisions, setShowRevisions] = useState(false);
+  const [newDocKey, setNewDocKey] = useState<string>("");
+
+  // Fetch full document when a key is selected
+  const { data: activeDocument, refetch: refetchDoc } = useQuery({
+    queryKey: queryKeys.issues.document(issueId, selectedKey ?? "__none__"),
+    queryFn: () => issuesApi.documents.get(companyId, issueId, selectedKey!),
+    enabled: !!selectedKey,
+  });
+
+  // Fetch revisions when viewing history
+  const { data: revisions } = useQuery({
+    queryKey: queryKeys.issues.documentRevisions(
+      issueId,
+      selectedKey ?? "__none__",
+    ),
+    queryFn: () =>
+      issuesApi.documents.revisions(companyId, issueId, selectedKey!),
+    enabled: !!selectedKey && showRevisions,
+  });
+
+  // Sync editor state when document loads
+  useEffect(() => {
+    if (activeDocument) {
+      setEditorBody(activeDocument.body);
+      setEditorTitle(activeDocument.title);
+      setBaseRevisionNumber(activeDocument.revisionNumber);
+    }
+  }, [activeDocument]);
+
+  const usedKeys = new Set(documents.map((d) => d.key));
+  const availableKeys = ISSUE_DOCUMENT_KEYS.filter(
+    (k) => !usedKeys.has(k),
+  );
+
+  async function handleSave() {
+    if (!selectedKey) return;
+    setSaving(true);
+    try {
+      await issuesApi.documents.upsert(companyId, issueId, selectedKey, {
+        title: editorTitle || undefined,
+        body: editorBody,
+        baseRevisionNumber,
+      });
+      pushToast({ title: "Document saved", tone: "success" });
+      onMutated();
+      refetchDoc();
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === "object" &&
+        "status" in err &&
+        (err as { status: number }).status === 409
+      ) {
+        pushToast({
+          title: "Conflict",
+          body: "This document was modified by someone else. Refresh and try again.",
+          tone: "error",
+        });
+      } else {
+        pushToast({
+          title: "Save failed",
+          body: String((err as { message?: string })?.message ?? err),
+          tone: "error",
+        });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreate() {
+    if (!newDocKey) return;
+    setSelectedKey(newDocKey);
+    setEditorTitle(DOCUMENT_KEY_LABELS[newDocKey] ?? newDocKey);
+    setEditorBody("");
+    setBaseRevisionNumber(undefined);
+    setNewDocKey("");
+  }
+
+  async function handleDelete() {
+    if (!selectedKey) return;
+    try {
+      await issuesApi.documents.delete(companyId, issueId, selectedKey);
+      pushToast({ title: "Document deleted", tone: "success" });
+      setSelectedKey(null);
+      setEditorBody("");
+      setEditorTitle("");
+      setBaseRevisionNumber(undefined);
+      onMutated();
+    } catch (err: unknown) {
+      pushToast({
+        title: "Delete failed",
+        body: String((err as { message?: string })?.message ?? err),
+        tone: "error",
+      });
+    }
+  }
+
+  // ------ List view (no document selected) ------
+  if (!selectedKey) {
+    return (
+      <div className="space-y-3">
+        {/* New document control */}
+        {availableKeys.length > 0 && (
+          <div className="flex items-center gap-2">
+            <select
+              value={newDocKey}
+              onChange={(e) => setNewDocKey(e.target.value)}
+              className="h-8 rounded-md border border-border bg-background px-2 text-sm"
+            >
+              <option value="">Select document type...</option>
+              {availableKeys.map((k) => (
+                <option key={k} value={k}>
+                  {DOCUMENT_KEY_LABELS[k] ?? k}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!newDocKey}
+              onClick={handleCreate}
+              className="gap-1"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Document
+            </Button>
+          </div>
+        )}
+
+        {documents.length === 0 && !newDocKey ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            No documents yet. Create a plan, spec, or decision log to get
+            started.
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {documents.map((doc) => (
+              <button
+                key={doc.id}
+                type="button"
+                onClick={() => {
+                  setSelectedKey(doc.key);
+                  setShowRevisions(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/20"
+              >
+                <FilePenLine className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {doc.title}
+                </span>
+                <Badge variant="outline" className="shrink-0 text-[10px]">
+                  {doc.key}
+                </Badge>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  rev {doc.revisionNumber}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {relativeTime(doc.updatedAt)}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ------ Document editor view ------
+  return (
+    <div className="space-y-3">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setSelectedKey(null);
+            setShowRevisions(false);
+          }}
+          className="gap-1"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+          Back
+        </Button>
+        <Badge variant="outline" className="text-[10px]">
+          {selectedKey}
+        </Badge>
+        {baseRevisionNumber !== undefined && (
+          <span className="text-[10px] text-muted-foreground">
+            rev {baseRevisionNumber}
+          </span>
+        )}
+        <div className="flex-1" />
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setShowRevisions((v) => !v)}
+          className="gap-1 text-xs"
+        >
+          <History className="h-3.5 w-3.5" />
+          {showRevisions ? "Hide History" : "History"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleDelete}
+          className="gap-1 text-xs text-destructive hover:text-destructive"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete
+        </Button>
+        <Button
+          size="sm"
+          onClick={handleSave}
+          disabled={saving}
+          className="gap-1"
+        >
+          <Save className="h-3.5 w-3.5" />
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      </div>
+
+      {/* Title */}
+      <input
+        type="text"
+        value={editorTitle}
+        onChange={(e) => setEditorTitle(e.target.value)}
+        placeholder="Document title"
+        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold"
+      />
+
+      {/* Body (markdown textarea for V1) */}
+      <textarea
+        value={editorBody}
+        onChange={(e) => setEditorBody(e.target.value)}
+        placeholder="Write your document in markdown..."
+        rows={16}
+        className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+
+      {/* Revision history */}
+      {showRevisions && revisions && (
+        <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Revision History
+          </h4>
+          {revisions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No revisions yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {revisions.map((rev) => (
+                <button
+                  key={rev.id}
+                  type="button"
+                  onClick={() => {
+                    setEditorBody(rev.body);
+                    pushToast({
+                      title: `Loaded revision ${rev.revisionNumber}`,
+                      tone: "info",
+                    });
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-left text-xs transition-colors hover:bg-accent/20"
+                >
+                  <span className="font-medium">
+                    Revision {rev.revisionNumber}
+                  </span>
+                  <span className="truncate text-muted-foreground" title={rev.title}>
+                    {rev.title}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {relativeTime(rev.createdAt)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {rev.body.length} chars
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

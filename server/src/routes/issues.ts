@@ -39,6 +39,7 @@ import {
   runMergeAutomationAction,
 } from "../services/index.js";
 import { buildIssueChangeSurface } from "../services/issue-change-surface.js";
+import { computeIssueProgressSnapshot, computeSimplifiedIssueProgressSnapshot } from "../services/issue-progress-snapshot.js";
 import { issueMergeCandidateService } from "../services/issue-merge-candidates.js";
 import { summarizeIssueFailureLearning } from "../services/failure-learning.js";
 import { logger } from "../middleware/logger.js";
@@ -53,6 +54,8 @@ import { registerIssueAttachmentRoutes } from "./issues/attachments-routes.js";
 import { registerIssueIntakeRoutes } from "./issues/intake-routes.js";
 import { registerIssueMergeRoutes } from "./issues/merge-routes.js";
 import { registerIssueProtocolReadRoutes } from "./issues/protocol-read-routes.js";
+import { registerIssueDeliverablesRoutes } from "./issues/deliverables-routes.js";
+import { registerIssueDocumentRoutes } from "./issues/documents-routes.js";
 import type { IssueRouteContext } from "./issues/context.js";
 
 const MAX_ATTACHMENT_BYTES = Number(process.env.SQUADRAIL_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
@@ -1689,6 +1692,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
   registerIssueProtocolReadRoutes(typedRouteContext);
   registerIssueMergeRoutes(typedRouteContext);
   registerIssueAttachmentRoutes(typedRouteContext);
+  registerIssueDeliverablesRoutes(typedRouteContext);
+  registerIssueDocumentRoutes(typedRouteContext);
 
   router.get("/companies/:companyId/issues", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -1710,6 +1715,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       return;
     }
 
+    const includeSubtasks = req.query.includeSubtasks === "true";
     const result = await svc.list(companyId, {
       status: req.query.status as string | undefined,
       assigneeAgentId: req.query.assigneeAgentId as string | undefined,
@@ -1718,9 +1724,35 @@ export function issueRoutes(db: Db, storage: StorageService) {
       labelId: req.query.labelId as string | undefined,
       q: req.query.q as string | undefined,
       parentId: parentIdRaw,
-      includeSubtasks: req.query.includeSubtasks === "true",
+      includeSubtasks,
     });
-    res.json(result);
+
+    // Attach simplified progress snapshot for root issues
+    if (includeSubtasks) {
+      const rootIds = result.filter((i: Record<string, unknown>) => !i.parentId).map((i: Record<string, unknown>) => i.id as string);
+      const summaryMap = new Map<string, import("@squadrail/shared").IssueInternalWorkItemSummary>();
+      await Promise.all(
+        rootIds.map(async (rootId) => {
+          const summary = await svc.getInternalWorkItemSummary(rootId);
+          if (summary) summaryMap.set(rootId, summary);
+        }),
+      );
+      const enriched = result.map((issue: Record<string, unknown>) => {
+        if (issue.parentId) return issue;
+        const summary = summaryMap.get(issue.id as string) ?? null;
+        return {
+          ...issue,
+          internalWorkItemSummary: summary,
+          progressSnapshot: computeSimplifiedIssueProgressSnapshot({
+            issue: issue as { status: import("@squadrail/shared").IssueStatus },
+            internalWorkItemSummary: summary,
+          }),
+        };
+      });
+      res.json(enriched);
+    } else {
+      res.json(result);
+    }
   });
 
   router.get("/companies/:companyId/labels", async (req, res) => {
@@ -1794,15 +1826,24 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const mentionedProjects = mentionedProjectIds.length > 0
       ? await projectsSvc.listByIds(issue.companyId, mentionedProjectIds)
       : [];
-    const [internalWorkItems, internalWorkItemSummary] = await Promise.all([
+    const [internalWorkItems, internalWorkItemSummary, protocolStateRow, protocolMessages] = await Promise.all([
       svc.listInternalWorkItems(issue.id),
       svc.getInternalWorkItemSummary(issue.id),
+      protocolSvc.getState(issue.id).catch(() => null),
+      protocolSvc.listMessages(issue.id).catch(() => [] as Array<import("@squadrail/shared").IssueProtocolMessage>),
     ]);
+    const progressSnapshot = computeIssueProgressSnapshot({
+      issue: issue as { status: import("@squadrail/shared").IssueStatus },
+      protocolState: protocolStateRow as import("@squadrail/shared").IssueProtocolState | null,
+      internalWorkItemSummary,
+      protocolMessages: protocolMessages as import("@squadrail/shared").IssueProtocolMessage[],
+    });
     res.json({
       ...issue,
       ancestors,
       internalWorkItems,
       internalWorkItemSummary,
+      progressSnapshot,
       project: project ?? null,
       goal: goal ?? null,
       mentionedProjects,

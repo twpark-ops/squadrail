@@ -591,6 +591,15 @@ export const ROLE_PACK_CUSTOM_BASE_ROLE_KEYS = [
 ] as const;
 export type RolePackCustomBaseRoleKey = (typeof ROLE_PACK_CUSTOM_BASE_ROLE_KEYS)[number];
 
+export const ISSUE_DOCUMENT_KEYS = [
+  "plan",
+  "spec",
+  "decision-log",
+  "qa-notes",
+  "release-note",
+] as const;
+export type IssueDocumentKey = (typeof ISSUE_DOCUMENT_KEYS)[number];
+
 export const ROLE_PACK_PRESET_KEYS = [
   "squadrail_default_v1",
   "example_product_squad_v1",

@@ -1,0 +1,81 @@
+@startuml
+title Batch C Budget, Quota, Command Composer, And Collaboration (2026-03-17)
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
+
+package "Current Foundations" {
+  [Costs routes / APIs] as Costs
+  [Costs page] as CostsPage
+  [CommandPalette] as Palette
+  [NewIssueDialog] as NewIssue
+  [ProtocolActionConsole] as ProtocolConsole
+  [Invites / Join Requests /\nPermission Grants] as Access
+}
+
+package "Reference Patterns" {
+  [BudgetPolicyCard] as RefBudget
+  [ProviderQuotaCard] as RefQuota
+  [BudgetSidebarMarker] as RefMarker
+  [Command surface plan] as RefComposer
+  [Minimal collaboration plan] as RefCollab
+}
+
+package "Batch C Target" {
+  [Budget Guardrail Surface] as Guardrails
+  [Provider Quota Windows] as Quotas
+  [Command Composer] as Composer
+  [Role Templates] as Roles
+}
+
+package "Operator Surfaces" {
+  [Overview / Layout] as Overview
+  [Costs] as CostsUi
+  [Inbox / Work / Team] as OpsUi
+  [Company Settings] as Settings
+}
+
+Costs --> Guardrails
+CostsPage --> Guardrails
+RefBudget --> Guardrails
+RefMarker --> Guardrails
+RefQuota --> Quotas
+
+Palette --> Composer
+NewIssue --> Composer
+ProtocolConsole --> Composer
+RefComposer --> Composer
+
+Access --> Roles
+RefCollab --> Roles
+
+Guardrails --> Overview
+Guardrails --> CostsUi
+Guardrails --> OpsUi
+Quotas --> CostsUi
+Composer --> Overview
+Composer --> OpsUi
+Roles --> Settings
+
+note bottom of Composer
+Not chat.
+Modes:
+- ask
+- task
+- decision
+end note
+
+note bottom of Roles
+Coarse templates:
+- owner
+- admin
+- operator
+- viewer
+
+Backed by existing permission grants.
+end note
+
+@enduml

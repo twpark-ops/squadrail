@@ -1,4 +1,5 @@
 import type {
+  IssueDocumentKey,
   IssuePriority,
   IssueProtocolRole,
   IssueProtocolWorkflowState,
@@ -102,8 +103,48 @@ export interface Issue {
   project?: Project | null;
   goal?: Goal | null;
   mentionedProjects?: Project[];
+  progressSnapshot?: IssueProgressSnapshot;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type IssueProgressPhase =
+  | "intake"
+  | "clarification"
+  | "planning"
+  | "implementing"
+  | "review"
+  | "qa"
+  | "merge"
+  | "blocked"
+  | "done"
+  | "cancelled";
+
+export type IssueProgressOwnerRole = "pm" | "tech_lead" | "engineer" | "reviewer" | "qa" | null;
+
+export type IssueProgressReviewState = "idle" | "waiting_review" | "in_review" | "changes_requested" | "approved";
+
+export type IssueProgressQaState = "not_required" | "pending" | "running" | "passed" | "failed";
+
+export interface IssueProgressSubtaskSummary {
+  total: number;
+  done: number;
+  open: number;
+  blocked: number;
+  inReview: number;
+}
+
+export interface IssueProgressSnapshot {
+  phase: IssueProgressPhase;
+  headline: string;
+  activeOwnerRole: IssueProgressOwnerRole;
+  activeOwnerAgentId: string | null;
+  blockedReason: string | null;
+  pendingClarificationCount: number;
+  subtaskSummary: IssueProgressSubtaskSummary;
+  reviewState: IssueProgressReviewState;
+  qaState: IssueProgressQaState;
+  latestArtifactKinds: string[];
 }
 
 export interface IssueComment {
@@ -340,6 +381,64 @@ export interface IssueChangeSurface {
   };
   mergeCandidate: IssueMergeCandidate | null;
 }
+
+export interface IssueDeliverable {
+  id: string;
+  source: "attachment" | "protocol_artifact";
+  kind:
+    | "file"
+    | "diff"
+    | "approval"
+    | "test_run"
+    | "build_run"
+    | "workspace_binding"
+    | "run_log"
+    | "report"
+    | "preview";
+  label: string;
+  summary: string | null;
+  href: string | null;
+  contentType: string | null;
+  createdAt: Date;
+  createdByRole: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Issue Documents
+// ---------------------------------------------------------------------------
+
+export type IssueDocumentFormat = "markdown";
+
+export interface IssueDocumentSummary {
+  id: string;
+  issueId: string;
+  key: IssueDocumentKey;
+  title: string;
+  format: IssueDocumentFormat;
+  revisionNumber: number;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IssueDocument extends IssueDocumentSummary {
+  body: string;
+}
+
+export interface IssueDocumentRevision {
+  id: string;
+  documentId: string;
+  revisionNumber: number;
+  title: string;
+  body: string;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
+}
+
+// ---------------------------------------------------------------------------
 
 export interface PmIntakeProjectionPreviewRequest {
   projectId?: string | null;

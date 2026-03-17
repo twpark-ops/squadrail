@@ -1,0 +1,83 @@
+@startuml
+title Batch A Parent Issue Progress, Documents, And Deliverables (2026-03-17)
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
+
+package "Current Squadrail Surfaces" {
+  [IssueDetail\nsubtask progress] as CurrentProgress
+  [Attachments] as CurrentAttachments
+  [ChangeReviewDesk\nverification/diff artifacts] as CurrentChangeSurface
+  [Protocol Messages\nwith artifacts] as CurrentProtocol
+  [Knowledge Documents] as CurrentKnowledge
+}
+
+package "Reference Patterns" {
+  [IssueDocumentsSection UI] as RefUI
+  [documents.ts service] as RefService
+  [issue_documents + document_revisions] as RefDb
+}
+
+package "Batch A Target" {
+  [IssueProgressSnapshot] as ProgressSnapshot
+  [Issue Documents API] as DocumentsApi
+  [Issue Documents UI] as DocumentsUi
+  [Deliverables Read Model] as Deliverables
+}
+
+package "Delivery Surfaces" {
+  [Overview] as Overview
+  [Work] as Work
+  [IssueDetail] as IssueDetail
+}
+
+CurrentProgress --> ProgressSnapshot : promote current logic
+CurrentProtocol --> ProgressSnapshot : phase / role / blockers
+CurrentChangeSurface --> ProgressSnapshot : review / qa hints
+
+RefDb --> DocumentsApi
+RefService --> DocumentsApi
+RefUI --> DocumentsUi
+DocumentsApi --> DocumentsUi
+
+CurrentAttachments --> Deliverables
+CurrentChangeSurface --> Deliverables
+CurrentProtocol --> Deliverables
+
+ProgressSnapshot --> Overview
+ProgressSnapshot --> Work
+ProgressSnapshot --> IssueDetail
+
+DocumentsUi --> IssueDetail
+Deliverables --> IssueDetail
+
+CurrentKnowledge ..> DocumentsApi : do not reuse
+
+note right of CurrentKnowledge
+Knowledge documents are immutable
+retrieval/ingest artifacts.
+
+Issue documents are mutable
+operator-facing working docs.
+end note
+
+note bottom of Deliverables
+V1 starts as a federated panel:
+- attachments
+- diff
+- approval
+- verification artifacts
+- latest run/workspace artifacts
+
+No generic artifact registry yet.
+end note
+
+note bottom of ProgressSnapshot
+Main user question:
+"Where is my parent issue now?"
+end note
+
+@enduml

@@ -8,6 +8,10 @@ import type {
   IssueAttachment,
   IssueChangeSurface,
   IssueComment,
+  IssueDeliverable,
+  IssueDocument,
+  IssueDocumentRevision,
+  IssueDocumentSummary,
   IssueLabel,
   IssueMergeCandidate,
   IssueMergeCandidateRecoveryResult,
@@ -222,6 +226,7 @@ export const issuesApi = {
       },
     ),
   listAttachments: (id: string) => api.get<IssueAttachment[]>(`/issues/${id}/attachments`),
+  deliverables: (id: string) => api.get<IssueDeliverable[]>(`/issues/${id}/deliverables`),
   uploadAttachment: (
     companyId: string,
     issueId: string,
@@ -241,4 +246,32 @@ export const issuesApi = {
     api.post<Approval[]>(`/issues/${id}/approvals`, { approvalId }),
   unlinkApproval: (id: string, approvalId: string) =>
     api.delete<{ ok: true }>(`/issues/${id}/approvals/${approvalId}`),
+  documents: {
+    list: (companyId: string, issueId: string) =>
+      api.get<IssueDocumentSummary[]>(
+        `/companies/${companyId}/issues/${issueId}/documents`,
+      ),
+    get: (companyId: string, issueId: string, key: string) =>
+      api.get<IssueDocument>(
+        `/companies/${companyId}/issues/${issueId}/documents/${key}`,
+      ),
+    upsert: (
+      companyId: string,
+      issueId: string,
+      key: string,
+      data: { title?: string; body: string; baseRevisionNumber?: number },
+    ) =>
+      api.put<IssueDocument>(
+        `/companies/${companyId}/issues/${issueId}/documents/${key}`,
+        data,
+      ),
+    delete: (companyId: string, issueId: string, key: string) =>
+      api.delete<{ ok: true }>(
+        `/companies/${companyId}/issues/${issueId}/documents/${key}`,
+      ),
+    revisions: (companyId: string, issueId: string, key: string) =>
+      api.get<IssueDocumentRevision[]>(
+        `/companies/${companyId}/issues/${issueId}/documents/${key}/revisions`,
+      ),
+  },
 };

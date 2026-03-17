@@ -1,0 +1,59 @@
+@startuml
+title Batch D Plugin And Extension Surface (2026-03-17)
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
+
+package "Current Extension Seeds" {
+  [Adapters] as Adapters
+  [Knowledge Sync] as Knowledge
+  [Operating Alerts] as Alerts
+  [Artifact Export / Merge Automation] as Export
+  [Workflow Templates] as Templates
+}
+
+package "Plugin Capability Model" {
+  [knowledge_source] as KCap
+  [artifact_exporter] as ACap
+  [preview_deployer] as PCap
+  [notifier] as NCap
+  [command_contribution] as CCap
+}
+
+package "Registry And Bindings" {
+  [Plugin Catalog] as Catalog
+  [Company Plugin Binding] as Binding
+  [Plugin Config] as Config
+}
+
+package "UI Surfaces" {
+  [Instance Plugin Manager] as InstanceUi
+  [Company Plugin Settings] as CompanyUi
+}
+
+Adapters --> Catalog
+Knowledge --> KCap
+Alerts --> NCap
+Export --> ACap
+Templates --> CCap
+
+Catalog --> Binding
+Binding --> Config
+
+Catalog --> InstanceUi
+Binding --> CompanyUi
+
+note bottom of Catalog
+V1 starts builtin-only.
+No arbitrary third-party install first.
+end note
+
+note bottom of Binding
+Enablement is company-scoped,
+even if installation is instance-scoped.
+end note
+
+@enduml

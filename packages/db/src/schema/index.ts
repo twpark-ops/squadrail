@@ -50,6 +50,7 @@ export { knowledgeSyncJobs } from "./knowledge_sync_jobs.js";
 export { knowledgeSyncProjectRuns } from "./knowledge_sync_project_runs.js";
 export { assets } from "./assets.js";
 export { issueAttachments } from "./issue_attachments.js";
+export { issueDocuments, issueDocumentRevisions } from "./issue_documents.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
 export { heartbeatRunEvents } from "./heartbeat_run_events.js";
 export { heartbeatRunLeases } from "./heartbeat_run_leases.js";
