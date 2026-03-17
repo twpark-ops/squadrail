@@ -51,6 +51,7 @@ import {
   type WorkflowTemplate,
   type WorkflowTemplateActionType,
   type CompanyRoleTemplate,
+  type ResolvedRoleTemplate,
   COMPANY_ROLE_TEMPLATES,
   ROLE_TEMPLATE_DEFINITIONS,
   resolveRoleTemplate,
@@ -184,14 +185,16 @@ function stringifyWorkflowTemplateFields(fields: Record<string, string>) {
   return JSON.stringify(fields, null, 2);
 }
 
-function roleTemplateBadgeTone(role: CompanyRoleTemplate) {
+function roleTemplateBadgeTone(role: ResolvedRoleTemplate) {
   if (role === "owner") return "border-purple-300 bg-purple-50 text-purple-700";
   if (role === "admin") return "border-blue-300 bg-blue-50 text-blue-700";
   if (role === "operator") return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  if (role === "custom") return "border-amber-300 bg-amber-50 text-amber-700";
   return "border-slate-300 bg-slate-100 text-slate-700"; // viewer
 }
 
-function roleTemplateLabel(role: CompanyRoleTemplate) {
+function roleTemplateLabel(role: ResolvedRoleTemplate) {
+  if (role === "custom") return "Custom";
   const def = ROLE_TEMPLATE_DEFINITIONS.find((d) => d.key === role);
   return def?.label ?? role;
 }

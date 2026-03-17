@@ -36,7 +36,7 @@ import {
   FolderKanban,
 } from "lucide-react";
 import { Identity } from "./Identity";
-import { agentUrl, projectUrl, cn } from "../lib/utils";
+import { agentUrl, projectRouteRef, projectUrl, cn } from "../lib/utils";
 import type { CommandComposerMode } from "@squadrail/shared";
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ const MODE_DESCRIPTORS: ModeDescriptor[] = [
     icon: MessageSquare,
     emoji: "\uD83D\uDCAC",
     label: "Ask",
-    description: "Quick request, clarification answer, or operator note",
+    description: "Open the quick request flow in the current company or project scope",
     shortcut: "/ask",
   },
   {
@@ -66,7 +66,7 @@ const MODE_DESCRIPTORS: ModeDescriptor[] = [
     icon: ClipboardList,
     emoji: "\uD83D\uDCCB",
     label: "Task",
-    description: "Create issue or internal work item",
+    description: "Create a new issue in company or selected project scope",
     shortcut: "/task",
   },
   {
@@ -74,7 +74,7 @@ const MODE_DESCRIPTORS: ModeDescriptor[] = [
     icon: Scale,
     emoji: "\u2696\uFE0F",
     label: "Decision",
-    description: "Approve, reject, close, reassign, or merge gate",
+    description: "Open the right issue surface for approval, routing, or close actions",
     shortcut: "/decision",
   },
 ];
@@ -88,12 +88,15 @@ function useCurrentProjectId(
   projects: Array<{ id: string; name: string }>,
 ): string | null {
   const location = useLocation();
-  // Route pattern: /:companyPrefix/work/:issueRef — not project-scoped
-  // We check for project pages or sidebar context in future;
-  // for now return null (company scope default).
-  void location;
-  void projects;
-  return null;
+  return useMemo(() => {
+    const match = location.pathname.match(/(?:^|\/)projects\/([^/]+)/);
+    if (!match) return null;
+    const projectRef = decodeURIComponent(match[1] ?? "").trim();
+    if (!projectRef) return null;
+    const project = projects.find((candidate) =>
+      candidate.id === projectRef || projectRouteRef(candidate) === projectRef);
+    return project?.id ?? null;
+  }, [location.pathname, projects]);
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +348,7 @@ export function CommandPalette() {
               <div className="flex-1">
                 <div className="text-sm">Open new issue dialog</div>
                 <div className="text-xs text-muted-foreground">
-                  Submit a quick request, clarification, or operator note
+                  Start a quick request in the current company or project scope
                 </div>
               </div>
             </CommandItem>

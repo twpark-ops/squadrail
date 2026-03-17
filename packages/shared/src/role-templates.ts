@@ -1,6 +1,8 @@
 import type { CompanyRoleTemplate } from "./constants.js";
 import type { CompanyRoleTemplateDefinition } from "./types/access.js";
 
+export type ResolvedRoleTemplate = CompanyRoleTemplate | "custom";
+
 /**
  * Coarse product-role presets over existing PrincipalPermissionGrant.
  * These are NOT stored as a separate DB entity -- they are UI-level labels
@@ -51,35 +53,27 @@ export const ROLE_TEMPLATE_DEFINITIONS: readonly CompanyRoleTemplateDefinition[]
 ] as const;
 
 /**
- * Derive the closest matching role template from a member's existing
- * permission grants.  The algorithm walks templates top-down (most
- * privileged first) and returns the first template whose required
- * permission set is a subset of the member's actual grants.
+ * Derive the visible role template from the current grant set.
  *
- * If the member has ALL six permission keys -> owner.
- * If the member has 5 of the admin set          -> admin.
- * Operator only needs assign + approve.
- * Fallback is always viewer.
+ * We only show a concrete template when the member's grants exactly
+ * match one of the coarse presets. Any non-empty partial/custom grant
+ * set is surfaced as "custom" so the UI does not silently label a
+ * writable member as Viewer.
  */
 export function resolveRoleTemplate(
-  membershipRole: string | null,
+  _membershipRole: string | null,
   grants: string[],
-): CompanyRoleTemplate {
+): ResolvedRoleTemplate {
   const grantSet = new Set(grants);
 
-  // Walk from most privileged to least
   for (const template of ROLE_TEMPLATE_DEFINITIONS) {
-    // viewer is the fallback -- it requires zero permissions
-    if (template.key === "viewer") continue;
-
     const required = template.permissions;
-    if (required.length === 0) continue;
-
-    const match = required.every((p) => grantSet.has(p));
+    const match = required.length === grantSet.size
+      && required.every((permissionKey) => grantSet.has(permissionKey));
     if (match) return template.key;
   }
 
-  return "viewer";
+  return grantSet.size === 0 ? "viewer" : "custom";
 }
 
 /**

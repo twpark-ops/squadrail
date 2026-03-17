@@ -748,5 +748,6 @@ export {
 export {
   ROLE_TEMPLATE_DEFINITIONS,
   resolveRoleTemplate,
+  type ResolvedRoleTemplate,
   permissionsForRoleTemplate,
 } from "./role-templates.js";
