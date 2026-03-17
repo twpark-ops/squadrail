@@ -18,6 +18,7 @@ import {
   Settings,
   Target,
   Trash2,
+  TriangleAlert,
   Upload,
   User,
   Zap,
@@ -1550,6 +1551,26 @@ export function DesignGuide() {
             <p className="text-sm text-muted-foreground">
               Delivery party fixtures pin blocked, waiting, reviewer-role context, and QA-open states so the issue surface stays deterministic.
             </p>
+            <div
+              data-testid="design-guide-missing-engineer-warning"
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-4"
+            >
+              <div className="flex items-start gap-3">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Changes are requested, but no engineer is assigned
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    The review loop cannot resume until implementation ownership is reassigned. Use
+                    {" "}
+                    <span className="font-medium text-foreground">REASSIGN TASK</span>
+                    {" "}
+                    to staff an engineer, then continue with ACK_CHANGE_REQUEST or START_IMPLEMENTATION.
+                  </p>
+                </div>
+              </div>
+            </div>
             <DeliveryPartyStrip
               testId="design-guide-delivery-party-blocked"
               headline="Engineer is carrying the active lane"

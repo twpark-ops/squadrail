@@ -1,0 +1,26 @@
+@startuml
+title QA Gate Sanity Panel Plan
+
+participant REV as "Reviewer"
+participant QA as "QA Gate Panel"
+participant QC as "QA Contract"
+participant ACT as "QA Action Surface"
+participant TL as "Tech Lead"
+
+REV -> QA: APPROVE_IMPLEMENTATION
+QA -> QA: workflow = qa_pending
+QA -> QC: load sanity profile / runbook / expected evidence
+QC --> QA: contract summary
+
+QA -> ACT: Start QA
+ACT -> ACT: collect sanityCommand / executionLog / fixtureUsed / outputVerified
+
+alt validation fails
+  ACT -> TL: REQUEST_CHANGES + failureEvidence
+else validation passes
+  ACT -> TL: APPROVE_IMPLEMENTATION + execution evidence
+end
+
+QA -> QA: render evidence card + gate outcome
+
+@enduml

@@ -19,9 +19,6 @@ import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Bot, Plus, List, GitBranch, SlidersHorizontal, Cpu, Activity } from "lucide-react";
 import type { Agent } from "@squadrail/shared";
-import { HeroSection } from "../components/HeroSection";
-import { SupportMetricCard } from "../components/SupportMetricCard";
-import { SupportPanel } from "../components/SupportPanel";
 
 const adapterLabels: Record<string, string> = {
   claude_local: "Claude",
@@ -138,53 +135,39 @@ export function Agents() {
   const claudeCount = (agents ?? []).filter((agent) => agent.adapterType === "claude_local").length;
 
   return (
-    <div className="space-y-8">
-      <HeroSection
-        title="Agents"
-        subtitle={`${agents?.length ?? 0} agents across execution, review, and escalation lanes.`}
-        actions={
-          <Button size="sm" onClick={openNewAgent}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            New Agent
-          </Button>
-        }
-      />
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SupportMetricCard
-          icon={Bot}
-          label="Total agents"
-          value={agents?.length ?? 0}
-          detail="Visible execution and review lanes currently configured for this company."
-          tone="accent"
-        />
-        <SupportMetricCard
-          icon={Activity}
-          label="Live execution"
-          value={liveAgentCount}
-          detail="Agents with at least one queued or running heartbeat work item."
-        />
-        <SupportMetricCard
-          icon={Cpu}
-          label="Codex lanes"
-          value={codexCount}
-          detail="Agents currently configured against the Codex adapter surface."
-        />
-        <SupportMetricCard
-          icon={Cpu}
-          label="Claude lanes"
-          value={claudeCount}
-          detail="Agents currently configured against the Claude adapter surface."
-        />
+    <div className="space-y-5">
+      {/* Compact header */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Agent directory
+          </div>
+          <h1 className="mt-1 text-2xl font-semibold text-foreground">Agents</h1>
+        </div>
+        <Button size="sm" onClick={openNewAgent}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          New Agent
+        </Button>
       </div>
 
-      <SupportPanel
-        title="Agent directory controls"
-        description="Switch between the list and org views depending on whether you need scan-friendly status or reporting-line context."
-        className="shadow-card"
-        contentClassName="space-y-4"
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Pill bar */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <Bot className="h-3 w-3" /> {agents?.length ?? 0} total
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <Activity className="h-3 w-3" /> {liveAgentCount} live
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <Cpu className="h-3 w-3" /> {codexCount} codex
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <Cpu className="h-3 w-3" /> {claudeCount} claude
+        </span>
+      </div>
+
+      {/* Filter tabs + view toggle */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={tab} onValueChange={(v) => navigate(`/agents/${v}`)}>
           <PageTabBar
             items={[
@@ -254,9 +237,8 @@ export function Agents() {
         </div>
       </div>
       {filtered.length > 0 && (
-        <p className="mt-4 text-sm text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""} match the current view.</p>
+        <p className="text-sm text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""} match the current view.</p>
       )}
-      </SupportPanel>
 
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 

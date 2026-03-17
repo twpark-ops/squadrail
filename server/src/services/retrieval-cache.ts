@@ -60,6 +60,7 @@ function toStableCacheSignals(input: RetrievalSignals) {
   return {
     exactPaths: [...input.exactPaths].sort(),
     fileNames: [...input.fileNames].sort(),
+    lexicalTerms: [...input.lexicalTerms].sort(),
     preferredSourceTypes: [...input.preferredSourceTypes].sort(),
     projectAffinityIds: [...input.projectAffinityIds].sort(),
     relatedIssueIds: [...(input.relatedIssueIds ?? [])].sort(),
@@ -108,6 +109,7 @@ export function buildRetrievalStageCacheKey(input: {
     dynamicSignals: {
       exactPaths: [...input.dynamicSignals.exactPaths].sort(),
       fileNames: [...input.dynamicSignals.fileNames].sort(),
+      lexicalTerms: [...input.dynamicSignals.lexicalTerms].sort(),
       symbolHints: [...input.dynamicSignals.symbolHints].sort(),
       knowledgeTags: [...input.dynamicSignals.knowledgeTags].sort(),
       preferredSourceTypes: [...input.dynamicSignals.preferredSourceTypes].sort(),

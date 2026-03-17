@@ -218,6 +218,9 @@ const COMMAND_HELP = {
     "Supported options:",
     "  --approval-mode <agent_review|tech_lead_review|human_override>",
     "                      legacy aliases `qa_review`, `full`, and `human_board` are normalized automatically",
+    "  --execution-log <text>",
+    "  --output-verified <text>",
+    "  --sanity-command <text>",
     "  --payload <json>                                  approvalSummary, approvalChecklist, verifiedEvidence, residualRisks",
   ].join("\n"),
   "close-task": [
@@ -1360,6 +1363,21 @@ async function submitForReviewCommand(options) {
     payloadPatch.residualRisks,
     { required: true, requiredLabel: "residual-risks" },
   );
+  const executionLog = readAliasedOption(
+    options,
+    ["execution-log", "executionLog"],
+    payloadPatch.executionLog ?? null,
+  );
+  const outputVerified = readAliasedOption(
+    options,
+    ["output-verified", "outputVerified"],
+    payloadPatch.outputVerified ?? null,
+  );
+  const sanityCommand = readAliasedOption(
+    options,
+    ["sanity-command", "sanityCommand"],
+    payloadPatch.sanityCommand ?? null,
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -1550,6 +1568,21 @@ async function approveImplementationCommand(options) {
     payloadPatch.residualRisks,
     { required: true, requiredLabel: "residual-risks" },
   );
+  const executionLog = readAliasedOption(
+    options,
+    ["execution-log", "executionLog"],
+    payloadPatch.executionLog ?? null,
+  );
+  const outputVerified = readAliasedOption(
+    options,
+    ["output-verified", "outputVerified"],
+    payloadPatch.outputVerified ?? null,
+  );
+  const sanityCommand = readAliasedOption(
+    options,
+    ["sanity-command", "sanityCommand"],
+    payloadPatch.sanityCommand ?? null,
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -1576,6 +1609,9 @@ async function approveImplementationCommand(options) {
       approvalChecklist,
       verifiedEvidence,
       residualRisks,
+      ...(executionLog ? { executionLog } : {}),
+      ...(outputVerified ? { outputVerified } : {}),
+      ...(sanityCommand ? { sanityCommand } : {}),
     },
     artifacts: [],
   };

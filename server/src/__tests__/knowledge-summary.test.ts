@@ -157,6 +157,48 @@ describe("knowledge summary service", () => {
     expect(ownerTags).toEqual(expect.arrayContaining(["parser"]));
   });
 
+  it("includes semantic content hints from code comments for PM project selection", () => {
+    const drafts = buildKnowledgeSummaryDrafts({
+      sourceDocumentId: "77777777-7777-7777-7777-777777777777",
+      relativePath: "internal/server/registry/series.go",
+      language: "go",
+      sourceType: "code",
+      baseTags: ["swiftsight-cloud"],
+      codeChunks: [{
+        chunkIndex: 0,
+        symbolName: "RegisterSeries",
+        textContent: [
+          "// RegisterSeries persists series_name in the registry database.",
+          "// Siemens should prefer ProtocolName over SeriesDescription before persistence.",
+          "func RegisterSeries() {}",
+        ].join("\n"),
+        metadata: {},
+      }],
+      codeGraph: {
+        symbols: [{
+          symbolKey: "RegisterSeries",
+          symbolName: "RegisterSeries",
+          symbolKind: "function",
+          startLine: 1,
+          endLine: 3,
+          metadata: { exported: true },
+        }],
+        edges: [],
+      },
+    });
+
+    const fileDraft = drafts.find((draft) => draft.metadata.summaryKind === "file");
+    expect(fileDraft).toBeDefined();
+    const ownerTags = fileDraft!.metadata.requiredKnowledgeTags;
+    expect(ownerTags).toEqual(expect.arrayContaining(["series"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["protocol"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["description"]));
+    expect(ownerTags).toEqual(expect.arrayContaining(["registry"]));
+    expect(fileDraft!.rawContent).toContain("series_name");
+    expect(fileDraft!.rawContent).toContain("ProtocolName");
+    expect(fileDraft!.rawContent).toContain("SeriesDescription");
+  });
+
   it("handles null/undefined symbolNames gracefully", () => {
     const drafts = buildKnowledgeSummaryDrafts({
       sourceDocumentId: "44444444-4444-4444-4444-444444444444",

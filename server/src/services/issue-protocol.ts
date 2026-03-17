@@ -109,7 +109,7 @@ const MESSAGE_RULES: Record<
     stateChanging: true,
   },
   REASSIGN_TASK: {
-    from: ["assigned", "accepted", "planning", "implementing", "blocked"],
+    from: ["assigned", "accepted", "planning", "implementing", "blocked", "changes_requested"],
     to: "assigned",
     roles: ["tech_lead", "cto", "pm", "human_board"],
     stateChanging: true,
@@ -427,6 +427,12 @@ export function resolveProtocolOwnershipForMessage(input: {
   fallbackTechLeadAgentId?: string | null;
 }) {
   const currentPayload = input.message.payload as Record<string, unknown>;
+  const directImplementationOwnerAgentId =
+    input.message.sender.actorType === "agent"
+    && input.message.sender.role === "engineer"
+    && (input.message.messageType === "START_IMPLEMENTATION" || input.message.messageType === "ACK_CHANGE_REQUEST")
+      ? input.message.sender.actorId
+      : null;
   const assignTargetAgentId =
     input.message.messageType === "ASSIGN_TASK"
       ? String(currentPayload.assigneeAgentId)
@@ -466,7 +472,9 @@ export function resolveProtocolOwnershipForMessage(input: {
           : keepsExistingDownstreamOwnershipDuringPmRetry
             ? input.currentState?.primaryEngineerAgentId ?? null
             : null
-        : input.currentState?.primaryEngineerAgentId ?? null;
+        : input.message.messageType === "START_IMPLEMENTATION" || input.message.messageType === "ACK_CHANGE_REQUEST"
+          ? input.currentState?.primaryEngineerAgentId ?? directImplementationOwnerAgentId ?? null
+          : input.currentState?.primaryEngineerAgentId ?? null;
 
   const reviewerAgentId =
     input.message.messageType === "ASSIGN_TASK"
@@ -620,6 +628,16 @@ export function issueProtocolService(db: Db) {
       if (message.sender.actorId !== currentState.primaryEngineerAgentId) {
         throw unprocessable("Only the assigned engineer can send this protocol message");
       }
+    }
+
+    if (
+      message.sender.role === "engineer"
+      && !currentState?.primaryEngineerAgentId
+      && currentState?.techLeadAgentId
+      && (message.messageType === "START_IMPLEMENTATION" || message.messageType === "ACK_CHANGE_REQUEST")
+      && message.sender.actorId !== currentState.techLeadAgentId
+    ) {
+      throw unprocessable("Only the assigned tech lead can act as the direct implementation owner before an engineer is staffed");
     }
 
     if (message.sender.role === "reviewer" && currentState?.reviewerAgentId) {

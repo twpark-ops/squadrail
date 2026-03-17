@@ -1102,3 +1102,245 @@ describe("heartbeat service flow coverage", () => {
     expect(conflictSets).toEqual([]);
   });
 });
+
+describe("concurrency and execution lock guards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEnqueueAfterDbCommit.mockReturnValue(true);
+    mockRunWithoutDbContext.mockImplementation((fn: () => unknown) => fn());
+  });
+
+  it("defers wakeup when issue already has an active execution run by another agent", async () => {
+    // agent-2 owns a running heartbeat run on the issue; agent-1 tries to wake the same issue
+    const activeRunByAgent2 = makeRun({
+      id: "run-agent2-active",
+      agentId: "agent-2",
+      status: "running",
+      contextSnapshot: { issueId: "issue-locked" },
+    });
+    const { db, insertValues } = createHeartbeatDbMock({
+      selectRows: new Map([
+        // getAgent(agent-1)
+        [agents, [[makeAgent({ id: "agent-1", name: "Engineer One" })], [{ name: "Engineer Two" }]]],
+        // issue lookup inside transaction
+        [issues, [[{
+          id: "issue-locked",
+          companyId: "company-1",
+          priority: "high",
+          parentId: null,
+          executionRunId: "run-agent2-active",
+          executionAgentNameKey: "engineer two",
+        }]]],
+        // heartbeatRuns lookup for activeExecutionRun (by executionRunId)
+        [heartbeatRuns, [[activeRunByAgent2]]],
+        // agentWakeupRequests lookup for existing deferred (none)
+        [agentWakeupRequests, [[]]],
+        // agentRuntimeState for resolveSessionBefore
+        [agentRuntimeState, [[]]],
+        // agentTaskSessions
+        [agentTaskSessions, [[]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const run = await service.wakeup("agent-1", {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "protocol_required_retry",
+      payload: { issueId: "issue-locked" },
+      contextSnapshot: { issueId: "issue-locked" },
+    });
+
+    // Wakeup returns null because execution is deferred
+    expect(run).toBeNull();
+    // A deferred wakeup request should have been inserted
+    const deferredInsert = insertValues.find(
+      (entry) =>
+        entry.table === agentWakeupRequests &&
+        (entry.value as Record<string, unknown>).status === "deferred_issue_execution",
+    );
+    expect(deferredInsert).toBeDefined();
+    expect(deferredInsert!.value).toMatchObject({
+      agentId: "agent-1",
+      reason: "issue_execution_deferred",
+      status: "deferred_issue_execution",
+    });
+    // No heartbeat run should have been created
+    expect(insertValues.some((entry) => entry.table === heartbeatRuns)).toBe(false);
+  });
+
+  it("coalesces same-agent wakeup when execution run is already active (no new run created)", async () => {
+    // agent-1 has a queued run on the issue; agent-1 sends another wakeup (no commentId, no forceFollowup)
+    const existingRunByAgent1 = makeRun({
+      id: "run-agent1-queued",
+      agentId: "agent-1",
+      status: "queued",
+      contextSnapshot: { issueId: "issue-coalesce" },
+    });
+    const mergedRun = {
+      ...existingRunByAgent1,
+      contextSnapshot: {
+        issueId: "issue-coalesce",
+        wakeReason: "protocol_required_retry",
+        wakeSource: "automation",
+        wakeTriggerDetail: "system",
+      },
+    };
+    const { db, insertValues, updateSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        // getAgent(agent-1)
+        [agents, [[makeAgent({ id: "agent-1", name: "Engineer One" })], [{ name: "Engineer One" }]]],
+        // issue lookup inside transaction
+        [issues, [[{
+          id: "issue-coalesce",
+          companyId: "company-1",
+          priority: "medium",
+          parentId: null,
+          executionRunId: "run-agent1-queued",
+          executionAgentNameKey: "engineer one",
+        }]]],
+        // heartbeatRuns lookup for activeExecutionRun (the queued run by agent-1)
+        [heartbeatRuns, [[existingRunByAgent1]]],
+        // agentRuntimeState for resolveSessionBefore
+        [agentRuntimeState, [[]]],
+        // agentTaskSessions
+        [agentTaskSessions, [[]]],
+      ]),
+      updateRows: new Map([
+        // update heartbeatRuns with merged context snapshot
+        [heartbeatRuns, [[mergedRun]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const run = await service.wakeup("agent-1", {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "protocol_required_retry",
+      payload: { issueId: "issue-coalesce" },
+      contextSnapshot: { issueId: "issue-coalesce" },
+    });
+
+    // Coalesced: existing run is returned
+    expect(run).toMatchObject({
+      id: "run-agent1-queued",
+      contextSnapshot: expect.objectContaining({
+        issueId: "issue-coalesce",
+      }),
+    });
+    // The wakeup request should be recorded as coalesced
+    const coalescedInsert = insertValues.find(
+      (entry) =>
+        entry.table === agentWakeupRequests &&
+        (entry.value as Record<string, unknown>).status === "coalesced",
+    );
+    expect(coalescedInsert).toBeDefined();
+    expect(coalescedInsert!.value).toMatchObject({
+      reason: "issue_execution_same_name",
+      status: "coalesced",
+      runId: "run-agent1-queued",
+    });
+    // The existing run's contextSnapshot should have been merged (via update)
+    expect(updateSets.find((entry) => entry.table === heartbeatRuns)?.value).toMatchObject({
+      contextSnapshot: expect.objectContaining({
+        issueId: "issue-coalesce",
+      }),
+    });
+    // No new heartbeat run was inserted
+    expect(insertValues.some((entry) => entry.table === heartbeatRuns)).toBe(false);
+  });
+
+  it("clears stale executionRunId when referenced run is terminal and creates a new run", async () => {
+    // issue has executionRunId pointing to a completed (terminal) run
+    const completedRun = makeRun({
+      id: "run-completed",
+      agentId: "agent-1",
+      status: "completed",
+      contextSnapshot: { issueId: "issue-stale" },
+    });
+    const newCreatedRun = makeRun({
+      id: "run-fresh-1",
+      agentId: "agent-1",
+      status: "queued",
+      wakeupRequestId: "wake-stale-1",
+      contextSnapshot: {
+        issueId: "issue-stale",
+        wakeReason: "protocol_required_retry",
+        wakeSource: "automation",
+        wakeTriggerDetail: "system",
+      },
+    });
+    const { db, insertValues, updateSets } = createHeartbeatDbMock({
+      selectRows: new Map([
+        // getAgent(agent-1)
+        [agents, [[makeAgent({ id: "agent-1", name: "Engineer One" })]]],
+        // issue lookup inside transaction
+        [issues, [[{
+          id: "issue-stale",
+          companyId: "company-1",
+          priority: "high",
+          parentId: null,
+          executionRunId: "run-completed",
+          executionAgentNameKey: "engineer one",
+        }]]],
+        // heartbeatRuns: first query is the existing executionRunId run (completed/terminal)
+        // second query is the legacy run lookup (none found)
+        [heartbeatRuns, [[completedRun], []]],
+        // agentRuntimeState for resolveSessionBefore
+        [agentRuntimeState, [[]]],
+        // agentTaskSessions
+        [agentTaskSessions, [[]]],
+      ]),
+      insertRows: new Map([
+        // agentWakeupRequests insert (the new queued request)
+        [agentWakeupRequests, [[{ id: "wake-stale-1" }]]],
+        // heartbeatRuns insert (the new run)
+        [heartbeatRuns, [[newCreatedRun]]],
+      ]),
+    });
+    const service = heartbeatService(db as never);
+
+    const run = await service.wakeup("agent-1", {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "protocol_required_retry",
+      payload: { issueId: "issue-stale" },
+      contextSnapshot: { issueId: "issue-stale" },
+    });
+
+    // New run should be created after stale lock is cleared
+    expect(run).toMatchObject({
+      id: "run-fresh-1",
+      status: "queued",
+      wakeupRequestId: "wake-stale-1",
+    });
+    // The stale executionRunId should have been cleared first
+    const issueUpdateClearingLock = updateSets.find(
+      (entry) =>
+        entry.table === issues &&
+        (entry.value as Record<string, unknown>).executionRunId === null,
+    );
+    expect(issueUpdateClearingLock).toBeDefined();
+    expect(issueUpdateClearingLock!.value).toMatchObject({
+      executionRunId: null,
+      executionAgentNameKey: null,
+      executionLockedAt: null,
+    });
+    // Then the new run should be linked to the issue
+    const issueUpdateNewLock = updateSets.find(
+      (entry) =>
+        entry.table === issues &&
+        (entry.value as Record<string, unknown>).executionRunId === "run-fresh-1",
+    );
+    expect(issueUpdateNewLock).toBeDefined();
+    expect(issueUpdateNewLock!.value).toMatchObject({
+      executionRunId: "run-fresh-1",
+      executionAgentNameKey: "engineer one",
+    });
+    // A new heartbeat run was inserted
+    expect(insertValues.some((entry) => entry.table === heartbeatRuns)).toBe(true);
+    expect(mockPublishLiveEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: "heartbeat.run.queued",
+    }));
+  });
+});

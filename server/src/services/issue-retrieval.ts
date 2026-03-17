@@ -80,6 +80,7 @@ import {
 import {
   buildHitRationale,
   computeAuthorityBoost,
+  computeCurrentIssueArtifactPenalty,
   computeDocumentPathBoost,
   computeExecutablePathBridgeBoost,
   computeFreshnessBoost,
@@ -494,6 +495,7 @@ export interface RetrievalLinkView {
 export interface RetrievalSignals {
   exactPaths: string[];
   fileNames: string[];
+  lexicalTerms: string[];
   symbolHints: string[];
   knowledgeTags: string[];
   preferredSourceTypes: string[];
@@ -2202,6 +2204,12 @@ export function rerankRetrievalHits(input: {
         pathBoost,
         symbolBoost,
       });
+      const currentIssueArtifactPenalty = computeCurrentIssueArtifactPenalty({
+        hit,
+        issueId: input.issueId,
+        pathBoost,
+        symbolBoost,
+      });
       const temporal = computeTemporalBoost({
         hit,
         temporalContext: input.temporalContext ?? null,
@@ -2241,7 +2249,8 @@ export function rerankRetrievalHits(input: {
           signals: input.signals,
           weights: rerankConfig.weights,
         })
-        + organizationalMemoryPenalty;
+        + organizationalMemoryPenalty
+        + currentIssueArtifactPenalty;
       const personalization = computeRetrievalPersonalizationBoost({
         hit: {
           sourceType: hit.sourceType,
@@ -2319,13 +2328,29 @@ export function issueRetrievalService(db: Db) {
     projectId: string | null;
     projectAffinityIds: string[];
     queryText: string;
+    lexicalTerms: string[];
     allowedSourceTypes: string[];
     allowedAuthorityLevels: string[];
     limit: number;
   }) {
-    const tsQuery = sql`plainto_tsquery('simple', ${input.queryText})`;
-    const sparseScore = sql<number>`ts_rank_cd(${knowledgeChunks.searchTsv}, ${tsQuery})`;
-    const lexicalMatch = sql<boolean>`${knowledgeChunks.searchTsv} @@ ${tsQuery}`;
+    const fullTextQuery = sql`plainto_tsquery('simple', ${input.queryText})`;
+    const lexicalSearchQuery = uniqueNonEmpty(input.lexicalTerms)
+      .slice(0, 24)
+      .map((term) => `"${term.replace(/"/g, " ").trim()}"`)
+      .join(" OR ");
+    const lexicalTokenQuery = lexicalSearchQuery.length > 0
+      ? sql`websearch_to_tsquery('simple', ${lexicalSearchQuery})`
+      : null;
+    const lexicalMatch = lexicalTokenQuery
+      ? sql<boolean>`${knowledgeChunks.searchTsv} @@ ${lexicalTokenQuery}`
+      : sql<boolean>`false`;
+    const strictMatch = sql<boolean>`${knowledgeChunks.searchTsv} @@ ${fullTextQuery}`;
+    const sparseScore = lexicalTokenQuery
+      ? sql<number>`(
+          case when ${lexicalMatch} then ts_rank_cd(${knowledgeChunks.searchTsv}, ${lexicalTokenQuery}) else 0 end
+          + case when ${strictMatch} then ts_rank_cd(${knowledgeChunks.searchTsv}, ${fullTextQuery}) * 0.35 else 0 end
+        )`
+      : sql<number>`case when ${strictMatch} then ts_rank_cd(${knowledgeChunks.searchTsv}, ${fullTextQuery}) else 0 end`;
     const allScopedProjectIds = uniqueNonEmpty([
       input.projectId ?? "",
       ...input.projectAffinityIds,
@@ -2333,6 +2358,15 @@ export function issueRetrievalService(db: Db) {
     const scopeMatch = allScopedProjectIds.length > 0
       ? or(eq(knowledgeDocuments.issueId, input.issueId), inArray(knowledgeDocuments.projectId, allScopedProjectIds))
       : eq(knowledgeDocuments.issueId, input.issueId);
+    const scopeRank = allScopedProjectIds.length > 0
+      ? sql<number>`case
+          when ${knowledgeDocuments.issueId} = ${input.issueId} then 2
+          when ${knowledgeDocuments.projectId} = ${input.projectId} then 1
+          when ${knowledgeDocuments.projectId} in ${sql`(${sql.join(allScopedProjectIds.map((value) => sql`${value}`), sql`, `)})`} then 0.75
+          else 0
+        end`
+      : sql<number>`case when ${knowledgeDocuments.issueId} = ${input.issueId} then 1 else 0 end`;
+    const sparseMatch = lexicalTokenQuery ? or(lexicalMatch, strictMatch) : scopeMatch;
 
     return db
       .select({
@@ -2361,10 +2395,10 @@ export function issueRetrievalService(db: Db) {
           eq(knowledgeChunks.companyId, input.companyId),
           inArray(knowledgeDocuments.sourceType, input.allowedSourceTypes),
           inArray(knowledgeDocuments.authorityLevel, input.allowedAuthorityLevels),
-          or(lexicalMatch, scopeMatch),
+          sparseMatch,
         ),
       )
-      .orderBy(desc(sparseScore), desc(knowledgeDocuments.updatedAt))
+      .orderBy(desc(scopeRank), desc(sparseScore), desc(knowledgeDocuments.updatedAt))
       .limit(input.limit);
   }
 
@@ -3631,6 +3665,7 @@ export function issueRetrievalService(db: Db) {
               projectId: input.issue.projectId,
               projectAffinityIds: context.dynamicSignals.projectAffinityIds,
               queryText: context.queryText,
+              lexicalTerms: context.dynamicSignals.lexicalTerms,
               allowedSourceTypes: context.policy.allowedSourceTypes,
               allowedAuthorityLevels: context.policy.allowedAuthorityLevels,
               limit: context.lanePolicy.topKSparse,

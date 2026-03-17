@@ -96,10 +96,11 @@ export function DashboardOptimized() {
     return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   }, []);
   const { data: mtdByAgent } = useQuery({
-    queryKey: queryKeys.costs(selectedCompanyId!, mtdFrom, undefined),
-    queryFn: () => costsApi.byAgent(selectedCompanyId!, mtdFrom, undefined),
+    queryKey: ["costs-by-agent", selectedCompanyId, mtdFrom],
+    queryFn: () => costsApi.byAgent(selectedCompanyId!, mtdFrom),
     enabled: !!selectedCompanyId,
     staleTime: 60_000,
+    retry: false,
   });
 
   const recentActivity = useMemo(
@@ -183,13 +184,9 @@ export function DashboardOptimized() {
   const humanDecisionCount = data?.protocol.awaitingHumanDecisionCount ?? 0;
   const attention = data?.attention;
   const knowledge = data?.knowledge;
-  const budgetGuardrail = useMemo(() => {
-    if (!data) return null;
-    return deriveBudgetGuardrailStatus(
-      data.costs.monthSpendCents,
-      data.costs.monthBudgetCents,
-    );
-  }, [data]);
+  const budgetGuardrail = data?.costs
+    ? deriveBudgetGuardrailStatus(data.costs.monthSpendCents, data.costs.monthBudgetCents)
+    : null;
 
   const prioritySignals = data
     ? [

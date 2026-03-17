@@ -62,6 +62,130 @@ function readStringArray(value: unknown) {
   );
 }
 
+const RETRIEVAL_LEXICAL_STOPWORDS = new Set([
+  "agent",
+  "agents",
+  "assign",
+  "assigned",
+  "assignment",
+  "change",
+  "changes",
+  "changed",
+  "check",
+  "checks",
+  "cloud",
+  "company",
+  "completed",
+  "current",
+  "data",
+  "description",
+  "details",
+  "engineer",
+  "expected",
+  "field",
+  "fields",
+  "find",
+  "fix",
+  "fixed",
+  "instead",
+  "issue",
+  "issues",
+  "message",
+  "metadata",
+  "pipeline",
+  "problem",
+  "protocol",
+  "request",
+  "requested",
+  "requests",
+  "review",
+  "reviewer",
+  "route",
+  "routing",
+  "save",
+  "saved",
+  "saving",
+  "should",
+  "state",
+  "status",
+  "persists",
+  "stores",
+  "stored",
+  "summary",
+  "support",
+  "swiftsight",
+  "task",
+  "tasks",
+  "team",
+  "update",
+  "using",
+  "value",
+  "values",
+  "why",
+  "workflow",
+]);
+
+function splitKnowledgeTagTokens(values: string[]) {
+  return uniqueNonEmpty(values.flatMap((value) =>
+    value
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_./:-]+/g, " ")
+      .split(/[^a-zA-Z0-9]+/)
+      .map((token) => token.trim().toLowerCase())
+      .filter((token) => token.length >= 3 && token.length <= 32),
+  ));
+}
+
+function buildLexicalTermVariants(value: string) {
+  const candidates = value.match(/\b[A-Za-z][A-Za-z0-9_./:-]{2,63}\b/g) ?? [];
+  const variants: string[] = [];
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (trimmed.length < 3) continue;
+    const hadCompoundSyntax = /[A-Z]|[_./:-]/.test(trimmed);
+    const spaced = trimmed
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_./:-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    const collapsed = trimmed.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    if (spaced.length >= 3) variants.push(spaced);
+    if (
+      hadCompoundSyntax
+      && collapsed.length >= 3
+      && collapsed.length <= 48
+    ) {
+      variants.push(collapsed);
+    } else if (
+      collapsed.length >= 3
+      && collapsed.length <= 48
+      && collapsed !== spaced.replace(/\s+/g, "")
+    ) {
+      variants.push(collapsed);
+    }
+    variants.push(
+      ...spaced
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 3 && token.length <= 32),
+    );
+  }
+  return uniqueNonEmpty(variants);
+}
+
+function buildLexicalRetrievalTerms(values: string[]) {
+  return uniqueNonEmpty(values.flatMap((value) => buildLexicalTermVariants(value)))
+    .filter((term) => {
+      const tokens = term.split(/\s+/).filter((token) => token.length > 0);
+      if (tokens.length === 0) return false;
+      if (tokens.every((token) => RETRIEVAL_LEXICAL_STOPWORDS.has(token))) return false;
+      if (tokens.length === 1 && RETRIEVAL_LEXICAL_STOPWORDS.has(tokens[0] ?? "")) return false;
+      return true;
+    })
+    .slice(0, 24);
+}
+
 function splitRelatedIssueRefs(values: string[]) {
   const issueIds: string[] = [];
   const issueIdentifiers: string[] = [];
@@ -381,13 +505,17 @@ export function deriveDynamicRetrievalSignals(input: {
     ...textDerivedPaths,
   ]).map(normalizeHintPath);
   const fileNames = uniqueNonEmpty(exactPaths.map((entry) => path.posix.basename(entry)));
-  const knowledgeTags = uniqueNonEmpty([
+  const rawKnowledgeTags = uniqueNonEmpty([
     ...readStringArray(payload.requiredKnowledgeTags),
     ...readStringArray(payload.reviewChecklist),
     ...readStringArray(payload.reviewFocus),
     ...readStringArray(payload.requiredEvidence),
     ...readStringArray(payload.approvalChecklist),
     ...readStringArray(payload.verifiedEvidence),
+  ]);
+  const knowledgeTags = uniqueNonEmpty([
+    ...rawKnowledgeTags,
+    ...splitKnowledgeTagTokens(rawKnowledgeTags),
   ]);
   const identifierHints = extractIdentifierHints([
     ...knowledgeTags,
@@ -448,10 +576,36 @@ export function deriveDynamicRetrievalSignals(input: {
   const projectAffinityNames = uniqueNonEmpty([
     ...((input.issue.mentionedProjects ?? []).map((project) => project.name)),
   ]);
+  const lexicalTerms = uniqueNonEmpty([
+    ...buildLexicalRetrievalTerms([
+      ...rawKnowledgeTags,
+      ...knowledgeTags,
+      ...identifierHints,
+      ...exactPaths,
+      ...fileNames,
+    ]),
+    ...buildLexicalRetrievalTerms([
+      input.issue.title ?? "",
+      input.issue.description ?? "",
+      input.message.summary,
+      String(payload.goal ?? ""),
+      String(payload.reason ?? ""),
+      String(payload.question ?? ""),
+      String(payload.implementationSummary ?? ""),
+      String(payload.diffSummary ?? ""),
+      String(payload.reviewSummary ?? ""),
+      String(payload.approvalSummary ?? ""),
+      String(payload.closureSummary ?? ""),
+      String(payload.verificationSummary ?? ""),
+      String(payload.rollbackPlan ?? ""),
+      ...projectAffinityNames,
+    ]),
+  ]).slice(0, 24);
 
   return {
     exactPaths,
     fileNames,
+    lexicalTerms,
     symbolHints: uniqueNonEmpty([...identifierHints, ...exactPaths.map(basenameWithoutExtension)]),
     knowledgeTags,
     preferredSourceTypes,

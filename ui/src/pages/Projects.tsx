@@ -1,17 +1,15 @@
 import { useEffect, useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { FolderKanban, Hexagon, Link2, TimerReset } from "lucide-react";
+import { Hexagon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 import { projectsApi } from "../api/projects";
 import { EmptyState } from "../components/EmptyState";
 import { EntityRow } from "../components/EntityRow";
-import { HeroSection } from "../components/HeroSection";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { StatusBadge } from "../components/StatusBadge";
-import { SupportMetricCard } from "../components/SupportMetricCard";
 import { SupportPanel } from "../components/SupportPanel";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
@@ -56,44 +54,32 @@ export function Projects() {
   }
 
   return (
-    <div className="space-y-8">
-      <HeroSection
-        title="Projects"
-        subtitle="Track the scopes this company is actively operating, the workspaces bound to them, and the delivery surfaces they anchor."
-        eyebrow="Scope Map"
-        actions={
-          <Button size="sm" onClick={openNewProject}>
-            Add Project
-          </Button>
-        }
-      />
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Scope map
+          </div>
+          <h1 className="mt-1 text-2xl font-semibold text-foreground">Projects</h1>
+        </div>
+        <Button size="sm" onClick={openNewProject}>
+          Add Project
+        </Button>
+      </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SupportMetricCard
-          icon={FolderKanban}
-          label="Projects"
-          value={projects?.length ?? 0}
-          detail="Visible project scopes currently configured for this company."
-          tone="accent"
-        />
-        <SupportMetricCard
-          icon={Link2}
-          label="Workspaces"
-          value={workspaceCount}
-          detail="Bound repositories or execution roots attached to the project directory."
-        />
-        <SupportMetricCard
-          icon={Hexagon}
-          label="In progress"
-          value={activeCount}
-          detail="Projects actively moving through delivery rather than planning or archive states."
-        />
-        <SupportMetricCard
-          icon={TimerReset}
-          label="With target date"
-          value={withTargets}
-          detail="Projects that already expose a visible delivery target or checkpoint."
-        />
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{projects?.length ?? 0}</span> projects
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{workspaceCount}</span> workspaces
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{activeCount}</span> in progress
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{withTargets}</span> with target date
+        </span>
       </div>
 
       <SupportPanel

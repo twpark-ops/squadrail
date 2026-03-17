@@ -506,7 +506,10 @@ function buildDeliveryPartySlots(args: {
       agentId: protocolState?.primaryEngineerAgentId ?? null,
       activeLabel: blocked ? "Blocked" : "Implementing",
       waitingLabel: "Queued",
-      missingLabel: "No engineer assigned",
+      missingLabel:
+        workflowState === "changes_requested"
+          ? "Reassign an engineer to resume implementation"
+          : "No engineer assigned",
     },
     {
       key: "reviewer",
@@ -1508,6 +1511,9 @@ export function IssueDetail() {
     deliveryPartySlots.find(
       (slot) => slot.tone === "active" || slot.tone === "blocked"
     ) ?? null;
+  const needsImplementationRecovery =
+    protocolState?.workflowState === "changes_requested"
+    && !protocolState.primaryEngineerAgentId;
 
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const options: MentionOption[] = [];
@@ -3047,6 +3053,27 @@ export function IssueDetail() {
                         ) : null}
                       </div>
                     ) : null}
+                  </section>
+                )}
+
+                {needsImplementationRecovery && (
+                  <section
+                    data-testid="issue-detail-missing-engineer-warning"
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-semibold text-foreground">
+                          Changes are requested, but no engineer is assigned
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          The review loop cannot resume until implementation ownership is reassigned.
+                          Use <span className="font-medium text-foreground">REASSIGN TASK</span> to staff an engineer,
+                          then continue with ACK_CHANGE_REQUEST or START_IMPLEMENTATION.
+                        </p>
+                      </div>
+                    </div>
                   </section>
                 )}
 

@@ -167,6 +167,35 @@ async function resolveCompanyByName(name) {
   return match;
 }
 
+function canSupportPmProjection(agent) {
+  const title = typeof agent?.title === "string" ? agent.title.toLowerCase() : "";
+  const urlKey = typeof agent?.urlKey === "string" ? agent.urlKey.toLowerCase() : "";
+  if (agent?.role === "pm") return true;
+  if (agent?.role === "reviewer") return true;
+  if (agent?.role === "manager" || agent?.role === "tech_lead") return true;
+  if (title.includes("tech lead")) return true;
+  if (title.includes("reviewer")) return true;
+  return /(?:^|-)(tl|tech-lead|reviewer)(?:-|$)/.test(urlKey);
+}
+
+async function ensurePmProjectionAgentsReady(companyId) {
+  const agents = await api(`/api/companies/${companyId}/agents`);
+  const resumableStatuses = new Set(["paused", "error"]);
+  const resumed = [];
+  for (const agent of agents) {
+    if (!canSupportPmProjection(agent)) continue;
+    if (!resumableStatuses.has(agent.status)) continue;
+    await api(`/api/agents/${agent.id}/resume`, { method: "POST" });
+    resumed.push({
+      id: agent.id,
+      name: agent.name ?? null,
+      title: agent.title ?? null,
+      previousStatus: agent.status,
+    });
+  }
+  return resumed;
+}
+
 async function createPmIntakeIssue(companyId, scenario) {
   const created = await api(`/api/companies/${companyId}/intake/issues`, {
     method: "POST",
@@ -242,23 +271,153 @@ async function executeBoundedDelivery(companyId, issueId, preview, scenario) {
   return summary;
 }
 
-function evaluateDomainAwarePmDelivery(delivery, scenario) {
+async function fetchRetrievalRunHits(runId) {
+  return api(`/api/knowledge/retrieval-runs/${runId}/hits`);
+}
+
+function normalizeText(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.length > 0))];
+}
+
+function matchesAnyField(fields, fragment) {
+  const normalizedFragment = normalizeText(fragment);
+  if (!normalizedFragment) return false;
+  return fields.some((field) => normalizeText(field).includes(normalizedFragment));
+}
+
+function summarizeRetrievalEvidence(runSummaries, scenario) {
+  const hits = runSummaries.flatMap((entry) => Array.isArray(entry?.hits) ? entry.hits : []);
+  const expectedPathHints = Array.isArray(scenario.expectedKnowledgePathHints)
+    ? scenario.expectedKnowledgePathHints.filter((value) => typeof value === "string" && value.trim().length > 0)
+    : [];
+  const minimumKnowledgePathMatches = Number.isFinite(scenario.minimumKnowledgePathMatches)
+    ? Math.max(0, Number(scenario.minimumKnowledgePathMatches))
+    : (expectedPathHints.length > 0 ? 1 : 0);
+  const matchedPathHints = expectedPathHints.filter((hint) =>
+    hits.some((hit) =>
+      matchesAnyField(
+        [
+          hit?.documentPath,
+          hit?.documentTitle,
+          hit?.headingPath,
+          hit?.symbolName,
+          hit?.textContent,
+        ],
+        hint,
+      )),
+  );
+
+  return {
+    retrievalRunCount: runSummaries.length,
+    totalHitCount: hits.length,
+    matchedPathHints,
+    expectedPathHints,
+    minimumKnowledgePathMatches,
+    topHitPaths: uniqueStrings(
+      hits
+        .slice(0, 10)
+        .map((hit) => hit?.documentPath ?? null),
+    ),
+  };
+}
+
+function evaluateImplementationOwnership(childResults, scenario) {
+  const expectedImplementationOwner = scenario.expectedImplementationOwner ?? null;
+  if (!expectedImplementationOwner) {
+    return {
+      expectedImplementationOwner: null,
+      implementationOwnerMatched: true,
+    };
+  }
+
+  if (expectedImplementationOwner === "engineer_assigned") {
+    const matched = childResults.length > 0 && childResults.every((child) => {
+      const implementationAssigneeAgentId = typeof child?.implementationAssigneeAgentId === "string"
+        ? child.implementationAssigneeAgentId
+        : null;
+      const finalPrimaryEngineerAgentId = typeof child?.finalPrimaryEngineerAgentId === "string"
+        ? child.finalPrimaryEngineerAgentId
+        : null;
+      const finalTechLeadAgentId = typeof child?.finalTechLeadAgentId === "string"
+        ? child.finalTechLeadAgentId
+        : null;
+      return Boolean(implementationAssigneeAgentId)
+        && finalPrimaryEngineerAgentId === implementationAssigneeAgentId
+        && finalPrimaryEngineerAgentId !== finalTechLeadAgentId;
+    });
+    return {
+      expectedImplementationOwner,
+      implementationOwnerMatched: matched,
+    };
+  }
+
+  if (expectedImplementationOwner === "tl_direct") {
+    const matched = childResults.length > 0 && childResults.every((child) => {
+      const finalPrimaryEngineerAgentId = typeof child?.finalPrimaryEngineerAgentId === "string"
+        ? child.finalPrimaryEngineerAgentId
+        : null;
+      const finalTechLeadAgentId = typeof child?.finalTechLeadAgentId === "string"
+        ? child.finalTechLeadAgentId
+        : null;
+      return Boolean(finalPrimaryEngineerAgentId) && finalPrimaryEngineerAgentId === finalTechLeadAgentId;
+    });
+    return {
+      expectedImplementationOwner,
+      implementationOwnerMatched: matched,
+    };
+  }
+
+  return {
+    expectedImplementationOwner,
+    implementationOwnerMatched: false,
+  };
+}
+
+export async function evaluateDomainAwarePmDelivery(delivery, scenario, options = {}) {
   if (!delivery) {
     return {
       score: 0,
-      maxScore: 8,
+      maxScore: 8
+        + (scenario.expectedImplementationOwner ? 2 : 0)
+        + (Array.isArray(scenario.expectedKnowledgePathHints) && scenario.expectedKnowledgePathHints.length > 0 ? 4 : 0),
       checks: {
         projectionApplied: false,
         childDeliveryClosed: false,
         clarificationModeMatched: false,
         clarificationRecorded: false,
+        retrievalUsed: false,
+        knowledgePathCoverage: false,
+        implementationOwnerMatched: false,
       },
+      retrievalEvidence: null,
     };
   }
 
   const childResults = Array.isArray(delivery.childResults) ? delivery.childResults : [];
   const expectedClarificationMode = scenario.clarificationMode ?? "human_board";
   const expectsClarification = expectedClarificationMode !== "none";
+  const retrievalRunIds = uniqueStrings(
+    childResults.flatMap((child) => Array.isArray(child?.retrievalRunIds) ? child.retrievalRunIds : []),
+  );
+  const retrievalRunFetcher = options.fetchRetrievalRunHits ?? fetchRetrievalRunHits;
+  const retrievalRuns = await Promise.all(
+    retrievalRunIds.map(async (runId) => {
+      try {
+        return await retrievalRunFetcher(runId);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const retrievalEvidence = summarizeRetrievalEvidence(
+    retrievalRuns.filter((entry) => entry && Array.isArray(entry.hits)),
+    scenario,
+  );
+  const ownership = evaluateImplementationOwnership(childResults, scenario);
   const checks = {
     projectionApplied: Number(delivery.projectedChildCount ?? 0) > 0,
     childDeliveryClosed: childResults.length > 0 && childResults.every((child) => child?.finalWorkflowState === "done"),
@@ -266,6 +425,11 @@ function evaluateDomainAwarePmDelivery(delivery, scenario) {
       || childResults.some((child) => child?.clarificationMode === expectedClarificationMode),
     clarificationRecorded: !expectsClarification
       || childResults.some((child) => typeof child?.askMessageId === "string" && child.askMessageId.length > 0),
+    retrievalUsed: retrievalEvidence.retrievalRunCount > 0 && retrievalEvidence.totalHitCount > 0,
+    knowledgePathCoverage:
+      retrievalEvidence.expectedPathHints.length === 0
+      || retrievalEvidence.matchedPathHints.length >= retrievalEvidence.minimumKnowledgePathMatches,
+    implementationOwnerMatched: ownership.implementationOwnerMatched,
   };
 
   let score = 0;
@@ -273,14 +437,24 @@ function evaluateDomainAwarePmDelivery(delivery, scenario) {
   if (checks.childDeliveryClosed) score += 2;
   if (checks.clarificationModeMatched) score += 2;
   if (checks.clarificationRecorded) score += 2;
+  if (Array.isArray(scenario.expectedKnowledgePathHints) && scenario.expectedKnowledgePathHints.length > 0) {
+    if (checks.retrievalUsed) score += 2;
+    if (checks.knowledgePathCoverage) score += 2;
+  }
+  if (scenario.expectedImplementationOwner) {
+    if (checks.implementationOwnerMatched) score += 2;
+  }
 
   return {
     score,
-    maxScore: 8,
+    maxScore: 8
+      + (scenario.expectedImplementationOwner ? 2 : 0)
+      + (Array.isArray(scenario.expectedKnowledgePathHints) && scenario.expectedKnowledgePathHints.length > 0 ? 4 : 0),
     checks,
     rootWorkflowState: delivery.rootWorkflowState ?? null,
     projectedChildCount: delivery.projectedChildCount ?? 0,
     childResults,
+    retrievalEvidence,
   };
 }
 
@@ -297,6 +471,13 @@ async function main() {
   const company = await resolveCompanyByName(COMPANY_NAME);
   note(`companyId=${company.id}`);
   note(`companyName=${company.name}`);
+
+  section("Projection Agent Readiness");
+  const resumedAgents = await ensurePmProjectionAgentsReady(company.id);
+  note(`resumedAgents=${resumedAgents.length}`);
+  for (const agent of resumedAgents) {
+    note(`- resumed ${agent.name ?? agent.id} (${agent.title ?? "n/a"}) from ${agent.previousStatus}`);
+  }
 
   section("Project Inventory");
   note(await listProjectsViaHelper(company.id));
@@ -327,14 +508,17 @@ async function main() {
   if (EXECUTE_DELIVERY) {
     section("Execute Bounded Delivery");
     delivery = await executeBoundedDelivery(company.id, issue.id, preview, scenario);
-    deliveryEvaluation = evaluateDomainAwarePmDelivery(delivery, scenario);
+    deliveryEvaluation = await evaluateDomainAwarePmDelivery(delivery, scenario);
     note(`deliveryScore=${deliveryEvaluation.score}/${deliveryEvaluation.maxScore}`);
     note(`projectionApplied=${deliveryEvaluation.checks.projectionApplied}`);
     note(`childDeliveryClosed=${deliveryEvaluation.checks.childDeliveryClosed}`);
     note(`clarificationModeMatched=${deliveryEvaluation.checks.clarificationModeMatched}`);
     note(`clarificationRecorded=${deliveryEvaluation.checks.clarificationRecorded}`);
+    note(`retrievalUsed=${deliveryEvaluation.checks.retrievalUsed}`);
+    note(`knowledgePathCoverage=${deliveryEvaluation.checks.knowledgePathCoverage}`);
+    note(`implementationOwnerMatched=${deliveryEvaluation.checks.implementationOwnerMatched}`);
   } else {
-    deliveryEvaluation = evaluateDomainAwarePmDelivery(null, scenario);
+    deliveryEvaluation = await evaluateDomainAwarePmDelivery(null, scenario);
   }
 
   const overallScore = previewEvaluation.score + deliveryEvaluation.score;
@@ -397,7 +581,9 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+}

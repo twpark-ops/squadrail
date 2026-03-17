@@ -48,6 +48,7 @@ function buildSignals(overrides: Partial<RetrievalSignals> = {}): RetrievalSigna
   return {
     exactPaths: overrides.exactPaths ?? [],
     fileNames: overrides.fileNames ?? [],
+    lexicalTerms: overrides.lexicalTerms ?? [],
     symbolHints: overrides.symbolHints ?? [],
     knowledgeTags: overrides.knowledgeTags ?? [],
     preferredSourceTypes: overrides.preferredSourceTypes ?? [],

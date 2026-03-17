@@ -2255,6 +2255,83 @@ describe("issue retrieval helpers", () => {
     expect(reranked[0]?.rerankScore).toBeGreaterThan(reranked[1]?.rerankScore ?? 0);
   });
 
+  it("demotes current-issue protocol echoes below project-scoped code summaries for symptom-first queries", () => {
+    const reranked = rerankRetrievalHits({
+      issueId: "issue-1",
+      projectId: "project-cloud",
+      finalK: 2,
+      signals: {
+        exactPaths: [],
+        fileNames: [],
+        symbolHints: [],
+        knowledgeTags: ["dicom-metadata", "series-name", "dicom", "metadata", "series", "name"],
+        preferredSourceTypes: ["code_summary", "code", "test_report", "issue", "protocol_message"],
+        blockerCode: null,
+        questionType: null,
+        projectAffinityIds: [],
+        projectAffinityNames: [],
+      },
+      hits: [
+        {
+          chunkId: "issue-echo",
+          documentId: "doc-issue",
+          sourceType: "issue",
+          authorityLevel: "working",
+          documentIssueId: "issue-1",
+          documentProjectId: "project-cloud",
+          path: "issues/CLO-21/issue.md",
+          title: "CLO-21 issue snapshot",
+          headingPath: "issue",
+          symbolName: null,
+          textContent: "Siemens series_name stores SeriesDescription instead of ProtocolName.",
+          documentMetadata: { artifactKind: "issue_snapshot" },
+          chunkMetadata: {},
+          denseScore: 0.9,
+          sparseScore: 1.1,
+          rerankScore: null,
+          fusedScore: 3.2,
+          updatedAt: new Date("2026-03-18T00:00:00Z"),
+        },
+        {
+          chunkId: "cloud-code-summary",
+          documentId: "doc-cloud-code-summary",
+          sourceType: "code_summary",
+          authorityLevel: "canonical",
+          documentIssueId: null,
+          documentProjectId: "project-cloud",
+          path: "internal/server/registry/series.go",
+          title: "series.go summary",
+          headingPath: "internal/server/registry/series.go",
+          symbolName: null,
+          textContent: [
+            "This go file is located at internal/server/registry/series.go.",
+            "Semantic hints from the implementation include dicom, metadata, series, protocol, description, registry.",
+            "Representative implementation excerpt: RegisterSeries persists series_name in the registry database. Siemens should prefer ProtocolName over SeriesDescription before persistence.",
+          ].join(" "),
+          documentMetadata: {
+            summaryKind: "file",
+            pmProjectSelection: {
+              ownerTags: ["series", "protocol", "description", "registry"],
+              supportTags: ["dicom", "metadata", "database"],
+              avoidTags: [],
+            },
+            requiredKnowledgeTags: ["series", "protocol", "description", "registry"],
+            tags: ["dicom", "metadata", "series", "protocol", "description", "registry"],
+          },
+          chunkMetadata: {},
+          denseScore: 0.75,
+          sparseScore: 0.7,
+          rerankScore: null,
+          fusedScore: 2.1,
+          updatedAt: new Date("2026-03-18T00:00:00Z"),
+        },
+      ],
+    });
+
+    expect(reranked[0]?.chunkId).toBe("cloud-code-summary");
+    expect(reranked[0]?.rerankScore).toBeGreaterThan(reranked[1]?.rerankScore ?? 0);
+  });
+
   it("boosts branch-aligned evidence and penalizes stale versions", () => {
     const reranked = rerankRetrievalHits({
       issueId: "issue-1",

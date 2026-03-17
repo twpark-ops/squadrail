@@ -155,6 +155,109 @@ describe("retrieval query helpers", () => {
     expect(signals.projectAffinityNames).toEqual(["runtime-core"]);
   });
 
+  it("splits hyphenated knowledge tags into retrieval-friendly semantic tokens", () => {
+    const message = buildMessage({
+      messageType: "ASSIGN_TASK",
+      sender: {
+        actorType: "agent",
+        actorId: "pm-1",
+        role: "pm",
+      },
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "lead-1",
+          role: "tech_lead",
+        },
+      ],
+      workflowStateBefore: "todo",
+      workflowStateAfter: "assigned",
+      summary: "Route Siemens series_name persistence issue",
+      payload: {
+        goal: "Fix Siemens persistence mismatch",
+        requiredKnowledgeTags: ["dicom-metadata", "series-name"],
+      },
+      artifacts: [],
+    });
+
+    const signals = deriveDynamicRetrievalSignals({
+      message,
+      issue: {
+        projectId: "project-1",
+        title: "Siemens series_name persistence issue",
+        description: null,
+        mentionedProjects: [],
+      },
+      recipientRole: "tech_lead",
+      eventType: "on_assignment",
+    });
+
+    expect(signals.knowledgeTags).toEqual(expect.arrayContaining([
+      "dicom-metadata",
+      "series-name",
+      "dicom",
+      "metadata",
+      "series",
+      "name",
+    ]));
+    expect(signals.lexicalTerms).toEqual(expect.arrayContaining([
+      "dicom metadata",
+      "dicom",
+      "series name",
+      "series",
+      "name",
+    ]));
+  });
+
+  it("extracts lexical symptom terms from mixed Korean and English issue content", () => {
+    const message = buildMessage({
+      messageType: "ASSIGN_TASK",
+      sender: {
+        actorType: "agent",
+        actorId: "pm-1",
+        role: "pm",
+      },
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "lead-1",
+          role: "tech_lead",
+        },
+      ],
+      workflowStateBefore: "todo",
+      workflowStateAfter: "assigned",
+      summary: "Siemens vendor DICOM의 series_name이 ProtocolName 대신 SeriesDescription 값으로 저장되는 문제 조사",
+      payload: {
+        goal: "Find why Siemens DICOM series_name persists SeriesDescription instead of ProtocolName",
+        requiredKnowledgeTags: ["ProtocolName", "SeriesDescription", "series_name"],
+      },
+      artifacts: [],
+    });
+
+    const signals = deriveDynamicRetrievalSignals({
+      message,
+      issue: {
+        projectId: null,
+        title: "Siemens series_name 저장 이상",
+        description: "series_name field stores SeriesDescription(0008,103E) instead of ProtocolName(0018,1030)",
+        mentionedProjects: [],
+      },
+      recipientRole: "tech_lead",
+      eventType: "on_assignment",
+    });
+
+    expect(signals.lexicalTerms).toEqual(expect.arrayContaining([
+      "siemens",
+      "dicom",
+      "series name",
+      "series",
+      "protocolname",
+      "protocol name",
+      "seriesdescription",
+      "series description",
+    ]));
+  });
+
   it("carries canonical related issue fields into dynamic signals", () => {
     const message = buildMessage({
       messageType: "CLOSE_TASK",

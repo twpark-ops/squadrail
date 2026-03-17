@@ -248,6 +248,46 @@ describe("resolveProtocolOwnershipForMessage", () => {
       qaAgentId: "qa-1",
     });
   });
+
+  it("binds the tech lead as the direct implementation owner when TL-directed work starts", () => {
+    expect(
+      resolveProtocolOwnershipForMessage({
+        currentState: {
+          techLeadAgentId: "lead-1",
+          primaryEngineerAgentId: null,
+          reviewerAgentId: "reviewer-1",
+          qaAgentId: null,
+        },
+        message: {
+          messageType: "START_IMPLEMENTATION",
+          sender: {
+            actorType: "agent",
+            actorId: "lead-1",
+            role: "engineer",
+          },
+          recipients: [
+            {
+              recipientType: "agent",
+              recipientId: "lead-1",
+              role: "engineer",
+            },
+          ],
+          workflowStateBefore: "accepted",
+          workflowStateAfter: "implementing",
+          summary: "Tech lead starts direct implementation",
+          payload: {
+            implementationMode: "direct",
+          },
+          artifacts: [],
+        },
+      }),
+    ).toMatchObject({
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "lead-1",
+      reviewerAgentId: "reviewer-1",
+      qaAgentId: null,
+    });
+  });
 });
 
 describe("protocol state projection helpers", () => {

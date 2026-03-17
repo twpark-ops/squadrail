@@ -64,6 +64,7 @@ function makeSignals(overrides: Partial<RetrievalSignals> = {}): RetrievalSignal
   return {
     exactPaths: [],
     fileNames: [],
+    lexicalTerms: [],
     symbolHints: [],
     knowledgeTags: ["swiftcl", "artifact-routing"],
     preferredSourceTypes: ["code_summary", "symbol_summary", "code"],

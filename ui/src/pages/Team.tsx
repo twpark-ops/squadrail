@@ -447,16 +447,12 @@ export function Team() {
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/60 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-300">
               <span className="tabular-nums">{performanceSummary.healthyAgents}</span> healthy
             </span>
-            {performanceSummary.warningAgents > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">
-                <span className="tabular-nums">{performanceSummary.warningAgents}</span> warning
-              </span>
-            )}
-            {performanceSummary.riskAgents > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-300/60 bg-red-500/10 px-2.5 py-1 font-medium text-red-700 dark:text-red-300">
-                <span className="tabular-nums">{performanceSummary.riskAgents}</span> risk
-              </span>
-            )}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">
+              <span className="tabular-nums">{performanceSummary.warningAgents}</span> warning
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-300/60 bg-red-500/10 px-2.5 py-1 font-medium text-red-700 dark:text-red-300">
+              <span className="tabular-nums">{performanceSummary.riskAgents}</span> risk
+            </span>
           </>
         )}
       </div>

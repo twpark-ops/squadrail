@@ -1,0 +1,29 @@
+@startuml
+title Onboarding 3-Step First Success Plan
+
+actor User
+participant OW as "Onboarding Wizard"
+participant REC as "Recommendation Engine"
+participant WS as "Workspace Connect"
+participant PM as "PM Intake"
+participant UI as "First Success Surface"
+
+User -> OW: Step 1\nTell us what you are building
+OW -> REC: compute recommendations
+REC --> OW: blueprint + runtime + starter request
+
+User -> OW: Accept recommended path
+OW -> WS: Step 2\nConnect repo
+WS -> WS: detect project/workspace
+WS -> WS: run environment check
+WS --> OW: ready / needs attention / blocked
+
+User -> OW: Step 3\nLaunch first request
+OW -> PM: create onboarding issue
+PM --> UI: onboardingIssueId
+
+UI -> UI: Show issue detail welcome banner
+UI -> UI: Show setup checklist
+UI -> UI: Guide clarification / first success
+
+@enduml

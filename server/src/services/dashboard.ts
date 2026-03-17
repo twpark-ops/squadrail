@@ -302,6 +302,7 @@ export function buildTeamSupervisionSummary(input: {
 }
 
 function agentPerformanceHealth(input: {
+  totalRuns7d: number;
   successRate7d: number;
   failedRuns7d: number;
   timedOutRuns7d: number;
@@ -309,6 +310,10 @@ function agentPerformanceHealth(input: {
   qaBounceCount30d: number;
   openIssueCount: number;
 }) {
+  // No runs yet — agent is new or idle, not "risk"
+  if (input.totalRuns7d === 0) {
+    return "healthy" as const;
+  }
   if (
     input.successRate7d < 70
     || input.timedOutRuns7d > 0
@@ -1744,6 +1749,7 @@ export function dashboardService(db: Db) {
         const qaBounceCount30d = qaBounceMap.get(agent.id) ?? 0;
         const priorityPreemptions7d = priorityPreemptionMap.get(agent.id) ?? 0;
         const health = agentPerformanceHealth({
+          totalRuns7d: runStats.totalRuns7d,
           successRate7d: successRate,
           failedRuns7d: runStats.failedRuns7d,
           timedOutRuns7d: runStats.timedOutRuns7d,

@@ -15,11 +15,9 @@ import { queryKeys } from "../lib/queryKeys";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { EmptyState } from "../components/EmptyState";
-import { HeroSection } from "../components/HeroSection";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { StatusBadge } from "../components/StatusBadge";
-import { SupportMetricCard } from "../components/SupportMetricCard";
 import { SupportPanel } from "../components/SupportPanel";
 import { timeAgo } from "../lib/timeAgo";
 import { Button } from "@/components/ui/button";
@@ -745,47 +743,41 @@ export function Inbox() {
   const showSeparatorBefore = (key: SectionKey) => visibleSections.indexOf(key) > 0;
 
   return (
-    <div className="space-y-8">
-      <HeroSection
-        title="Inbox"
-        subtitle="Keep the default read focused on what needs action now: approvals, failures, stale work, join requests, and work explicitly assigned to you."
-        eyebrow="Triage Surface"
-      />
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Triage surface
+          </div>
+          <h1 className="mt-1 text-2xl font-semibold text-foreground">Inbox</h1>
+        </div>
+      </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SupportMetricCard
-          icon={InboxIcon}
-          label="New items"
-          value={newItemCount}
-          detail="The current number of triage items visible in the actionable inbox."
-          tone={newItemCount > 0 ? "accent" : "default"}
-        />
-        <SupportMetricCard
-          icon={UserCheck}
-          label="Assigned to me"
-          value={assignedToMeIssues.length}
-          detail="Open work directly assigned to your operator account."
-        />
-        <SupportMetricCard
-          icon={InboxIcon}
-          label="Team supervision"
-          value={teamSupervisionItems.length}
-          detail="Subtasks waiting on lead, reviewer, or operator attention."
-          tone={teamSupervisionItems.length > 0 ? "accent" : "default"}
-        />
-        <SupportMetricCard
-          icon={AlertTriangle}
-          label="Failed runs"
-          value={failedRuns.length}
-          detail="Latest runtime failures that still need operator attention."
-          tone={failedRuns.length > 0 ? "warning" : "default"}
-        />
-        <SupportMetricCard
-          icon={Clock}
-          label="Actionable approvals"
-          value={actionableApprovals.length}
-          detail="Approval items that still require a board decision or revision loop."
-        />
+      {/* Compact summary bar */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {newItemCount > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">
+            <span className="tabular-nums">{newItemCount}</span> new items
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{assignedToMeIssues.length}</span> assigned
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{clarificationItems.length}</span> clarifications
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{teamSupervisionItems.length}</span> supervision
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{actionableApprovals.length}</span> approvals
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{failedRuns.length}</span> failed runs
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 font-medium text-muted-foreground">
+          <span className="tabular-nums text-foreground">{staleIssues.length}</span> stale
+        </span>
       </div>
 
       <SupportPanel

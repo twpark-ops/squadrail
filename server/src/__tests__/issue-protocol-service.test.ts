@@ -783,6 +783,240 @@ describe("issue protocol service", () => {
     });
   });
 
+  it("binds the tech lead into primary engineer ownership when direct implementation starts", async () => {
+    const issue = {
+      id: "issue-direct-tl-start",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "lead-1",
+      status: "todo",
+    };
+    const currentState = {
+      issueId: "issue-direct-tl-start",
+      companyId: "company-1",
+      workflowState: "accepted",
+      coarseIssueStatus: "todo",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: null,
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 0,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-direct-tl-start",
+      issueId: "issue-direct-tl-start",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-direct-tl-start-1",
+      issueId: "issue-direct-tl-start",
+      threadId: "thread-direct-tl-start",
+      seq: 1,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-direct-tl-start-2",
+      issueId: "issue-direct-tl-start",
+      threadId: "thread-direct-tl-start",
+      seq: 2,
+      messageType: "START_IMPLEMENTATION",
+      senderActorType: "agent",
+      senderActorId: "lead-1",
+      senderRole: "engineer",
+      workflowStateBefore: "accepted",
+      workflowStateAfter: "implementing",
+      summary: "Tech lead starts direct implementation",
+      payload: {
+        implementationMode: "direct",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-direct-tl-start",
+    };
+    const { db, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [thread],
+        [lastMessage],
+      ],
+      insertResults: [[createdMessage], [], []],
+      updateResults: [[sealedMessage], [], []],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-direct-tl-start",
+      authorAgentId: "lead-1",
+      message: {
+        messageType: "START_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "accepted",
+        workflowStateAfter: "implementing",
+        summary: "Tech lead starts direct implementation",
+        payload: {
+          implementationMode: "direct",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.state).toMatchObject({
+      workflowState: "implementing",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "lead-1",
+      reviewerAgentId: "rev-1",
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        workflowState: "implementing",
+        primaryEngineerAgentId: "lead-1",
+      }),
+    });
+  });
+
+  it("allows reassignment from changes_requested so a missing engineer can resume the review loop", async () => {
+    const issue = {
+      id: "issue-changes-reassign",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "lead-1",
+      status: "in_review",
+    };
+    const currentState = {
+      issueId: "issue-changes-reassign",
+      companyId: "company-1",
+      workflowState: "changes_requested",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: null,
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 1,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-changes-reassign",
+      issueId: "issue-changes-reassign",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-changes-reassign-1",
+      issueId: "issue-changes-reassign",
+      threadId: "thread-changes-reassign",
+      seq: 7,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-changes-reassign-2",
+      issueId: "issue-changes-reassign",
+      threadId: "thread-changes-reassign",
+      seq: 8,
+      messageType: "REASSIGN_TASK",
+      senderActorType: "agent",
+      senderActorId: "lead-1",
+      senderRole: "tech_lead",
+      workflowStateBefore: "changes_requested",
+      workflowStateAfter: "assigned",
+      summary: "Assign an engineer to address requested changes",
+      payload: {
+        reason: "Resume implementation after review changes were requested.",
+        newAssigneeAgentId: "eng-2",
+        newReviewerAgentId: "rev-1",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-changes-reassign",
+    };
+    const { db, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [thread],
+        [lastMessage],
+      ],
+      insertResults: [[createdMessage], [], []],
+      updateResults: [[sealedMessage], [], []],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-changes-reassign",
+      authorAgentId: "lead-1",
+      message: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-2",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "changes_requested",
+        workflowStateAfter: "assigned",
+        summary: "Assign an engineer to address requested changes",
+        payload: {
+          reason: "Resume implementation after review changes were requested.",
+          newAssigneeAgentId: "eng-2",
+          newReviewerAgentId: "rev-1",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.state).toMatchObject({
+      workflowState: "assigned",
+      coarseIssueStatus: "todo",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-2",
+      reviewerAgentId: "rev-1",
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        workflowState: "assigned",
+        primaryEngineerAgentId: "eng-2",
+      }),
+    });
+  });
+
   it("rejects reassignment back to the tech lead after implementation has started", async () => {
     const issue = {
       id: "issue-reassign-to-lead",

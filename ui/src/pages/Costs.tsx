@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { CircleDollarSign, FolderKanban, Wallet, Workflow } from "lucide-react";
+import { CircleDollarSign, FolderKanban } from "lucide-react";
 import { deriveBudgetGuardrailStatus } from "@squadrail/shared";
 
 import { Button } from "@/components/ui/button";
 
 import { costsApi } from "../api/costs";
 import { EmptyState } from "../components/EmptyState";
-import { HeroSection } from "../components/HeroSection";
 import { Identity } from "../components/Identity";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { StatusBadge } from "../components/StatusBadge";
-import { SupportMetricCard } from "../components/SupportMetricCard";
 import { SupportPanel } from "../components/SupportPanel";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
@@ -123,12 +121,37 @@ export function Costs() {
   const presetKeys: DatePreset[] = ["mtd", "7d", "30d", "ytd", "all", "custom"];
 
   return (
-    <div className="space-y-8">
-      <HeroSection
-        title="Costs"
-        subtitle="Track spend, utilization, and where model usage is accumulating across agents and projects."
-        eyebrow="Operating Spend"
-      />
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Operating spend
+          </div>
+          <h1 className="mt-1 text-2xl font-semibold text-foreground">Costs</h1>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 font-medium text-foreground">
+          {formatCents(data?.summary?.spendCents ?? 0)} MTD
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 font-medium text-foreground">
+          {data?.summary?.budgetCents && data.summary.budgetCents > 0
+            ? `${data.summary.utilizationPercent}% budget`
+            : "Open budget"}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 font-medium text-foreground">
+          {data?.summary?.monthlyForecast
+            ? `${formatCents(data.summary.monthlyForecast.projectedSpendCents)} forecast`
+            : "No forecast"}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 font-medium text-foreground">
+          {apiRunCount} API runs
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 font-medium text-foreground">
+          {data?.byProject?.length ?? 0} projects
+        </span>
+      </div>
 
       {/* Budget Guardrail Status Card */}
       {guardrail && guardrail.monthBudgetCents > 0 && (
@@ -225,64 +248,6 @@ export function Costs() {
           )}
         </div>
       )}
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SupportMetricCard
-          icon={CircleDollarSign}
-          label="Spend"
-          value={formatCents(data?.summary.spendCents ?? 0)}
-          detail={PRESET_LABELS[preset]}
-          tone="accent"
-        />
-        <SupportMetricCard
-          icon={Wallet}
-          label="Budget usage"
-          value={
-            data?.summary.budgetCents && data.summary.budgetCents > 0
-              ? `${data.summary.utilizationPercent}%`
-              : "Open"
-          }
-          detail={
-            data?.summary.budgetCents && data.summary.budgetCents > 0
-              ? `${formatCents(data.summary.budgetCents)} budget tracked for this range.`
-              : "No explicit budget cap is set for the selected range."
-          }
-          tone={data?.summary.utilizationPercent && data.summary.utilizationPercent > 85 ? "warning" : "default"}
-        />
-        <SupportMetricCard
-          icon={Wallet}
-          label="Month-end forecast"
-          value={
-            data?.summary.monthlyForecast
-              ? formatCents(data.summary.monthlyForecast.projectedSpendCents)
-              : "N/A"
-          }
-          detail={
-            data?.summary.monthlyForecast
-              ? `${data.summary.monthlyForecast.projectedUtilizationPercent}% of monthly budget · ${data.summary.monthlyForecast.status.replace(/_/g, " ")}`
-              : "Forecast not available"
-          }
-          tone={
-            data?.summary.monthlyForecast?.status === "over_budget"
-              ? "warning"
-              : data?.summary.monthlyForecast?.status === "watch"
-                ? "warning"
-                : "default"
-          }
-        />
-        <SupportMetricCard
-          icon={Workflow}
-          label="API runs"
-          value={apiRunCount}
-          detail="Runs billed directly through metered API usage."
-        />
-        <SupportMetricCard
-          icon={FolderKanban}
-          label="Project attribution"
-          value={data?.byProject.length ?? 0}
-          detail="Projects with visible cost attribution in the selected time window."
-        />
-      </div>
 
       <SupportPanel
         title="Cost range"

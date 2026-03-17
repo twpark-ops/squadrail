@@ -224,6 +224,26 @@ test("design guide keeps run transcript ahead of diagnostics", async ({ page }) 
   expectHealthyDiagnostics(diagnostics);
 });
 
+test("design guide highlights missing engineer recovery during changes requested", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  await expect(page.getByRole("heading", { name: "Design Guide", exact: true })).toBeVisible();
+  const warning = page.getByTestId("design-guide-missing-engineer-warning");
+  await expect(warning).toBeVisible();
+  await expect(
+    warning.getByText("Changes are requested, but no engineer is assigned", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    warning.getByText(/REASSIGN TASK/, { exact: false }),
+  ).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
 test("design guide groups linked live runs by lane", async ({ page }) => {
   const diagnostics = attachDiagnostics(page);
 

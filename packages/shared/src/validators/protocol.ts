@@ -180,6 +180,8 @@ export const issueProtocolRequestChangesPayloadSchema = z.object({
   severity: z.enum(ISSUE_PROTOCOL_REVIEW_SEVERITIES),
   mustFixBeforeApprove: z.boolean(),
   requiredEvidence: nonEmptyStringArraySchema.min(1),
+  executionLog: z.string().trim().min(1).optional(),
+  failureEvidence: z.string().trim().min(1).optional(),
   ...issueProtocolRelatedIssueRefShape,
   ...issueProtocolBoardTemplateTraceShape,
 }).strict();
@@ -204,6 +206,9 @@ export const issueProtocolApproveImplementationPayloadSchema = z.object({
   verifiedEvidence: nonEmptyStringArraySchema.min(1),
   residualRisks: nonEmptyStringArraySchema.min(1),
   followUpActions: nonEmptyStringArraySchema.optional(),
+  executionLog: z.string().trim().min(1).optional(),
+  outputVerified: z.string().trim().min(1).optional(),
+  sanityCommand: z.string().trim().min(1).optional(),
   ...issueProtocolRelatedIssueRefShape,
   ...issueProtocolBoardTemplateTraceShape,
 }).strict();

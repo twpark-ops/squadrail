@@ -190,6 +190,15 @@ function estimateTokenCount(value: string) {
   return Math.max(1, Math.ceil(value.trim().length / 4));
 }
 
+function compactWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function uniqueStrings(values: Array<string | null | undefined>) {
   const seen = new Set<string>();
   const ordered: string[] = [];
@@ -207,6 +216,141 @@ function readBoolean(value: unknown) {
   return value === true;
 }
 
+const PROJECT_SELECTION_CONTENT_STOPWORDS = new Set([
+  "package",
+  "import",
+  "return",
+  "returns",
+  "true",
+  "false",
+  "const",
+  "class",
+  "type",
+  "types",
+  "interface",
+  "struct",
+  "string",
+  "strings",
+  "value",
+  "values",
+  "input",
+  "inputs",
+  "output",
+  "outputs",
+  "file",
+  "files",
+  "line",
+  "lines",
+  "located",
+  "defines",
+  "top",
+  "level",
+  "symbol",
+  "symbols",
+  "exported",
+  "surface",
+  "local",
+  "code",
+  "graph",
+  "summary",
+  "source",
+  "path",
+  "language",
+  "function",
+  "functions",
+  "method",
+  "methods",
+  "helper",
+  "helpers",
+  "using",
+  "used",
+  "with",
+  "without",
+  "from",
+  "into",
+  "the",
+  "this",
+  "that",
+  "these",
+  "those",
+  "should",
+  "before",
+  "over",
+  "prefer",
+  "none",
+  "unknown",
+  "detected",
+  "strong",
+  "associated",
+  "dependency",
+  "dependencies",
+  "target",
+  "targets",
+  "context",
+  "tags",
+  "main",
+  "base",
+  "create",
+  "created",
+  "update",
+  "updated",
+  "build",
+  "built",
+  "persists",
+  "list",
+  "lists",
+  "item",
+  "items",
+  "number",
+  "numbers",
+  "count",
+  "counts",
+]);
+
+function splitSemanticTokens(value: string) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_./:-]+/g, " ")
+    .split(/[^a-zA-Z0-9]+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length >= 3 && token.length <= 32)
+    .filter((token) => !/^\d+$/.test(token));
+}
+
+function extractProjectSelectionContentHints(values: string[]) {
+  const counts = new Map<string, { count: number; firstSeen: number }>();
+  let index = 0;
+  for (const value of values) {
+    for (const token of splitSemanticTokens(value)) {
+      if (PROJECT_SELECTION_CONTENT_STOPWORDS.has(token)) continue;
+      const existing = counts.get(token);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        counts.set(token, { count: 1, firstSeen: index });
+      }
+      index += 1;
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((left, right) => {
+      if (left[1].count !== right[1].count) return right[1].count - left[1].count;
+      return left[1].firstSeen - right[1].firstSeen;
+    })
+    .map(([token]) => token)
+    .slice(0, 8);
+}
+
+function extractSemanticExcerpt(values: string[]) {
+  for (const value of values) {
+    const compact = compactWhitespace(value);
+    if (compact.length < 24) continue;
+    return truncateText(compact, 240);
+  }
+  return null;
+}
+
 function basenameWithoutExtension(filePath: string) {
   return path.posix.basename(filePath).replace(/\.[^.]+$/, "");
 }
@@ -222,6 +366,7 @@ function deriveProjectSelectionTags(input: {
   language: string;
   symbolNames?: string[];
   dependencyTargets?: string[];
+  contentHints?: string[];
 }) {
   const fileBase = basenameWithoutExtension(input.relativePath);
   const pathSegments = input.relativePath.split("/").filter(Boolean);
@@ -248,7 +393,8 @@ function deriveProjectSelectionTags(input: {
 
   const specificTags = uniqueStrings([
     ...input.baseTags.filter((tag) => !genericTags.has(tag.toLowerCase())),
-    ...pathSegments.slice(0, 4),
+    ...(input.contentHints ?? []),
+    ...pathSegments.slice(0, 3),
     fileBase,
     ...symbolTokens.slice(0, 6),
     ...depTokens.slice(0, 4),
@@ -290,6 +436,8 @@ function buildCodeSummaryText(input: {
   symbols: SummarySourceSymbol[];
   baseTags: string[];
   dependencyTargets: string[];
+  contentHints: string[];
+  semanticExcerpt?: string | null;
 }) {
   const exportedSymbols = input.symbols
     .filter((symbol) => readBoolean(symbol.metadata?.exported))
@@ -305,8 +453,14 @@ function buildCodeSummaryText(input: {
     input.dependencyTargets.length > 0
       ? `The local code graph suggests dependencies on ${formatList(input.dependencyTargets, "unknown dependencies")}.`
       : "The local code graph did not surface strong dependency targets for this file.",
+    input.contentHints.length > 0
+      ? `Semantic hints from the implementation include ${formatList(input.contentHints, "none")}.`
+      : null,
+    input.semanticExcerpt
+      ? `Representative implementation excerpt: ${input.semanticExcerpt}.`
+      : null,
     `Context tags: ${formatList(input.baseTags.slice(0, 8), "none")}.`,
-  ].join(" ");
+  ].filter((value): value is string => typeof value === "string" && value.length > 0).join(" ");
 }
 
 function buildSymbolSummaryText(input: {
@@ -351,12 +505,20 @@ export function buildKnowledgeSummaryDrafts(input: {
   const symbols = input.codeGraph?.symbols ?? [];
   const edgeIndex = buildEdgeIndex(input.codeGraph);
   const allDependencyTargets = summarizeDependencies(input.codeGraph?.edges ?? []);
+  const contentHints = extractProjectSelectionContentHints([
+    ...input.codeChunks.slice(0, 6).map((chunk) => chunk.textContent.slice(0, 800)),
+    input.title ?? "",
+  ]);
+  const semanticExcerpt = extractSemanticExcerpt(
+    input.codeChunks.slice(0, 3).map((chunk) => chunk.textContent.slice(0, 1200)),
+  );
   const projectSelection = deriveProjectSelectionTags({
     baseTags,
     relativePath: input.relativePath,
     language: input.language,
     symbolNames: symbols.slice(0, 10).map((s) => s.symbolName),
     dependencyTargets: allDependencyTargets,
+    contentHints,
   });
   const sharedMetadataBase = {
     summaryVersion: 1 as const,
@@ -374,6 +536,8 @@ export function buildKnowledgeSummaryDrafts(input: {
     symbols,
     baseTags,
     dependencyTargets: summarizeDependencies(input.codeGraph?.edges ?? []),
+    contentHints,
+    semanticExcerpt,
   });
 
   const drafts: KnowledgeSummaryDraft[] = [{
@@ -395,6 +559,8 @@ export function buildKnowledgeSummaryDrafts(input: {
         input.relativePath,
         path.posix.basename(input.relativePath),
         ...baseTags,
+        ...contentHints,
+        ...(semanticExcerpt ? [semanticExcerpt] : []),
         ...symbols.slice(0, 8).map((symbol) => symbol.symbolName),
         codeSummaryText,
       ].filter(Boolean).join("\n"),

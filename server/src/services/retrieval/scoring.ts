@@ -304,6 +304,27 @@ export function computeOrganizationalMemoryPenalty(input: {
   return 0;
 }
 
+export function computeCurrentIssueArtifactPenalty(input: {
+  hit: RetrievalHitView;
+  issueId: string;
+  pathBoost: RetrievalPathBoostResult;
+  symbolBoost: number;
+}) {
+  if (input.hit.documentIssueId !== input.issueId) return 0;
+  if (input.pathBoost.kind === "direct" || input.symbolBoost > 0) return 0;
+
+  switch (classifyOrganizationalArtifact(input.hit)) {
+    case "issue":
+      return -1.8;
+    case "protocol":
+      return -1.35;
+    case "review":
+      return -0.95;
+    default:
+      return 0;
+  }
+}
+
 export function computeTagBoost(hit: RetrievalHitView, signals: RetrievalSignals, weights: RetrievalRerankWeights) {
   if (signals.knowledgeTags.length === 0) return 0;
   const tags = uniqueNonEmpty([
@@ -477,6 +498,12 @@ export function buildHitRationale(input: {
     pathBoost,
     symbolBoost,
   }) < 0) reasons.push("organizational_memory_penalty");
+  if (computeCurrentIssueArtifactPenalty({
+    hit: input.hit,
+    issueId: input.issueId,
+    pathBoost,
+    symbolBoost,
+  }) < 0) reasons.push("current_issue_self_echo_penalty");
   for (const entityType of uniqueNonEmpty(input.hit.graphMetadata?.entityTypes ?? [])) {
     reasons.push(`graph_${entityType}_link`);
   }

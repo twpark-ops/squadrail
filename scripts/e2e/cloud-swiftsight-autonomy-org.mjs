@@ -327,6 +327,10 @@ async function listProtocolMessages(issueId) {
   return api(`/api/issues/${issueId}/protocol/messages`);
 }
 
+async function listProtocolBriefs(issueId) {
+  return api(`/api/issues/${issueId}/protocol/briefs`);
+}
+
 async function waitForProtocolState(issueId, expectedWorkflowState = null) {
   return retryWithBackoff(
     async () => {
@@ -711,6 +715,14 @@ async function approveImplementation(issueId, companyId, agentId, senderRole, wo
       "Merge remains external to this bounded autonomy harness.",
     ]),
   ];
+  if (senderRole === "qa") {
+    args.push(
+      "--sanity-command",
+      "bounded-autonomy focused verification",
+      "--output-verified",
+      "QA verified the bounded delivery output and explicit evidence package before approval.",
+    );
+  }
   if (workflowAfter) {
     args.push("--workflow-after", workflowAfter);
   }
@@ -1114,15 +1126,28 @@ async function main() {
         project: childPreview.project,
         clarificationMode: index === 0 ? "human_board" : "none",
       });
-      childResults.push({
-        issueId: childIssue.id,
-        identifier: childIssue.identifier ?? null,
-        projectId: childPreview.project.id,
-        projectName: childPreview.project.name,
-        clarificationMode: childResult.clarificationMode,
-        finalWorkflowState: childResult.doneState.workflowState,
-        askMessageId: childResult.askMessageId,
-      });
+    childResults.push({
+      issueId: childIssue.id,
+      identifier: childIssue.identifier ?? null,
+      projectId: childPreview.project.id,
+      projectName: childPreview.project.name,
+      clarificationMode: childResult.clarificationMode,
+      finalWorkflowState: childResult.doneState.workflowState,
+      askMessageId: childResult.askMessageId,
+      implementationAssigneeAgentId: childPreview.preview.staffing.implementationAssigneeAgentId ?? null,
+      techLeadAgentId: childPreview.preview.staffing.techLeadAgentId ?? null,
+      reviewerAgentId: childPreview.preview.staffing.reviewerAgentId ?? null,
+      qaAgentId: childPreview.preview.staffing.qaAgentId ?? null,
+      finalPrimaryEngineerAgentId: childResult.doneState.primaryEngineerAgentId ?? null,
+      finalTechLeadAgentId: childResult.doneState.techLeadAgentId ?? null,
+      finalReviewerAgentId: childResult.doneState.reviewerAgentId ?? null,
+      finalQaAgentId: childResult.doneState.qaAgentId ?? null,
+      retrievalRunIds: [...new Set(
+        (await listProtocolBriefs(childIssue.id))
+          .map((brief) => (typeof brief?.retrievalRunId === "string" ? brief.retrievalRunId : null))
+          .filter((runId) => typeof runId === "string" && runId.length > 0),
+      )],
+    });
       note(`child ${childIssue.identifier ?? childIssue.id} closed ${childResult.doneState.workflowState}`);
     }
   } else {
@@ -1155,6 +1180,7 @@ async function main() {
       project,
       clarificationMode: AUTONOMY_VARIANT === "reviewer_clarification_policy" ? "reviewer" : "human_board",
     });
+    const childBriefs = await listProtocolBriefs(childIssue.id);
     childResults.push({
       issueId: childIssue.id,
       identifier: childIssue.identifier ?? null,
@@ -1163,6 +1189,19 @@ async function main() {
       clarificationMode: childResult.clarificationMode,
       finalWorkflowState: childResult.doneState.workflowState,
       askMessageId: childResult.askMessageId,
+      implementationAssigneeAgentId: preview.staffing.implementationAssigneeAgentId ?? null,
+      techLeadAgentId: preview.staffing.techLeadAgentId ?? null,
+      reviewerAgentId: preview.staffing.reviewerAgentId ?? null,
+      qaAgentId: preview.staffing.qaAgentId ?? null,
+      finalPrimaryEngineerAgentId: childResult.doneState.primaryEngineerAgentId ?? null,
+      finalTechLeadAgentId: childResult.doneState.techLeadAgentId ?? null,
+      finalReviewerAgentId: childResult.doneState.reviewerAgentId ?? null,
+      finalQaAgentId: childResult.doneState.qaAgentId ?? null,
+      retrievalRunIds: [...new Set(
+        childBriefs
+          .map((brief) => (typeof brief?.retrievalRunId === "string" ? brief.retrievalRunId : null))
+          .filter((runId) => typeof runId === "string" && runId.length > 0),
+      )],
     });
     note(`projected child ${childIssue.identifier ?? childIssue.id}`);
     note(`delivery loop closed ${childResult.doneState.workflowState}`);
