@@ -4175,12 +4175,13 @@ function DocumentsPanel({
   const [saving, setSaving] = useState(false);
   const [showRevisions, setShowRevisions] = useState(false);
   const [newDocKey, setNewDocKey] = useState<string>("");
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
 
   // Fetch full document when a key is selected
   const { data: activeDocument, refetch: refetchDoc } = useQuery({
     queryKey: queryKeys.issues.document(issueId, selectedKey ?? "__none__"),
     queryFn: () => issuesApi.documents.get(companyId, issueId, selectedKey!),
-    enabled: !!selectedKey,
+    enabled: !!selectedKey && !isCreatingNew,
   });
 
   // Fetch revisions when viewing history
@@ -4218,6 +4219,7 @@ function DocumentsPanel({
         baseRevisionNumber,
       });
       pushToast({ title: "Document saved", tone: "success" });
+      setIsCreatingNew(false);
       onMutated();
       refetchDoc();
     } catch (err: unknown) {
@@ -4246,6 +4248,7 @@ function DocumentsPanel({
 
   async function handleCreate() {
     if (!newDocKey) return;
+    setIsCreatingNew(true);
     setSelectedKey(newDocKey);
     setEditorTitle(DOCUMENT_KEY_LABELS[newDocKey] ?? newDocKey);
     setEditorBody("");
@@ -4318,6 +4321,7 @@ function DocumentsPanel({
                 onClick={() => {
                   setSelectedKey(doc.key);
                   setShowRevisions(false);
+                  setIsCreatingNew(false);
                 }}
                 className="flex w-full items-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/20"
               >
@@ -4353,6 +4357,7 @@ function DocumentsPanel({
           onClick={() => {
             setSelectedKey(null);
             setShowRevisions(false);
+            setIsCreatingNew(false);
           }}
           className="gap-1"
         >
@@ -4431,6 +4436,7 @@ function DocumentsPanel({
                   type="button"
                   onClick={() => {
                     setEditorBody(rev.body);
+                    setEditorTitle(rev.title);
                     pushToast({
                       title: `Loaded revision ${rev.revisionNumber}`,
                       tone: "info",
