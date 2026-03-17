@@ -328,8 +328,18 @@ export function IssuesList({
 
   // Derive first-success state from setupProgress + issue data.
   const firstIssueCreated = setupProgress?.steps?.firstIssueReady ?? false;
-  const closedRootIssueCount = issues.filter(
-    (i) => i.parentId === null && (i.status === "done" || i.status === "cancelled"),
+
+  // Company-wide closed root count — need a separate query when scoped to a project,
+  // because `issues` prop may only contain the project-filtered subset.
+  const needsCompanyWideQuery = !!projectId && setupProgress?.steps?.firstIssueReady === true;
+  const { data: companyWideIssues } = useQuery({
+    queryKey: queryKeys.issues.list(selectedCompanyId!),
+    queryFn: () => issuesApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId && needsCompanyWideQuery,
+  });
+  const issuesForFirstSuccess = needsCompanyWideQuery ? (companyWideIssues ?? []) : issues;
+  const closedRootIssueCount = issuesForFirstSuccess.filter(
+    (i) => !i.parentId && (i.status === "done" || i.status === "cancelled"),
   ).length;
 
   // Scope the storage key per company so folding/view state is independent across companies.

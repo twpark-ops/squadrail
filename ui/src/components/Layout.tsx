@@ -16,10 +16,12 @@ import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { useCompanyPageMemory } from "../hooks/useCompanyPageMemory";
 import { healthApi } from "../api/health";
 import { companiesApi } from "../api/companies";
+import { issuesApi } from "../api/issues";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { appRoutes } from "../lib/appRoutes";
+import type { OnboardingMetadata } from "@squadrail/shared";
 
 const NewIssueDialog = lazy(async () => import("./NewIssueDialog").then((module) => ({ default: module.NewIssueDialog })));
 const NewProjectDialog = lazy(async () => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
@@ -68,6 +70,30 @@ export function Layout() {
     queryFn: () => companiesApi.getSetupProgress(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
+
+  // Post-setup derived steps: PM structuring + first delivery closed.
+  // Only fetched once firstIssueReady is true so we avoid unnecessary calls.
+  const firstIssueReady = setupProgress?.steps?.firstIssueReady === true;
+  const { data: companyIssues } = useQuery({
+    queryKey: queryKeys.issues.list(selectedCompanyId!),
+    queryFn: () => issuesApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId && firstIssueReady,
+  });
+
+  const onboardingMeta = setupProgress?.metadata as OnboardingMetadata | undefined;
+  const onboardingIssue = firstIssueReady && onboardingMeta?.onboardingIssueId
+    ? (companyIssues ?? []).find((i) => i.id === onboardingMeta.onboardingIssueId)
+    : undefined;
+  // "PM structuring complete" — the onboarding issue has moved past intake/planning
+  const pmStructuringDone = Boolean(
+    onboardingIssue &&
+    onboardingIssue.status !== "backlog" &&
+    onboardingIssue.status !== "todo",
+  );
+  // "First delivery closed" — at least one root issue is done/cancelled company-wide
+  const firstDeliveryClosed = (companyIssues ?? []).some(
+    (i) => !i.parentId && (i.status === "done" || i.status === "cancelled"),
+  );
 
   useEffect(() => {
     if (companiesLoading || onboardingTriggered.current) return;
@@ -340,6 +366,13 @@ export function Layout() {
                           { done: setupProgress.steps.workspaceConnected, label: "Primary workspace connected" },
                           { done: setupProgress.steps.knowledgeSeeded, label: "Knowledge base seeded" },
                           { done: setupProgress.steps.firstIssueReady, label: "First quick request submitted" },
+                          // Derived post-onboarding steps — only shown after firstIssueReady
+                          ...(setupProgress.steps.firstIssueReady
+                            ? [
+                                { done: pmStructuringDone, label: "PM structuring complete" },
+                                { done: firstDeliveryClosed, label: "First delivery closed" },
+                              ]
+                            : []),
                         ].map((item) => (
                           <li key={item.label} className="flex items-center gap-1.5">
                             <span className={item.done ? "text-emerald-600" : "text-amber-400"}>{item.done ? "✓" : "○"}</span>
