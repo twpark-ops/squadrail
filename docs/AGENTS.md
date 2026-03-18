@@ -25,6 +25,12 @@
 - Product spec: `product-specs/_template.md`
 - Design doc: `design-docs/_template.md`
 
+## Nested Local Guides
+
+- `design-docs/AGENTS.md`
+- `product-specs/AGENTS.md`
+- `exec-plans/AGENTS.md`
+
 ## Mintlify / MDX Rules
 
 - Avoid raw angle-bracket email syntax like `<name@example.com>` in Markdown body or frontmatter values.
@@ -34,7 +40,7 @@
 
 ## Validation
 
-- Check page paths from `docs.json`
+- Run `pnpm docs:check`
 - Run `git diff --check`
 - For nav or parsing-sensitive changes, run:
   - `cd docs && npx mintlify dev --port 3480`

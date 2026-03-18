@@ -22,6 +22,7 @@
     "version-packages": "changeset version",
     "check:tokens": "node scripts/check-forbidden-tokens.mjs",
     "docs:dev": "cd docs && npx mintlify dev",
+    "docs:check": "node scripts/docs/validate-docs.mjs",
     "smoke:openclaw-join": "./scripts/smoke/openclaw-join.sh",
     "smoke:openclaw-docker-ui": "./scripts/smoke/openclaw-docker-ui.sh",
     "smoke:local-ui-flow": "./scripts/smoke/local-ui-flow.sh",

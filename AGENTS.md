@@ -28,6 +28,11 @@
 - `docs/product-specs/`: product flows and feature contracts
 - `docs/references/`: API, deploy, runbook, adapter references
 - `docs/generated/`: generated reports and exports
+- Nested docs-specific instructions live in:
+  - `docs/AGENTS.md`
+  - `docs/design-docs/AGENTS.md`
+  - `docs/product-specs/AGENTS.md`
+  - `docs/exec-plans/AGENTS.md`
 
 ## Working Rules
 
@@ -41,6 +46,7 @@
 ## Core Commands
 
 - Install workspace deps: `pnpm install`
+- Docs structure check: `pnpm docs:check`
 - Server typecheck: `pnpm --filter @squadrail/server typecheck`
 - UI typecheck: `pnpm --filter @squadrail/ui typecheck`
 - UI build: `pnpm --filter @squadrail/ui build`
