@@ -1,0 +1,39 @@
+@startuml
+title Squadrail Docs Information Architecture
+
+package "Root Entry Points" {
+  file "AGENTS.md" as AGENTS
+  file "ARCHITECTURE.md" as ARCH
+  file "docs/PLANS.md" as PLANS
+  file "docs/SECURITY.md" as SECURITY
+  file "docs/RELIABILITY.md" as RELIABILITY
+}
+
+package "Design" {
+  folder "docs/design-docs" as DESIGN
+}
+
+package "Execution" {
+  folder "docs/exec-plans/active" as ACTIVE
+  folder "docs/exec-plans/completed" as COMPLETED
+}
+
+package "Product" {
+  folder "docs/product-specs" as PRODUCT
+}
+
+package "Reference" {
+  folder "docs/references" as REFS
+  folder "docs/generated" as GENERATED
+}
+
+ARCH --> DESIGN
+PLANS --> ACTIVE
+PLANS --> COMPLETED
+ARCH --> PRODUCT
+SECURITY --> REFS
+RELIABILITY --> ACTIVE
+DESIGN --> REFS
+PRODUCT --> REFS
+
+@enduml
