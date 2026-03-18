@@ -501,9 +501,9 @@ output를 comment에서 분리해야 한다.
 
 ### Batch A
 
-1. parent issue progress summary strip — 🟡 부분 완료 (클라이언트 SubtaskProgressBar + computeChildSummary 구현, 서버 IssueProgressSnapshot 미구현)
-2. issue documents section — ❌ 미진행
-3. deliverables/artifact panel — ❌ 미진행
+1. parent issue progress summary strip — ✅ 완료 (server `IssueProgressSnapshot`, root/list snapshot, `IssueDetail` hero strip, `IssuesList` phase chip 반영)
+2. issue documents section — ✅ 완료 (`issue_documents` schema, route/service, `IssueDetail` Documents panel + revisions)
+3. deliverables/artifact panel — ✅ 완료 (attachments + protocol artifacts federated read model, route, `IssueDetail` Deliverables panel)
 
 상세 설계:
 

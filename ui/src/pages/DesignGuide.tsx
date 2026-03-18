@@ -125,6 +125,8 @@ import { InlineEditor } from "@/components/InlineEditor";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { Identity } from "@/components/Identity";
 import { AgentRunExecutionPanel } from "@/components/AgentRunExecutionPanel";
+import { ChangeReviewDesk } from "@/components/ChangeReviewDesk";
+import { ClarificationQueueCard } from "@/components/ClarificationQueueCard";
 import {
   DeliveryPartyStrip,
   type DeliveryPartySlot,
@@ -134,7 +136,7 @@ import {
   type LiveRunWidgetFeedItem,
 } from "@/components/LiveRunWidget";
 import type { TranscriptEntry } from "@/adapters";
-import type { HeartbeatRun, HeartbeatRunEvent } from "@squadrail/shared";
+import type { DashboardProtocolQueueItem, HeartbeatRun, HeartbeatRunEvent, IssueChangeSurface } from "@squadrail/shared";
 import type { LiveRunForIssue } from "@/api/heartbeats";
 
 /* ------------------------------------------------------------------ */
@@ -521,6 +523,185 @@ const designGuideDeliveryPartyQa: DeliveryPartySlot[] = [
     detailText: "Acceptance evidence is being checked before final close.",
   },
 ];
+
+const designGuideClarificationItem = {
+  issueId: "issue-clarification-1",
+  identifier: "SMO-77",
+  title: "Clarify Siemens series_name persistence expectation",
+  priority: "high",
+  projectId: "project-cloud",
+  projectName: "swiftsight-cloud",
+  coarseIssueStatus: "in_progress",
+  workflowState: "blocked",
+  currentReviewCycle: 0,
+  lastTransitionAt: new Date("2026-03-17T06:30:00.000Z"),
+  stale: false,
+  nextOwnerRole: "human_board",
+  blockedPhase: "implementing",
+  blockedCode: "clarification_required",
+  openViolationCount: 0,
+  highestViolationSeverity: null,
+  techLead: null,
+  engineer: null,
+  reviewer: null,
+  latestMessage: null,
+  pendingHumanClarifications: [
+    {
+      questionMessageId: "msg-clarify-1",
+      questionType: "environment",
+      question: "Which Siemens export path should own the fallback when ProtocolName is absent?",
+      blocking: true,
+      askedByActorType: "agent",
+      askedByActorId: "agent-tl-1",
+      askedByRole: "tech_lead",
+      askedByLabel: "Smoke Cloud TL",
+      createdAt: new Date("2026-03-17T06:29:00.000Z"),
+      resumeWorkflowState: "implementing",
+    },
+    {
+      questionMessageId: "msg-clarify-2",
+      questionType: "requirement",
+      question: "Should GE and Philips stay on the current SeriesDescription behavior?",
+      blocking: true,
+      askedByActorType: "agent",
+      askedByActorId: "agent-tl-1",
+      askedByRole: "tech_lead",
+      askedByLabel: "Smoke Cloud TL",
+      createdAt: new Date("2026-03-17T06:31:00.000Z"),
+      resumeWorkflowState: "implementing",
+    },
+  ],
+  openReviewCycle: null,
+  latestBriefs: {},
+} satisfies DashboardProtocolQueueItem;
+
+const designGuideChangeSurface = {
+  issueId: "issue-merge-1",
+  identifier: "SMO-88",
+  title: "Cloud export landing with deploy tracking",
+  issueStatus: "in_review",
+  branchName: "feature/cloud-series-name-fix",
+  headSha: "1a2b3c4d5e6f7890abcd1234",
+  workspacePath: "/tmp/swiftsight-cloud-review",
+  workspaceSource: "project_isolated",
+  workspaceState: "reused_clean",
+  changedFiles: ["internal/server/registry/workflow_execution.go"],
+  statusEntries: ["M internal/server/registry/workflow_execution.go"],
+  diffStat: "1 file changed, 28 insertions(+), 6 deletions(-)",
+  verificationSummary: "Focused Siemens regression passed against cloud persistence fixtures.",
+  closureSummary: "Ready for merge once external review and checks finish.",
+  clarificationTrace: null,
+  latestRunArtifact: null,
+  workspaceBindingArtifact: null,
+  diffArtifact: null,
+  approvalArtifact: null,
+  verificationArtifacts: [],
+  retrievalContext: {
+    latestRuns: [],
+    feedbackSummary: {
+      positiveCount: 0,
+      negativeCount: 0,
+      pinnedPathCount: 0,
+      hiddenPathCount: 0,
+      lastFeedbackAt: null,
+      feedbackTypeCounts: {},
+    },
+  },
+  mergeCandidate: {
+    issueId: "issue-merge-1",
+    identifier: "SMO-88",
+    state: "pending",
+    sourceBranch: "feature/cloud-series-name-fix",
+    headSha: "1a2b3c4d5e6f7890abcd1234",
+    workspacePath: "/tmp/swiftsight-cloud-review",
+    diffStat: "1 file changed, 28 insertions(+), 6 deletions(-)",
+    changedFiles: ["internal/server/registry/workflow_execution.go"],
+    targetBaseBranch: "main",
+    mergeCommitSha: "5f4e3d2c1b0a998877665544",
+    closeSummary: "Cloud persistence change is staged for landing.",
+    verificationSummary: "Focused verification artifacts are attached.",
+    rollbackPlan: "Revert the merge commit and reopen the issue if Siemens metadata regresses in production.",
+    approvalSummary: "Reviewer sign-off recorded with focused verification evidence.",
+    remainingRisks: ["Awaiting final CI green signal"],
+    automationMetadata: null,
+    operatorNote: "Watch the release branch after merge and keep rollback ready.",
+    resolvedAt: null,
+    closeMessageId: "msg-close-1",
+    prBridge: {
+      provider: "github",
+      repoOwner: "airsmed",
+      repoName: "swiftsight-cloud",
+      repoUrl: "https://github.com/airsmed/swiftsight-cloud",
+      remoteUrl: "git@github.com:airsmed/swiftsight-cloud.git",
+      number: 128,
+      externalId: "pr-128",
+      url: "https://github.com/airsmed/swiftsight-cloud/pull/128",
+      title: "Fix Siemens series_name persistence",
+      state: "open",
+      mergeability: "blocked",
+      headBranch: "feature/cloud-series-name-fix",
+      baseBranch: "main",
+      headSha: "1a2b3c4d5e6f7890abcd1234",
+      reviewDecision: "approved",
+      commentCount: 4,
+      reviewCommentCount: 2,
+      lastSyncedAt: new Date("2026-03-17T06:40:00.000Z"),
+      checks: [],
+      checkSummary: {
+        total: 4,
+        passing: 3,
+        pending: 1,
+        failing: 0,
+        requiredTotal: 2,
+        requiredPassing: 1,
+        requiredFailing: 0,
+        requiredPending: 1,
+      },
+    },
+    gateStatus: {
+      ciReady: false,
+      mergeReady: false,
+      closeReady: true,
+      requiredChecksConfigured: true,
+      blockingReasons: ["Release verification is still pending on the main deploy workflow."],
+    },
+    conflictAssist: {
+      status: "clean",
+      summary: "No merge conflicts detected.",
+      blockers: [],
+      suggestedActions: [],
+    },
+    failureAssist: {
+      status: "watch",
+      summary: "Keep rollback context ready until the release workflow finishes.",
+      retryability: "retryable",
+      failureFamily: "dispatch",
+      blockers: [],
+      suggestedActions: ["Watch the deploy workflow and reopen if rollback is required."],
+      repeatedFailureCount24h: 0,
+      lastSeenAt: new Date("2026-03-17T06:41:00.000Z"),
+    },
+    templateTrace: {
+      id: "template-merge-1",
+      label: "Release-safe merge",
+      scope: "company",
+    },
+    revertAssist: {
+      status: "ready",
+      summary: "Rollback plan and merge commit are ready if deploy confirmation fails.",
+      rollbackPlan: "Revert the merge commit and reopen the issue with rollback context.",
+      mergeCommitSha: "5f4e3d2c1b0a998877665544",
+      followUpIssueIds: [],
+      suggestedTitle: "Recovery follow-up for SMO-88",
+      canCreateFollowUp: true,
+      canReopen: true,
+      lastActionSummary: null,
+      lastActionAt: null,
+      lastCreatedIssueId: null,
+      lastCreatedIssueIdentifier: null,
+    },
+  },
+} satisfies IssueChangeSurface;
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
@@ -1585,6 +1766,31 @@ export function DesignGuide() {
               summaryTone="active"
               slots={designGuideDeliveryPartyQa}
             />
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-muted-foreground">
+                Clarification cards should expose the question domain and pending item count before the operator opens the issue.
+              </p>
+              <ClarificationQueueCard
+                testId="design-guide-clarification-card"
+                item={designGuideClarificationItem}
+              />
+            </div>
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-muted-foreground">
+                Change review keeps merge readiness and deploy posture in one operator desk.
+              </p>
+              <ChangeReviewDesk
+                testId="design-guide-change-review-desk"
+                companyId={null}
+                issueId={designGuideChangeSurface.issueId}
+                issueRef={designGuideChangeSurface.identifier ?? designGuideChangeSurface.issueId}
+                issueTitle={designGuideChangeSurface.title}
+                reviewHref="/SMO/changes/SMO-88"
+                workHref="/SMO/work/SMO-88"
+                surface={designGuideChangeSurface}
+                compact
+              />
+            </div>
           </div>
         </div>
       </Section>

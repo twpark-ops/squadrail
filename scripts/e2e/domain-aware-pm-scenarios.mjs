@@ -176,7 +176,8 @@ export function evaluateDomainAwarePmPreview(preview, scenario) {
     && scenarioPriority !== "critical"
     && scenario.clarificationMode !== "human_board"  // human_board implies coordinationOnly
     && (scenario.expectedTopProjects ?? []).length <= 1;  // single project
-  const fastLaneCorrect = isFastLaneScenario ? !qaAssigned : qaAssigned || true;
+  const actualFastLane = !qaAssigned && preview?.draft?.coordinationOnly !== true;
+  const fastLaneCorrect = actualFastLane === isFastLaneScenario;
   if (fastLaneCorrect && isFastLaneScenario) score += 2;
 
   return {

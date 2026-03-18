@@ -150,7 +150,6 @@ async function cleanupEvaluationIssues(input) {
     enabled: true,
     touchedCount: touched.length,
     cancelledCount: touched.filter((entry) => entry.cancelled).length,
-    hiddenCount: touched.filter((entry) => entry.hidden).length,
     touched,
   };
 }
@@ -245,7 +244,8 @@ async function listProjectsViaHelper(companyId) {
 }
 
 async function executeBoundedDelivery(companyId, issueId, preview, scenario) {
-  const autonomyVariant = scenario.clarificationMode === "reviewer"
+  const clarificationMode = scenario.clarificationMode ?? "human_board";
+  const autonomyVariant = clarificationMode === "reviewer"
     ? "reviewer_clarification_policy"
     : "baseline";
   const { stdout, stderr } = await execFileAsync("node", [AUTONOMY_HARNESS_PATH], {
@@ -256,6 +256,7 @@ async function executeBoundedDelivery(companyId, issueId, preview, scenario) {
       SQUADRAIL_COMPANY_NAME: COMPANY_NAME,
       SQUADRAIL_COMPANY_ID: companyId,
       SWIFTSIGHT_AUTONOMY_VARIANT: autonomyVariant,
+      SWIFTSIGHT_AUTONOMY_CLARIFICATION_MODE: clarificationMode,
       SWIFTSIGHT_AUTONOMY_EXISTING_ROOT_ISSUE_ID: issueId,
       SWIFTSIGHT_AUTONOMY_PREVIEW_JSON: JSON.stringify(preview),
       SWIFTSIGHT_AUTONOMY_PROJECT: preview.selectedProjectId ?? preview.selectedProjectName ?? "",
@@ -400,6 +401,9 @@ export async function evaluateDomainAwarePmDelivery(delivery, scenario, options 
   const childResults = Array.isArray(delivery.childResults) ? delivery.childResults : [];
   const expectedClarificationMode = scenario.clarificationMode ?? "human_board";
   const expectsClarification = expectedClarificationMode !== "none";
+  const unexpectedClarification = childResults.some((child) =>
+    typeof child?.askMessageId === "string" && child.askMessageId.length > 0,
+  );
   const retrievalRunIds = uniqueStrings(
     childResults.flatMap((child) => Array.isArray(child?.retrievalRunIds) ? child.retrievalRunIds : []),
   );
@@ -421,10 +425,12 @@ export async function evaluateDomainAwarePmDelivery(delivery, scenario, options 
   const checks = {
     projectionApplied: Number(delivery.projectedChildCount ?? 0) > 0,
     childDeliveryClosed: childResults.length > 0 && childResults.every((child) => child?.finalWorkflowState === "done"),
-    clarificationModeMatched: !expectsClarification
-      || childResults.some((child) => child?.clarificationMode === expectedClarificationMode),
-    clarificationRecorded: !expectsClarification
-      || childResults.some((child) => typeof child?.askMessageId === "string" && child.askMessageId.length > 0),
+    clarificationModeMatched: expectsClarification
+      ? childResults.some((child) => child?.clarificationMode === expectedClarificationMode)
+      : childResults.every((child) => (child?.clarificationMode ?? "none") === "none"),
+    clarificationRecorded: expectsClarification
+      ? childResults.some((child) => typeof child?.askMessageId === "string" && child.askMessageId.length > 0)
+      : !unexpectedClarification,
     retrievalUsed: retrievalEvidence.retrievalRunCount > 0 && retrievalEvidence.totalHitCount > 0,
     knowledgePathCoverage:
       retrievalEvidence.expectedPathHints.length === 0
@@ -540,7 +546,6 @@ async function main() {
     });
     note(`cleanupTouched=${cleanup.touchedCount}`);
     note(`cleanupCancelled=${cleanup.cancelledCount}`);
-    note(`cleanupHidden=${cleanup.hiddenCount}`);
   }
 
   note(

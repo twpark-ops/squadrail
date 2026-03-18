@@ -308,6 +308,30 @@ test("design guide shows delivery party blocked and qa state matrix", async ({ p
   expectHealthyDiagnostics(diagnostics);
 });
 
+test("design guide shows clarification domain badges and deploy tracking", async ({ page }) => {
+  const diagnostics = attachDiagnostics(page);
+
+  await page.goto(`${baseUrl}/SMO/design-guide`, {
+    waitUntil: "networkidle",
+  });
+
+  const clarificationFixture = page.getByTestId("design-guide-clarification-card");
+  await expect(clarificationFixture).toBeVisible();
+  await expect(clarificationFixture.getByText("Environment").first()).toBeVisible();
+  await expect(clarificationFixture.getByText("2 pending items").first()).toBeVisible();
+
+  const reviewDesk = page.getByTestId("design-guide-change-review-desk");
+  await expect(reviewDesk).toBeVisible();
+  await expect(reviewDesk.getByText("Deploy tracking").first()).toBeVisible();
+  await expect(reviewDesk.getByText("Merge gate").first()).toBeVisible();
+  await expect(
+    reviewDesk.getByText("Release verification is still pending on the main deploy workflow.").first(),
+  ).toBeVisible();
+  await expect(reviewDesk.getByText("Recovery watch").first()).toBeVisible();
+
+  expectHealthyDiagnostics(diagnostics);
+});
+
 test("onboarding wizard completes blueprint to quick-request happy path", async ({
   page,
 }) => {

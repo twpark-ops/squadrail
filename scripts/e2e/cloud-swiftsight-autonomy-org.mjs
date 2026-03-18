@@ -12,6 +12,7 @@ const PROJECT_HINT = process.env.SWIFTSIGHT_AUTONOMY_PROJECT ?? "swiftsight-clou
 const AUTONOMY_BOARD_ID = process.env.SWIFTSIGHT_AUTONOMY_BOARD_ID ?? "autonomy-board";
 const AUTONOMY_BOOTSTRAP_BLUEPRINT = process.env.SWIFTSIGHT_AUTONOMY_BLUEPRINT ?? "delivery_plus_qa";
 const AUTONOMY_VARIANT = process.env.SWIFTSIGHT_AUTONOMY_VARIANT ?? "baseline";
+const AUTONOMY_CLARIFICATION_MODE = process.env.SWIFTSIGHT_AUTONOMY_CLARIFICATION_MODE ?? null;
 const AUTONOMY_MULTI_CHILD_COUNT = Math.max(2, Number(process.env.SWIFTSIGHT_AUTONOMY_MULTI_CHILD_COUNT ?? 2));
 const AUTONOMY_EXISTING_ROOT_ISSUE_ID = process.env.SWIFTSIGHT_AUTONOMY_EXISTING_ROOT_ISSUE_ID ?? null;
 const AUTONOMY_PREVIEW_JSON = process.env.SWIFTSIGHT_AUTONOMY_PREVIEW_JSON ?? null;
@@ -33,6 +34,18 @@ const VARIANT_DESCRIPTIONS = {
   multi_child_coordination: "coordination-only root with multiple projected child slices",
   reviewer_clarification_policy: "single project autonomy with reviewer-targeted clarification policy",
 };
+
+function resolveAutonomyClarificationMode(fallback = "human_board") {
+  if (!AUTONOMY_CLARIFICATION_MODE) return fallback;
+  if (
+    AUTONOMY_CLARIFICATION_MODE === "human_board"
+    || AUTONOMY_CLARIFICATION_MODE === "reviewer"
+    || AUTONOMY_CLARIFICATION_MODE === "none"
+  ) {
+    return AUTONOMY_CLARIFICATION_MODE;
+  }
+  throw new Error(`Unsupported SWIFTSIGHT_AUTONOMY_CLARIFICATION_MODE: ${AUTONOMY_CLARIFICATION_MODE}`);
+}
 
 function note(message = "") {
   process.stdout.write(`${message}\n`);
@@ -1027,6 +1040,9 @@ async function main() {
   note(`projectHint=${PROJECT_HINT}`);
   note(`variant=${AUTONOMY_VARIANT}`);
   note(`variantDescription=${VARIANT_DESCRIPTIONS[AUTONOMY_VARIANT] ?? "custom"}`);
+  if (AUTONOMY_CLARIFICATION_MODE) {
+    note(`clarificationModeOverride=${AUTONOMY_CLARIFICATION_MODE}`);
+  }
 
   const externalPreview = parseJsonEnv("SWIFTSIGHT_AUTONOMY_PREVIEW_JSON", AUTONOMY_PREVIEW_JSON);
   if (AUTONOMY_EXISTING_ROOT_ISSUE_ID) {
@@ -1178,7 +1194,9 @@ async function main() {
       companyId: company.id,
       preview,
       project,
-      clarificationMode: AUTONOMY_VARIANT === "reviewer_clarification_policy" ? "reviewer" : "human_board",
+      clarificationMode: resolveAutonomyClarificationMode(
+        AUTONOMY_VARIANT === "reviewer_clarification_policy" ? "reviewer" : "human_board",
+      ),
     });
     const childBriefs = await listProtocolBriefs(childIssue.id);
     childResults.push({

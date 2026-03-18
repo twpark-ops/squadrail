@@ -146,6 +146,96 @@ function deriveRuntimeSummaryFromSurface(surface: IssueChangeSurface | null | un
   return { workspaceUsage: usage, workspaceSource: source, workspaceState: state, workspacePath: surface.workspacePath, branchName: surface.branchName, headline, detail: null, severity };
 }
 
+type DeployTrackingStep = {
+  label: string;
+  tone: "done" | "active" | "blocked" | "idle";
+  detail: string;
+};
+
+function deployTrackingToneClass(tone: DeployTrackingStep["tone"]) {
+  switch (tone) {
+    case "done":
+      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-100";
+    case "active":
+      return "border-sky-500/20 bg-sky-500/10 text-sky-100";
+    case "blocked":
+      return "border-amber-500/20 bg-amber-500/10 text-amber-100";
+    default:
+      return "border-border bg-background/72 text-muted-foreground";
+  }
+}
+
+function deriveDeployTrackingSteps(surface: IssueChangeSurface | null | undefined): DeployTrackingStep[] {
+  const mergeCandidate = surface?.mergeCandidate;
+  const prBridge = mergeCandidate?.prBridge ?? null;
+  const gateStatus = mergeCandidate?.gateStatus ?? null;
+  const revertAssist = mergeCandidate?.revertAssist ?? null;
+
+  const reviewTone: DeployTrackingStep["tone"] =
+    prBridge?.reviewDecision || mergeCandidate?.approvalSummary || gateStatus?.closeReady
+      ? "done"
+      : prBridge?.state === "open" || prBridge?.state === "draft"
+        ? "active"
+        : "idle";
+  const gateTone: DeployTrackingStep["tone"] =
+    gateStatus?.mergeReady === true
+      ? "done"
+      : gateStatus?.mergeReady === false
+        ? "blocked"
+        : prBridge
+          ? "active"
+          : "idle";
+  const landingTone: DeployTrackingStep["tone"] =
+    mergeCandidate?.state === "merged" || Boolean(mergeCandidate?.mergeCommitSha)
+      ? "done"
+      : mergeCandidate?.state === "rejected"
+        ? "blocked"
+        : mergeCandidate
+          ? "active"
+          : "idle";
+  const recoveryTone: DeployTrackingStep["tone"] =
+    revertAssist?.status === "ready"
+      ? "done"
+      : revertAssist?.status === "watch"
+        ? "active"
+        : mergeCandidate?.state === "merged"
+          ? "blocked"
+          : "idle";
+
+  return [
+    {
+      label: "Review signoff",
+      tone: reviewTone,
+      detail: prBridge?.reviewDecision
+        ? `Review ${titleCase(prBridge.reviewDecision)}`
+        : mergeCandidate?.approvalSummary
+          ? "Approval summary recorded"
+          : "Waiting for human review evidence",
+    },
+    {
+      label: "Merge gate",
+      tone: gateTone,
+      detail: gateStatus?.mergeReady === true
+        ? "Checks and blockers cleared"
+        : gateStatus?.blockingReasons[0] ?? "Sync PR checks to evaluate merge readiness",
+    },
+    {
+      label: "Landing",
+      tone: landingTone,
+      detail: mergeCandidate?.mergeCommitSha
+        ? `Merge commit ${mergeCandidate.mergeCommitSha.slice(0, 12)}`
+        : mergeCandidate?.state === "rejected"
+          ? "Candidate was rejected and sent back"
+          : "Awaiting merge or local landing confirmation",
+    },
+    {
+      label: "Recovery watch",
+      tone: recoveryTone,
+      detail: revertAssist?.summary ?? "Rollback posture will appear here after landing",
+    },
+  ];
+}
+
 export function ChangeReviewDesk({
   companyId,
   issueId,
@@ -156,6 +246,7 @@ export function ChangeReviewDesk({
   surface,
   compact = false,
   onRefresh,
+  testId,
 }: {
   companyId: string | null;
   issueId: string;
@@ -166,6 +257,7 @@ export function ChangeReviewDesk({
   surface: IssueChangeSurface | null | undefined;
   compact?: boolean;
   onRefresh?: () => void;
+  testId?: string;
 }) {
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
@@ -202,6 +294,10 @@ export function ChangeReviewDesk({
   );
   const runtimeSummary = useMemo(
     () => deriveRuntimeSummaryFromSurface(surface),
+    [surface]
+  );
+  const deployTrackingSteps = useMemo(
+    () => deriveDeployTrackingSteps(surface),
     [surface]
   );
   const automationSummary = useMemo(
@@ -306,7 +402,7 @@ export function ChangeReviewDesk({
 
   if (!surface) {
     return (
-      <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
+      <section data-testid={testId} className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
           <FileDiff className="h-4 w-4 text-primary" />
           Review desk
@@ -330,7 +426,7 @@ export function ChangeReviewDesk({
   const busy = resolveMutation.isPending || automationMutation.isPending || recoveryMutation.isPending;
 
   return (
-    <section className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
+    <section data-testid={testId} className="rounded-[1.55rem] border border-border bg-card px-5 py-4.5 shadow-card">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/90">
@@ -552,6 +648,46 @@ export function ChangeReviewDesk({
                 ? `Last synced ${relativeTime(prBridge.lastSyncedAt)}`
                 : "Not synced yet"}
             </div>
+          </div>
+        </div>
+      )}
+
+      {mergeCandidate && (
+        <div
+          data-testid={testId ? `${testId}-deploy-tracking` : undefined}
+          className="mt-4 rounded-[1rem] border border-border bg-background/72 px-4 py-4"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Rocket className="h-4 w-4 text-primary" />
+            <div className="text-sm font-semibold text-foreground">Deploy tracking</div>
+            <Badge variant="outline" className="rounded-full">
+              {mergeCandidate.state === "merged" ? "Merged" : "Pre-deploy"}
+            </Badge>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Track review signoff, merge readiness, landing evidence, and rollback posture from one operator panel.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {deployTrackingSteps.map((step) => (
+              <div
+                key={step.label}
+                className={`rounded-[0.9rem] border px-3 py-3 ${deployTrackingToneClass(step.tone)}`}
+              >
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em]">
+                  {step.tone === "done" ? (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  ) : step.tone === "blocked" ? (
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                  ) : step.tone === "active" ? (
+                    <Rocket className="h-3.5 w-3.5" />
+                  ) : (
+                    <GitBranch className="h-3.5 w-3.5" />
+                  )}
+                  {step.label}
+                </div>
+                <div className="mt-2 text-sm leading-5">{step.detail}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}
