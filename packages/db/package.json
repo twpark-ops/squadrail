@@ -30,6 +30,7 @@
     "typecheck": "tsc --noEmit",
     "generate": "tsc -p tsconfig.json && drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
+    "verify-fresh": "tsx src/verify-fresh.ts",
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {

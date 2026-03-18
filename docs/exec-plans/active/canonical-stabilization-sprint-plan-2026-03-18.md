@@ -58,6 +58,20 @@ mainfont: "Noto Sans"
 - **MUST**: retrieval-required 시나리오에서 실제 evidence가 기록된다.
 - **SHOULD**: UI가 해당 상태를 숨기지 않고 직접 노출한다.
 
+# 현재 진행 상태
+
+기준일: 2026-03-19
+
+- Phase 0 baseline은 구현과 focused tests 기준으로 닫혔다.
+- Batch A v1은 `IssueDetail + IssuesList + Overview current delivery`까지 shipped 상태다.
+- Phase 1은 아래 항목까지 완료됐다.
+  - `retrieval-cache.test.ts` drift 복구
+  - `dashboard-service.test.ts` health 규칙 정렬
+  - fresh DB bootstrap verifier 추가 및 실제 migration head 검증
+  - canonical company bootstrap helper를 `scripts/e2e/company-bootstrap.mjs`로 통일
+- Phase 1의 다음 검증 포인트는 helper를 사용하는 harness들을 burn-in에 재연결하고,
+  Phase 2 canonical 시나리오 invariant로 승격하는 것이다.
+
 # 선행 조건: Security Baseline
 
 안정화 스프린트는 다음 보안/하드닝 항목을 Phase 0으로 선행 처리해야 한다.
@@ -296,6 +310,13 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/active/p1-retrieval-stabilization-plan.md) 의
   선행 테스트/회귀 항목을 bootstrap phase에 연결
 - `retrieval-cache.test.ts`, `dashboard-service.test.ts`처럼 현재 known drift가 있는 테스트를 먼저 복구
+
+### Phase 1 구현 메모
+
+- `scripts/e2e/company-bootstrap.mjs`에 company/project bootstrap helper를 분리했다.
+- `cloud-swiftsight-autonomy-org.mjs`, `cloud-swiftsight-domain-aware-pm-eval.mjs`는 해당 helper를 사용한다.
+- `pnpm db:verify-fresh`는 루트 `.env`의 `DATABASE_URL`을 기본 로드하고,
+  empty DB에서도 현재 헤드 migration을 끝까지 적용할 수 있어야 한다.
 
 ## Phase 2. Scenario별 invariant 잠금
 

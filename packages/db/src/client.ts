@@ -711,14 +711,12 @@ export async function migratePostgresIfEmpty(url: string): Promise<MigrationBoot
     if (tableCount > 0) {
       return { migrated: false, reason: "not-empty-no-migration-journal", tableCount };
     }
-
-    const db = drizzlePg(sql);
-    const migrationsFolder = new URL("./migrations", import.meta.url).pathname;
-    await migratePg(db, { migrationsFolder });
+    await sql.end();
+    await applyPendingMigrations(url);
 
     return { migrated: true, reason: "migrated-empty-db", tableCount: 0 };
   } finally {
-    await sql.end();
+    await sql.end({ timeout: 0 }).catch(() => undefined);
   }
 }
 

@@ -31,8 +31,51 @@ import {
   MoveRight,
   ShieldAlert,
 } from "lucide-react";
-import type { Agent } from "@squadrail/shared";
+import type { Agent, Issue, IssueProgressPhase } from "@squadrail/shared";
 import { appRoutes } from "../lib/appRoutes";
+import { buildCurrentDeliveryIssues } from "../lib/current-delivery";
+
+const DELIVERY_PHASE_LABELS: Record<IssueProgressPhase, string> = {
+  intake: "Intake",
+  clarification: "Clarification",
+  planning: "Planning",
+  implementing: "Implementing",
+  review: "Review",
+  qa: "QA",
+  merge: "Merge",
+  blocked: "Blocked",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
+const DELIVERY_PHASE_TONE: Record<IssueProgressPhase, string> = {
+  intake: "border-border bg-background text-muted-foreground",
+  clarification:
+    "border-sky-300/70 bg-sky-500/10 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200",
+  planning: "border-border bg-background text-muted-foreground",
+  implementing: "border-border bg-background text-foreground",
+  review:
+    "border-amber-300/70 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200",
+  qa: "border-cyan-300/70 bg-cyan-500/10 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200",
+  merge:
+    "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
+  blocked:
+    "border-red-300/70 bg-red-500/10 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200",
+  done:
+    "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
+  cancelled: "border-border bg-background text-muted-foreground",
+};
+
+function ownerLabel(issue: Issue, agentMap: Map<string, Agent>) {
+  const snapshot = issue.progressSnapshot;
+  if (!snapshot) return "No owner";
+  if (snapshot.activeOwnerAgentId) {
+    return agentMap.get(snapshot.activeOwnerAgentId)?.name ?? "Assigned owner";
+  }
+  if (snapshot.phase === "clarification") return "Waiting on human reply";
+  if (snapshot.phase === "blocked") return "Recovery required";
+  return "No owner";
+}
 
 /**
  * Optimized Dashboard for Squadrail
@@ -90,6 +133,12 @@ export function DashboardOptimized() {
     enabled: !!selectedCompanyId,
   });
 
+  const { data: issuesWithSubtasks } = useQuery({
+    queryKey: queryKeys.issues.listWithSubtasks(selectedCompanyId!),
+    queryFn: () => issuesApi.list(selectedCompanyId!, { includeSubtasks: true }),
+    enabled: !!selectedCompanyId,
+  });
+
   // MTD by-agent costs for the budget guardrail strip top-burn section
   const mtdFrom = useMemo(() => {
     const now = new Date();
@@ -116,17 +165,22 @@ export function DashboardOptimized() {
 
   const entityNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues ?? [])
+    for (const i of issuesWithSubtasks ?? issues ?? [])
       map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
     for (const a of agents ?? []) map.set(`agent:${a.id}`, a.name);
     return map;
-  }, [issues, agents]);
+  }, [issuesWithSubtasks, issues, agents]);
 
   const entityTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues ?? []) map.set(`issue:${i.id}`, i.title);
+    for (const i of issuesWithSubtasks ?? issues ?? []) map.set(`issue:${i.id}`, i.title);
     return map;
-  }, [issues]);
+  }, [issuesWithSubtasks, issues]);
+
+  const currentDelivery = useMemo(
+    () => buildCurrentDeliveryIssues(issuesWithSubtasks ?? []),
+    [issuesWithSubtasks],
+  );
 
   if (!selectedCompanyId) {
     if (companies.length === 0) {
@@ -295,6 +349,82 @@ export function DashboardOptimized() {
               </Link>
             ))}
           </section>
+
+          {currentDelivery.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight">
+                    Current delivery
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Parent issues first. This is the fastest read on where each
+                    request sits, who owns it, and which delivery flow needs
+                    attention now.
+                  </p>
+                </div>
+                <Link
+                  to={appRoutes.work}
+                  className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
+                >
+                  Open work board
+                </Link>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-3">
+                {currentDelivery.map((issue) => {
+                  const snapshot = issue.progressSnapshot;
+                  if (!snapshot) return null;
+                  const subtaskSummary = snapshot.subtaskSummary;
+                  return (
+                    <Link
+                      key={issue.id}
+                      to={`${appRoutes.work}/${issue.identifier ?? issue.id}`}
+                      className="rounded-[1.25rem] border border-border bg-card px-4 py-4 no-underline shadow-card transition-colors hover:border-primary/18 hover:bg-accent/24"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${DELIVERY_PHASE_TONE[snapshot.phase]}`}
+                        >
+                          {DELIVERY_PHASE_LABELS[snapshot.phase]}
+                        </span>
+                        <span className="text-[11px] font-medium text-muted-foreground">
+                          {issue.identifier ?? issue.id.slice(0, 8)}
+                        </span>
+                      </div>
+                      <div className="mt-3">
+                        <div className="line-clamp-1 text-sm font-semibold text-foreground">
+                          {issue.title}
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                          {snapshot.headline}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full border border-border bg-background px-2 py-1">
+                          {ownerLabel(issue, agentMap)}
+                        </span>
+                        {subtaskSummary.total > 0 && (
+                          <span className="rounded-full border border-border bg-background px-2 py-1">
+                            {subtaskSummary.done}/{subtaskSummary.total} subtasks done
+                          </span>
+                        )}
+                        {snapshot.pendingClarificationCount > 0 && (
+                          <span className="rounded-full border border-sky-300/70 bg-sky-500/10 px-2 py-1 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200">
+                            {snapshot.pendingClarificationCount} clarification
+                          </span>
+                        )}
+                        {subtaskSummary.blocked > 0 && (
+                          <span className="rounded-full border border-red-300/70 bg-red-500/10 px-2 py-1 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200">
+                            {subtaskSummary.blocked} blocked
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           {budgetGuardrail && (
             <BudgetGuardrailStrip status={budgetGuardrail} topAgents={mtdByAgent} />

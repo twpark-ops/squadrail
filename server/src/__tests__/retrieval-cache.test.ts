@@ -133,6 +133,33 @@ describe("retrieval cache normalization", () => {
     expect(firstIdentity).toEqual(secondIdentity);
   });
 
+  it("tolerates legacy signal payloads without lexical terms", () => {
+    const stageKey = buildRetrievalStageCacheKey({
+      ...baseInput,
+      queryText: "Review SafeJoin nested path preservation.",
+      dynamicSignals: {
+        ...baseInput.dynamicSignals,
+        lexicalTerms: undefined as unknown as string[],
+      },
+    });
+    const identity = buildRetrievalCacheIdentity({
+      ...baseInput,
+      queryText: "Review SafeJoin nested path preservation.",
+      baselineSignals: {
+        ...baseInput.baselineSignals,
+        lexicalTerms: undefined as unknown as string[],
+      },
+    });
+
+    expect(stageKey).toHaveLength(64);
+    expect(identity).toMatchObject({
+      queryFingerprint: expect.any(String),
+      policyFingerprint: expect.any(String),
+      feedbackFingerprint: "profile-1",
+      revisionSignature: "rev-1",
+    });
+  });
+
   it("changes cache identity and stage keys when related issue reuse scope changes", () => {
     const firstStageKey = buildRetrievalStageCacheKey({
       ...baseInput,

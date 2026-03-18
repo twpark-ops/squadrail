@@ -433,9 +433,9 @@ describe("dashboard service", () => {
 
     expect(view.summary).toEqual({
       totalAgents: 2,
-      healthyAgents: 0,
+      healthyAgents: 1,
       warningAgents: 0,
-      riskAgents: 2,
+      riskAgents: 1,
       priorityPreemptions7d: 3,
     });
     expect(view.items[0]).toMatchObject({
@@ -453,6 +453,11 @@ describe("dashboard service", () => {
       averageRunDurationMs7d: 240000,
       priorityPreemptions7d: 3,
       health: "risk",
+    });
+    expect(view.items[1]).toMatchObject({
+      agentId: "agent-2",
+      totalRuns7d: 0,
+      health: "healthy",
     });
   });
 

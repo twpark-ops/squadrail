@@ -5,6 +5,12 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  ensureCompanyContext,
+  listProjects,
+  resolveCompanyByName,
+  resolveProjects,
+} from "./company-bootstrap.mjs";
 
 const BASE_URL = process.env.SQUADRAIL_BASE_URL ?? "http://127.0.0.1:3101";
 const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
@@ -132,122 +138,6 @@ async function api(pathname, options = {}) {
   return body;
 }
 
-async function resolveCompanyByName(name) {
-  const companies = await api("/api/companies");
-  const normalized = name.trim().toLowerCase();
-  const match = companies.find((company) => {
-    const companyName = typeof company.name === "string" ? company.name.toLowerCase() : "";
-    const slug = typeof company.slug === "string" ? company.slug.toLowerCase() : "";
-    return companyName === normalized || slug === normalized;
-  });
-  assert(match, `Company not found for ${name}`);
-  return match;
-}
-
-async function createCompany(name) {
-  return api("/api/companies", {
-    method: "POST",
-    body: {
-      name,
-      description: "Autonomy burn-in bootstrap company",
-    },
-  });
-}
-
-async function listProjects(companyId) {
-  return api(`/api/companies/${companyId}/projects`);
-}
-
-async function previewTeamBlueprint(companyId, blueprintKey, body) {
-  return api(`/api/companies/${companyId}/team-blueprints/${blueprintKey}/preview`, {
-    method: "POST",
-    body,
-  });
-}
-
-async function applyTeamBlueprint(companyId, blueprintKey, preview) {
-  return api(`/api/companies/${companyId}/team-blueprints/${blueprintKey}/apply`, {
-    method: "POST",
-    body: {
-      previewHash: preview.previewHash,
-      ...preview.parameters,
-    },
-  });
-}
-
-async function ensureCompanyContext(name, options = {}) {
-  const requiredProjectCount = options.requiredProjectCount ?? 1;
-  const companies = await api("/api/companies");
-  const normalized = name.trim().toLowerCase();
-  const existing = companies.find((company) => {
-    const companyName = typeof company.name === "string" ? company.name.toLowerCase() : "";
-    const slug = typeof company.slug === "string" ? company.slug.toLowerCase() : "";
-    return companyName === normalized || slug === normalized;
-  });
-  if (existing) {
-    const existingProjects = await listProjects(existing.id);
-    if (existingProjects.length < requiredProjectCount) {
-      note(`company ${name} has ${existingProjects.length} project(s); expanding to ${requiredProjectCount}`);
-      const preview = await previewTeamBlueprint(existing.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, {
-        projectCount: requiredProjectCount,
-      });
-      await applyTeamBlueprint(existing.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, preview);
-      const expandedProjects = await listProjects(existing.id);
-      const primaryProject = expandedProjects[0] ?? null;
-      return {
-        company: existing,
-        bootstrapped: false,
-        expanded: true,
-        bootstrapProjectId: primaryProject?.id ?? null,
-        bootstrapProjectName: primaryProject?.name ?? null,
-      };
-    }
-    return {
-      company: existing,
-      bootstrapped: false,
-      expanded: false,
-      bootstrapProjectId: null,
-      bootstrapProjectName: null,
-    };
-  }
-
-  note(`company ${name} not found; bootstrapping ${AUTONOMY_BOOTSTRAP_BLUEPRINT}`);
-  const company = await createCompany(name);
-  const preview = await previewTeamBlueprint(company.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, {
-    projectCount: requiredProjectCount,
-  });
-  const applied = await applyTeamBlueprint(company.id, AUTONOMY_BOOTSTRAP_BLUEPRINT, preview);
-  const bootstrapProject = applied.projectResults[0] ?? null;
-  return {
-    company,
-    bootstrapped: true,
-    expanded: false,
-    bootstrapProjectId: bootstrapProject?.projectId ?? null,
-    bootstrapProjectName: bootstrapProject?.projectName ?? null,
-  };
-}
-
-async function resolveProject(companyId, hint, fallbackProjectId = null) {
-  const projects = await listProjects(companyId);
-  if (fallbackProjectId) {
-    const explicit = projects.find((project) => project.id === fallbackProjectId);
-    if (explicit) return explicit;
-  }
-  const normalized = hint.trim().toLowerCase();
-  const match = projects.find((project) => {
-    const name = typeof project.name === "string" ? project.name.toLowerCase() : "";
-    const urlKey = typeof project.urlKey === "string" ? project.urlKey.toLowerCase() : "";
-    return name === normalized || urlKey === normalized || project.id === hint;
-  });
-  if (!match && projects.length === 1) {
-    const [fallback] = projects;
-    note(`project hint ${hint} not found; falling back to only project ${fallback.name}`);
-    return fallback;
-  }
-  assert(match, `Project not found for ${hint}`);
-  return match;
-}
-
 async function resolveVariantFallbackProjectId(companyId, variant) {
   const preferredProjectKeysByVariant = {
     baseline: ["app-surface"],
@@ -256,7 +146,7 @@ async function resolveVariantFallbackProjectId(companyId, variant) {
   };
   const preferredKeys = preferredProjectKeysByVariant[variant] ?? [];
   if (preferredKeys.length === 0) return null;
-  const projects = await listProjects(companyId);
+  const projects = await listProjects({ api, companyId });
   const preferred = projects.find((project) => {
     const name = typeof project.name === "string" ? project.name.toLowerCase().replace(/\s+/g, "-") : "";
     const urlKey = typeof project.urlKey === "string" ? project.urlKey.toLowerCase() : "";
@@ -265,32 +155,6 @@ async function resolveVariantFallbackProjectId(companyId, variant) {
   if (!preferred) return null;
   note(`variant ${variant} using explicit fallback project ${preferred.name}`);
   return preferred.id;
-}
-
-async function resolveProjects(companyId, hint, fallbackProjectId = null, requiredCount = 1) {
-  const projects = await listProjects(companyId);
-  const selected = [];
-  if (requiredCount <= 1) {
-    return [await resolveProject(companyId, hint, fallbackProjectId)];
-  }
-
-  const primary = await resolveProject(companyId, hint, fallbackProjectId);
-  selected.push(primary);
-
-  const remaining = projects
-    .filter((project) => project.id !== primary.id)
-    .sort((left, right) => left.name.localeCompare(right.name));
-
-  for (const project of remaining) {
-    if (selected.length >= requiredCount) break;
-    selected.push(project);
-  }
-
-  assert(
-    selected.length >= requiredCount,
-    `Expected at least ${requiredCount} projects for autonomy variant ${AUTONOMY_VARIANT}; found ${selected.length}.`,
-  );
-  return selected.slice(0, requiredCount);
 }
 
 async function createPmIntakeIssue(companyId, projectId = null, request = DEFAULT_REQUEST) {
@@ -1055,31 +919,45 @@ async function main() {
     : 1;
   const context = AUTONOMY_EXISTING_ROOT_ISSUE_ID
     ? {
-        company: await resolveCompanyByName(COMPANY_NAME),
+        company: await resolveCompanyByName({
+          api,
+          name: COMPANY_NAME,
+        }),
         bootstrapped: false,
         expanded: false,
         bootstrapProjectId: null,
         bootstrapProjectName: null,
       }
-    : await ensureCompanyContext(COMPANY_NAME, {
+    : await ensureCompanyContext({
+        api,
+        note,
+        name: COMPANY_NAME,
+        blueprintKey: AUTONOMY_BOOTSTRAP_BLUEPRINT,
         requiredProjectCount,
+        description: "Autonomy burn-in bootstrap company",
       });
   const company = context.company;
   const variantFallbackProjectId = context.bootstrapProjectId
     ?? await resolveVariantFallbackProjectId(company.id, AUTONOMY_VARIANT);
   const projects = AUTONOMY_EXISTING_ROOT_ISSUE_ID
-    ? await resolveProjects(
-        company.id,
-        externalPreview?.selectedProjectId ?? externalPreview?.draft?.root?.projectId ?? PROJECT_HINT,
-        variantFallbackProjectId,
-        1,
-      )
-    : await resolveProjects(
-        company.id,
-        PROJECT_HINT,
-        variantFallbackProjectId,
-        requiredProjectCount,
-      );
+    ? await resolveProjects({
+        api,
+        note,
+        companyId: company.id,
+        hint: externalPreview?.selectedProjectId ?? externalPreview?.draft?.root?.projectId ?? PROJECT_HINT,
+        fallbackProjectId: variantFallbackProjectId,
+        requiredCount: 1,
+        variantLabel: AUTONOMY_VARIANT,
+      })
+    : await resolveProjects({
+        api,
+        note,
+        companyId: company.id,
+        hint: PROJECT_HINT,
+        fallbackProjectId: variantFallbackProjectId,
+        requiredCount,
+        variantLabel: AUTONOMY_VARIANT,
+      });
   const project = projects[0];
   if (!AUTONOMY_EXISTING_ROOT_ISSUE_ID) {
     if (context.bootstrapped) {

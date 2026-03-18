@@ -49,6 +49,12 @@ function normalizeBoostFingerprintMap(input: Record<string, number>) {
   );
 }
 
+function stableSortedStringList(input: Iterable<string> | null | undefined) {
+  return [...(input ?? [])]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .sort();
+}
+
 export interface RetrievalCacheIdentity {
   queryFingerprint: string;
   policyFingerprint: string;
@@ -58,12 +64,12 @@ export interface RetrievalCacheIdentity {
 
 function toStableCacheSignals(input: RetrievalSignals) {
   return {
-    exactPaths: [...input.exactPaths].sort(),
-    fileNames: [...input.fileNames].sort(),
-    lexicalTerms: [...input.lexicalTerms].sort(),
-    preferredSourceTypes: [...input.preferredSourceTypes].sort(),
-    projectAffinityIds: [...input.projectAffinityIds].sort(),
-    relatedIssueIds: [...(input.relatedIssueIds ?? [])].sort(),
+    exactPaths: stableSortedStringList(input.exactPaths),
+    fileNames: stableSortedStringList(input.fileNames),
+    lexicalTerms: stableSortedStringList(input.lexicalTerms),
+    preferredSourceTypes: stableSortedStringList(input.preferredSourceTypes),
+    projectAffinityIds: stableSortedStringList(input.projectAffinityIds),
+    relatedIssueIds: stableSortedStringList(input.relatedIssueIds),
     blockerCode: input.blockerCode,
     questionType: input.questionType,
   };
@@ -103,18 +109,18 @@ export function buildRetrievalStageCacheKey(input: {
     role: input.role,
     eventType: input.eventType,
     workflowState: input.workflowState,
-    allowedSourceTypes: [...input.allowedSourceTypes].sort(),
-    allowedAuthorityLevels: [...input.allowedAuthorityLevels].sort(),
+    allowedSourceTypes: stableSortedStringList(input.allowedSourceTypes),
+    allowedAuthorityLevels: stableSortedStringList(input.allowedAuthorityLevels),
     rerankConfig: input.rerankConfig,
     dynamicSignals: {
-      exactPaths: [...input.dynamicSignals.exactPaths].sort(),
-      fileNames: [...input.dynamicSignals.fileNames].sort(),
-      lexicalTerms: [...input.dynamicSignals.lexicalTerms].sort(),
-      symbolHints: [...input.dynamicSignals.symbolHints].sort(),
-      knowledgeTags: [...input.dynamicSignals.knowledgeTags].sort(),
-      preferredSourceTypes: [...input.dynamicSignals.preferredSourceTypes].sort(),
-      projectAffinityIds: [...input.dynamicSignals.projectAffinityIds].sort(),
-      relatedIssueIds: [...(input.dynamicSignals.relatedIssueIds ?? [])].sort(),
+      exactPaths: stableSortedStringList(input.dynamicSignals.exactPaths),
+      fileNames: stableSortedStringList(input.dynamicSignals.fileNames),
+      lexicalTerms: stableSortedStringList(input.dynamicSignals.lexicalTerms),
+      symbolHints: stableSortedStringList(input.dynamicSignals.symbolHints),
+      knowledgeTags: stableSortedStringList(input.dynamicSignals.knowledgeTags),
+      preferredSourceTypes: stableSortedStringList(input.dynamicSignals.preferredSourceTypes),
+      projectAffinityIds: stableSortedStringList(input.dynamicSignals.projectAffinityIds),
+      relatedIssueIds: stableSortedStringList(input.dynamicSignals.relatedIssueIds),
       blockerCode: input.dynamicSignals.blockerCode,
       questionType: input.dynamicSignals.questionType,
     },
@@ -172,8 +178,8 @@ export function buildRetrievalCacheIdentity(input: {
     temporalContext: toStableTemporalContext(input.temporalContext),
   }));
   const policyFingerprint = sha256(stableJson({
-    allowedSourceTypes: [...input.allowedSourceTypes].sort(),
-    allowedAuthorityLevels: [...input.allowedAuthorityLevels].sort(),
+    allowedSourceTypes: stableSortedStringList(input.allowedSourceTypes),
+    allowedAuthorityLevels: stableSortedStringList(input.allowedAuthorityLevels),
     rerankConfig: input.rerankConfig,
   }));
   return {

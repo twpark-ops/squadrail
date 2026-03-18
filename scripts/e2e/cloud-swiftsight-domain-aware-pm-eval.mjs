@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { extractJsonTail } from "./rag-readiness-utils.mjs";
+import { ensureCompanyContext } from "./company-bootstrap.mjs";
 import {
   evaluateDomainAwarePmPreview,
   listDomainAwarePmScenarioKeys,
@@ -18,6 +19,7 @@ const BASE_URL = process.env.SQUADRAIL_BASE_URL ?? "http://127.0.0.1:3101";
 const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
 const SCENARIO_KEY = process.env.SWIFTSIGHT_PM_EVAL_SCENARIO ?? "pacs_delivery_audit_evidence";
 const PRIORITY = process.env.SWIFTSIGHT_PM_EVAL_PRIORITY ?? "high";
+const PM_EVAL_BOOTSTRAP_BLUEPRINT = process.env.SWIFTSIGHT_PM_EVAL_BOOTSTRAP_BLUEPRINT ?? "delivery_plus_qa";
 const EXECUTE_DELIVERY = process.env.SWIFTSIGHT_PM_EVAL_EXECUTE !== "0";
 const CLEANUP_AFTER_RUN = process.env.SWIFTSIGHT_PM_EVAL_CLEANUP === "1";
 const CLEANUP_ACTOR_ID = process.env.SWIFTSIGHT_PM_EVAL_CLEANUP_ACTOR_ID ?? "summary-proof-cleanup";
@@ -152,18 +154,6 @@ async function cleanupEvaluationIssues(input) {
     cancelledCount: touched.filter((entry) => entry.cancelled).length,
     touched,
   };
-}
-
-async function resolveCompanyByName(name) {
-  const companies = await api("/api/companies");
-  const normalized = name.trim().toLowerCase();
-  const match = companies.find((company) => {
-    const companyName = typeof company.name === "string" ? company.name.toLowerCase() : "";
-    const slug = typeof company.slug === "string" ? company.slug.toLowerCase() : "";
-    return companyName === normalized || slug === normalized;
-  });
-  assert(match, `Company not found for ${name}`);
-  return match;
 }
 
 function canSupportPmProjection(agent) {
@@ -474,9 +464,19 @@ async function main() {
   note(`supported=${listDomainAwarePmScenarioKeys().join(", ")}`);
 
   section("Resolve Company");
-  const company = await resolveCompanyByName(COMPANY_NAME);
+  const companyContext = await ensureCompanyContext({
+    api,
+    note,
+    name: COMPANY_NAME,
+    blueprintKey: PM_EVAL_BOOTSTRAP_BLUEPRINT,
+    requiredProjectCount: 1,
+    description: "Domain-aware PM evaluation bootstrap company",
+  });
+  const company = companyContext.company;
   note(`companyId=${company.id}`);
   note(`companyName=${company.name}`);
+  note(`bootstrapped=${companyContext.bootstrapped}`);
+  note(`expanded=${companyContext.expanded}`);
 
   section("Projection Agent Readiness");
   const resumedAgents = await ensurePmProjectionAgentsReady(company.id);
