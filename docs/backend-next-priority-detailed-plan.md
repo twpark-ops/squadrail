@@ -2,7 +2,7 @@
 
 작성일: 2026-03-12
 기준 커밋: `163a444` `feat(retrieval): consolidate cache provenance trends`
-작성자: Taewoong Park <park.taewoong@airsmed.com>
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 
 > 업데이트 2026-03-13:
 > 이 문서는 원래 retrieval follow-up 중심 계획이었지만, 현재 즉시 시작 기준은 아래 상태가 우선이다.

@@ -1,7 +1,7 @@
 # Phase 1 Team Supervisor MVP
 
 작성일: 2026-03-09  
-작성자: Taewoong Park <park.taewoong@airsmed.com>
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 
 ## 결론
 

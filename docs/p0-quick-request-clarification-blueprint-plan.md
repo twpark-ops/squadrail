@@ -1,7 +1,7 @@
 # P0 Quick Request, Clarification, and Team Blueprint Plan
 
 작성일: 2026-03-13  
-작성자: Taewoong Park <park.taewoong@airsmed.com>
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 
 ## 1. 목표
 

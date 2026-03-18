@@ -102,7 +102,7 @@ quality summary에 추가:
 - `embeddingCacheHitRate`
 - `candidateCacheHitRate`
 
-import 결과에 추가:
+`import` 결과에 추가:
 
 - `importMode`
 - `changedPathCount`

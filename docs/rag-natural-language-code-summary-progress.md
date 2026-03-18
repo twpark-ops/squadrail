@@ -1,6 +1,6 @@
 # Natural-Language Code Summary Progress Tracker
 
-작성자: Taewoong Park <park.taewoong@airsmed.com>  
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 작성일: 2026-03-15
 
 기준 문서:

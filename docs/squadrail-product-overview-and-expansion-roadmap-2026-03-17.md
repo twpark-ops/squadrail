@@ -1,6 +1,6 @@
 ---
 title: "Squadrail Product Overview And Expansion Roadmap"
-author: "Taewoong Park <park.taewoong@airsmed.com>"
+author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-17"
 ---
 
@@ -698,7 +698,7 @@ squadrail blueprint bulk-apply <key> --all            # 전체 회사 적용
 | 레이어 | 변경 | 파일 |
 |--------|------|------|
 | Scorecard 탭 | Team 페이지에 **Scorecard** 탭 추가 (Supervision \| Roster \| Scorecard \| Coverage). | `ui/src/pages/Team.tsx` |
-| 팀 집계 | Throughput(7d) — successfulRuns/totalRuns. Avg success rate (색상: ≥80% green, ≥60% amber, <60% red). Avg run duration. Open load. | `ui/src/pages/Team.tsx` |
+| 팀 집계 | Throughput(7d) — successfulRuns/totalRuns. Avg success rate (색상: ≥80% green, ≥60% amber, under 60% red). Avg run duration. Open load. | `ui/src/pages/Team.tsx` |
 | 품질 시그널 | Review bounces(30d), QA bounces(30d), Priority preemptions(7d). 임계값 초과 시 amber/red 표시. | `ui/src/pages/Team.tsx` |
 | Per-agent 카드 | 기존 `AgentPerformanceCard`를 Scorecard 탭으로 이동. | `ui/src/pages/Team.tsx` |
 | Summary bar | 컴팩트 pill 바에 healthy/warning/risk 뱃지 추가 (performanceSummary 기반). | `ui/src/pages/Team.tsx` |

@@ -1,6 +1,6 @@
 ---
 title: "UI Squad Stage Test Scenarios 2026"
-author: "Taewoong Park <park.taewoong@airsmed.com>"
+author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-15"
 ---
 

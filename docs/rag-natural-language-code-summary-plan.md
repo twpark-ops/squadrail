@@ -358,14 +358,14 @@ This keeps ownership of product logic inside Squadrail while reusing parser and 
 ## External References
 
 - GitHub Copilot codebase exploration:
-  - <https://docs.github.com/en/copilot/tutorials/explore-a-codebase>
+  - [docs.github.com/en/copilot/tutorials/explore-a-codebase](https://docs.github.com/en/copilot/tutorials/explore-a-codebase)
 - Sourcegraph Cody context:
-  - <https://sourcegraph.com/docs/cody/core-concepts/context>
+  - [sourcegraph.com/docs/cody/core-concepts/context](https://sourcegraph.com/docs/cody/core-concepts/context)
 - GitLab semantic code search:
-  - <https://docs.gitlab.com/user/gitlab_duo/semantic_code_search/>
+  - [docs.gitlab.com/user/gitlab_duo/semantic_code_search/](https://docs.gitlab.com/user/gitlab_duo/semantic_code_search/)
 - Continue embeddings:
-  - <https://docs.continue.dev/advanced/model-roles/embeddings>
+  - [docs.continue.dev/advanced/model-roles/embeddings](https://docs.continue.dev/advanced/model-roles/embeddings)
 - Continue custom code RAG:
-  - <https://www.docs.continue.dev/guides/custom-code-rag>
+  - [docs.continue.dev/guides/custom-code-rag](https://www.docs.continue.dev/guides/custom-code-rag)
 - RepoCoder paper:
-  - <https://aclanthology.org/2023.emnlp-main.151.pdf>
+  - [aclanthology.org/2023.emnlp-main.151.pdf](https://aclanthology.org/2023.emnlp-main.151.pdf)

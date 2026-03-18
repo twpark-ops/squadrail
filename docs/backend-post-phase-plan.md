@@ -14,7 +14,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 ## 참고 기준
 
-- 현재 완료 상태: [phase-roadmap.md](/home/taewoong/company-project/squadall/docs/phase-roadmap.md)
+- 현재 완료 상태: [phase-roadmap.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/phase-roadmap.md)
 - 후속 제품 backlog: [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/post-phase-backlog.md)
 - 실행 우선순위 재정렬: [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)
 - burn-in 실행계획: [18-agent-real-org-burn-in-plan.md](/home/taewoong/company-project/squadall/docs/18-agent-real-org-burn-in-plan.md)

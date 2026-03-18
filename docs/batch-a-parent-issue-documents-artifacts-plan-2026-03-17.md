@@ -1,6 +1,6 @@
 ---
 title: "Batch A Parent Issue Progress, Documents, And Deliverables Plan"
-author: "Taewoong Park <park.taewoong@airsmed.com>"
+author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-17"
 ---
 

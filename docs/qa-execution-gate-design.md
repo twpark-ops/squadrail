@@ -1,7 +1,7 @@
 # QA Execution Gate Design
 
 작성일: 2026-03-16  
-작성자: Taewoong Park <park.taewoong@airsmed.com>
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 
 ## 1. 목표
 

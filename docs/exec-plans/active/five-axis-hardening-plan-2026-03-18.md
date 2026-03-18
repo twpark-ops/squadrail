@@ -1,6 +1,6 @@
 ---
 title: "Five-Axis Hardening Plan"
-author: "Taewoong Park <park.taewoong@airsmed.com>"
+author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-18"
 lang: "en"
 mainfont: "Noto Sans"

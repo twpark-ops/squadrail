@@ -322,7 +322,7 @@ Suggested slice:
 
 Team supervision / intake:
 
-- [phase1-team-supervisor-mvp.md](/home/taewoong/company-project/squadall/docs/phase1-team-supervisor-mvp.md)
+- [phase1-team-supervisor-mvp.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/phase1-team-supervisor-mvp.md)
 - [agent-team-mode-plan.md](/home/taewoong/company-project/squadall/docs/agent-team-mode-plan.md)
 - [p0b-human-pm-intake-layer.md](/home/taewoong/company-project/squadall/docs/p0b-human-pm-intake-layer.md)
 - [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)

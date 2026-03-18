@@ -1,6 +1,6 @@
 # Current State Review (2026-03-13)
 
-작성자: Taewoong Park <park.taewoong@airsmed.com>
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 
 ## Scope
 

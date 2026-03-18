@@ -1,6 +1,6 @@
 ---
 title: "Phase 0 Security Baseline Design"
-author: "Taewoong Park <park.taewoong@airsmed.com>"
+author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-18"
 lang: "ko"
 CJKmainfont: "Noto Sans CJK KR"

@@ -6,14 +6,14 @@
 
 - `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `full-delivery-e2e-plan.md`
-- `full-org-loop-e2e-plan.md`
+- `exec-plans/completed/full-org-loop-e2e-plan.md`
 - `autonomous-org-full-loop-plan.md`
 
 ## Retrieval / Runtime Stability
 
 - `exec-plans/active/p1-retrieval-stabilization-plan.md`
 - `exec-plans/active/five-axis-hardening-plan-2026-03-18.md`
-- `phase3-real-repo-execution-hardening.md`
+- `exec-plans/completed/phase3-real-repo-execution-hardening.md`
 
 ## Runbooks
 

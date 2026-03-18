@@ -1,6 +1,6 @@
 # Natural-Language Code Summary Execution Plan
 
-작성자: Taewoong Park <park.taewoong@airsmed.com>  
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 작성일: 2026-03-15
 
 ## 목적
@@ -200,7 +200,7 @@ DB 직접 조작이나 service direct call은 금지한다.
    - `requiredKnowledgeTags`
    - `pmProjectSelection.ownerTags / supportTags / avoidTags`
 3. chunk link reason contract 추가
-   - raw code <-> summary 연결
+   - raw code ↔ summary 연결
 4. retrieval allowed source type / policy 메타에 summary source 반영
 
 테스트:

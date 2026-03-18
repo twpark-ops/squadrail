@@ -1,7 +1,7 @@
 # Organizational Memory RAG Plan
 
 작성일: 2026-03-11  
-작성자: Taewoong Park <park.taewoong@airsmed.com>
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 
 ## 목표
 

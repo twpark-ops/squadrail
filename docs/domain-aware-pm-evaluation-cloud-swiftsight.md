@@ -1,6 +1,6 @@
 # Domain-Aware PM 평가 시나리오: Cloud SwiftSight Fixture
 
-작성자: Taewoong Park <park.taewoong@airsmed.com>
+작성자: Taewoong Park (park.taewoong@airsmed.com)
 작성일: 2026-03-15
 
 ## 목적
