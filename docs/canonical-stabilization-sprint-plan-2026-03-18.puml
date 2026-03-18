@@ -1,0 +1,74 @@
+@startuml
+title Canonical Stabilization Sprint
+
+skinparam backgroundColor white
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "Sprint Goal" {
+  rectangle "Fresh DB" as FreshDb
+  rectangle "Canonical E2E x5" as CanonicalE2E
+  rectangle "3 Consecutive Green Runs" as Green3
+}
+
+package "Scenario Set" {
+  rectangle "1. Onboarding -> Quick Request -> Routing -> Review -> Close" as S1
+  rectangle "2. Clarification Loop" as S2
+  rectangle "3. Changes Requested Recovery" as S3
+  rectangle "4. QA Gate" as S4
+  rectangle "5. Merge / Deploy Follow-up" as S5
+}
+
+package "Invariant Axes" {
+  rectangle "State Transition" as StateAxis
+  rectangle "Ownership / Session" as OwnerAxis
+  rectangle "Retrieval / Routing" as RagAxis
+  rectangle "UI / Observability" as UiAxis
+}
+
+package "Execution Plan" {
+  rectangle "Phase 1\nFresh DB Bootstrap" as P1
+  rectangle "Phase 2\nScenario Invariant Lock" as P2
+  rectangle "Phase 3\nUI Surface Alignment" as P3
+  rectangle "Phase 4\nRepeat Validation" as P4
+}
+
+FreshDb --> CanonicalE2E
+CanonicalE2E --> Green3
+
+CanonicalE2E --> S1
+CanonicalE2E --> S2
+CanonicalE2E --> S3
+CanonicalE2E --> S4
+CanonicalE2E --> S5
+
+S1 --> StateAxis
+S1 --> OwnerAxis
+S1 --> RagAxis
+S1 --> UiAxis
+
+S2 --> StateAxis
+S2 --> OwnerAxis
+S2 --> UiAxis
+
+S3 --> StateAxis
+S3 --> OwnerAxis
+S3 --> UiAxis
+
+S4 --> StateAxis
+S4 --> OwnerAxis
+S4 --> UiAxis
+
+S5 --> StateAxis
+S5 --> OwnerAxis
+S5 --> UiAxis
+
+P1 --> P2
+P2 --> P3
+P3 --> P4
+
+P2 --> CanonicalE2E
+P3 --> CanonicalE2E
+P4 --> Green3
+
+@enduml

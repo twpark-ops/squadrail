@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertBypassOnlyOnLocalhost } from "./full-delivery-guards.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -724,6 +725,7 @@ async function main() {
   runtimePort = await resolveAvailablePort(HOST, PREFERRED_PORT);
   runtimeBaseUrl = `http://${HOST}:${runtimePort}`;
   note(`Base URL: ${runtimeBaseUrl}`);
+  assertBypassOnlyOnLocalhost(runtimeBaseUrl);
 
   const codexPath = await probeCodexBinary();
   note(`Codex binary: ${codexPath}`);

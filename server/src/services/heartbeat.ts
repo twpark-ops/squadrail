@@ -400,7 +400,9 @@ export function shouldResetTaskSessionForWake(
     wakeReason === "issue_reassigned" ||
     wakeReason === "issue_watch_assigned" ||
     wakeReason === "issue_watch_reassigned" ||
-    wakeReason === "protocol_required_retry"
+    wakeReason === "protocol_required_retry" ||
+    wakeReason === "issue_ready_for_closure" ||
+    wakeReason === "issue_ready_for_qa_gate"
   ) return true;
 
   if (
@@ -425,7 +427,9 @@ export function describeSessionResetReason(
     wakeReason === "issue_reassigned" ||
     wakeReason === "issue_watch_assigned" ||
     wakeReason === "issue_watch_reassigned" ||
-    wakeReason === "protocol_required_retry"
+    wakeReason === "protocol_required_retry" ||
+    wakeReason === "issue_ready_for_closure" ||
+    wakeReason === "issue_ready_for_qa_gate"
   ) {
     return `wake reason is ${wakeReason}`;
   }

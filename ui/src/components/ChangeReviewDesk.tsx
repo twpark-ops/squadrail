@@ -217,7 +217,7 @@ function deriveDeployTrackingSteps(surface: IssueChangeSurface | null | undefine
       tone: gateTone,
       detail: gateStatus?.mergeReady === true
         ? "Checks and blockers cleared"
-        : gateStatus?.blockingReasons[0] ?? "Sync PR checks to evaluate merge readiness",
+        : gateStatus?.blockingReasons?.[0] ?? "Sync PR checks to evaluate merge readiness",
     },
     {
       label: "Landing",

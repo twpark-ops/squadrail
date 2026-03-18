@@ -194,6 +194,12 @@ describe("heartbeat internal helpers", () => {
       wakeReason: "issue_assigned",
     })).toBe("wake reason is issue_assigned");
     expect(shouldResetTaskSessionForWake({
+      wakeReason: "issue_ready_for_closure",
+    })).toBe(true);
+    expect(describeSessionResetReason({
+      wakeReason: "issue_ready_for_closure",
+    })).toBe("wake reason is issue_ready_for_closure");
+    expect(shouldResetTaskSessionForWake({
       wakeSource: "on_demand",
       wakeTriggerDetail: "manual",
     })).toBe(true);

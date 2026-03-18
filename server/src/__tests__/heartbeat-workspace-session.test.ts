@@ -239,6 +239,11 @@ describe("shouldResetTaskSessionForWake", () => {
     expect(shouldResetTaskSessionForWake({ wakeReason: "issue_watch_reassigned" })).toBe(true);
   });
 
+  it("resets session context on protocol stage follow-up wakes", () => {
+    expect(shouldResetTaskSessionForWake({ wakeReason: "issue_ready_for_closure" })).toBe(true);
+    expect(shouldResetTaskSessionForWake({ wakeReason: "issue_ready_for_qa_gate" })).toBe(true);
+  });
+
   it("resets session context on timer heartbeats", () => {
     expect(shouldResetTaskSessionForWake({ wakeSource: "timer" })).toBe(true);
   });
