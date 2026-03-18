@@ -118,7 +118,7 @@ stage background를 `빈 lane`이 아니라 `실제 station`으로 만든다.
 
 ### 영향 파일
 
-- [`ui/src/pages/Team.tsx`](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/pages/Team.tsx)
+- [`ui/src/pages/Team.tsx`](/home/taewoong/company-project/squadall/ui/src/pages/Team.tsx)
 - `ui/src/components/squad-stage/SquadStageBoard.tsx`
 - `ui/src/lib/squad-stage/stage-model.ts`
 
@@ -187,9 +187,9 @@ Stage, Runs, Issue Detail이 같은 phase language를 쓰게 만든다.
 
 ### 영향 파일
 
-- [`ui/src/pages/Runs.tsx`](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/pages/Runs.tsx)
-- [`ui/src/pages/IssueDetail.tsx`](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/pages/IssueDetail.tsx)
-- [`ui/src/components/LiveRunWidget.tsx`](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/components/LiveRunWidget.tsx)
+- [`ui/src/pages/Runs.tsx`](/home/taewoong/company-project/squadall/ui/src/pages/Runs.tsx)
+- [`ui/src/pages/IssueDetail.tsx`](/home/taewoong/company-project/squadall/ui/src/pages/IssueDetail.tsx)
+- [`ui/src/components/LiveRunWidget.tsx`](/home/taewoong/company-project/squadall/ui/src/components/LiveRunWidget.tsx)
 
 ### 종료 조건
 

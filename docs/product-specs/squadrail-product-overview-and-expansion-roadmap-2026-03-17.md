@@ -20,11 +20,11 @@ date: "2026-03-17"
 
 ### Squadrail 내부 기준
 
-- [docs/start/what-is-squadrail.md](./start/what-is-squadrail.md)
-- [docs/start/core-concepts.md](./start/core-concepts.md)
-- [docs/start/quickstart.md](./start/quickstart.md)
+- [docs/start/what-is-squadrail.md](../start/what-is-squadrail.md)
+- [docs/start/core-concepts.md](../start/core-concepts.md)
+- [docs/start/quickstart.md](../start/quickstart.md)
 - [docs/p0-quick-request-clarification-blueprint-plan.md](./p0-quick-request-clarification-blueprint-plan.md)
-- [docs/ui-squad-stage-spec-2026.md](./exec-plans/completed/ui-squad-stage-spec-2026.md)
+- [docs/ui-squad-stage-spec-2026.md](../exec-plans/completed/ui-squad-stage-spec-2026.md)
 
 ### 외부 패턴 기준
 

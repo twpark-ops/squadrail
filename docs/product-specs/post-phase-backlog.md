@@ -33,9 +33,9 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 참고:
 
-- [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-visual-rebuild-spec-v1.md)
-- [ui-visual-rebuild-spec-v1.puml](/home/taewoong/company-project/squadall/docs/ui-visual-rebuild-spec-v1.puml)
-- [backend-post-phase-plan.md](/home/taewoong/company-project/squadall/docs/backend-post-phase-plan.md)
+- [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/product-specs/ui-visual-rebuild-spec-v1.md)
+- [ui-visual-rebuild-spec-v1.puml](/home/taewoong/company-project/squadall/docs/product-specs/ui-visual-rebuild-spec-v1.puml)
+- [backend-post-phase-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/backend-post-phase-plan.md)
 
 ### P0. UI Rebuild Spec
 
@@ -50,8 +50,8 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 참고:
 
-- [ui-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-rebuild-spec-v1.md)
-- [ui-rebuild-spec-v1.puml](/home/taewoong/company-project/squadall/docs/ui-rebuild-spec-v1.puml)
+- [ui-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/product-specs/ui-rebuild-spec-v1.md)
+- [ui-rebuild-spec-v1.puml](/home/taewoong/company-project/squadall/docs/product-specs/ui-rebuild-spec-v1.puml)
 
 ### P0. Change Tracking Surface
 
@@ -109,8 +109,8 @@ Phase 0~4와 real-org E2E로 `agent가 실제로 끝까지 일하는 delivery ru
 
 참고:
 
-- [knowledge-setup-sync-ui-first-spec.md](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.md)
-- [knowledge-setup-sync-ui-first-spec.puml](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.puml)
+- [knowledge-setup-sync-ui-first-spec.md](/home/taewoong/company-project/squadall/docs/product-specs/knowledge-setup-sync-ui-first-spec.md)
+- [knowledge-setup-sync-ui-first-spec.puml](/home/taewoong/company-project/squadall/docs/product-specs/knowledge-setup-sync-ui-first-spec.puml)
 
 ### P0. Merge Candidate Flow
 

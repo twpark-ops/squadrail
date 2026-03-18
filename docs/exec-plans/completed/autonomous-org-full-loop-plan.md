@@ -161,7 +161,7 @@
 - 남은 것
   - intake UI surface
 
-세부 구현 기록은 [p0b-human-pm-intake-layer.md](/home/taewoong/company-project/squadall/docs/p0b-human-pm-intake-layer.md) 참조.
+세부 구현 기록은 [p0b-human-pm-intake-layer.md](/home/taewoong/company-project/squadall/docs/product-specs/p0b-human-pm-intake-layer.md) 참조.
 
 다음 구현 우선순위:
 
@@ -272,7 +272,7 @@
 9. ranking/cache/trend consolidation
 10. cross-issue memory reuse
 
-세부 계획은 [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md) 기준으로 진행한다.
+세부 계획은 [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/run-first-burn-in-priority-plan.md) 기준으로 진행한다.
 
 ## 7.1 현재 기준 후속 우선순위
 

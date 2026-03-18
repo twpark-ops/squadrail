@@ -6,7 +6,7 @@ Open this file first, then read:
 
 1. [next-session-handoff.md](/home/taewoong/company-project/squadall/docs/next-session-handoff.md)
 2. [summary.md](/home/taewoong/company-project/squadall/memory-bank/projects/squadall-run-first/summary.md)
-3. [backend-next-priority-detailed-plan.md](/home/taewoong/company-project/squadall/docs/backend-next-priority-detailed-plan.md)
+3. [backend-next-priority-detailed-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/backend-next-priority-detailed-plan.md)
 
 One-line startup rule:
 
@@ -42,8 +42,8 @@ One-line startup rule:
   - lower delivery kernel은 이미 제품 수준으로 닫혔다.
   - 다음 북극성은 `사람이 짧게 요청 -> 시스템/PM 구조화 -> 부족한 정보만 질문 -> 사람이 짧게 답변 -> 팀이 실행/리뷰/클로즈 -> 다른 회사에서도 같은 팀 구성을 쉽게 재사용`이다.
   - 새 상세 계획 문서:
-    - [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)
-    - [`p0-quick-request-clarification-blueprint-plan.puml`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.puml)
+    - [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/product-specs/p0-quick-request-clarification-blueprint-plan.md)
+    - [`p0-quick-request-clarification-blueprint-plan.puml`](/home/taewoong/company-project/squadall/docs/product-specs/p0-quick-request-clarification-blueprint-plan.puml)
   - 이번 배치 완료:
     1. `NewIssueDialog` 기본 경로를 quick request로 전환
     2. 기존 상세 작성 경로를 `Advanced issue` secondary path로 정리
@@ -323,8 +323,8 @@ Suggested slice:
 Team supervision / intake:
 
 - [phase1-team-supervisor-mvp.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/phase1-team-supervisor-mvp.md)
-- [agent-team-mode-plan.md](/home/taewoong/company-project/squadall/docs/agent-team-mode-plan.md)
-- [p0b-human-pm-intake-layer.md](/home/taewoong/company-project/squadall/docs/p0b-human-pm-intake-layer.md)
+- [agent-team-mode-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/agent-team-mode-plan.md)
+- [p0b-human-pm-intake-layer.md](/home/taewoong/company-project/squadall/docs/product-specs/p0b-human-pm-intake-layer.md)
 - [issues.ts](/home/taewoong/company-project/squadall/server/src/routes/issues.ts)
 - [internal-work-item-supervision.test.ts](/home/taewoong/company-project/squadall/server/src/__tests__/internal-work-item-supervision.test.ts)
 
@@ -342,8 +342,8 @@ Recently completed operator / recovery surfaces:
 Planning / memory:
 
 - [summary.md](/home/taewoong/company-project/squadall/memory-bank/projects/squadall-run-first/summary.md)
-- [backend-next-priority-detailed-plan.md](/home/taewoong/company-project/squadall/docs/backend-next-priority-detailed-plan.md)
-- [p0-quick-request-clarification-blueprint-plan.md](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)
+- [backend-next-priority-detailed-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/backend-next-priority-detailed-plan.md)
+- [p0-quick-request-clarification-blueprint-plan.md](/home/taewoong/company-project/squadall/docs/product-specs/p0-quick-request-clarification-blueprint-plan.md)
 
 ## Validation Commands
 

@@ -15,9 +15,9 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 ## 참고 기준
 
 - 현재 완료 상태: [phase-roadmap.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/phase-roadmap.md)
-- 후속 제품 backlog: [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/post-phase-backlog.md)
-- 실행 우선순위 재정렬: [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)
-- burn-in 실행계획: [18-agent-real-org-burn-in-plan.md](/home/taewoong/company-project/squadall/docs/18-agent-real-org-burn-in-plan.md)
+- 후속 제품 backlog: [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/product-specs/post-phase-backlog.md)
+- 실행 우선순위 재정렬: [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/run-first-burn-in-priority-plan.md)
+- burn-in 실행계획: [18-agent-real-org-burn-in-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/18-agent-real-org-burn-in-plan.md)
 
 ## 2026-03-11 우선순위 재정렬
 
@@ -36,7 +36,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 9. ranking/cache/trend consolidation
 10. cross-issue memory reuse
 
-세부 이유와 실행 순서는 [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/run-first-burn-in-priority-plan.md)에서 관리한다.
+세부 이유와 실행 순서는 [run-first-burn-in-priority-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/run-first-burn-in-priority-plan.md)에서 관리한다.
 
 최신 상태:
 
@@ -239,11 +239,11 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 
 후속 설계 문서:
 
-- [b8-deep-rag-hardening-plan.md](/home/taewoong/company-project/squadall/docs/b8-deep-rag-hardening-plan.md)
-- [b8-symbol-dependency-graph-foundation.md](/home/taewoong/company-project/squadall/docs/b8-symbol-dependency-graph-foundation.md)
-- [b8-version-aware-retrieval.md](/home/taewoong/company-project/squadall/docs/b8-version-aware-retrieval.md)
-- [b8-retrieval-cache-incremental-reindex.md](/home/taewoong/company-project/squadall/docs/b8-retrieval-cache-incremental-reindex.md)
-- [b8-role-specific-personalization.md](/home/taewoong/company-project/squadall/docs/b8-role-specific-personalization.md)
+- [b8-deep-rag-hardening-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/b8-deep-rag-hardening-plan.md)
+- [b8-symbol-dependency-graph-foundation.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/b8-symbol-dependency-graph-foundation.md)
+- [b8-version-aware-retrieval.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/b8-version-aware-retrieval.md)
+- [b8-retrieval-cache-incremental-reindex.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/b8-retrieval-cache-incremental-reindex.md)
+- [b8-role-specific-personalization.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/b8-role-specific-personalization.md)
 
 ## Current Status Notes
 
@@ -299,7 +299,7 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 3. rerank provider abstraction 2차
 4. execution lane / fast lane 실운영 계측 보강
 - Retrieval god-file refactor debt is explicitly recorded in
-  - [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/retrieval-god-file-refactor-debt.md)
+  - [retrieval-god-file-refactor-debt.md](/home/taewoong/company-project/squadall/docs/design-docs/retrieval-god-file-refactor-debt.md)
 
 완료 기준:
 
@@ -350,9 +350,9 @@ Phase 0~4와 real-org E2E로 delivery runtime 자체는 닫혔다.
 - fast / normal / deep 분류는 완료됐다.
 - 다음 단계는 lane별 처리시간, cache hit, review reopen, QA bounce를 수집해 fast lane이 실제로 이득을 주는지 확인하는 것이다.
 
-다음 실행 큐는 [p1-next-10-step-execution-plan.md](/home/taewoong/company-project/squadall/docs/p1-next-10-step-execution-plan.md)에 고정한다.
+다음 실행 큐는 [p1-next-10-step-execution-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/p1-next-10-step-execution-plan.md)에 고정한다.
 
-상세 우선순위와 단계별 계획은 [organizational-memory-rag-plan.md](/home/taewoong/company-project/squadall/docs/organizational-memory-rag-plan.md), 전체 조직 풀루프 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/autonomous-org-full-loop-plan.md) 참조.
+상세 우선순위와 단계별 계획은 [organizational-memory-rag-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/organizational-memory-rag-plan.md), 전체 조직 풀루프 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/autonomous-org-full-loop-plan.md) 참조.
 
 ## 완료 증거
 
@@ -395,8 +395,8 @@ Knowledge follow-up은 CLI-first가 아니라 UI-first로 진행한다.
 
 참고:
 
-- [knowledge-setup-sync-ui-first-spec.md](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.md)
-- [knowledge-setup-sync-ui-first-spec.puml](/home/taewoong/company-project/squadall/docs/knowledge-setup-sync-ui-first-spec.puml)
+- [knowledge-setup-sync-ui-first-spec.md](/home/taewoong/company-project/squadall/docs/product-specs/knowledge-setup-sync-ui-first-spec.md)
+- [knowledge-setup-sync-ui-first-spec.puml](/home/taewoong/company-project/squadall/docs/product-specs/knowledge-setup-sync-ui-first-spec.puml)
 
 ## Operator UX / Structural Debt Reprioritization
 

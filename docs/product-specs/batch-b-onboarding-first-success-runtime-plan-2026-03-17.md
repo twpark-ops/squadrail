@@ -56,18 +56,18 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx)
+- [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx)
   - 회사 생성
   - 팀 블루프린트 선택/preview/apply
   - workspace 연결 + doctor/probe
   - 첫 quick request 제출
-- [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx)
+- [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx)
   - setup gate checklist 표시
-- [server/src/services/setup-progress.ts](../server/src/services/setup-progress.ts)
+- [server/src/services/setup-progress.ts](../../server/src/services/setup-progress.ts)
   - `company_ready -> squad_ready -> engine_ready -> workspace_connected -> knowledge_seeded -> first_issue_ready`
-- [packages/shared/src/types/setup.ts](../packages/shared/src/types/setup.ts)
+- [packages/shared/src/types/setup.ts](../../packages/shared/src/types/setup.ts)
   - `SetupProgressView`
-- [ui/src/pages/CompanySettings.tsx](../ui/src/pages/CompanySettings.tsx)
+- [ui/src/pages/CompanySettings.tsx](../../ui/src/pages/CompanySettings.tsx)
   - setup readiness / doctor / blueprint readiness surface
 
 즉 foundation은 이미 있다.  
@@ -83,13 +83,13 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [server/src/routes/access.ts](../server/src/routes/access.ts)
+- [server/src/routes/access.ts](../../server/src/routes/access.ts)
   - invite 생성
   - join request 승인/거절
   - onboarding manifest/text 문서
-- [ui/src/api/access.ts](../ui/src/api/access.ts)
+- [ui/src/api/access.ts](../../ui/src/api/access.ts)
   - invite / join request / board claim
-- [packages/shared/src/types/access.ts](../packages/shared/src/types/access.ts)
+- [packages/shared/src/types/access.ts](../../packages/shared/src/types/access.ts)
   - membership / permission / invite / join request
 
 즉 사람/에이전트 온보딩의 하부 계약은 이미 있다.  
@@ -99,10 +99,10 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [ui/src/pages/Inbox.tsx](../ui/src/pages/Inbox.tsx)
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/components/CompanyRail.tsx](../ui/src/components/CompanyRail.tsx)
-- [ui/src/components/ProtocolActionConsole.tsx](../ui/src/components/ProtocolActionConsole.tsx)
+- [ui/src/pages/Inbox.tsx](../../ui/src/pages/Inbox.tsx)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/components/CompanyRail.tsx](../../ui/src/components/CompanyRail.tsx)
+- [ui/src/components/ProtocolActionConsole.tsx](../../ui/src/components/ProtocolActionConsole.tsx)
 
 현재 clarification은 protocol-first로 잘 구성돼 있다.  
 문제는 “어디서 답하면 되는지”를 첫 사용자에게 충분히 알려주지 않는다는 점이다.
@@ -111,17 +111,17 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [server/src/services/project-workspace-routing.ts](../server/src/services/project-workspace-routing.ts)
+- [server/src/services/project-workspace-routing.ts](../../server/src/services/project-workspace-routing.ts)
   - `analysis`, `implementation`, `review`
   - `project_shared`, `project_isolated`
   - `fresh`, `reused_clean`, `resumed_dirty`, `recreated_clean`, `recovered_existing`
-- [server/src/__tests__/issue-protocol-execution.test.ts](../server/src/__tests__/issue-protocol-execution.test.ts)
+- [server/src/__tests__/issue-protocol-execution.test.ts](../../server/src/__tests__/issue-protocol-execution.test.ts)
   - self `START_IMPLEMENTATION` coalescing + `workspaceUsageOverride`
-- [packages/shared/src/types/issue.ts](../packages/shared/src/types/issue.ts)
+- [packages/shared/src/types/issue.ts](../../packages/shared/src/types/issue.ts)
   - `IssueChangeSurface.workspacePath`
   - `workspaceSource`
   - `workspaceState`
-- [ui/src/components/ChangeReviewDesk.tsx](../ui/src/components/ChangeReviewDesk.tsx)
+- [ui/src/components/ChangeReviewDesk.tsx](../../ui/src/components/ChangeReviewDesk.tsx)
   - workspace copy/open surface
 
 즉 runtime/worktree는 이미 구현되어 있다.  
@@ -224,7 +224,7 @@ V1 질문:
 ### 저장 위치
 
 새 테이블은 만들지 않는다.  
-먼저 [packages/shared/src/types/setup.ts](../packages/shared/src/types/setup.ts) 의 `SetupProgress.metadata` 아래에 저장한다.
+먼저 [packages/shared/src/types/setup.ts](../../packages/shared/src/types/setup.ts) 의 `SetupProgress.metadata` 아래에 저장한다.
 
 ```ts
 interface OnboardingProfileV1 {
@@ -260,11 +260,11 @@ wizard는 위 profile을 기반으로:
 
 ### 영향 파일
 
-- [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx)
-- [ui/src/api/companies.ts](../ui/src/api/companies.ts)
-- [packages/shared/src/types/setup.ts](../packages/shared/src/types/setup.ts)
-- [packages/shared/src/validators/setup.ts](../packages/shared/src/validators/setup.ts)
-- [server/src/services/setup-progress.ts](../server/src/services/setup-progress.ts)
+- [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx)
+- [ui/src/api/companies.ts](../../ui/src/api/companies.ts)
+- [packages/shared/src/types/setup.ts](../../packages/shared/src/types/setup.ts)
+- [packages/shared/src/validators/setup.ts](../../packages/shared/src/validators/setup.ts)
+- [server/src/services/setup-progress.ts](../../server/src/services/setup-progress.ts)
 
 ## 6.2 B2 — Post-Onboarding First Success Surface
 
@@ -329,7 +329,7 @@ wizard는 위 profile을 기반으로:
 #### 4. setup checklist reuse
 
 새 checklist를 만들지 않는다.  
-이미 있는 [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx) 의 setup gate와 [ui/src/pages/CompanySettings.tsx](../ui/src/pages/CompanySettings.tsx) readiness를 재사용해 `Overview`/`IssueDetail`에 얇게 재표현한다.
+이미 있는 [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx) 의 setup gate와 [ui/src/pages/CompanySettings.tsx](../../ui/src/pages/CompanySettings.tsx) readiness를 재사용해 `Overview`/`IssueDetail`에 얇게 재표현한다.
 
 중요한 결정:
 
@@ -338,14 +338,14 @@ wizard는 위 profile을 기반으로:
 
 ### 영향 파일
 
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/pages/Inbox.tsx](../ui/src/pages/Inbox.tsx)
-- [ui/src/components/CompanyRail.tsx](../ui/src/components/CompanyRail.tsx)
-- [ui/src/pages/Issues.tsx](../ui/src/pages/Issues.tsx)
-- [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx)
-- [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx)
-- [server/src/services/setup-progress.ts](../server/src/services/setup-progress.ts)
-- [server/src/services/issues.ts](../server/src/services/issues.ts)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/pages/Inbox.tsx](../../ui/src/pages/Inbox.tsx)
+- [ui/src/components/CompanyRail.tsx](../../ui/src/components/CompanyRail.tsx)
+- [ui/src/pages/Issues.tsx](../../ui/src/pages/Issues.tsx)
+- [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx)
+- [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx)
+- [server/src/services/setup-progress.ts](../../server/src/services/setup-progress.ts)
+- [server/src/services/issues.ts](../../server/src/services/issues.ts)
 
 ## 6.3 B3 — Worktree / Runtime Awareness
 
@@ -426,9 +426,9 @@ V1은 scope를 `IssueDetail + Changes`로 제한하고, 먼저 새 route는 만�
 
 ### 영향 파일
 
-- [packages/shared/src/types/issue.ts](../packages/shared/src/types/issue.ts)
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/components/ChangeReviewDesk.tsx](../ui/src/components/ChangeReviewDesk.tsx)
+- [packages/shared/src/types/issue.ts](../../packages/shared/src/types/issue.ts)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/components/ChangeReviewDesk.tsx](../../ui/src/components/ChangeReviewDesk.tsx)
 
 ## 7. 구현 순서
 

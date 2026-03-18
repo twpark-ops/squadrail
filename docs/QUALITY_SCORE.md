@@ -5,7 +5,7 @@
 ## Review and Audit
 
 - `review-findings-2026-03-18.md`
-- `current-state-review-2026-03-13.md`
+- `design-docs/current-state-review-2026-03-13.md`
 
 ## Hardening Programs
 
@@ -15,6 +15,6 @@
 
 ## Operational Backlog
 
-- `post-phase-backlog.md`
-- `backend-post-phase-plan.md`
-- `retrieval-god-file-refactor-debt.md`
+- `product-specs/post-phase-backlog.md`
+- `exec-plans/completed/backend-post-phase-plan.md`
+- `design-docs/retrieval-god-file-refactor-debt.md`

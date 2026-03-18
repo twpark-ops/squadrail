@@ -5,8 +5,8 @@
 
 기준 문서:
 
-- [rag-natural-language-code-summary-plan.md](/home/taewoong/company-project/squadall/docs/rag-natural-language-code-summary-plan.md)
-- [rag-natural-language-code-summary-execution-plan.md](/home/taewoong/company-project/squadall/docs/rag-natural-language-code-summary-execution-plan.md)
+- [rag-natural-language-code-summary-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/rag-natural-language-code-summary-plan.md)
+- [rag-natural-language-code-summary-execution-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/rag-natural-language-code-summary-execution-plan.md)
 
 ## 진행 상태
 

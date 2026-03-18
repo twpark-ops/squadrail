@@ -10,10 +10,10 @@ date: "2026-03-17"
 범위: 현재 `Squadrail` 코드 기준 온보딩 UX 단순화 설계  
 관련 코드:
 
-- [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx)
-- [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx)
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/components/IssuesList.tsx](../ui/src/components/IssuesList.tsx)
+- [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx)
+- [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/components/IssuesList.tsx](../../ui/src/components/IssuesList.tsx)
 
 ## 1. 목표
 
@@ -37,16 +37,16 @@ date: "2026-03-17"
 
 참고:
 
-- step 정의: [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx#L69)
-- profile recommendation: [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx#L228)
-- blueprint step: [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx#L1319)
-- workspace / engine step: [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx#L1763)
-- quick request step: [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx#L2048)
+- step 정의: [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx#L69)
+- profile recommendation: [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx#L228)
+- blueprint step: [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx#L1319)
+- workspace / engine step: [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx#L1763)
+- quick request step: [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx#L2048)
 
 첫 요청 제출 후에는 다음 표면이 이미 있다.
 
-- setup checklist: [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx#L354)
-- onboarding issue welcome banner: [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx#L2134)
+- setup checklist: [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx#L354)
+- onboarding issue welcome banner: [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx#L2134)
 
 즉 기능은 이미 많이 들어와 있다.  
 문제는 **사용자 표면이 아직 setup-heavy** 하다는 점이다.
@@ -78,7 +78,7 @@ date: "2026-03-17"
 
 ### 3.3 첫 quick request가 너무 blank canvas다
 
-현재도 추천 요청 힌트는 있지만([ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx#L1496)), 사용자는 여전히 무엇을 첫 요청으로 써야 할지 망설일 수 있다.
+현재도 추천 요청 힌트는 있지만([ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx#L1496)), 사용자는 여전히 무엇을 첫 요청으로 써야 할지 망설일 수 있다.
 
 ### 3.4 first-success guidance가 산재돼 있다
 
@@ -269,7 +269,7 @@ Expected output:
 
 영향 파일:
 
-- [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx)
+- [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx)
 
 ### O2. Workspace autopilot
 
@@ -281,8 +281,8 @@ Expected output:
 
 영향 파일:
 
-- [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx)
-- [ui/src/pages/CompanySettings.tsx](../ui/src/pages/CompanySettings.tsx)
+- [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx)
+- [ui/src/pages/CompanySettings.tsx](../../ui/src/pages/CompanySettings.tsx)
 
 ### O3. Starter quick request + first-success copy
 
@@ -294,10 +294,10 @@ Expected output:
 
 영향 파일:
 
-- [ui/src/components/OnboardingWizard.tsx](../ui/src/components/OnboardingWizard.tsx)
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx)
-- [ui/src/components/IssuesList.tsx](../ui/src/components/IssuesList.tsx)
+- [ui/src/components/OnboardingWizard.tsx](../../ui/src/components/OnboardingWizard.tsx)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx)
+- [ui/src/components/IssuesList.tsx](../../ui/src/components/IssuesList.tsx)
 
 ## 8. 테스트 시나리오
 

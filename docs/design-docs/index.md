@@ -17,6 +17,6 @@
 
 ## Product / Platform Design
 
-- `../product-model-simplification-plan.md`
-- `../rag-current-architecture.md`
-- `../qa-execution-gate-design.md`
+- `product-model-simplification-plan.md`
+- `rag-current-architecture.md`
+- `qa-execution-gate-design.md`

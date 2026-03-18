@@ -19,7 +19,7 @@ This plan is limited to `UI-only` work:
 Related inputs:
 
 - `docs/ui-rebuild-backlog-2026.md`
-- `docs/ui-visual-rebuild-spec-v1.md`
+- `docs/product-specs/ui-visual-rebuild-spec-v1.md`
 - local Playwright and browser review captures generated during validation
 
 ## Current Baseline

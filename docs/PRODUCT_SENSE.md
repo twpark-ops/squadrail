@@ -4,17 +4,17 @@
 
 ## Product Definition
 
-- `squadrail-product-overview-and-expansion-roadmap-2026-03-17.md`
+- `product-specs/squadrail-product-overview-and-expansion-roadmap-2026-03-17.md`
 - `start/what-is-squadrail.md`
 - `start/quickstart.md`
 
 ## Core User Loops
 
-- `p0-quick-request-clarification-blueprint-plan.md`
-- `batch-a-parent-issue-documents-artifacts-plan-2026-03-17.md`
-- `batch-b-onboarding-first-success-runtime-plan-2026-03-17.md`
-- `batch-c-budget-quota-composer-collaboration-plan-2026-03-17.md`
-- `qa-gate-sanity-panel-plan-2026-03-17.md`
+- `product-specs/p0-quick-request-clarification-blueprint-plan.md`
+- `product-specs/batch-a-parent-issue-documents-artifacts-plan-2026-03-17.md`
+- `product-specs/batch-b-onboarding-first-success-runtime-plan-2026-03-17.md`
+- `product-specs/batch-c-budget-quota-composer-collaboration-plan-2026-03-17.md`
+- `product-specs/qa-gate-sanity-panel-plan-2026-03-17.md`
 
 ## Supporting Specs
 

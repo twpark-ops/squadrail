@@ -18,7 +18,7 @@ This backlog is based on:
 - live inspection of `http://127.0.0.1:3103`
 - local Playwright review captures generated during validation
 - current UI routes and components in `ui/src`
-- the intended direction in `docs/ui-visual-rebuild-spec-v1.md`
+- the intended direction in `docs/product-specs/ui-visual-rebuild-spec-v1.md`
 
 ## Product Direction
 
@@ -344,12 +344,12 @@ This order is intentional:
 
 Problem:
 
-- `docs/ui-visual-rebuild-spec-v1.md` and `ui/DESIGN_SYSTEM.md` are still conceptually split
+- `docs/product-specs/ui-visual-rebuild-spec-v1.md` and `ui/DESIGN_SYSTEM.md` are still conceptually split
 - current tokens moved toward light mode, but shell components still carry older console DNA
 
 Tasks:
 
-- declare `docs/ui-visual-rebuild-spec-v1.md` as the active visual authority
+- declare `docs/product-specs/ui-visual-rebuild-spec-v1.md` as the active visual authority
 - mark `ui/DESIGN_SYSTEM.md` as deprecated or revise it to match the active direction
 - normalize color, spacing, border, radius, and typography tokens in `ui/src/index.css`
 - reduce reliance on uppercase micro-label styling as a primary hierarchy tool

@@ -54,7 +54,7 @@ date: "2026-03-15"
 
 대상 파일:
 
-- [ui/src/pages/AgentDetail.tsx](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/pages/AgentDetail.tsx)
+- [ui/src/pages/AgentDetail.tsx](/home/taewoong/company-project/squadall/ui/src/pages/AgentDetail.tsx)
 
 현재 문제:
 
@@ -73,9 +73,9 @@ date: "2026-03-15"
 
 대상 파일:
 
-- [ui/src/pages/Team.tsx](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/pages/Team.tsx)
-- [ui/src/components/ActiveAgentsPanel.tsx](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/components/ActiveAgentsPanel.tsx)
-- [ui/src/components/AgentCardEnhanced.tsx](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/components/AgentCardEnhanced.tsx)
+- [ui/src/pages/Team.tsx](/home/taewoong/company-project/squadall/ui/src/pages/Team.tsx)
+- [ui/src/components/ActiveAgentsPanel.tsx](/home/taewoong/company-project/squadall/ui/src/components/ActiveAgentsPanel.tsx)
+- [ui/src/components/AgentCardEnhanced.tsx](/home/taewoong/company-project/squadall/ui/src/components/AgentCardEnhanced.tsx)
 
 현재 문제:
 
@@ -93,7 +93,7 @@ date: "2026-03-15"
 
 대상 파일:
 
-- [ui/src/components/IssuesList.tsx](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/components/IssuesList.tsx)
+- [ui/src/components/IssuesList.tsx](/home/taewoong/company-project/squadall/ui/src/components/IssuesList.tsx)
 
 현재 문제:
 

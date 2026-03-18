@@ -43,16 +43,16 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [server/src/routes/costs.ts](../server/src/routes/costs.ts)
+- [server/src/routes/costs.ts](../../server/src/routes/costs.ts)
   - company summary
   - by-agent
   - by-project
   - company/agent budget patch
-- [ui/src/api/costs.ts](../ui/src/api/costs.ts)
-- [packages/shared/src/types/cost.ts](../packages/shared/src/types/cost.ts)
-- [ui/src/pages/Costs.tsx](../ui/src/pages/Costs.tsx)
-- [ui/src/pages/DashboardOptimized.tsx](../ui/src/pages/DashboardOptimized.tsx)
-- [ui/src/pages/Inbox.tsx](../ui/src/pages/Inbox.tsx)
+- [ui/src/api/costs.ts](../../ui/src/api/costs.ts)
+- [packages/shared/src/types/cost.ts](../../packages/shared/src/types/cost.ts)
+- [ui/src/pages/Costs.tsx](../../ui/src/pages/Costs.tsx)
+- [ui/src/pages/DashboardOptimized.tsx](../../ui/src/pages/DashboardOptimized.tsx)
+- [ui/src/pages/Inbox.tsx](../../ui/src/pages/Inbox.tsx)
   - budget alert
 
 즉 비용 데이터와 budget cap은 이미 있다.  
@@ -68,9 +68,9 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [ui/src/components/CommandPalette.tsx](../ui/src/components/CommandPalette.tsx)
-- [ui/src/components/NewIssueDialog.tsx](../ui/src/components/NewIssueDialog.tsx)
-- [ui/src/components/ProtocolActionConsole.tsx](../ui/src/components/ProtocolActionConsole.tsx)
+- [ui/src/components/CommandPalette.tsx](../../ui/src/components/CommandPalette.tsx)
+- [ui/src/components/NewIssueDialog.tsx](../../ui/src/components/NewIssueDialog.tsx)
+- [ui/src/components/ProtocolActionConsole.tsx](../../ui/src/components/ProtocolActionConsole.tsx)
 
 즉 global input은 없는 것이 아니라, **분절돼 있다**.
 
@@ -87,11 +87,11 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [packages/shared/src/types/access.ts](../packages/shared/src/types/access.ts)
-- [ui/src/api/access.ts](../ui/src/api/access.ts)
-- [server/src/routes/access.ts](../server/src/routes/access.ts)
-- [ui/src/pages/InviteLanding.tsx](../ui/src/pages/InviteLanding.tsx)
-- [ui/src/pages/CompanySettings.tsx](../ui/src/pages/CompanySettings.tsx)
+- [packages/shared/src/types/access.ts](../../packages/shared/src/types/access.ts)
+- [ui/src/api/access.ts](../../ui/src/api/access.ts)
+- [server/src/routes/access.ts](../../server/src/routes/access.ts)
+- [ui/src/pages/InviteLanding.tsx](../../ui/src/pages/InviteLanding.tsx)
+- [ui/src/pages/CompanySettings.tsx](../../ui/src/pages/CompanySettings.tsx)
 
 현재 이미 있는 것:
 
@@ -170,7 +170,7 @@ date: "2026-03-17"
 
 ### V1: existing budget model productization
 
-먼저 현재 [server/src/routes/costs.ts](../server/src/routes/costs.ts) 와 [packages/shared/src/types/cost.ts](../packages/shared/src/types/cost.ts) 위에서 다음을 만든다.
+먼저 현재 [server/src/routes/costs.ts](../../server/src/routes/costs.ts) 와 [packages/shared/src/types/cost.ts](../../packages/shared/src/types/cost.ts) 위에서 다음을 만든다.
 
 - company monthly budget strip
 - by-agent burn ranking
@@ -208,13 +208,13 @@ V2는 provider API key가 있는 경우만 `source = provider_api`를 채우고,
 
 ### 영향 파일
 
-- [ui/src/pages/Costs.tsx](../ui/src/pages/Costs.tsx)
-- [ui/src/pages/DashboardOptimized.tsx](../ui/src/pages/DashboardOptimized.tsx)
-- [ui/src/pages/Inbox.tsx](../ui/src/pages/Inbox.tsx)
-- [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx)
-- [ui/src/api/costs.ts](../ui/src/api/costs.ts)
-- [packages/shared/src/types/cost.ts](../packages/shared/src/types/cost.ts)
-- [server/src/routes/costs.ts](../server/src/routes/costs.ts)
+- [ui/src/pages/Costs.tsx](../../ui/src/pages/Costs.tsx)
+- [ui/src/pages/DashboardOptimized.tsx](../../ui/src/pages/DashboardOptimized.tsx)
+- [ui/src/pages/Inbox.tsx](../../ui/src/pages/Inbox.tsx)
+- [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx)
+- [ui/src/api/costs.ts](../../ui/src/api/costs.ts)
+- [packages/shared/src/types/cost.ts](../../packages/shared/src/types/cost.ts)
+- [server/src/routes/costs.ts](../../server/src/routes/costs.ts)
 
 ## 6.2 C2 — Command Composer V1
 
@@ -247,9 +247,9 @@ type CommandComposerScope = "company" | "project" | "issue";
 composer는 기존 mutation surface를 직접 대체하지 않는다.  
 V1은 아래 UI를 orchestration layer로 묶는다.
 
-- [ui/src/components/NewIssueDialog.tsx](../ui/src/components/NewIssueDialog.tsx)
-- [ui/src/components/ProtocolActionConsole.tsx](../ui/src/components/ProtocolActionConsole.tsx)
-- [ui/src/components/CommandPalette.tsx](../ui/src/components/CommandPalette.tsx)
+- [ui/src/components/NewIssueDialog.tsx](../../ui/src/components/NewIssueDialog.tsx)
+- [ui/src/components/ProtocolActionConsole.tsx](../../ui/src/components/ProtocolActionConsole.tsx)
+- [ui/src/components/CommandPalette.tsx](../../ui/src/components/CommandPalette.tsx)
 
 즉 새 composer는 새 backend가 아니라 기존 action path의 **front door**다.
 
@@ -279,10 +279,10 @@ V1은 아래 UI를 orchestration layer로 묶는다.
 
 ### 파일 후보
 
-- [ui/src/components/CommandPalette.tsx](../ui/src/components/CommandPalette.tsx)
-- [ui/src/components/NewIssueDialog.tsx](../ui/src/components/NewIssueDialog.tsx)
-- [ui/src/components/ProtocolActionConsole.tsx](../ui/src/components/ProtocolActionConsole.tsx)
-- [ui/src/components/Layout.tsx](../ui/src/components/Layout.tsx)
+- [ui/src/components/CommandPalette.tsx](../../ui/src/components/CommandPalette.tsx)
+- [ui/src/components/NewIssueDialog.tsx](../../ui/src/components/NewIssueDialog.tsx)
+- [ui/src/components/ProtocolActionConsole.tsx](../../ui/src/components/ProtocolActionConsole.tsx)
+- [ui/src/components/Layout.tsx](../../ui/src/components/Layout.tsx)
 
 ## 6.3 C3 — Minimal Collaboration Productization
 
@@ -341,11 +341,11 @@ V1은 새 role table을 만들지 않고:
 
 ### 영향 파일
 
-- [packages/shared/src/types/access.ts](../packages/shared/src/types/access.ts)
-- [packages/shared/src/validators/access.ts](../packages/shared/src/validators/access.ts)
-- [server/src/routes/access.ts](../server/src/routes/access.ts)
-- [ui/src/api/access.ts](../ui/src/api/access.ts)
-- [ui/src/pages/CompanySettings.tsx](../ui/src/pages/CompanySettings.tsx)
+- [packages/shared/src/types/access.ts](../../packages/shared/src/types/access.ts)
+- [packages/shared/src/validators/access.ts](../../packages/shared/src/validators/access.ts)
+- [server/src/routes/access.ts](../../server/src/routes/access.ts)
+- [ui/src/api/access.ts](../../ui/src/api/access.ts)
+- [ui/src/pages/CompanySettings.tsx](../../ui/src/pages/CompanySettings.tsx)
 
 ## 7. 구현 순서
 

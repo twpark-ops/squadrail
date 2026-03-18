@@ -98,7 +98,7 @@ The control plane provides operational visibility across the entire delivery lif
 
 - **Protocol over chat.** Work is driven by typed messages and explicit transitions, not loosely-scoped conversation history.
 - **Structured review handoff.** `SUBMIT_FOR_REVIEW` expects implementation summary, diff summary, changed files, test results, checklist, residual risk, and review artifacts.
-- **Graph-assisted retrieval.** Temporal, role-aware retrieval with document versioning, cache, incremental reindex, and explainable personalization. See [docs/rag-current-architecture.md](docs/rag-current-architecture.md).
+- **Graph-assisted retrieval.** Temporal, role-aware retrieval with document versioning, cache, incremental reindex, and explainable personalization. See [docs/design-docs/rag-current-architecture.md](docs/design-docs/rag-current-architecture.md).
 - **Knowledge stays attached to delivery.** Retrieval is grounded in issues, projects, runs, and evolving repository state — not a detached chatbot layer.
 - **Local-first development.** Embedded PostgreSQL is auto-managed in development. The CLI bootstraps and diagnoses a local instance in one command.
 - **Pluggable adapters.** Ships with adapters for Claude Code, Codex, Cursor, OpenClaw, and OpenCode — all running locally.
@@ -272,7 +272,7 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for environment details, bootstrap fl
 | [Board Operator Guide](docs/guides/board-operator/dashboard.md) | Operating the control plane day-to-day |
 | [Agent Developer Guide](docs/guides/agent-developer/how-agents-work.md) | Building and configuring agents |
 | [Development Guide](doc/DEVELOPING.md) | Local setup, testing, contributing |
-| [RAG Architecture](docs/rag-current-architecture.md) | Retrieval stack design and internals |
+| [RAG Architecture](docs/design-docs/rag-current-architecture.md) | Retrieval stack design and internals |
 
 <br/>
 

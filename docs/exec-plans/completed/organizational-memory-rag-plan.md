@@ -20,7 +20,7 @@
 다음 목표는 `코드를 잘 찾는 시스템`에서 `조직의 판단과 실행 근거를 기억하는 회사`로 올리는 것이다.
 
 이 문서는 `조직 기억 인입` 자체에 집중한다.
-상류 PM intake와 QA gate까지 포함한 전체 제품 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/autonomous-org-full-loop-plan.md) 참조.
+상류 PM intake와 QA gate까지 포함한 전체 제품 우선순위는 [autonomous-org-full-loop-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/autonomous-org-full-loop-plan.md) 참조.
 
 ## 현재까지 완료된 기반
 

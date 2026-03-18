@@ -5,9 +5,9 @@
 ## Canonical Stability
 
 - `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
-- `full-delivery-e2e-plan.md`
+- `exec-plans/completed/full-delivery-e2e-plan.md`
 - `exec-plans/completed/full-org-loop-e2e-plan.md`
-- `autonomous-org-full-loop-plan.md`
+- `exec-plans/completed/autonomous-org-full-loop-plan.md`
 
 ## Retrieval / Runtime Stability
 

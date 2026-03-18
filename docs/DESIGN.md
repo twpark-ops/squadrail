@@ -12,11 +12,11 @@
 
 ## Platform Design
 
-- `rag-current-architecture.md`
-- `agents-runtime.md`
-- `qa-execution-gate-design.md`
-- `product-model-simplification-plan.md`
-- `current-state-review-2026-03-13.md`
+- `design-docs/rag-current-architecture.md`
+- `design-docs/agents-runtime.md`
+- `design-docs/qa-execution-gate-design.md`
+- `design-docs/product-model-simplification-plan.md`
+- `design-docs/current-state-review-2026-03-13.md`
 
 ## Delivery / Execution
 

@@ -10,8 +10,8 @@
 > 제품 방향 업데이트 2026-03-13:
 > coverage `80.23%` threshold는 유지 중이다. immediate next는 coverage 총량이 아니라 상위 제품 플로우를 닫는 것이다.
 > 새 기준 문서:
-> - [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)
-> - [`p0-quick-request-clarification-blueprint-plan.puml`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.puml)
+> - [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/product-specs/p0-quick-request-clarification-blueprint-plan.md)
+> - [`p0-quick-request-clarification-blueprint-plan.puml`](/home/taewoong/company-project/squadall/docs/product-specs/p0-quick-request-clarification-blueprint-plan.puml)
 > 새 우선순위:
 > 1. `Quick request 기본화`
 > 2. `Clarification 질문/답변 루프`
@@ -70,7 +70,7 @@
 5. 팀이 실행/리뷰/QA/close를 수행한다.
 6. 같은 팀 구성을 다른 회사에도 쉽게 재사용한다.
 
-정리된 상세 phase는 [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/p0-quick-request-clarification-blueprint-plan.md)에 있다.
+정리된 상세 phase는 [`p0-quick-request-clarification-blueprint-plan.md`](/home/taewoong/company-project/squadall/docs/product-specs/p0-quick-request-clarification-blueprint-plan.md)에 있다.
 
 ### Immediate Next Slice
 

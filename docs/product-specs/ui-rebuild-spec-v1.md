@@ -21,7 +21,7 @@
 
 따라서 다음 단계는 기존 UI를 조금씩 보수하는 것이 아니라, `반자율 개발 조직 운영 도구`에 맞게 전면 재구성하는 것이다.
 
-비주얼 시스템과 shell 톤은 [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-visual-rebuild-spec-v1.md) 를 따른다.
+비주얼 시스템과 shell 톤은 [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/product-specs/ui-visual-rebuild-spec-v1.md) 를 따른다.
 
 ## 2. 외부 참고와 해석
 

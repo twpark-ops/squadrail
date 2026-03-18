@@ -12,9 +12,9 @@ date: "2026-03-15"
 
 ## Related Docs
 
-- [office tileset plan](/home/taewoong/company-project/squadall/docs/ui-squad-stage-office-tileset-plan-2026.md)
+- [office tileset plan](/home/taewoong/company-project/squadall/docs/exec-plans/completed/ui-squad-stage-office-tileset-plan-2026.md)
 - [implementation backlog](/home/taewoong/company-project/squadall/docs/exec-plans/completed/ui-squad-stage-implementation-backlog-2026.md)
-- [test scenarios](/home/taewoong/company-project/squadall/docs/ui-squad-stage-test-scenarios-2026.md)
+- [test scenarios](/home/taewoong/company-project/squadall/docs/exec-plans/completed/ui-squad-stage-test-scenarios-2026.md)
 
 ## 1. 문제 정의
 
@@ -82,7 +82,7 @@ date: "2026-03-15"
 
 대상 파일:
 
-- [ui/src/pages/Team.tsx](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/pages/Team.tsx)
+- [ui/src/pages/Team.tsx](/home/taewoong/company-project/squadall/ui/src/pages/Team.tsx)
 
 새 구조:
 

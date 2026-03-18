@@ -10,13 +10,13 @@
 ### Retrieval / Knowledge
 
 - `active/p1-retrieval-stabilization-plan.md`
-- `../retrieval-god-file-refactor-debt.md`
+- `../design-docs/retrieval-god-file-refactor-debt.md`
 
 ### Product / UX
 
-- `../batch-b-onboarding-first-success-runtime-plan-2026-03-17.md`
-- `../batch-c-budget-quota-composer-collaboration-plan-2026-03-17.md`
-- `../ui-rebuild-backlog-2026.md`
+- `../product-specs/batch-b-onboarding-first-success-runtime-plan-2026-03-17.md`
+- `../product-specs/batch-c-budget-quota-composer-collaboration-plan-2026-03-17.md`
+- `../product-specs/ui-rebuild-backlog-2026.md`
 
 ### Security
 

@@ -93,7 +93,7 @@
 
 - 여러 이슈가 동시에 돌아도 stuck run과 queue pollution 없이 완주 가능하다.
 - 멀티프로젝트 coordinating scenario에서 최소 2개 이상의 distinct project lane이 실제 child work item으로 병렬 fan-out된다.
-- 상세 실행계획은 [18-agent-real-org-burn-in-plan.md](/home/taewoong/company-project/squadall/docs/18-agent-real-org-burn-in-plan.md) 기준으로 관리한다.
+- 상세 실행계획은 [18-agent-real-org-burn-in-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/18-agent-real-org-burn-in-plan.md) 기준으로 관리한다.
 
 ### 3. Blocked Timeout + Legacy Semantics Cleanup
 

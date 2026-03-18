@@ -51,18 +51,18 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
   - `childIssues`
   - `subtaskOverview`
   - `subtaskProgressPercent`
   - `Parent issue progress` 블록
-- [ui/src/components/IssuesList.tsx](../ui/src/components/IssuesList.tsx)
+- [ui/src/components/IssuesList.tsx](../../ui/src/components/IssuesList.tsx)
   - `SubtaskProgressBar`
   - grouped issue tree
-- [server/src/services/issues.ts](../server/src/services/issues.ts)
+- [server/src/services/issues.ts](../../server/src/services/issues.ts)
   - `includeSubtasks`
   - visible subtask 생성 semantics
-- [packages/shared/src/types/issue.ts](../packages/shared/src/types/issue.ts)
+- [packages/shared/src/types/issue.ts](../../packages/shared/src/types/issue.ts)
   - `internalWorkItemSummary`
 
 즉 parent progress의 **재료는 이미 있다**.  
@@ -102,15 +102,15 @@ date: "2026-03-17"
 
 관련 코드:
 
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
   - attachment query/render
-- [ui/src/components/ChangeReviewDesk.tsx](../ui/src/components/ChangeReviewDesk.tsx)
+- [ui/src/components/ChangeReviewDesk.tsx](../../ui/src/components/ChangeReviewDesk.tsx)
   - verification artifacts
-- [server/src/services/issue-change-surface.ts](../server/src/services/issue-change-surface.ts)
+- [server/src/services/issue-change-surface.ts](../../server/src/services/issue-change-surface.ts)
   - diff, approval, verification artifacts flatten
-- [server/src/services/protocol-run-artifacts.ts](../server/src/services/protocol-run-artifacts.ts)
+- [server/src/services/protocol-run-artifacts.ts](../../server/src/services/protocol-run-artifacts.ts)
   - protocol message artifact enrichment
-- [packages/shared/src/types/issue.ts](../packages/shared/src/types/issue.ts)
+- [packages/shared/src/types/issue.ts](../../packages/shared/src/types/issue.ts)
   - `IssueAttachment`
   - `IssueChangeSurfaceArtifact`
 
@@ -270,13 +270,13 @@ interface IssueProgressSnapshot {
 
 ### 파일 후보
 
-- [packages/shared/src/types/issue.ts](../packages/shared/src/types/issue.ts)
-- [server/src/routes/issues.ts](../server/src/routes/issues.ts)
-- [server/src/services/issues.ts](../server/src/services/issues.ts)
-- [server/src/services/issue-change-surface.ts](../server/src/services/issue-change-surface.ts)
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/components/IssuesList.tsx](../ui/src/components/IssuesList.tsx)
-- [ui/src/pages/Overview.tsx](../ui/src/pages/Overview.tsx)
+- [packages/shared/src/types/issue.ts](../../packages/shared/src/types/issue.ts)
+- [server/src/routes/issues.ts](../../server/src/routes/issues.ts)
+- [server/src/services/issues.ts](../../server/src/services/issues.ts)
+- [server/src/services/issue-change-surface.ts](../../server/src/services/issue-change-surface.ts)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/components/IssuesList.tsx](../../ui/src/components/IssuesList.tsx)
+- [ui/src/pages/DashboardOptimized.tsx](../../ui/src/pages/DashboardOptimized.tsx)
 
 ### 결정
 

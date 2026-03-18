@@ -10,13 +10,13 @@ date: "2026-03-17"
 범위: 현재 `Squadrail` 코드 기준 QA gate 표면화 및 sanity evidence UX 설계  
 관련 코드:
 
-- [server/src/services/issue-protocol.ts](../server/src/services/issue-protocol.ts)
-- [server/src/services/issue-protocol-execution.ts](../server/src/services/issue-protocol-execution.ts)
-- [server/src/services/issue-protocol-policy.ts](../server/src/services/issue-protocol-policy.ts)
-- [packages/shared/src/protocol-run-requirements.ts](../packages/shared/src/protocol-run-requirements.ts)
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/components/ProtocolActionConsole.tsx](../ui/src/components/ProtocolActionConsole.tsx)
-- [docs/qa-execution-gate-design.puml](./qa-execution-gate-design.puml)
+- [server/src/services/issue-protocol.ts](../../server/src/services/issue-protocol.ts)
+- [server/src/services/issue-protocol-execution.ts](../../server/src/services/issue-protocol-execution.ts)
+- [server/src/services/issue-protocol-policy.ts](../../server/src/services/issue-protocol-policy.ts)
+- [packages/shared/src/protocol-run-requirements.ts](../../packages/shared/src/protocol-run-requirements.ts)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/components/ProtocolActionConsole.tsx](../../ui/src/components/ProtocolActionConsole.tsx)
+- [docs/qa-execution-gate-design.puml](../design-docs/qa-execution-gate-design.puml)
 
 ## 1. 목표
 
@@ -36,9 +36,9 @@ QA gate를 “프로토콜 안에만 있는 상태”에서 꺼내서, 사용자
 
 `qaAgentId`가 설정된 이슈에서 reviewer가 `APPROVE_IMPLEMENTATION`을 보내면 `qa_pending`으로 간다.
 
-- 상태 전이 규칙: [server/src/services/issue-protocol.ts](../server/src/services/issue-protocol.ts#L75)
-- follow-up wake 생성: [server/src/services/issue-protocol-execution.ts](../server/src/services/issue-protocol-execution.ts#L404)
-- 테스트: [server/src/__tests__/issue-protocol-execution.test.ts](../server/src/__tests__/issue-protocol-execution.test.ts#L559)
+- 상태 전이 규칙: [server/src/services/issue-protocol.ts](../../server/src/services/issue-protocol.ts#L75)
+- follow-up wake 생성: [server/src/services/issue-protocol-execution.ts](../../server/src/services/issue-protocol-execution.ts#L404)
+- 테스트: [server/src/__tests__/issue-protocol-execution.test.ts](../../server/src/__tests__/issue-protocol-execution.test.ts#L559)
 
 ### 2.2 QA는 별도 run contract를 가진다
 
@@ -50,7 +50,7 @@ QA recipient는 `START_REVIEW`로 시작하고, 이후:
 
 중 하나를 내야 한다.
 
-- 계약: [packages/shared/src/protocol-run-requirements.ts](../packages/shared/src/protocol-run-requirements.ts#L128)
+- 계약: [packages/shared/src/protocol-run-requirements.ts](../../packages/shared/src/protocol-run-requirements.ts#L128)
 
 ### 2.3 QA evidence policy가 이미 있다
 
@@ -59,14 +59,14 @@ QA는 단순 코멘트만 남기면 안 된다.
 - QA approval에는 `executionLog`, `outputVerified`, `sanityCommand` 중 하나가 필요
 - QA change request에는 `executionLog` 또는 `failureEvidence`가 필요
 
-- 정책: [server/src/services/issue-protocol-policy.ts](../server/src/services/issue-protocol-policy.ts#L185)
+- 정책: [server/src/services/issue-protocol-policy.ts](../../server/src/services/issue-protocol-policy.ts#L185)
 
 ### 2.4 UI는 일부만 있다
 
 현재 UI에서 QA 상태는 부분적으로 보인다.
 
-- delivery party에서 QA gate 설명: [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx#L379)
-- ProtocolActionConsole은 QA 상태 전이를 알고 있음: [ui/src/components/ProtocolActionConsole.tsx](../ui/src/components/ProtocolActionConsole.tsx#L176)
+- delivery party에서 QA gate 설명: [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx#L379)
+- ProtocolActionConsole은 QA 상태 전이를 알고 있음: [ui/src/components/ProtocolActionConsole.tsx](../../ui/src/components/ProtocolActionConsole.tsx#L176)
 
 하지만 아직 없다.
 
@@ -86,7 +86,7 @@ QA는 단순 코멘트만 남기면 안 된다.
 
 근거:
 
-- [docs/qa-execution-gate-design.puml](./qa-execution-gate-design.puml#L25)
+- [docs/qa-execution-gate-design.puml](../design-docs/qa-execution-gate-design.puml#L25)
 
 ## 4. 목표 모델 (TO-BE)
 
@@ -230,8 +230,8 @@ QA 상태에서는 generic form 대신 전용 quick form이 낫다.
 
 영향 파일:
 
-- [ui/src/pages/IssueDetail.tsx](../ui/src/pages/IssueDetail.tsx)
-- [ui/src/components/ProtocolActionConsole.tsx](../ui/src/components/ProtocolActionConsole.tsx)
+- [ui/src/pages/IssueDetail.tsx](../../ui/src/pages/IssueDetail.tsx)
+- [ui/src/components/ProtocolActionConsole.tsx](../../ui/src/components/ProtocolActionConsole.tsx)
 
 ### Q2. QA contract read model
 

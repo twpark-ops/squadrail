@@ -178,8 +178,8 @@ Phase 0~4는 완료됐고, 다음 우선순위는 별도 backlog로 관리한다
   - 후속
   - version-aware retrieval, graph traversal, cache, personalization
 
-상세 설계는 [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/post-phase-backlog.md), 정보 구조는 [ui-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-rebuild-spec-v1.md), 비주얼 방향은 [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/ui-visual-rebuild-spec-v1.md), 구조 요약은 [post-phase-backlog.puml](/home/taewoong/company-project/squadall/docs/post-phase-backlog.puml) 참조.
-백엔드 후속 실행 계획은 [backend-post-phase-plan.md](/home/taewoong/company-project/squadall/docs/backend-post-phase-plan.md), 다이어그램은 [backend-post-phase-plan.puml](/home/taewoong/company-project/squadall/docs/backend-post-phase-plan.puml) 참조.
+상세 설계는 [post-phase-backlog.md](/home/taewoong/company-project/squadall/docs/product-specs/post-phase-backlog.md), 정보 구조는 [ui-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/product-specs/ui-rebuild-spec-v1.md), 비주얼 방향은 [ui-visual-rebuild-spec-v1.md](/home/taewoong/company-project/squadall/docs/product-specs/ui-visual-rebuild-spec-v1.md), 구조 요약은 [post-phase-backlog.puml](/home/taewoong/company-project/squadall/docs/product-specs/post-phase-backlog.puml) 참조.
+백엔드 후속 실행 계획은 [backend-post-phase-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/backend-post-phase-plan.md), 다이어그램은 [backend-post-phase-plan.puml](/home/taewoong/company-project/squadall/docs/exec-plans/completed/backend-post-phase-plan.puml) 참조.
 
 ## Phase 1 세부 슬라이스
 
