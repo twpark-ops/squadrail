@@ -458,6 +458,7 @@ const app = await createApp(db as any, {
   companyDeletionEnabled: config.companyDeletionEnabled,
   protocolTimeoutsEnabled: config.heartbeatSchedulerEnabled,
   knowledgeBackfillEnabled: config.knowledgeEmbeddingBackfillEnabled,
+  issueDocumentMaxBodyChars: config.issueDocumentMaxBodyChars,
   betterAuthHandler,
   resolveSession,
 });

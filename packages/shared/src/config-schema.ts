@@ -50,11 +50,13 @@ export const serverConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(3100),
   allowedHostnames: z.array(z.string().min(1)).default([]),
   serveUi: z.boolean().default(true),
+  issueDocumentMaxBodyChars: z.number().int().min(1_000).max(2_000_000).default(200_000),
 });
 
 export const authConfigSchema = z.object({
   baseUrlMode: z.enum(AUTH_BASE_URL_MODES).default("auto"),
   publicBaseUrl: z.string().url().optional(),
+  requireEmailVerification: z.boolean().default(false),
 });
 
 export const storageLocalDiskConfigSchema = z.object({
@@ -103,6 +105,7 @@ export const squadrailConfigSchema = z
     server: serverConfigSchema,
     auth: authConfigSchema.default({
       baseUrlMode: "auto",
+      requireEmailVerification: false,
     }),
     storage: storageConfigSchema.default({
       provider: "local_disk",

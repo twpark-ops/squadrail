@@ -19,7 +19,14 @@ mainfont: "Noto Sans"
 - 실패 원인을 `state transition`, `ownership/session`, `retrieval/routing` 세 축 중 하나로 반드시 분류한다.
 
 이 문서는 현재 구현 상태를 전제로, 다음 1~2주 동안 수행할 안정화 스프린트의 설계, 범위,
-시나리오, invariant, 검증 계획을 정리한다.
+시나리오, invariant, 보안 선행 조건, 검증 계획을 정리한다.
+
+# 관련 문서
+
+- [review-findings-2026-03-18.md](/home/taewoong/company-project/squadall/docs/review-findings-2026-03-18.md)
+- [phase-0-security-baseline-design-2026-03-18.md](/home/taewoong/company-project/squadall/docs/phase-0-security-baseline-design-2026-03-18.md)
+- [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/p1-retrieval-stabilization-plan.md)
+- [five-axis-hardening-plan-2026-03-18.md](/home/taewoong/company-project/squadall/docs/five-axis-hardening-plan-2026-03-18.md)
 
 # 배경
 
@@ -30,6 +37,8 @@ mainfont: "Noto Sans"
 3. symptom-first intake, retrieval evidence, engineer assignment, review/close를 한 줄로 묶는
    canonical E2E가 제품 의도를 가장 잘 드러낸다.
 4. 같은 종류의 버그가 반복되는 이유는, 시나리오별 invariant가 충분히 테스트로 잠기지 않았기 때문이다.
+5. 안정화 스프린트는 보안 baseline 없이 진행할 수 없다. E2E가 green이어도 인증/권한 baseline이
+   무너지면 배포 가능 상태로 볼 수 없다.
 
 # 목표
 
@@ -42,11 +51,43 @@ mainfont: "Noto Sans"
 ## 2. 품질 목표
 
 - **MUST**: canonical E2E 5개 3회 연속 green
+- **MUST**: Phase 0 security baseline이 먼저 닫혀야 한다.
 - **MUST**: `approved -> close`, `changes_requested -> recovery`, `qa_pending -> close` 경로에서
   stale session 재사용이 없어야 한다.
 - **MUST**: symptom-first 시나리오에서 입력에 프로젝트 힌트를 넣지 않는다.
 - **MUST**: retrieval-required 시나리오에서 실제 evidence가 기록된다.
 - **SHOULD**: UI가 해당 상태를 숨기지 않고 직접 노출한다.
+
+# 선행 조건: Security Baseline
+
+안정화 스프린트는 다음 보안/하드닝 항목을 Phase 0으로 선행 처리해야 한다.
+
+## 검증된 선행 항목
+
+1. auth secret fallback에 하드코딩 값이 남아 있다.
+   - 현재 코드: `server/src/auth/better-auth.ts`
+2. email verification이 비활성화돼 있다.
+   - 현재 코드: `server/src/auth/better-auth.ts`
+3. issue document body에 상한이 없다.
+   - 현재 코드: `server/src/routes/issues/documents-routes.ts`
+4. deliverables route는 company-scoped route shape와 authorization 일관성을 더 강하게 맞출 필요가 있다.
+   - 현재 코드: `server/src/routes/issues/deliverables-routes.ts`
+
+## Phase 0 목표
+
+- auth secret externalization
+- email verification 기본 활성화
+- issue document body size limit
+- deliverables route authorization / route-pattern hardening
+- upstream security patch intake 준비
+
+## Phase 0 완료 기준
+
+- 하드코딩 secret 제거
+- email verification bypass 기본값 제거
+- oversized document payload가 route level에서 거부
+- deliverables route가 company boundary와 route shape 기준으로 일관되게 검증
+- upstream remote / 보안 패치 모니터링 경로가 문서화
 
 # 범위
 
@@ -121,6 +162,7 @@ mainfont: "Noto Sans"
 - clarification 필요 시나리오에서는 반드시 `ASK_CLARIFICATION`이 있어야 한다.
 - answer는 같은 issue/question contract에 연결되어야 한다.
 - unresolved clarification이 있으면 close 불가다.
+- clarification 재개 이후 retrieval-required 요청이면 실제 evidence가 다시 기록되어야 한다.
 
 ## 3. Changes requested recovery
 
@@ -164,6 +206,7 @@ review 승인 후 QA가 실제 execution gate로 동작하는지 검증한다.
 - QA request changes에는 failure evidence가 필요하다.
 - QA 완료 전 close 불가다.
 - QA return path는 recovery path와 같은 수준으로 복구 가능해야 한다.
+- QA evidence surface는 retrieval / execution provenance를 잃지 않아야 한다.
 
 ## 5. Merge / deploy follow-up
 
@@ -184,6 +227,7 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - `approved -> close` follow-up은 새 task session으로 시작한다.
 - deploy blocked / recovery required는 UI에서 직접 노출되어야 한다.
 - reviewer session이 close follow-up에 재사용되면 안 된다.
+- merge candidate / deploy surface가 retrieval-backed summary를 쓰는 경우, provenance가 누락되면 안 된다.
 
 # 공통 Invariant
 
@@ -211,17 +255,56 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 
 # 실행 계획
 
+## 기간 추정
+
+| Phase | 예상 기간 | 근거 |
+|---|---:|---|
+| Phase 0. Security Baseline | 1-2일 | 수정 범위는 작지만 인증/권한/route 회귀 테스트 필요 |
+| Phase 1. Fresh DB Bootstrap | 1-2일 | fixture 통일, migration fresh run, legacy 간섭 제거 |
+| Phase 2. Scenario Invariant Lock | 3-5일 | 5개 시나리오 × focused test + E2E assertion |
+| Phase 3. UI Surface Alignment | 2-3일 | 상태 노출/경고/알림/변경 desk 정합성 |
+| Phase 4. Repeat Validation | 1-2일 | 3회 연속 green, flaky root-cause 고정 |
+| 합계 | 8-14일 | 안정화 전용 스프린트 |
+
+## Five-Axis 매핑
+
+이 스프린트는 [five-axis-hardening-plan-2026-03-18.md](/home/taewoong/company-project/squadall/docs/five-axis-hardening-plan-2026-03-18.md)
+를 대체하지 않고, canonical stabilization 관점에서 다시 배치한다.
+
+| Five-Axis 항목 | 이번 스프린트 Phase | 설명 |
+|---|---|---|
+| Axis 1. project/subtask consistency | Phase 3 | canonical path를 가리는 project surface 정합성 정리 |
+| Axis 2. knowledge metric accuracy | Phase 1-2 | retrieval axis와 같이 잠금 |
+| Axis 3. IssueDetail query weight | Phase 3 | 상태 노출을 유지한 채 query weight 감산 |
+| Axis 4. canonical full-delivery E2E realism | Phase 2 | scenario invariant lock의 핵심 |
+| Axis 5. protocol-aware notifications | Phase 3 | UI surface alignment와 함께 정리 |
+
+## Phase 0. Security Baseline
+
+- `server/src/auth/better-auth.ts` hardcoded secret 제거
+- email verification 기본 활성화
+- issue document body size limit 설정
+- deliverables route authorization / route pattern hardening
+- upstream remote 추가 및 보안 패치 intake 루틴 문서화
+
 ## Phase 1. Fresh DB bootstrap 고정
 
 - canonical company bootstrap 루틴을 하나로 통일
 - old company / legacy corpus가 E2E 판단에 간섭하지 않게 격리
 - knowledge sync readiness 확인을 선행 조건으로 명시
+- migration `0024` 이후 현재 헤드까지 fresh run 검증
+- [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/p1-retrieval-stabilization-plan.md) 의
+  선행 테스트/회귀 항목을 bootstrap phase에 연결
+- `retrieval-cache.test.ts`, `dashboard-service.test.ts`처럼 현재 known drift가 있는 테스트를 먼저 복구
 
 ## Phase 2. Scenario별 invariant 잠금
 
 - 시나리오 1부터 5까지 순서대로 고정
 - 각 시나리오에 대해 focused server test + E2E assertion 추가
 - 상태 전이, ownership, retrieval를 각각 명시적으로 체크
+- `P1 retrieval plan`의 `issue_snapshot demotion`, signal seed, lexical term 안정화 항목을
+  retrieval axis의 하위 작업으로 포함
+- external dependency flakiness를 줄이기 위해 OpenAI API mock/stub 전략 또는 determinism control을 문서화
 
 ## Phase 3. UI surface 정합성
 
@@ -235,6 +318,15 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - canonical 5개 시나리오 전체를 3회 반복
 - 실패 시 flaky로 분류하지 않고 원인을 구조적으로 고정
 
+## Upstream 추적 전략
+
+이번 스프린트 동안 upstream 추적은 Option B를 따른다.
+
+1. upstream remote를 별도로 유지한다.
+2. 보안 패치와 low-divergence core fix는 cherry-pick 후보로 관리한다.
+3. UI cosmetic divergence는 안정화 스프린트 동안 더 늘리지 않는다.
+4. security baseline과 canonical path에 영향을 주는 upstream 변경은 Phase 0/1에서 우선 검토한다.
+
 # 테스트 전략
 
 ## Focused server tests
@@ -243,6 +335,8 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - heartbeat wake / task session reset
 - retrieval/routing scoring
 - QA policy
+- auth / route hardening
+- migration fresh-run validation
 
 ## UI / browser validation
 
@@ -268,8 +362,10 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 
 # 위험 요소
 
+- **HIGH**: migration `0024` 이후 분기 누적으로 fresh DB migrate 자체가 깨질 수 있다.
+- **HIGH**: retrieval이 외부 OpenAI API에 의존하므로 E2E determinism이 흔들릴 수 있다.
 - **MEDIUM**: deterministic E2E를 위해 fixture를 강화할수록 실행 시간이 늘어날 수 있다.
-- **MEDIUM**: close/qa/recovery follow-up은 세션 재사용 버그가 다시 나타날 가능성이 높다.
+- **MEDIUM**: close/qa/recovery follow-up은 stale session 버그가 재발한 이력이 있어 재검증이 필요하다.
 - **LOW**: UI 표면이 상태를 더 직접 노출하면서 copy tuning이 필요할 수 있다.
 
 # 권고
@@ -277,7 +373,10 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 다음 1~2주 동안은 신규 기능보다 다음 원칙을 우선한다.
 
 - canonical path를 깨는 변경 금지
+- security baseline 선행
 - state/session invariant 우선
+- retrieval axis는 [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/p1-retrieval-stabilization-plan.md) 과
+  분리하지 않고 같이 잠금
 - symptom-first routing 보존
 - green E2E를 “시연 결과”가 아니라 “제품 계약”으로 취급
 

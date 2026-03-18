@@ -68,6 +68,8 @@ describe("config service", () => {
       companyDeletionEnabled: true,
       heartbeatSchedulerEnabled: true,
       knowledgeEmbeddingBackfillEnabled: false,
+      authRequireEmailVerification: false,
+      issueDocumentMaxBodyChars: 200_000,
     });
     expect(mockLoadDotenv).not.toHaveBeenCalled();
   });
@@ -94,10 +96,12 @@ describe("config service", () => {
         exposure: "public",
         serveUi: false,
         allowedHostnames: ["api.example.com"],
+        issueDocumentMaxBodyChars: 150000,
       },
       auth: {
         baseUrlMode: "auto",
         publicBaseUrl: "https://file.example.com",
+        requireEmailVerification: true,
       },
       database: {
         mode: "postgres",
@@ -140,6 +144,7 @@ describe("config service", () => {
     vi.stubEnv("SQUADRAIL_ENABLE_COMPANY_DELETION", "false");
     vi.stubEnv("SQUADRAIL_KNOWLEDGE_BACKFILL_ENABLED", "true");
     vi.stubEnv("SQUADRAIL_KNOWLEDGE_BACKFILL_BATCH_SIZE", "25");
+    vi.stubEnv("SQUADRAIL_ISSUE_DOCUMENT_MAX_BODY_CHARS", "300000");
 
     const { loadConfig } = await importConfigModule();
     const config = loadConfig();
@@ -151,6 +156,7 @@ describe("config service", () => {
       port: 3200,
       authBaseUrlMode: "auto",
       authPublicBaseUrl: "https://env.example.com",
+      authRequireEmailVerification: true,
       databaseMode: "postgres",
       databaseUrl: "postgres://file-user:file-pass@db/file",
       databaseBackupEnabled: true,
@@ -166,6 +172,7 @@ describe("config service", () => {
       companyDeletionEnabled: false,
       knowledgeEmbeddingBackfillEnabled: true,
       knowledgeEmbeddingBackfillBatchSize: 25,
+      issueDocumentMaxBodyChars: 300000,
     });
     expect(config.allowedHostnames).toEqual([
       "api.example.com",
@@ -173,5 +180,14 @@ describe("config service", () => {
     ]);
     expect(config.databaseBackupDir).toContain("backups");
     expect(config.secretsMasterKeyFilePath).toContain(path.join("keys", "master.key"));
+  });
+
+  it("accepts BETTER_AUTH_REQUIRE_EMAIL_VERIFICATION as an auth verification alias", async () => {
+    vi.stubEnv("BETTER_AUTH_REQUIRE_EMAIL_VERIFICATION", "true");
+
+    const { loadConfig } = await importConfigModule();
+    const config = loadConfig();
+
+    expect(config.authRequireEmailVerification).toBe(true);
   });
 });

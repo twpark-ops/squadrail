@@ -35,6 +35,7 @@ describe("better auth helpers", () => {
     const auth = createBetterAuthInstance({ kind: "db" } as never, {
       authBaseUrlMode: "explicit",
       authPublicBaseUrl: "https://squadrail.example.com",
+      authRequireEmailVerification: true,
     } as never);
 
     expect(mockDrizzleAdapter).toHaveBeenCalledWith(
@@ -49,7 +50,7 @@ describe("better auth helpers", () => {
       secret: "explicit-secret",
       emailAndPassword: {
         enabled: true,
-        requireEmailVerification: false,
+        requireEmailVerification: true,
       },
     }));
     expect(auth).toEqual(expect.objectContaining({
@@ -65,6 +66,7 @@ describe("better auth helpers", () => {
     createBetterAuthInstance({ kind: "db" } as never, {
       authBaseUrlMode: "auto",
       authPublicBaseUrl: "https://ignored.example.com",
+      authRequireEmailVerification: false,
     } as never);
 
     expect(mockBetterAuth).toHaveBeenCalledWith(expect.objectContaining({
@@ -72,6 +74,14 @@ describe("better auth helpers", () => {
     }));
     const authConfig = mockBetterAuth.mock.calls[0]?.[0] as Record<string, unknown>;
     expect("baseURL" in authConfig).toBe(false);
+  });
+
+  it("throws when better-auth secret is missing", () => {
+    expect(() => createBetterAuthInstance({ kind: "db" } as never, {
+      authBaseUrlMode: "auto",
+      authPublicBaseUrl: undefined,
+      authRequireEmailVerification: false,
+    } as never)).toThrow(/BETTER_AUTH_SECRET/i);
   });
 
   it("wraps the node handler and forwards async failures to next", async () => {

@@ -226,7 +226,12 @@ export const issuesApi = {
       },
     ),
   listAttachments: (id: string) => api.get<IssueAttachment[]>(`/issues/${id}/attachments`),
-  deliverables: (id: string) => api.get<IssueDeliverable[]>(`/issues/${id}/deliverables`),
+  deliverables: (id: string, companyId?: string) =>
+    api.get<IssueDeliverable[]>(
+      companyId
+        ? `/companies/${companyId}/issues/${id}/deliverables`
+        : `/issues/${id}/deliverables`,
+    ),
   uploadAttachment: (
     companyId: string,
     issueId: string,

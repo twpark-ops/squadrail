@@ -11,6 +11,18 @@
   - localhost guard for `dangerouslyBypassApprovalsAndSandbox`
   - toast builder unit tests
 
+## Pre-Stabilization Blockers
+
+아래 항목은 canonical stabilization sprint의 선행 조건으로 취급한다.
+
+| # | Severity | Finding | File | Position |
+|---|:--------:|---------|------|----------|
+| 0-1 | HIGH | hardcoded auth secret fallback remains | `server/src/auth/better-auth.ts` | Phase 0에서 제거 |
+| 0-2 | HIGH | email verification is disabled by default | `server/src/auth/better-auth.ts` | Phase 0에서 기본 활성화 |
+| 0-3 | MEDIUM | issue document body has no size cap | `server/src/routes/issues/documents-routes.ts` | Phase 0에서 route-level limit 추가 |
+| 0-4 | MEDIUM | deliverables route needs stronger authorization / route-shape consistency | `server/src/routes/issues/deliverables-routes.ts` | Phase 0에서 hardening |
+| 0-5 | MEDIUM | retrieval stabilization tests and known drifts must be aligned before invariant lock | `server/src/__tests__/retrieval-cache.test.ts`, `server/src/__tests__/dashboard-service.test.ts` | Phase 1에서 복구 |
+
 ## Resolved In This Pass
 
 | # | Severity | Finding | File | Resolution |
@@ -41,3 +53,4 @@ git diff --check
 - The toast-link issue was a client-side external navigation sink, not a server-side redirect endpoint.
 - The heartbeat wakeup increase is a rollout concern, not a correctness bug by itself.
 - The knowledge metric change should be reflected in any future dashboard or analytics copy that still assumes the old meaning.
+- Retrieval-axis stabilization is not isolated from canonical stabilization. It must be executed together with `docs/p1-retrieval-stabilization-plan.md`.

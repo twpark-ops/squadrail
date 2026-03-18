@@ -153,6 +153,7 @@ function buildOptions(overrides: Partial<Parameters<typeof createApp>[1]> = {}) 
     companyDeletionEnabled: true,
     protocolTimeoutsEnabled: true,
     knowledgeBackfillEnabled: true,
+    issueDocumentMaxBodyChars: 200_000,
     ...overrides,
   };
 }

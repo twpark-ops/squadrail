@@ -1360,8 +1360,8 @@ export function IssueDetail() {
 
   const { data: deliverables } = useQuery({
     queryKey: queryKeys.issues.deliverables(issueId!),
-    queryFn: () => issuesApi.deliverables(issueId!),
-    enabled: !!issueId && deliverablesTabActive,
+    queryFn: () => issuesApi.deliverables(issueId!, issue!.companyId),
+    enabled: !!issueId && !!issue && deliverablesTabActive,
   });
 
   const { data: issueDocuments, refetch: refetchDocuments } = useQuery({

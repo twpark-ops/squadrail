@@ -46,6 +46,7 @@ export async function createApp(
     companyDeletionEnabled: boolean;
     protocolTimeoutsEnabled: boolean;
     knowledgeBackfillEnabled: boolean;
+    issueDocumentMaxBodyChars?: number;
     betterAuthHandler?: express.RequestHandler;
     resolveSession?: (req: ExpressRequest) => Promise<BetterAuthSessionResult | null>;
   },
@@ -121,7 +122,9 @@ export async function createApp(
   api.use(agentRoutes(db));
   api.use(assetRoutes(db, opts.storageService));
   api.use(projectRoutes(db));
-  api.use(issueRoutes(db, opts.storageService));
+  api.use(issueRoutes(db, opts.storageService, {
+    maxDocumentBodyChars: opts.issueDocumentMaxBodyChars,
+  }));
   api.use(knowledgeRoutes(db));
   api.use(goalRoutes(db));
   api.use(approvalRoutes(db));

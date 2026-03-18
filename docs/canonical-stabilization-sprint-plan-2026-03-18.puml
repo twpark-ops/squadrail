@@ -27,7 +27,8 @@ package "Invariant Axes" {
 }
 
 package "Execution Plan" {
-  rectangle "Phase 1\nFresh DB Bootstrap" as P1
+  rectangle "Phase 0\nSecurity Baseline" as P0
+  rectangle "Phase 1\nFresh DB Bootstrap + Retrieval P1" as P1
   rectangle "Phase 2\nScenario Invariant Lock" as P2
   rectangle "Phase 3\nUI Surface Alignment" as P3
   rectangle "Phase 4\nRepeat Validation" as P4
@@ -49,6 +50,7 @@ S1 --> UiAxis
 
 S2 --> StateAxis
 S2 --> OwnerAxis
+S2 --> RagAxis
 S2 --> UiAxis
 
 S3 --> StateAxis
@@ -57,12 +59,15 @@ S3 --> UiAxis
 
 S4 --> StateAxis
 S4 --> OwnerAxis
+S4 --> RagAxis
 S4 --> UiAxis
 
 S5 --> StateAxis
 S5 --> OwnerAxis
+S5 --> RagAxis
 S5 --> UiAxis
 
+P0 --> P1
 P1 --> P2
 P2 --> P3
 P3 --> P4

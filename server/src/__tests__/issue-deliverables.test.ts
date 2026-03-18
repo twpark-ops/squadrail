@@ -250,4 +250,36 @@ describe("issue-deliverables route", () => {
     ]);
     expect(fixture.withContentPath).toHaveBeenCalledTimes(1);
   });
+
+  it("supports the company-scoped deliverables route and rejects company mismatch", async () => {
+    const fixture = createRouterContext();
+    fixture.svc.getById.mockResolvedValue({
+      id: "issue-1",
+      companyId: "company-1",
+    });
+    fixture.svc.listAttachments.mockResolvedValue([]);
+    fixture.loadIssueChangeSurface.mockResolvedValue(makeChangeSurface());
+
+    const okResponse = await invokeRoute({
+      router: fixture.router,
+      path: "/companies/:companyId/issues/:issueId/deliverables",
+      params: { companyId: "company-1", issueId: "issue-1" },
+    });
+
+    expect(okResponse).toEqual({
+      statusCode: 200,
+      body: [],
+    });
+
+    const mismatchResponse = await invokeRoute({
+      router: fixture.router,
+      path: "/companies/:companyId/issues/:issueId/deliverables",
+      params: { companyId: "company-2", issueId: "issue-1" },
+    });
+
+    expect(mismatchResponse).toEqual({
+      statusCode: 404,
+      body: { error: "Issue not found" },
+    });
+  });
 });

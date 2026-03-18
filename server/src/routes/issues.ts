@@ -551,7 +551,11 @@ export function buildPmProjectionRootDescription(input: {
   });
 }
 
-export function issueRoutes(db: Db, storage: StorageService) {
+export function issueRoutes(
+  db: Db,
+  storage: StorageService,
+  opts?: { maxDocumentBodyChars?: number },
+) {
   const router = Router();
   const svc = issueService(db);
   const access = accessService(db);
@@ -1682,6 +1686,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     },
     constants: {
       maxAttachmentBytes: MAX_ATTACHMENT_BYTES,
+      maxDocumentBodyChars: opts?.maxDocumentBodyChars ?? 200_000,
       allowedAttachmentContentTypes: ALLOWED_ATTACHMENT_CONTENT_TYPES,
       pmIntakeLabelSpecs: PM_INTAKE_LABEL_SPECS,
     },

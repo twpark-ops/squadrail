@@ -42,13 +42,21 @@ function headersFromExpressRequest(req: Request): Headers {
   return headersFromNodeHeaders(req.headers);
 }
 
+function resolveBetterAuthSecret(): string {
+  const secret =
+    process.env.BETTER_AUTH_SECRET?.trim()
+    ?? process.env.SQUADRAIL_AGENT_JWT_SECRET?.trim();
+  if (!secret) {
+    throw new Error(
+      "BETTER_AUTH_SECRET (or SQUADRAIL_AGENT_JWT_SECRET) must be set when better-auth is enabled",
+    );
+  }
+  return secret;
+}
+
 export function createBetterAuthInstance(db: Db, config: Config): BetterAuthInstance {
   const baseUrl = config.authBaseUrlMode === "explicit" ? config.authPublicBaseUrl : undefined;
-  const secret =
-    process.env.BETTER_AUTH_SECRET ??
-    process.env.SQUADRAIL_AGENT_JWT_SECRET ??
-    process.env.SQUADRAIL_AGENT_JWT_SECRET ??
-    "squadrail-dev-secret";
+  const secret = resolveBetterAuthSecret();
 
   const authConfig = {
     baseURL: baseUrl,
@@ -64,7 +72,7 @@ export function createBetterAuthInstance(db: Db, config: Config): BetterAuthInst
     }),
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: false,
+      requireEmailVerification: config.authRequireEmailVerification,
     },
   };
 

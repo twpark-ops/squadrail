@@ -1,4 +1,5 @@
 import type { IssueDeliverable } from "@squadrail/shared";
+import type { Request, Response } from "express";
 import { assertCompanyAccess } from "../authz.js";
 import type { IssueRouteContext } from "./context.js";
 
@@ -8,17 +9,30 @@ import type { IssueRouteContext } from "./context.js";
  */
 export function registerIssueDeliverablesRoutes(ctx: IssueRouteContext) {
   const { router } = ctx;
-  const { svc, protocolSvc } = ctx.services;
+  const { svc } = ctx.services;
   const { withContentPath, loadIssueChangeSurface } = ctx.helpers;
 
-  router.get("/issues/:id/deliverables", async (req, res) => {
-    const issueId = req.params.id as string;
+  async function handleDeliverablesRead(input: {
+    issueId: string;
+    companyId?: string;
+    req: Request;
+    res: Response;
+  }) {
+    const { issueId, companyId, req, res } = input;
     const issue = await svc.getById(issueId);
     if (!issue) {
       res.status(404).json({ error: "Issue not found" });
       return;
     }
-    assertCompanyAccess(req, issue.companyId);
+    if (companyId) {
+      assertCompanyAccess(req, companyId);
+      if (issue.companyId !== companyId) {
+        res.status(404).json({ error: "Issue not found" });
+        return;
+      }
+    } else {
+      assertCompanyAccess(req, issue.companyId);
+    }
 
     // Fetch attachments and change surface in parallel
     const [attachments, changeSurface] = await Promise.all([
@@ -85,6 +99,23 @@ export function registerIssueDeliverablesRoutes(ctx: IssueRouteContext) {
     });
 
     res.json(deliverables);
+  }
+
+  router.get("/issues/:id/deliverables", async (req, res) => {
+    await handleDeliverablesRead({
+      issueId: req.params.id as string,
+      req,
+      res,
+    });
+  });
+
+  router.get("/companies/:companyId/issues/:issueId/deliverables", async (req, res) => {
+    await handleDeliverablesRead({
+      issueId: req.params.issueId as string,
+      companyId: req.params.companyId as string,
+      req,
+      res,
+    });
   });
 }
 

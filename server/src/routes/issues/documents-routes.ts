@@ -1,14 +1,15 @@
 import { z } from "zod";
-import { ISSUE_DOCUMENT_KEYS } from "@squadrail/shared";
 import { assertCompanyAccess, getActorInfo } from "../authz.js";
 import { createIssueDocumentService } from "../../services/issue-documents.js";
 import type { IssueRouteContext } from "./context.js";
 
-const upsertDocumentBodySchema = z.object({
-  title: z.string().min(1).max(500).optional(),
-  body: z.string(),
-  baseRevisionNumber: z.number().int().min(1).optional(),
-});
+function buildUpsertDocumentBodySchema(maxBodyChars: number) {
+  return z.object({
+    title: z.string().min(1).max(500).optional(),
+    body: z.string().max(maxBodyChars),
+    baseRevisionNumber: z.number().int().min(1).optional(),
+  });
+}
 
 /**
  * Register issue document CRUD routes.
@@ -23,7 +24,9 @@ const upsertDocumentBodySchema = z.object({
 export function registerIssueDocumentRoutes(ctx: IssueRouteContext) {
   const { router, db } = ctx;
   const { svc } = ctx.services;
+  const { maxDocumentBodyChars } = ctx.constants;
   const docService = createIssueDocumentService(db);
+  const upsertDocumentBodySchema = buildUpsertDocumentBodySchema(maxDocumentBodyChars);
 
   // -----------------------------------------------------------------------
   // LIST documents for an issue

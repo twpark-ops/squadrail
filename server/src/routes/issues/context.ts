@@ -431,6 +431,7 @@ export interface IssueRouteContext {
   };
   constants: {
     maxAttachmentBytes: number;
+    maxDocumentBodyChars: number;
     allowedAttachmentContentTypes: Set<string>;
     pmIntakeLabelSpecs: ReadonlyArray<{ name: string; color: string }>;
   };

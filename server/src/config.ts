@@ -45,6 +45,7 @@ export interface Config {
   allowedHostnames: string[];
   authBaseUrlMode: AuthBaseUrlMode;
   authPublicBaseUrl: string | undefined;
+  authRequireEmailVerification: boolean;
   databaseMode: DatabaseMode;
   databaseUrl: string | undefined;
   embeddedPostgresDataDir: string;
@@ -71,6 +72,7 @@ export interface Config {
   knowledgeEmbeddingBackfillIntervalMs: number;
   knowledgeEmbeddingBackfillBatchSize: number;
   companyDeletionEnabled: boolean;
+  issueDocumentMaxBodyChars: number;
 }
 
 export function loadConfig(): Config {
@@ -146,6 +148,14 @@ export function loadConfig(): Config {
     process.env.BETTER_AUTH_URL ??
     fileConfig?.auth?.publicBaseUrl;
   const authPublicBaseUrl = authPublicBaseUrlRaw?.trim() || undefined;
+  const authRequireEmailVerificationEnv = readEnvAlias(
+    "SQUADRAIL_AUTH_REQUIRE_EMAIL_VERIFICATION",
+    "BETTER_AUTH_REQUIRE_EMAIL_VERIFICATION",
+  );
+  const authRequireEmailVerification =
+    authRequireEmailVerificationEnv !== undefined
+      ? authRequireEmailVerificationEnv === "true"
+      : (fileConfig?.auth?.requireEmailVerification ?? false);
   const authBaseUrlMode: AuthBaseUrlMode =
     authBaseUrlModeFromEnv ??
     fileConfig?.auth?.baseUrlMode ??
@@ -195,6 +205,7 @@ export function loadConfig(): Config {
     allowedHostnames,
     authBaseUrlMode,
     authPublicBaseUrl,
+    authRequireEmailVerification,
     databaseMode: fileDatabaseMode,
     databaseUrl: process.env.DATABASE_URL ?? fileDbUrl,
     embeddedPostgresDataDir: resolveHomeAwarePath(
@@ -237,5 +248,14 @@ export function loadConfig(): Config {
       Math.min(50, Number(readEnvAlias("SQUADRAIL_KNOWLEDGE_BACKFILL_BATCH_SIZE", "SQUADRAIL_KNOWLEDGE_BACKFILL_BATCH_SIZE")) || 5),
     ),
     companyDeletionEnabled,
+    issueDocumentMaxBodyChars: Math.max(
+      1_000,
+      Math.min(
+        2_000_000,
+        Number(readEnvAlias("SQUADRAIL_ISSUE_DOCUMENT_MAX_BODY_CHARS", "SQUADRAIL_ISSUE_DOCUMENT_MAX_BODY_CHARS"))
+          || fileConfig?.server.issueDocumentMaxBodyChars
+          || 200_000,
+      ),
+    ),
   };
 }
