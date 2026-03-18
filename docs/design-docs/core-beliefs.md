@@ -28,3 +28,8 @@ Squadrail 저장소 현실에 맞게 적용한 것이다.
 5. Generated / reference 문서는 설계 문서와 섞지 않는다.
    - generated: 생성물, 보고서, export
    - references: API, deploy, runbook, adapter
+
+6. 새 문서는 템플릿에서 시작한다.
+   - active plan: `docs/exec-plans/active/_template.md`
+   - product spec: `docs/product-specs/_template.md`
+   - design doc: `docs/design-docs/_template.md`

@@ -6,7 +6,7 @@ date: "2026-03-15"
 
 # UI Squad Stage Implementation Backlog 2026
 
-상태: planning  
+상태: completed  
 브랜치: `feat/ui-agent-presence-2026`
 
 ## 1. Backlog 원칙
@@ -45,7 +45,7 @@ date: "2026-03-15"
 
 - `ui/src/components/squad-stage/*`
 - `ui/src/lib/squad-stage/*`
-- [`ui/src/index.css`](/home/taewoong/company-project/squadall-ui-agent-presence-2026/ui/src/index.css)
+- [`ui/src/index.css`](/home/taewoong/company-project/squadall/ui/src/index.css)
 
 ### 종료 조건
 

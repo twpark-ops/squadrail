@@ -12,9 +12,9 @@ UI와 운영 표면 관련 문서의 상위 진입점이다.
 
 ## Team / Stage / Presence
 
-- `ui-squad-stage-spec-2026.md`
+- `exec-plans/completed/ui-squad-stage-spec-2026.md`
 - `ui-squad-stage-office-tileset-plan-2026.md`
-- `ui-squad-stage-implementation-backlog-2026.md`
+- `exec-plans/completed/ui-squad-stage-implementation-backlog-2026.md`
 - `ui-squad-stage-test-scenarios-2026.md`
 
 ## Onboarding / Product UX

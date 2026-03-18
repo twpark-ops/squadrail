@@ -6,15 +6,15 @@ date: "2026-03-15"
 
 # UI Squad Stage Spec 2026
 
-상태: design review  
+상태: completed  
 브랜치: `feat/ui-agent-presence-2026`  
 워크트리: `/home/taewoong/company-project/squadall-ui-agent-presence-2026`
 
 ## Related Docs
 
-- [office tileset plan](/home/taewoong/company-project/squadall-ui-agent-presence-2026/docs/ui-squad-stage-office-tileset-plan-2026.md)
-- [implementation backlog](/home/taewoong/company-project/squadall-ui-agent-presence-2026/docs/ui-squad-stage-implementation-backlog-2026.md)
-- [test scenarios](/home/taewoong/company-project/squadall-ui-agent-presence-2026/docs/ui-squad-stage-test-scenarios-2026.md)
+- [office tileset plan](/home/taewoong/company-project/squadall/docs/ui-squad-stage-office-tileset-plan-2026.md)
+- [implementation backlog](/home/taewoong/company-project/squadall/docs/exec-plans/completed/ui-squad-stage-implementation-backlog-2026.md)
+- [test scenarios](/home/taewoong/company-project/squadall/docs/ui-squad-stage-test-scenarios-2026.md)
 
 ## 1. 문제 정의
 

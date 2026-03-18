@@ -7,6 +7,6 @@
 - `phase2-delivery-contract-mvp.md`
 - `phase3-real-repo-execution-hardening.md`
 - `phase4-operations-visibility.md`
-- `../../ui-squad-stage-spec-2026.md`
-- `../../ui-squad-stage-implementation-backlog-2026.md`
+- `ui-squad-stage-spec-2026.md`
+- `ui-squad-stage-implementation-backlog-2026.md`
 - `full-org-loop-e2e-plan.md`
