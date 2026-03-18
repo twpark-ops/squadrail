@@ -4,6 +4,7 @@
 
 ## Core
 
+- `../../AGENTS.md`
 - `../../ARCHITECTURE.md`
 - `../DESIGN.md`
 - `../start/architecture.md`

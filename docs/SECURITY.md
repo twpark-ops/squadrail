@@ -4,9 +4,9 @@
 
 ## Current Security Program
 
-- `phase-0-security-baseline-design-2026-03-18.md`
+- `exec-plans/active/phase-0-security-baseline-design-2026-03-18.md`
 - `review-findings-2026-03-18.md`
-- `canonical-stabilization-sprint-plan-2026-03-18.md`
+- `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
 
 ## Authentication and Secrets
 

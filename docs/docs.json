@@ -22,6 +22,33 @@
   "navigation": {
     "tabs": [
       {
+        "tab": "Engineering",
+        "groups": [
+          {
+            "group": "Maps",
+            "pages": [
+              "DESIGN",
+              "PRODUCT_SENSE",
+              "PLANS",
+              "RELIABILITY",
+              "SECURITY",
+              "QUALITY_SCORE",
+              "FRONTEND"
+            ]
+          },
+          {
+            "group": "Execution",
+            "pages": [
+              "design-docs/index",
+              "exec-plans/index",
+              "exec-plans/active/index",
+              "product-specs/index",
+              "references/index"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Get Started",
         "groups": [
           {

@@ -5,10 +5,10 @@
 ## Active
 
 - `exec-plans/active/index.md`
-- `canonical-stabilization-sprint-plan-2026-03-18.md`
-- `phase-0-security-baseline-design-2026-03-18.md`
-- `p1-retrieval-stabilization-plan.md`
-- `five-axis-hardening-plan-2026-03-18.md`
+- `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
+- `exec-plans/active/phase-0-security-baseline-design-2026-03-18.md`
+- `exec-plans/active/p1-retrieval-stabilization-plan.md`
+- `exec-plans/active/five-axis-hardening-plan-2026-03-18.md`
 
 ## Completed or Superseded
 

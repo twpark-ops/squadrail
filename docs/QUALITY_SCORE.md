@@ -9,9 +9,9 @@
 
 ## Hardening Programs
 
-- `five-axis-hardening-plan-2026-03-18.md`
-- `canonical-stabilization-sprint-plan-2026-03-18.md`
-- `p1-retrieval-stabilization-plan.md`
+- `exec-plans/active/five-axis-hardening-plan-2026-03-18.md`
+- `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
+- `exec-plans/active/p1-retrieval-stabilization-plan.md`
 
 ## Operational Backlog
 

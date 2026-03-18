@@ -11,6 +11,7 @@
 
 ## Target Structure
 
+- `AGENTS.md`
 - `ARCHITECTURE.md`
 - `docs/DESIGN.md`
 - `docs/FRONTEND.md`
@@ -37,10 +38,10 @@
 
 ### Active execution plans
 
-- `canonical-stabilization-sprint-plan-2026-03-18.md`
-- `phase-0-security-baseline-design-2026-03-18.md`
-- `p1-retrieval-stabilization-plan.md`
-- `five-axis-hardening-plan-2026-03-18.md`
+- `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
+- `exec-plans/active/phase-0-security-baseline-design-2026-03-18.md`
+- `exec-plans/active/p1-retrieval-stabilization-plan.md`
+- `exec-plans/active/five-axis-hardening-plan-2026-03-18.md`
 
 ### Product specs
 
@@ -60,6 +61,7 @@
 
 ## Exit Criteria
 
-1. 루트 진입 문서가 생성되어 있다.
-2. 새 문서는 카테고리 기준으로 위치를 찾을 수 있다.
-3. active plan과 completed/superseded plan 구분 규칙이 문서화돼 있다.
+1. 루트 `AGENTS.md`와 `ARCHITECTURE.md`가 존재한다.
+2. 루트 진입 문서가 생성되어 있다.
+3. 새 문서는 카테고리 기준으로 위치를 찾을 수 있다.
+4. active plan과 completed/superseded plan 구분 규칙이 문서화돼 있다.

@@ -23,4 +23,4 @@
 - `phase2-delivery-contract-mvp.md`
 - `phase3-real-repo-execution-hardening.md`
 - `phase4-operations-visibility.md`
-- `five-axis-hardening-plan-2026-03-18.md`
+- `exec-plans/active/five-axis-hardening-plan-2026-03-18.md`

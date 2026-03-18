@@ -4,12 +4,12 @@
 
 ### Reliability
 
-- `../canonical-stabilization-sprint-plan-2026-03-18.md`
-- `../five-axis-hardening-plan-2026-03-18.md`
+- `active/canonical-stabilization-sprint-plan-2026-03-18.md`
+- `active/five-axis-hardening-plan-2026-03-18.md`
 
 ### Retrieval / Knowledge
 
-- `../p1-retrieval-stabilization-plan.md`
+- `active/p1-retrieval-stabilization-plan.md`
 - `../retrieval-god-file-refactor-debt.md`
 
 ### Product / UX
@@ -20,5 +20,5 @@
 
 ### Security
 
-- `../phase-0-security-baseline-design-2026-03-18.md`
+- `active/phase-0-security-baseline-design-2026-03-18.md`
 - `../review-findings-2026-03-18.md`

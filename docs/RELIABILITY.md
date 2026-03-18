@@ -4,15 +4,15 @@
 
 ## Canonical Stability
 
-- `canonical-stabilization-sprint-plan-2026-03-18.md`
+- `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `full-delivery-e2e-plan.md`
 - `full-org-loop-e2e-plan.md`
 - `autonomous-org-full-loop-plan.md`
 
 ## Retrieval / Runtime Stability
 
-- `p1-retrieval-stabilization-plan.md`
-- `five-axis-hardening-plan-2026-03-18.md`
+- `exec-plans/active/p1-retrieval-stabilization-plan.md`
+- `exec-plans/active/five-axis-hardening-plan-2026-03-18.md`
 - `phase3-real-repo-execution-hardening.md`
 
 ## Runbooks
