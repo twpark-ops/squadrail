@@ -463,6 +463,102 @@ describe("codex execute", () => {
     }
   });
 
+  it("allows concurrent executions to reuse the same scoped Codex home without link races", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-concurrent-home-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const captureA = path.join(root, "capture-a.json");
+    const captureB = path.join(root, "capture-b.json");
+    const sharedCodexHome = path.join(root, "shared-codex-home");
+    const squadrailHome = path.join(root, "squadrail-home");
+    const previousHome = process.env.HOME;
+    const previousSquadrailHome = process.env.SQUADRAIL_HOME;
+    const previousSquadrailInstanceId = process.env.SQUADRAIL_INSTANCE_ID;
+    const previousCodexHome = process.env.CODEX_HOME;
+
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.mkdir(path.join(sharedCodexHome, "rules"), { recursive: true });
+    await fs.writeFile(path.join(sharedCodexHome, "auth.json"), '{"token":"shared"}\n', "utf8");
+    await fs.writeFile(path.join(sharedCodexHome, ".personality_migration"), "done\n", "utf8");
+    await fs.writeFile(path.join(sharedCodexHome, "rules", "default.rules"), "allow: true\n", "utf8");
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      process.env.HOME = root;
+      process.env.SQUADRAIL_HOME = squadrailHome;
+      process.env.SQUADRAIL_INSTANCE_ID = "worktree_1";
+      process.env.CODEX_HOME = sharedCodexHome;
+
+      const runExecute = (runId: string, capturePath: string) =>
+        execute({
+          runId,
+          agent: {
+            id: `agent-${runId}`,
+            companyId: "company-1",
+            name: "Codex Engineer",
+            adapterType: "codex_local",
+            adapterConfig: {},
+          },
+          runtime: {
+            sessionId: null,
+            sessionParams: null,
+            sessionDisplayId: null,
+            taskKey: null,
+          },
+          config: {
+            command: commandPath,
+            cwd: root,
+            env: {
+              SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+            },
+            promptTemplate: "Follow the Squadrail heartbeat.",
+          },
+          context: {
+            squadrailWorkspace: {
+              cwd: workspace,
+              source: "project_shared",
+              workspaceId: "workspace-concurrent-home",
+              repoUrl: "https://github.com/acme/swiftsight",
+              repoRef: "main",
+              workspaceUsage: "analysis",
+            },
+          },
+          authToken: "run-jwt-token",
+          onLog: async () => {},
+          onMeta: async () => {},
+        });
+
+      const [resultA, resultB] = await Promise.all([
+        runExecute("run-concurrent-a", captureA),
+        runExecute("run-concurrent-b", captureB),
+      ]);
+
+      expect(resultA.exitCode).toBe(0);
+      expect(resultB.exitCode).toBe(0);
+
+      const payloadA = JSON.parse(await fs.readFile(captureA, "utf8")) as CapturePayload;
+      const payloadB = JSON.parse(await fs.readFile(captureB, "utf8")) as CapturePayload;
+      expect(payloadA.codexHome).toBeTruthy();
+      expect(payloadA.codexHome).toBe(payloadB.codexHome);
+
+      const sharedLink = path.join(payloadA.codexHome as string, ".personality_migration");
+      expect((await fs.lstat(sharedLink)).isSymbolicLink()).toBe(true);
+      expect(await fs.realpath(sharedLink)).toBe(
+        await fs.realpath(path.join(sharedCodexHome, ".personality_migration")),
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousSquadrailHome === undefined) delete process.env.SQUADRAIL_HOME;
+      else process.env.SQUADRAIL_HOME = previousSquadrailHome;
+      if (previousSquadrailInstanceId === undefined) delete process.env.SQUADRAIL_INSTANCE_ID;
+      else process.env.SQUADRAIL_INSTANCE_ID = previousSquadrailInstanceId;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("injects runtime note with protocol wake context", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-execute-"));
     const workspace = path.join(root, "workspace");

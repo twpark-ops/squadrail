@@ -123,7 +123,7 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
 
   await page.goto(`${baseUrl}/${companyPrefix}/agents/all`);
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
-  await expect(page.getByText("Live execution")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Org Structure", exact: true })).toBeVisible();
 
   await page.goto(`${baseUrl}/${companyPrefix}/overview`);
   await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
@@ -346,6 +346,14 @@ test("onboarding wizard completes blueprint to quick-request happy path", async 
   await page.getByRole("button", { name: /Add company/i }).click();
   await expect(
     page.getByRole("heading", {
+      name: "Tell us about your setup",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("What are you building?")).toBeVisible();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
       name: "Create the operating company",
       exact: true,
     }),
@@ -429,9 +437,12 @@ test("onboarding wizard completes blueprint to quick-request happy path", async 
       response.request().method() === "POST" &&
       response.status() === 200 &&
       url.includes("/api/companies/") &&
-      url.includes("/adapters/claude_local/test-environment")
+      url.includes("/adapters/") &&
+      url.includes("/test-environment")
     );
   });
+  await page.getByRole("button", { name: "Test now", exact: true }).click();
+  await envProbeResponse;
   const workspaceCreateResponse = page.waitForResponse((response) => {
     const url = response.url();
     return (
@@ -452,7 +463,6 @@ test("onboarding wizard completes blueprint to quick-request happy path", async 
   });
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await Promise.all([
-    envProbeResponse,
     workspaceCreateResponse,
     setupProgressPatchResponse,
   ]);

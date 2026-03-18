@@ -2766,12 +2766,18 @@ export function knowledgeService(db: Db) {
       const feedbackStats = await db
         .select({
           eventCount: sql<number>`count(*)`,
+          runCount: sql<number>`count(distinct ${retrievalFeedbackEvents.retrievalRunId})`,
           positiveCount: sql<number>`coalesce(sum(case when ${retrievalFeedbackEvents.weight} > 0 then 1 else 0 end), 0)`,
           negativeCount: sql<number>`coalesce(sum(case when ${retrievalFeedbackEvents.weight} < 0 then 1 else 0 end), 0)`,
         })
         .from(retrievalFeedbackEvents)
         .where(and(...feedbackStatsConditions))
-        .then((result) => result[0] ?? { eventCount: 0, positiveCount: 0, negativeCount: 0 });
+        .then((result) => result[0] ?? {
+          eventCount: 0,
+          runCount: 0,
+          positiveCount: 0,
+          negativeCount: 0,
+        });
       const feedbackTypeCounts = await db
         .select({
           feedbackType: retrievalFeedbackEvents.feedbackType,
@@ -2992,8 +2998,12 @@ export function knowledgeService(db: Db) {
         feedbackEventCount: Number(feedbackStats.eventCount ?? 0),
         positiveFeedbackCount: Number(feedbackStats.positiveCount ?? 0),
         negativeFeedbackCount: Number(feedbackStats.negativeCount ?? 0),
-        feedbackCoverageRate: totalRuns > 0 ? personalizedRunCount / totalRuns : 0,
+        feedbackCoverageRate:
+          totalRuns > 0
+            ? Math.min(1, Number(feedbackStats.runCount ?? 0) / totalRuns)
+            : 0,
         profileCount,
+        profileAppliedRunRate: totalRuns > 0 ? personalizedRunCount / totalRuns : 0,
         staleVersionPenaltyCount,
         exactCommitMatchCount,
         graphExpandedRuns,

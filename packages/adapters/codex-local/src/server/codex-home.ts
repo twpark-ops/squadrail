@@ -89,11 +89,33 @@ async function ensureParentDir(target: string): Promise<void> {
   await fs.mkdir(path.dirname(target), { recursive: true });
 }
 
+async function isExpectedSymlink(target: string, source: string): Promise<boolean> {
+  const existing = await fs.lstat(target).catch(() => null);
+  if (!existing?.isSymbolicLink()) return false;
+  const linkedPath = await fs.readlink(target).catch(() => null);
+  if (!linkedPath) return false;
+  return path.resolve(path.dirname(target), linkedPath) === source;
+}
+
+async function createSymlinkIdempotently(target: string, source: string): Promise<void> {
+  await ensureParentDir(target);
+  try {
+    await fs.symlink(source, target);
+    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  if (await isExpectedSymlink(target, source)) return;
+  throw new Error(`Failed to seed scoped Codex home link for ${target}`);
+}
+
 async function ensureSharedLink(target: string, source: string): Promise<void> {
   const existing = await fs.lstat(target).catch(() => null);
   if (!existing) {
-    await ensureParentDir(target);
-    await fs.symlink(source, target);
+    await createSymlinkIdempotently(target, source);
     return;
   }
 
@@ -106,8 +128,7 @@ async function ensureSharedLink(target: string, source: string): Promise<void> {
   }
 
   await fs.rm(target, { recursive: true, force: true });
-  await ensureParentDir(target);
-  await fs.symlink(source, target);
+  await createSymlinkIdempotently(target, source);
 }
 
 export async function prepareScopedCodexHome(

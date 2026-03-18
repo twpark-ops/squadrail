@@ -280,21 +280,24 @@ describe("heartbeat service flow coverage", () => {
     });
   });
 
-  it("skips wakeups for subtask issues before creating follow-up runs", async () => {
-    const { db, insertValues } = createHeartbeatDbMock({
+  it("queues wakeups for visible subtask issues", async () => {
+    const { db, insertValues, updateSets } = createHeartbeatDbMock({
       selectRows: new Map([
         [agents, [[makeAgent()]]],
         [issues, [[{
-          id: "issue-hidden",
+          id: "issue-subtask",
           companyId: "company-1",
           priority: "high",
           parentId: "root-issue-1",
           executionRunId: null,
           executionAgentNameKey: null,
         }]]],
+        [heartbeatRuns, [[]]],
+        [agentRuntimeState, [[]]],
       ]),
       insertRows: new Map([
-        [agentWakeupRequests, [[{ id: "wake-hidden-1" }]]],
+        [agentWakeupRequests, [[{ id: "wake-subtask-1" }]]],
+        [heartbeatRuns, [[makeRun({ id: "run-subtask-1" })]]],
       ]),
     });
     const service = heartbeatService(db as never);
@@ -304,20 +307,32 @@ describe("heartbeat service flow coverage", () => {
       triggerDetail: "system",
       reason: "protocol_review_requested",
       payload: {
-        issueId: "issue-hidden",
+        issueId: "issue-subtask",
       },
       contextSnapshot: {
-        issueId: "issue-hidden",
+        issueId: "issue-subtask",
         wakeReason: "protocol_review_requested",
       },
     });
 
-    expect(run).toBeNull();
-    expect(insertValues.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
-      status: "skipped",
-      reason: "issue_is_subtask",
+    expect(run).toMatchObject({
+      id: "run-subtask-1",
+      wakeupRequestId: "wake-1",
+      status: "queued",
     });
-    expect(insertValues.some((entry) => entry.table === heartbeatRuns)).toBe(false);
+    expect(insertValues.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      status: "queued",
+      reason: "protocol_review_requested",
+    });
+    expect(insertValues.find((entry) => entry.table === heartbeatRuns)?.value).toMatchObject({
+      wakeupRequestId: "wake-subtask-1",
+      contextSnapshot: expect.objectContaining({
+        issueId: "issue-subtask",
+      }),
+    });
+    expect(updateSets.find((entry) => entry.table === agentWakeupRequests)?.value).toMatchObject({
+      runId: "run-subtask-1",
+    });
   });
 
   it("ticks timers only for elapsed enabled agents", async () => {

@@ -164,7 +164,7 @@ function ProjectIssuesList({ projectId, companyId }: { projectId: string; compan
 
   const { data: issues, isLoading, error } = useQuery({
     queryKey: queryKeys.issues.listByProject(companyId, projectId),
-    queryFn: () => issuesApi.list(companyId, { projectId }),
+    queryFn: () => issuesApi.list(companyId, { projectId, includeSubtasks: true }),
     enabled: !!companyId,
   });
 

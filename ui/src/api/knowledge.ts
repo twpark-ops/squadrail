@@ -250,6 +250,8 @@ export interface KnowledgeQualitySummary {
   negativeFeedbackCount: number;
   feedbackCoverageRate: number;
   profileCount: number;
+  profileAppliedRunCount: number;
+  profileAppliedRunRate: number;
   graphExpandedRuns: number;
   multiHopGraphExpandedRuns: number;
   graphEntityTypeCounts: Record<string, number>;

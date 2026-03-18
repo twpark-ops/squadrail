@@ -3248,23 +3248,6 @@ export function heartbeatService(db: Db) {
           enrichedContextSnapshot.issuePriority = issue.priority;
         }
 
-        if (issue.parentId) {
-          await tx.insert(agentWakeupRequests).values(buildWakeupRequestValues({
-            companyId: agent.companyId,
-            agentId,
-            source,
-            triggerDetail,
-            reason: "issue_is_subtask",
-            payload,
-            status: "skipped",
-            requestedByActorType: opts.requestedByActorType,
-            requestedByActorId: opts.requestedByActorId,
-            idempotencyKey: opts.idempotencyKey,
-            finishedAt: new Date(),
-          }));
-          return { kind: "skipped" as const };
-        }
-
         let activeExecutionRun = issue.executionRunId
           ? await tx
             .select()

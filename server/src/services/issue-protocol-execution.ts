@@ -357,6 +357,15 @@ export function buildProtocolExecutionDispatchPlan(input: {
       (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
       internalWorkItemKind !== "implementation" &&
       isReviewerWatchEnabled(input.issueContext);
+    const leadImplementationWatchOnly =
+      recipient.recipientType === "agent" &&
+      recipient.role === "tech_lead" &&
+      (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
+      internalWorkItemKind === "implementation" &&
+      isLeadWatchEnabled(input.issueContext) &&
+      typeof protocolPayload.assigneeAgentId === "string" &&
+      protocolPayload.assigneeAgentId.trim().length > 0 &&
+      protocolPayload.assigneeAgentId !== recipient.recipientId;
     const base = buildDispatchPlanBase({
       issueId: input.issueId,
       protocolMessageId: input.protocolMessageId,
@@ -377,6 +386,10 @@ export function buildProtocolExecutionDispatchPlan(input: {
     });
 
     if (recipient.recipientType !== "agent") {
+      return { kind: "notify_only", ...base };
+    }
+
+    if (leadImplementationWatchOnly) {
       return { kind: "notify_only", ...base };
     }
 

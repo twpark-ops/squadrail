@@ -490,6 +490,17 @@ function techLeadInstructions() {
   ].join("\n");
 }
 
+function pmInstructions() {
+  return [
+    "# Delivery Fixture PM",
+    "",
+    "- You are present only to satisfy PM intake routing requirements for the canonical full-delivery harness.",
+    "- Do not edit code.",
+    "- Do not send protocol messages from autonomous wakes in this fixture.",
+    "- The E2E harness will preview and apply PM intake projection explicitly as the board actor.",
+  ].join("\n");
+}
+
 async function createFixtureRepo(rootDir) {
   await mkdir(path.join(rootDir, "src"), { recursive: true });
   await mkdir(path.join(rootDir, "test"), { recursive: true });
@@ -590,24 +601,67 @@ async function probeCodexBinary() {
 
 async function createAgentInstructions(rootDir) {
   await mkdir(rootDir, { recursive: true });
+  const pmPath = path.join(rootDir, "pm.md");
   const engineerPath = path.join(rootDir, "engineer.md");
   const reviewerPath = path.join(rootDir, "reviewer.md");
   const techLeadPath = path.join(rootDir, "tech-lead.md");
+  await writeFile(pmPath, pmInstructions());
   await writeFile(engineerPath, engineerInstructions());
   await writeFile(reviewerPath, reviewerInstructions());
   await writeFile(techLeadPath, techLeadInstructions());
-  return { engineerPath, reviewerPath, techLeadPath };
+  return { pmPath, engineerPath, reviewerPath, techLeadPath };
 }
 
 async function fetchIssueSnapshot(issueId) {
-  const [issue, protocolState, protocolMessages, runs, briefs] = await Promise.all([
-    api(`/api/issues/${issueId}`),
-    api(`/api/issues/${issueId}/protocol/state`),
-    api(`/api/issues/${issueId}/protocol/messages`),
-    api(`/api/issues/${issueId}/runs`),
-    api(`/api/issues/${issueId}/protocol/briefs`),
-  ]);
-  return { issue, protocolState, protocolMessages, runs, briefs };
+  let lastError = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      const [issue, protocolState, protocolMessages, runs, briefs] = await Promise.all([
+        api(`/api/issues/${issueId}`),
+        api(`/api/issues/${issueId}/protocol/state`),
+        api(`/api/issues/${issueId}/protocol/messages`),
+        api(`/api/issues/${issueId}/runs`),
+        api(`/api/issues/${issueId}/protocol/briefs`),
+      ]);
+      return { issue, protocolState, protocolMessages, runs, briefs };
+    } catch (err) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : String(err);
+      const issueNotReady =
+        message.includes(`/api/issues/${issueId} failed with 404`)
+        || message.includes(`/api/issues/${issueId}/protocol/state failed with 404`);
+      if (!issueNotReady) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw lastError ?? new Error(`Timed out waiting for issue snapshot: ${issueId}`);
+}
+
+async function createPmIntakeIssue(companyId, request) {
+  const created = await api(`/api/companies/${companyId}/intake/issues`, {
+    method: "POST",
+    body: {
+      request,
+      priority: "high",
+    },
+  });
+  return created.issue ?? created;
+}
+
+async function previewProjection(issueId, body = { coordinationOnly: false }) {
+  return api(`/api/issues/${issueId}/intake/projection-preview`, {
+    method: "POST",
+    body,
+  });
+}
+
+async function applyProjection(issueId, draft) {
+  return api(`/api/issues/${issueId}/intake/projection`, {
+    method: "POST",
+    body: draft,
+  });
 }
 
 function summarizeMessage(message) {
@@ -755,6 +809,24 @@ async function main() {
     });
     note(`Adapter environment probe: ${JSON.stringify(adapterProbe)}`);
 
+    const pm = await api(`/api/companies/${company.id}/agents`, {
+      method: "POST",
+      body: {
+        name: "Delivery PM",
+        role: "pm",
+        title: "Product Manager",
+        adapterType: "codex_local",
+        adapterConfig: {
+          cwd: fixtureRepo,
+          instructionsFilePath: instructionPaths.pmPath,
+          dangerouslyBypassApprovalsAndSandbox: true,
+          search: false,
+        },
+        runtimeConfig: {},
+        budgetMonthlyCents: 0,
+      },
+    });
+
     const techLead = await api(`/api/companies/${company.id}/agents`, {
       method: "POST",
       body: {
@@ -812,70 +884,60 @@ async function main() {
     section("Optional Knowledge Import");
     await maybeImportKnowledge(project.id, primaryWorkspace.id);
 
-    section("Issue Creation");
-    const issue = await api(`/api/companies/${company.id}/issues`, {
-      method: "POST",
-      body: {
-        projectId: project.id,
-        title: "Normalize release label separators in the delivery fixture",
-        description: [
-          "Fix `normalizeReleaseLabel` in `src/release-label.js`.",
-          "",
-          "Expected behavior:",
-          "- trim surrounding whitespace",
-          "- lowercase the final label",
-          "- convert spaces, `/`, `_`, and repeated punctuation into single `-` separators",
-          "- keep the base workspace unchanged and do implementation work in an isolated workspace",
-          "",
-          "Success conditions:",
-          "- `pnpm test` passes",
-          "- `pnpm build` passes",
-          "- submit structured review handoff and close the issue",
-        ].join("\n"),
-        status: "backlog",
-        priority: "high",
-      },
-    });
+    section("Quick Request / PM Projection");
+    const intakeIssue = await createPmIntakeIssue(
+      company.id,
+      [
+        "The Siemens-style release label normalization in the delivery fixture is wrong.",
+        "",
+        "Symptoms:",
+        "- `normalizeReleaseLabel` stores labels with inconsistent separators instead of a single `-`",
+        "- whitespace trimming and lowercase behavior should still hold",
+        "- the fix must happen in an isolated implementation workspace without mutating the base checkout",
+        "",
+        "Expected behavior:",
+        "- trim surrounding whitespace",
+        "- lowercase the final label",
+        "- convert spaces, `/`, `_`, and repeated punctuation into single `-` separators",
+        "- keep the base workspace unchanged and do implementation work in an isolated workspace",
+        "",
+        "Success conditions:",
+        "- `pnpm test` passes",
+        "- `pnpm build` passes",
+        "- submit structured review handoff and close the projected delivery issue",
+      ].join("\n"),
+    );
+    note(`Quick request created: ${intakeIssue.identifier ?? intakeIssue.id}`);
 
-    section("Assignment");
-    await api(`/api/issues/${issue.id}/protocol/messages`, {
-      method: "POST",
-      body: {
-        messageType: "ASSIGN_TASK",
-        sender: {
-          actorType: "user",
-          actorId: "local-board",
-          role: "human_board",
-        },
-        recipients: [
-          { recipientType: "agent", recipientId: engineer.id, role: "engineer" },
-          { recipientType: "agent", recipientId: reviewer.id, role: "reviewer" },
-          { recipientType: "agent", recipientId: techLead.id, role: "tech_lead" },
-        ],
-        workflowStateBefore: "backlog",
-        workflowStateAfter: "assigned",
-        summary: "Run the full delivery fixture through implementation, review, and closure.",
-        requiresAck: false,
-        payload: {
-          goal: "Fix the delivery fixture without mutating the base workspace checkout.",
-          acceptanceCriteria: [
-            "normalizeReleaseLabel collapses separators into single hyphens",
-            "pnpm test passes in the isolated implementation workspace",
-            "pnpm build passes in the isolated implementation workspace",
-          ],
-          definitionOfDone: [
-            "Engineer posts SUBMIT_FOR_REVIEW with structured handoff",
-            "Reviewer posts APPROVE_IMPLEMENTATION",
-            "Tech Lead posts CLOSE_TASK",
-          ],
-          priority: "high",
-          assigneeAgentId: engineer.id,
-          reviewerAgentId: reviewer.id,
-          requiredKnowledgeTags: ["delivery-fixture", "release-label"],
-        },
-        artifacts: [],
-      },
+    const projectionPreview = await previewProjection(intakeIssue.id, {
+      // Keep the intake root as a PM-owned coordination record and drive the
+      // autonomous delivery loop through the projected child issue only.
+      coordinationOnly: true,
     });
+    if (projectionPreview.selectedProjectId !== project.id) {
+      throw new Error(
+        `Projection selected the wrong project: expected ${project.id}, got ${projectionPreview.selectedProjectId}`,
+      );
+    }
+    if (projectionPreview.staffing.techLeadAgentId !== techLead.id) {
+      throw new Error("Projection did not assign the expected tech lead");
+    }
+    if (projectionPreview.staffing.implementationAssigneeAgentId !== engineer.id) {
+      throw new Error("Projection did not assign the expected engineer");
+    }
+    if (projectionPreview.staffing.reviewerAgentId !== reviewer.id) {
+      throw new Error("Projection did not assign the expected reviewer");
+    }
+    note(`Projection selected ${projectionPreview.selectedProjectName ?? project.name}.`);
+
+    const projection = await applyProjection(intakeIssue.id, projectionPreview.draft);
+    const deliveryIssue = Array.isArray(projection.projectedWorkItems)
+      ? projection.projectedWorkItems[0] ?? null
+      : null;
+    if (!deliveryIssue?.id) {
+      throw new Error("PM intake projection did not create a projected delivery issue");
+    }
+    note(`Projected delivery issue: ${deliveryIssue.identifier ?? deliveryIssue.id}`);
 
     section("Polling Delivery Loop");
     const seenMessages = new Set();
@@ -888,7 +950,7 @@ async function main() {
         throw new Error(`Server exited early. Inspect log: ${serverLog}`);
       }
 
-      const snapshot = await fetchIssueSnapshot(issue.id);
+      const snapshot = await fetchIssueSnapshot(deliveryIssue.id);
 
       if (snapshot.protocolState?.workflowState !== lastState) {
         lastState = snapshot.protocolState?.workflowState ?? null;
@@ -909,6 +971,7 @@ async function main() {
 
       if (snapshot.protocolState?.workflowState === "done") {
         section("Post-Completion Verification");
+        const rootSnapshot = await fetchIssueSnapshot(intakeIssue.id);
         const messageTypes = new Set(snapshot.protocolMessages.map((message) => message.messageType));
         const requiredTypes = [
           "ASSIGN_TASK",
@@ -923,6 +986,13 @@ async function main() {
           if (!messageTypes.has(messageType)) {
             throw new Error(`Missing required protocol message type: ${messageType}`);
           }
+        }
+
+        const rootMessageTypes = new Set(rootSnapshot.protocolMessages.map((message) => message.messageType));
+        if (!rootMessageTypes.has("ASSIGN_TASK")) {
+          throw new Error(
+            `Root intake issue did not record the expected PM loop. Root messages: ${Array.from(rootMessageTypes).join(", ")}`,
+          );
         }
 
         if (snapshot.briefs.length < 2) {
@@ -975,7 +1045,8 @@ async function main() {
           throw new Error("Base workspace unexpectedly passed after isolated implementation");
         }
 
-        note(`Issue identifier: ${snapshot.issue.identifier}`);
+        note(`Root issue identifier: ${rootSnapshot.issue.identifier}`);
+        note(`Projected issue identifier: ${snapshot.issue.identifier}`);
         note(`Isolated workspace: ${isolatedWorkspacePath}`);
         note(`Server log: ${serverLog}`);
         note(`Temp root: ${tempRoot}`);
@@ -990,7 +1061,7 @@ async function main() {
       await sleep(POLL_INTERVAL_MS);
     }
 
-    const timedOutSnapshot = await fetchIssueSnapshot(issue.id);
+    const timedOutSnapshot = await fetchIssueSnapshot(deliveryIssue.id);
     throw new Error(
       [
         `Full delivery E2E timed out after ${E2E_TIMEOUT_MS}ms.`,

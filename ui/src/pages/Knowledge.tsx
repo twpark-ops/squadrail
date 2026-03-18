@@ -538,12 +538,12 @@ export function Knowledge() {
                       </div>
                     )}
                     {qualityQuery.data && (
-                      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
                         <div className="rounded-[0.95rem] border border-border bg-background/72 px-4 py-3.5">
                           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                             Feedback posture
                           </div>
-                          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                          <div className="mt-3 grid gap-3 sm:grid-cols-4">
                             <div>
                               <div className="text-[11px] text-muted-foreground">
                                 Events
@@ -561,6 +561,20 @@ export function Knowledge() {
                                   qualityQuery.data.feedbackCoverageRate * 100
                                 ).toFixed(0)}
                                 %
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[11px] text-muted-foreground">
+                                Profile-applied runs
+                              </div>
+                              <div className="mt-1 text-xl font-semibold text-foreground">
+                                {qualityQuery.data.profileAppliedRunCount.toLocaleString()}
+                              </div>
+                              <div className="mt-1 text-[11px] text-muted-foreground">
+                                {(
+                                  qualityQuery.data.profileAppliedRunRate * 100
+                                ).toFixed(0)}
+                                % of retrieval runs
                               </div>
                             </div>
                             <div>

@@ -1276,10 +1276,16 @@ export function IssueDetail() {
     enabled: !!issueId,
   });
 
+  const commentsTabActive = detailTab === "comments";
+  const subissuesTabActive = detailTab === "subissues";
+  const documentsTabActive = detailTab === "documents";
+  const activityTabActive = detailTab === "activity";
+  const deliverablesTabActive = detailTab === "deliverables";
+
   const { data: comments } = useQuery({
     queryKey: queryKeys.issues.comments(issueId!),
     queryFn: () => issuesApi.listComments(issueId!),
-    enabled: !!issueId,
+    enabled: !!issueId && commentsTabActive,
   });
 
   const { data: protocolState } = useQuery({
@@ -1323,14 +1329,14 @@ export function IssueDetail() {
   const { data: changeSurface } = useQuery({
     queryKey: queryKeys.issues.changeSurface(issueId!),
     queryFn: () => issuesApi.getChangeSurface(issueId!),
-    enabled: !!issueId,
+    enabled: !!issueId && issueSection === "Changes",
     refetchInterval: issueSection === "Changes" ? 5000 : false,
   });
 
   const { data: activity } = useQuery({
     queryKey: queryKeys.issues.activity(issueId!),
     queryFn: () => activityApi.forIssue(issueId!),
-    enabled: !!issueId,
+    enabled: !!issueId && activityTabActive,
   });
 
   const { data: linkedRuns } = useQuery({
@@ -1355,13 +1361,13 @@ export function IssueDetail() {
   const { data: deliverables } = useQuery({
     queryKey: queryKeys.issues.deliverables(issueId!),
     queryFn: () => issuesApi.deliverables(issueId!),
-    enabled: !!issueId,
+    enabled: !!issueId && deliverablesTabActive,
   });
 
   const { data: issueDocuments, refetch: refetchDocuments } = useQuery({
     queryKey: queryKeys.issues.documents(issueId!),
     queryFn: () => issuesApi.documents.list(issue!.companyId, issueId!),
-    enabled: !!issueId && !!issue,
+    enabled: !!issueId && !!issue && documentsTabActive,
   });
 
   const { data: liveRuns } = useQuery({
@@ -1438,9 +1444,9 @@ export function IssueDetail() {
   }, [linkedRuns, liveRuns, activeRun]);
 
   const { data: allIssues } = useQuery({
-    queryKey: queryKeys.issues.list(selectedCompanyId!),
-    queryFn: () => issuesApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    queryKey: [...queryKeys.issues.list(selectedCompanyId!), "include-subtasks"],
+    queryFn: () => issuesApi.list(selectedCompanyId!, { includeSubtasks: true }),
+    enabled: !!selectedCompanyId && subissuesTabActive,
   });
 
   const { data: agents } = useQuery({

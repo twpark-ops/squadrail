@@ -61,6 +61,7 @@ interface IssueToastContext {
   title: string | null;
   label: string;
   href: string;
+  changesHref: string;
 }
 
 function resolveIssueQueryRefs(
@@ -122,12 +123,155 @@ function resolveIssueToastContext(
     title,
     label: title ? `${ref} - ${truncate(title, 72)}` : ref,
     href: issueUrl({ id: issueId, identifier: cachedIssue?.identifier ?? null }),
+    changesHref: `/changes/${cachedIssue?.identifier ?? issueId}`,
   };
 }
 
-const ISSUE_TOAST_ACTIONS = new Set(["issue.created", "issue.updated", "issue.comment_added"]);
+const ISSUE_TOAST_ACTIONS = new Set([
+  "issue.created",
+  "issue.updated",
+  "issue.comment_added",
+  "issue.protocol_message.created",
+  "issue.merge_candidate.resolved",
+  "issue.merge_candidate.automation",
+  "issue.protocol_timeout.reminder",
+  "issue.protocol_timeout.escalated",
+]);
 const AGENT_TOAST_STATUSES = new Set(["running", "error"]);
 const TERMINAL_RUN_STATUSES = new Set(["succeeded", "failed", "timed_out", "cancelled"]);
+
+function formatProtocolMessageType(messageType: string): string {
+  return messageType.replace(/_/g, " ").toLowerCase();
+}
+
+function buildProtocolMessageToast(
+  actor: string,
+  issue: IssueToastContext,
+  details: Record<string, unknown> | null,
+): ToastInput | null {
+  const messageType = readString(details?.messageType);
+  const summary = readString(details?.summary);
+  const workflowStateAfter = readString(details?.workflowStateAfter);
+  if (!messageType) return null;
+
+  const toneByMessageType: Record<string, ToastInput["tone"]> = {
+    ASK_CLARIFICATION: "warn",
+    ANSWER_CLARIFICATION: "success",
+    REQUEST_CHANGES: "warn",
+    SUBMIT_FOR_REVIEW: "info",
+    APPROVE_IMPLEMENTATION: "success",
+    REQUEST_MERGE: "info",
+    APPROVE_MERGE: "success",
+    REJECT_MERGE: "warn",
+    CONFIRM_DEPLOY: "success",
+    ROLLBACK_DEPLOY: "warn",
+    TIMEOUT_ESCALATION: "warn",
+  };
+
+  const titleByMessageType: Record<string, string> = {
+    ASK_CLARIFICATION: `${issue.ref} needs clarification`,
+    ANSWER_CLARIFICATION: `${issue.ref} clarification answered`,
+    REQUEST_CHANGES: `${issue.ref} needs implementation changes`,
+    SUBMIT_FOR_REVIEW: `${issue.ref} is ready for review`,
+    APPROVE_IMPLEMENTATION: `${issue.ref} was approved`,
+    REQUEST_MERGE: `${issue.ref} is ready for merge review`,
+    APPROVE_MERGE: `${issue.ref} merge approved`,
+    REJECT_MERGE: `${issue.ref} merge request rejected`,
+    CONFIRM_DEPLOY: `${issue.ref} deploy confirmed`,
+    ROLLBACK_DEPLOY: `${issue.ref} rollback recorded`,
+    TIMEOUT_ESCALATION: `${issue.ref} timeout escalated`,
+  };
+
+  const title =
+    titleByMessageType[messageType]
+    ?? `${actor} recorded ${formatProtocolMessageType(messageType)} on ${issue.ref}`;
+  const body = summary
+    ?? (workflowStateAfter
+      ? `Workflow -> ${workflowStateAfter.replace(/_/g, " ")}`
+      : issue.title ?? undefined);
+  const href =
+    messageType.includes("MERGE") || messageType.includes("DEPLOY") || messageType === "ROLLBACK_DEPLOY"
+      ? issue.changesHref
+      : issue.href;
+
+  return {
+    title,
+    body: body ? truncate(body, 100) : undefined,
+    tone: toneByMessageType[messageType] ?? "info",
+    action: {
+      label:
+        href === issue.changesHref
+          ? `Open ${issue.ref} changes`
+          : `View ${issue.ref}`,
+      href,
+    },
+    dedupeKey: `activity:issue.protocol_message.created:${issue.ref}:${messageType}:${workflowStateAfter ?? "na"}`,
+  };
+}
+
+function buildMergeCandidateToast(
+  issue: IssueToastContext,
+  details: Record<string, unknown> | null,
+): ToastInput {
+  const actionType = readString(details?.actionType) ?? "updated";
+  const mergeCommitSha = readString(details?.mergeCommitSha);
+  const targetBaseBranch = readString(details?.targetBaseBranch);
+  const shaSuffix = mergeCommitSha ? ` (${mergeCommitSha.slice(0, 7)})` : "";
+  return {
+    title: `${issue.ref} merge candidate ${actionType.replace(/_/g, " ")}`,
+    body: targetBaseBranch
+      ? `Base branch: ${targetBaseBranch}${shaSuffix}`
+      : issue.title ?? undefined,
+    tone: actionType.includes("reject") ? "warn" : "info",
+    action: { label: `Open ${issue.ref} changes`, href: issue.changesHref },
+    dedupeKey: `activity:issue.merge_candidate.resolved:${issue.ref}:${actionType}:${mergeCommitSha ?? "na"}`,
+  };
+}
+
+function buildMergeAutomationToast(
+  issue: IssueToastContext,
+  details: Record<string, unknown> | null,
+): ToastInput {
+  const actionType = readString(details?.actionType) ?? "automation";
+  const externalProvider = readString(details?.externalProvider);
+  const targetBranch = readString(details?.targetBranch);
+  const externalUrl = readString(details?.externalUrl);
+  return {
+    title: `${issue.ref} ${actionType.replace(/_/g, " ")}`,
+    body: externalProvider
+      ? `Provider: ${externalProvider}${targetBranch ? ` -> ${targetBranch}` : ""}`
+      : targetBranch
+        ? `Target branch: ${targetBranch}`
+        : issue.title ?? undefined,
+    tone: "info",
+    action: {
+      label: externalUrl ? "Open external change" : `Open ${issue.ref} changes`,
+      href: externalUrl ?? issue.changesHref,
+    },
+    dedupeKey: `activity:issue.merge_candidate.automation:${issue.ref}:${actionType}:${targetBranch ?? "na"}`,
+  };
+}
+
+function buildProtocolTimeoutToast(
+  issue: IssueToastContext,
+  details: Record<string, unknown> | null,
+  escalated: boolean,
+): ToastInput {
+  const timeoutCode = readString(details?.timeoutCode) ?? "timeout";
+  const recipientRole = readString(details?.recipientRole);
+  return {
+    title: escalated ? `${issue.ref} needs recovery` : `${issue.ref} is waiting on action`,
+    body: [
+      timeoutCode.replace(/_/g, " "),
+      recipientRole ? `target: ${recipientRole.replace(/_/g, " ")}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    tone: escalated ? "warn" : "info",
+    action: { label: `View ${issue.ref}`, href: issue.href },
+    dedupeKey: `activity:timeout:${issue.ref}:${timeoutCode}:${recipientRole ?? "na"}:${escalated ? "escalated" : "reminder"}`,
+  };
+}
 
 function describeIssueUpdate(details: Record<string, unknown> | null): string | null {
   if (!details) return null;
@@ -198,6 +342,26 @@ function buildActivityToast(
       action: { label: `View ${issue.ref}`, href: issue.href },
       dedupeKey: `activity:${action}:${entityId}`,
     };
+  }
+
+  if (action === "issue.protocol_message.created") {
+    return buildProtocolMessageToast(actor, issue, details);
+  }
+
+  if (action === "issue.merge_candidate.resolved") {
+    return buildMergeCandidateToast(issue, details);
+  }
+
+  if (action === "issue.merge_candidate.automation") {
+    return buildMergeAutomationToast(issue, details);
+  }
+
+  if (action === "issue.protocol_timeout.reminder") {
+    return buildProtocolTimeoutToast(issue, details, false);
+  }
+
+  if (action === "issue.protocol_timeout.escalated") {
+    return buildProtocolTimeoutToast(issue, details, true);
   }
 
   const commentId = readString(details?.commentId);
@@ -343,6 +507,11 @@ function invalidateActivityQueries(
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(ref) });
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.activity(ref) });
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.runs(ref) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.approvals(ref) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.attachments(ref) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.changeSurface(ref) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.deliverables(ref) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(ref) });
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.liveRuns(ref) });
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.activeRun(ref) });
       }

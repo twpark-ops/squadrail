@@ -240,6 +240,70 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
   });
 
+  it("keeps lead watchers as notify_only for internal implementation child assignment when an engineer is already assigned", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "child-impl-lead-watch-1",
+      protocolMessageId: "msg-1c-lead",
+      senderAgentId: null,
+      issueContext: {
+        issueId: "child-impl-lead-watch-1",
+        parentId: "root-1",
+        labelNames: ["team:internal", "work:implementation", "watch:reviewer", "watch:lead"],
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+      },
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "assign implementation work item with TL watch",
+        payload: {
+          goal: "goal",
+          acceptanceCriteria: ["a"],
+          definitionOfDone: ["d"],
+          priority: "high",
+          assigneeAgentId: "eng-1",
+          reviewerAgentId: "reviewer-1",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      recipientRole: "engineer",
+    });
+    expect(plan[1]).toMatchObject({
+      kind: "notify_only",
+      recipientRole: "tech_lead",
+      payload: {
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+      },
+      contextSnapshot: {
+        issueInternalWorkItem: true,
+        rootIssueId: "root-1",
+      },
+    });
+  });
+
   it("still wakes reviewer recipients for internal review child assignment when watch mode is enabled", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "child-review-1",
