@@ -23,6 +23,9 @@ describe("heartbeat protocol progress helpers", () => {
       "ESCALATE_BLOCKER",
       "START_IMPLEMENTATION",
     ]);
+    expect(requirement?.intermediateMessageTypes).toEqual([
+      "ACK_ASSIGNMENT",
+    ]);
     expect(
       hasRequiredProtocolProgress({
         requirement,
@@ -33,6 +36,14 @@ describe("heartbeat protocol progress helpers", () => {
       hasRequiredProtocolProgress({
         requirement,
         messages: [{ messageType: "ACK_ASSIGNMENT" }],
+        finalWorkflowState: "accepted",
+      }),
+    ).toBe(false);
+    expect(
+      hasRequiredProtocolProgress({
+        requirement,
+        messages: [{ messageType: "ACK_ASSIGNMENT" }, { messageType: "START_IMPLEMENTATION" }],
+        finalWorkflowState: "implementing",
       }),
     ).toBe(true);
   });
@@ -188,6 +199,26 @@ describe("heartbeat protocol progress helpers", () => {
         requirement: implementationRequirement,
       }),
     ).toBe(true);
+    const assignmentRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "REASSIGN_TASK",
+      protocolRecipientRole: "engineer",
+    });
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "accepted",
+        requirement: assignmentRequirement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "under_review",
+        requirement: reviewRequirement,
+      }),
+    ).toBe(true);
     expect(
       shouldEnqueueProtocolRequiredRetry({
         protocolRetryCount: 0,
@@ -196,6 +227,46 @@ describe("heartbeat protocol progress helpers", () => {
         requirement: implementationRequirement,
       }),
     ).toBe(false);
+  });
+
+  it("treats review start and QA start as intermediate progress until a decision follows", () => {
+    const reviewRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "SUBMIT_FOR_REVIEW",
+      protocolRecipientRole: "reviewer",
+    });
+    const qaRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "APPROVE_IMPLEMENTATION",
+      protocolRecipientRole: "qa",
+    });
+
+    expect(
+      hasRequiredProtocolProgress({
+        requirement: reviewRequirement,
+        messages: [{ messageType: "START_REVIEW" }],
+        finalWorkflowState: "under_review",
+      }),
+    ).toBe(false);
+    expect(
+      hasRequiredProtocolProgress({
+        requirement: reviewRequirement,
+        messages: [{ messageType: "START_REVIEW" }, { messageType: "REQUEST_CHANGES" }],
+        finalWorkflowState: "changes_requested",
+      }),
+    ).toBe(true);
+    expect(
+      hasRequiredProtocolProgress({
+        requirement: qaRequirement,
+        messages: [{ messageType: "START_REVIEW" }],
+        finalWorkflowState: "under_qa_review",
+      }),
+    ).toBe(false);
+    expect(
+      hasRequiredProtocolProgress({
+        requirement: qaRequirement,
+        messages: [{ messageType: "START_REVIEW" }, { messageType: "APPROVE_IMPLEMENTATION" }],
+        finalWorkflowState: "approved",
+      }),
+    ).toBe(true);
   });
 
   it("skips stale protocol follow-up wakes once the issue is terminal", () => {

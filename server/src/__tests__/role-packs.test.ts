@@ -72,12 +72,17 @@ describe("role pack defaults", () => {
   it("creates CTO and QA role packs for the large org preset", () => {
     const ctoFiles = buildDefaultRolePackFiles("cto", "example_large_org_v1");
     const qaFiles = buildDefaultRolePackFiles("qa", "example_large_org_v1");
+    const techLeadFiles = buildDefaultRolePackFiles("tech_lead", "example_large_org_v1");
+    const reviewerFiles = buildDefaultRolePackFiles("reviewer", "example_large_org_v1");
 
     expect(ctoFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Example Large Org CTO Addendum");
     expect(ctoFiles.find((file) => file.filename === "AGENTS.md")?.content).toContain("Example Product Squad Delivery Context");
     expect(qaFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Example Large Org QA Addendum");
     expect(qaFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("Respect focused validation scope");
     expect(qaFiles.find((file) => file.filename === "REVIEW.md")?.content).toContain("Approval requires acceptance criteria coverage");
+    expect(qaFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("When qa_pending arrives, open START_REVIEW first");
+    expect(techLeadFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("When the workflow reaches approved through a closure follow-up wake");
+    expect(reviewerFiles.find((file) => file.filename === "ROLE.md")?.content).toContain("When submitted_for_review arrives, start the review cycle first");
   });
 
   it("teaches the PM pack to use projection preview/apply helpers before repository inspection", () => {
@@ -209,10 +214,13 @@ describe("role pack defaults", () => {
         expect.objectContaining({ messageType: "APPROVE_IMPLEMENTATION" }),
       ]),
     );
-    expect(buildSimulationSuggestions("qa", { ...baseScenario, workflowState: "approved" })).toEqual(
+    expect(buildSimulationSuggestions("qa", { ...baseScenario, workflowState: "qa_pending" })).toEqual([
+      expect.objectContaining({ messageType: "START_REVIEW" }),
+    ]);
+    expect(buildSimulationSuggestions("qa", { ...baseScenario, workflowState: "under_qa_review" })).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ messageType: "REQUEST_CHANGES" }),
-        expect.objectContaining({ messageType: "NOTE" }),
+        expect.objectContaining({ messageType: "APPROVE_IMPLEMENTATION" }),
       ]),
     );
   });

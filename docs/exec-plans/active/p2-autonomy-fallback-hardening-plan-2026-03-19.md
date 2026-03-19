@@ -2,7 +2,7 @@
 title: "P2 Autonomy Fallback Hardening Plan"
 owner: "taewoong"
 status: "active"
-last-reviewed: "2026-03-19"
+last-reviewed: "2026-03-20"
 author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-19"
 lang: "ko"
@@ -100,3 +100,28 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 
 - 이 계획은 retrieval stabilization보다 우선순위가 높지 않다.
 - 다만 자율 진행률을 올리는 reliability debt이므로, retrieval과 병렬로 작은 배치로 소거할 수 있다.
+
+# Current Status
+
+- fallback family summary와 scenario별 count는 실제 E2E 출력에 포함되도록 구현했다.
+- `swiftsight-agent-tl-qa-loop`는 현재 기준 `total=7` fallback으로 측정된다.
+  - `pm_routing: 1`
+  - `staffing_and_wake: 2`
+  - `review_handoff: 2`
+  - `qa_gate: 1`
+  - `closure: 1`
+- role pack refresh, runtime note 강화, protocol retry contract 보강까지 반영했지만 reviewer/QA/closure fallback은 아직 steady-state zero가 아니다.
+
+# Findings
+
+- 남은 reviewer/QA/closure fallback의 직접 원인은 "필요한 메시지를 모르거나 validation이 막아서"가 아니라, active heartbeat run이 intermediate action 이후 끝나지 않고 멈추는 경우가 많다는 점이다.
+- 특히 아래 intermediate action은 이제 제품 계약상 "불완전"으로 간주한다.
+  - engineer assignment/reassignment에서 `ACK_ASSIGNMENT`
+  - reviewer/QA lane에서 `START_REVIEW`
+- 다만 위 contract 강화는 run이 **종료된 뒤** retry를 거는 성격이므로, active run이 장시간 멈춘 경우까지 즉시 해결하지는 못한다.
+
+# Next Slice
+
+1. fallback 시점의 active run checkpoint / phase / last event를 summary에 붙여 원인을 바로 보이게 한다.
+2. idle-but-running run에 대한 watchdog 또는 phase-aware cancellation/retry 정책을 검토한다.
+3. `reviewer approval`, `qa approval`, `close` 세 family 중 하나라도 zero로 줄어드는지 반복 검증한다.

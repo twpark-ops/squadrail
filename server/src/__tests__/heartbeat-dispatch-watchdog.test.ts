@@ -139,6 +139,8 @@ describe("heartbeat failure and protocol retry helpers", () => {
     protocolMessageType: "SUBMIT_FOR_REVIEW",
     recipientRole: "reviewer",
     requiredMessageTypes: ["REQUEST_CHANGES", "APPROVE_CHANGES"],
+    firstActionMessageTypes: ["REQUEST_CHANGES"],
+    intermediateMessageTypes: [],
   } as const;
 
   it("includes checkpoint phase in process-lost errors when available", () => {

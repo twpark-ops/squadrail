@@ -18,6 +18,7 @@ export interface ProtocolRunRequirement {
   recipientRole: IssueProtocolParticipantRole;
   requiredMessageTypes: IssueProtocolMessageType[];
   firstActionMessageTypes: IssueProtocolMessageType[];
+  intermediateMessageTypes: IssueProtocolMessageType[];
   description: string;
 }
 
@@ -49,6 +50,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["ACK_ASSIGNMENT", "ASK_CLARIFICATION", "ESCALATE_BLOCKER", "START_IMPLEMENTATION"],
       firstActionMessageTypes: ["ACK_ASSIGNMENT", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      intermediateMessageTypes: ["ACK_ASSIGNMENT"],
       description: "assignment acceptance or escalation",
     };
   }
@@ -63,6 +65,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
       firstActionMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      intermediateMessageTypes: [],
       description: "routing, clarification, or escalation",
     };
   }
@@ -74,6 +77,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["ACK_ASSIGNMENT", "ASK_CLARIFICATION", "ESCALATE_BLOCKER", "START_IMPLEMENTATION"],
       firstActionMessageTypes: ["ACK_ASSIGNMENT", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      intermediateMessageTypes: ["ACK_ASSIGNMENT"],
       description: "reassignment acceptance or escalation",
     };
   }
@@ -88,6 +92,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
       firstActionMessageTypes: ["REASSIGN_TASK", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      intermediateMessageTypes: [],
       description: "re-routing, clarification, or escalation",
     };
   }
@@ -99,6 +104,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["SUBMIT_FOR_REVIEW", "REPORT_PROGRESS", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
       firstActionMessageTypes: ["SUBMIT_FOR_REVIEW", "REPORT_PROGRESS", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      intermediateMessageTypes: [],
       description: "implementation progress or review handoff",
     };
   }
@@ -110,6 +116,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["ACK_CHANGE_REQUEST", "SUBMIT_FOR_REVIEW", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
       firstActionMessageTypes: ["ACK_CHANGE_REQUEST", "ASK_CLARIFICATION", "ESCALATE_BLOCKER"],
+      intermediateMessageTypes: ["ACK_CHANGE_REQUEST"],
       description: "change-request acknowledgement or escalation",
     };
   }
@@ -121,6 +128,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["START_REVIEW", "APPROVE_IMPLEMENTATION", "REQUEST_CHANGES", "REQUEST_HUMAN_DECISION"],
       firstActionMessageTypes: ["START_REVIEW", "REQUEST_CHANGES", "REQUEST_HUMAN_DECISION"],
+      intermediateMessageTypes: ["START_REVIEW"],
       description: "review start or review decision",
     };
   }
@@ -132,6 +140,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["START_REVIEW", "APPROVE_IMPLEMENTATION", "REQUEST_CHANGES", "REQUEST_HUMAN_DECISION"],
       firstActionMessageTypes: ["START_REVIEW"],
+      intermediateMessageTypes: ["START_REVIEW"],
       description: "QA gate review start and decision",
     };
   }
@@ -143,6 +152,7 @@ export function resolveProtocolRunRequirement(input: {
       recipientRole,
       requiredMessageTypes: ["CLOSE_TASK", "REQUEST_HUMAN_DECISION"],
       firstActionMessageTypes: ["CLOSE_TASK", "REQUEST_HUMAN_DECISION"],
+      intermediateMessageTypes: [],
       description: "closing decision",
     };
   }

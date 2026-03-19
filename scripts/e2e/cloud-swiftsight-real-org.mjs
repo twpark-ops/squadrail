@@ -18,6 +18,12 @@ import {
   createDeterministicQaApprovalMessage,
   createDeterministicReviewerApprovalMessage,
 } from "./deterministic-approval-payloads.mjs";
+import {
+  aggregateFallbackSummaries,
+  createFallbackTracker,
+  recordFallbackEvent,
+  summarizeFallbackTracker,
+} from "./fallback-summary.mjs";
 import { assertQaGateInvariant } from "./qa-gate-invariants.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -35,6 +41,8 @@ const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
 const PRE_CLEANUP_ENABLED = process.env.SWIFTSIGHT_E2E_PRE_CLEANUP !== "0";
 const HIDE_COMPLETED_ISSUES = process.env.SWIFTSIGHT_E2E_HIDE_COMPLETED !== "0";
 const ALLOW_IMPLEMENTATION_RECOVERY = process.env.SWIFTSIGHT_E2E_ALLOW_IMPLEMENTATION_RECOVERY !== "0";
+const REFRESH_ROLE_PACKS = process.env.SWIFTSIGHT_E2E_REFRESH_ROLE_PACKS !== "0";
+const ROLE_PACK_PRESET_KEY = process.env.SWIFTSIGHT_E2E_ROLE_PACK_PRESET ?? "example_large_org_v1";
 const E2E_ACTOR_ID = process.env.SWIFTSIGHT_E2E_ACTOR_ID ?? "cloud-swiftsight-e2e-board";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -440,8 +448,10 @@ function buildScenarioDefinitions(context) {
       project: project("swiftsight-agent"),
       assignee: agent("swiftsight-agent-tl"),
       assigneeRole: "tech_lead",
-      reviewer: agent("swiftsight-agent-codex-engineer"),
-      reviewerRole: "engineer",
+      reviewer: agent("swiftsight-agent-tl"),
+      reviewerRole: "reviewer",
+      assignmentReviewer: agent("swiftsight-agent-codex-engineer"),
+      assignmentReviewerRole: "reviewer",
       qa: agent("swiftsight-qa-engineer"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-agent`,
       issue: {
@@ -1403,6 +1413,26 @@ async function createIssue(companyId, scenario, labelIds) {
   });
 }
 
+export function buildIssueAssignmentRecipients(scenario) {
+  const assignmentReviewer = scenario.assignmentReviewer ?? scenario.reviewer;
+  const recipients = [
+    {
+      recipientType: "agent",
+      recipientId: scenario.assignee.id,
+      role: scenario.assigneeRole ?? "engineer",
+    },
+  ];
+  const reviewerId = assignmentReviewer.id;
+  if (reviewerId !== scenario.assignee.id) {
+    recipients.push({
+      recipientType: "agent",
+      recipientId: reviewerId,
+      role: scenario.assignmentReviewerRole ?? scenario.reviewerRole ?? "reviewer",
+    });
+  }
+  return recipients;
+}
+
 async function createPmIntakeIssue(companyId, scenario, labelIds) {
   const created = await api(`/api/companies/${companyId}/intake/issues`, {
     method: "POST",
@@ -1436,6 +1466,8 @@ async function projectPmIntakeIssue(issueId, scenario) {
 }
 
 async function assignIssue(issueId, scenario) {
+  const recipients = buildIssueAssignmentRecipients(scenario);
+
   const body = {
     messageType: "ASSIGN_TASK",
     sender: {
@@ -1444,16 +1476,7 @@ async function assignIssue(issueId, scenario) {
       role: "human_board",
     },
     recipients: [
-      {
-        recipientType: "agent",
-        recipientId: scenario.assignee.id,
-        role: scenario.assigneeRole ?? "engineer",
-      },
-      {
-        recipientType: "agent",
-        recipientId: scenario.reviewer.id,
-        role: scenario.reviewerRole ?? "reviewer",
-      },
+      ...recipients,
       ...((scenario.additionalRecipients ?? []).map((recipient) => ({
         recipientType: "agent",
         recipientId: recipient.agent.id,
@@ -1470,7 +1493,7 @@ async function assignIssue(issueId, scenario) {
       definitionOfDone: scenario.assignment.definitionOfDone,
       priority: "high",
       assigneeAgentId: scenario.assignee.id,
-      reviewerAgentId: scenario.reviewer.id,
+      reviewerAgentId: (scenario.assignmentReviewer ?? scenario.reviewer).id,
       ...(scenario.qa?.id ? { qaAgentId: scenario.qa.id } : {}),
     },
     artifacts: [],
@@ -2270,6 +2293,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
   let deterministicReviewSent = false;
   let deterministicQaObservedAt = null;
   let deterministicQaSent = false;
+  const fallbackTracker = createFallbackTracker();
   const manualAgentControl = options.manualAgentControl ?? null;
 
   try {
@@ -2283,7 +2307,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       }
 
       if (snapshot.state?.workflowState === "done") {
-        return getIssueSnapshot(issueId, { includeExtended: true });
+        return {
+          snapshot: await getIssueSnapshot(issueId, { includeExtended: true }),
+          fallbackSummary: summarizeFallbackTracker(fallbackTracker),
+        };
       }
 
       const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
@@ -2400,6 +2427,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] assigned state persisted without PM routing; sending deterministic PM reassign fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "routing_reassign",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendRoutingFallback(
             issueId,
             scenario,
@@ -2424,6 +2455,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] TL lane stayed assigned without engineer execution; sending deterministic TL staffing fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "staffing_reassign",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendStaffingFallback(
             issueId,
             scenario,
@@ -2466,6 +2501,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
             note(
               `[${scenario.key}] assigned state still lacks engineer execution after staffing; waking ${engineerId} and cancelling ${blockingRuns.length} blocking run(s)`,
             );
+            recordFallbackEvent(fallbackTracker, {
+              reason: "engineer_wake",
+              workflowState: snapshot.state?.workflowState ?? null,
+            });
             await wakeAgentForIssue(
               engineerId,
               issueId,
@@ -2490,6 +2529,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] accepted state stalled after ACK_ASSIGNMENT; sending deterministic START_IMPLEMENTATION fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "implementation_start",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendDeterministicImplementationStart(issueId, scenario, snapshot);
           implementationStartSent = true;
           await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2510,6 +2553,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] implementing state stalled without SUBMIT_FOR_REVIEW; sending deterministic review handoff fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "review_submission",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendDeterministicReviewSubmission(issueId, scenario, snapshot);
           reviewSubmissionSent = true;
           await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2562,6 +2609,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] recovery resubmission stalled in ${snapshot.state?.workflowState}; sending deterministic reviewer approval fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "reviewer_approval",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendDeterministicReviewerApproval(issueId, scenario, snapshot);
           deterministicReviewSent = true;
           await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2588,6 +2639,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] review stage stalled in ${snapshot.state?.workflowState}; sending deterministic reviewer approval fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "reviewer_approval",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendDeterministicReviewerApproval(issueId, scenario, snapshot);
           deterministicReviewSent = true;
           await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2613,6 +2668,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] QA gate stalled in ${snapshot.state?.workflowState}; sending deterministic QA approval fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "qa_approval",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendDeterministicQaApproval(issueId, scenario, snapshot);
           deterministicQaSent = true;
           await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2639,6 +2698,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] QA gate stalled in ${snapshot.state?.workflowState}; sending deterministic QA approval fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "qa_approval",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendDeterministicQaApproval(issueId, scenario, snapshot);
           deterministicQaSent = true;
           await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2659,6 +2722,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] ${snapshot.state.workflowState} persisted after approval without CLOSE_TASK, sending fallback close`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "close",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendCloseTask(issueId, scenario, snapshot.state.workflowState);
           closeFallbackSent = true;
         }
@@ -2676,6 +2743,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] ${snapshot.state.workflowState} persisted after REQUEST_HUMAN_DECISION, sending board approval fallback`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "human_decision",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendHumanDecisionApproval(issueId, scenario, snapshot.state.workflowState);
           humanDecisionFallbackSent = true;
         }
@@ -2693,6 +2764,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] blocked after late manager reroute; sending board recovery reassign to restore engineer ownership`,
           );
+          recordFallbackEvent(fallbackTracker, {
+            reason: "implementation_recovery",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
           await sendImplementationRecovery(issueId, scenario, snapshot);
           implementationRecoverySent = true;
         }
@@ -2726,7 +2801,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
     let snapshot = await getIssueSnapshot(issueId, { includeExtended: true });
     if (snapshot.state?.workflowState === "done") {
       note(`[${scenario.key}] completion landed on the final timeout snapshot; accepting successful completion`);
-      return snapshot;
+      return {
+        snapshot,
+        fallbackSummary: summarizeFallbackTracker(fallbackTracker),
+      };
     }
     const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
     const approvalMessage = latestMessage(snapshot.messages, "APPROVE_IMPLEMENTATION");
@@ -2739,6 +2817,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       note(
         `[${scenario.key}] final timeout snapshot remained ${snapshot.state.workflowState}; sending fallback close before failing`,
       );
+      recordFallbackEvent(fallbackTracker, {
+        reason: "close",
+        workflowState: snapshot.state?.workflowState ?? null,
+      });
       await sendCloseTask(issueId, scenario, snapshot.state.workflowState);
       const fallbackDeadlineAt = Date.now() + CLOSE_FALLBACK_AFTER_MS;
       while (Date.now() < fallbackDeadlineAt) {
@@ -2746,7 +2828,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         snapshot = await getIssueSnapshot(issueId, { includeExtended: true });
         if (snapshot.state?.workflowState === "done") {
           note(`[${scenario.key}] completion landed during final fallback close grace period; accepting successful completion`);
-          return snapshot;
+          return {
+            snapshot,
+            fallbackSummary: summarizeFallbackTracker(fallbackTracker),
+          };
         }
       }
     }
@@ -2951,13 +3036,16 @@ async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
       ? { agentId: scenario.forcedChangeRequest.senderId, paused: false }
       : null;
   let snapshot;
+  let fallbackSummary = summarizeFallbackTracker(createFallbackTracker());
   try {
     if (manualAgentControl?.agentId) {
       await setAgentPaused(manualAgentControl.agentId, true);
       manualAgentControl.paused = true;
       note(`[${scenario.key}] paused deterministic reviewer/qa agent ${manualAgentControl.agentId} until recovery restart`);
     }
-    snapshot = await waitForCompletion(issue.id, scenario, { manualAgentControl });
+    const completion = await waitForCompletion(issue.id, scenario, { manualAgentControl });
+    snapshot = completion.snapshot;
+    fallbackSummary = completion.fallbackSummary;
   } catch (error) {
     await cancelIssue(issue.id, `Scenario ${scenario.key} failed before completion.`);
     throw error;
@@ -2976,6 +3064,7 @@ async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
   note(`isolated cwd=${verified.bindingArtifact.metadata?.cwd}`);
   note(`${verified.changeArtifact.kind} label=${verified.changeArtifact.label ?? "n/a"}`);
   note(`test label=${verified.testArtifact.label ?? "n/a"}`);
+  note(`fallbacks=${JSON.stringify(fallbackSummary)}`);
   if ((verified.checkpoints ?? []).length > 0) {
     note(`checkpoints=${JSON.stringify(verified.checkpoints)}`);
   }
@@ -3006,6 +3095,7 @@ async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
     checkpoints: verified.checkpoints,
     qaGateEvaluation: verified.qaGateEvaluation?.checks ?? null,
     implementationWindow: extractImplementationWindow(snapshot.messages),
+    fallbackSummary,
   };
 }
 
@@ -3076,6 +3166,9 @@ async function runCoordinatedScenario(companyId, scenario) {
       checkpoints: [],
       coordinatedChildren: childRuns,
       parallelism,
+      fallbackSummary: {
+        events: childRuns.flatMap((child) => child.fallbackSummary?.events ?? []),
+      },
     };
   } catch (error) {
     if (projection?.projectedWorkItems) {
@@ -3120,6 +3213,20 @@ async function main() {
   note(`projects=${context.projects.length}`);
   note(`agents=${context.agents.length}`);
 
+  if (REFRESH_ROLE_PACKS) {
+    section("Refresh Role Packs");
+    const refreshed = await api(`/api/companies/${context.company.id}/role-packs/seed-defaults`, {
+      method: "POST",
+      body: {
+        force: true,
+        presetKey: ROLE_PACK_PRESET_KEY,
+      },
+    });
+    note(`preset=${refreshed.presetKey}`);
+    note(`created=${Array.isArray(refreshed.created) ? refreshed.created.length : 0}`);
+    note(`existing=${Array.isArray(refreshed.existing) ? refreshed.existing.length : 0}`);
+  }
+
   const e2eLabels = await ensureCompanyLabels(
     context.company.id,
     buildE2eLabelSpecs({ nightly: NIGHTLY_MODE }),
@@ -3152,6 +3259,9 @@ async function main() {
   } finally {
     await restoreAgentStatuses(agentStatusRestores);
   }
+
+  section("Fallback Summary");
+  note(JSON.stringify(aggregateFallbackSummaries(results), null, 2));
 
   section("Summary");
   note(JSON.stringify(results, null, 2));

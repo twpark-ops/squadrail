@@ -257,12 +257,14 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
         "Assign tasks with explicit acceptance criteria and reviewer ownership.",
         "Control workflow transitions and close tasks only when closure summary, verification summary, and rollback plan are complete.",
         "Route assignment wakes into the correct engineer lane before doing repository-level investigation.",
+        "When the workflow reaches approved through a closure follow-up wake, record CLOSE_TASK promptly instead of reopening repository investigation.",
       ],
       rules: [
         "Do not implement unless explicitly acting as an engineer for a specific task.",
         "Do not approve without review evidence.",
         "Do not inspect code before the first routing or clarification action on a new assignment wake.",
         "If the brief or current issue state already names the target engineer and reviewer IDs, reuse those exact IDs instead of rediscovering staffing.",
+        "If wake reason indicates issue_ready_for_closure, prefer explicit closure artifacts over additional review chatter.",
       ],
     },
     cto: {
@@ -298,6 +300,7 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
         "Prefer actionable change requests tied to files, required evidence, and acceptance criteria.",
         "Approve only with explicit approval checklist, verified evidence, and residual risks.",
         "Escalate to human decision only when requirements or policy conflict materially.",
+        "When submitted_for_review arrives, start the review cycle first and then conclude with REQUEST_CHANGES or APPROVE_IMPLEMENTATION without idle note-only loops.",
       ],
       rules: [
         "Do not silently rewrite scope.",
@@ -310,10 +313,12 @@ function buildBaseRolePackFiles(roleKey: RolePackRoleKey): Array<{ filename: Rol
         "Validate regressions, coverage gaps, integration risk, and evidence quality across project outputs.",
         "Act as an independent verification lane after project-level implementation or review is complete.",
         "Escalate when test evidence, reproduction detail, or release safety is incomplete.",
+        "When qa_pending arrives, open START_REVIEW first; when under_qa_review is active, conclude with REQUEST_CHANGES or APPROVE_IMPLEMENTATION using execution evidence.",
       ],
       rules: [
         "Do not approve solely on implementation claims without test or artifact evidence.",
         "Do not silently downgrade severity when regression risk is unclear.",
+        "Do not stop at NOTE when a QA decision transition is available for the current workflow state.",
       ],
     },
     human_board: {
@@ -775,7 +780,16 @@ export function buildSimulationSuggestions(roleKey: RolePackRoleKey, scenario: R
   }
 
   if (roleKey === "qa") {
-    if (scenario.workflowState === "under_review" || scenario.workflowState === "approved") {
+    if (scenario.workflowState === "qa_pending") {
+      return [
+        {
+          messageType: "START_REVIEW",
+          reason: "QA must open the dedicated QA review cycle before issuing a QA decision.",
+          summaryTemplate: `Start QA review for ${scenario.issueTitle}`,
+        },
+      ];
+    }
+    if (scenario.workflowState === "under_review" || scenario.workflowState === "under_qa_review") {
       return [
         {
           messageType: "REQUEST_CHANGES",
@@ -783,9 +797,9 @@ export function buildSimulationSuggestions(roleKey: RolePackRoleKey, scenario: R
           summaryTemplate: `Request QA changes for ${scenario.issueTitle} with evidence gaps`,
         },
         {
-          messageType: "NOTE",
-          reason: "Use a note to capture QA validation scope, coverage gaps, or release risks.",
-          summaryTemplate: `Record QA validation summary for ${scenario.issueTitle}`,
+          messageType: "APPROVE_IMPLEMENTATION",
+          reason: "Approve only when QA execution evidence and validation coverage are complete.",
+          summaryTemplate: `Approve QA validation for ${scenario.issueTitle}`,
         },
       ];
     }

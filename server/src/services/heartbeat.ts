@@ -844,12 +844,31 @@ type ObservedProtocolProgressMessage = {
 export function hasRequiredProtocolProgress(input: {
   requirement: ProtocolRunRequirement | null;
   messages: ObservedProtocolProgressMessage[];
+  finalWorkflowState?: string | null;
 }) {
   const requirement = input.requirement;
   if (!requirement) return true;
-  return input.messages.some((message) => requirement.requiredMessageTypes.includes(
-    message.messageType as ProtocolRunRequirement["requiredMessageTypes"][number],
+  const observedMessageTypes = Array.from(
+    new Set(
+      input.messages
+        .map((message) => readNonEmptyString(message.messageType))
+        .filter((messageType): messageType is string => Boolean(messageType)),
+    ),
+  );
+  const hasRequired = observedMessageTypes.some((messageType) => requirement.requiredMessageTypes.includes(
+    messageType as ProtocolRunRequirement["requiredMessageTypes"][number],
   ));
+  if (!hasRequired) return false;
+
+  const hasNonIntermediateProgress = observedMessageTypes.some((messageType) => !requirement.intermediateMessageTypes.includes(
+    messageType as ProtocolRunRequirement["intermediateMessageTypes"][number],
+  ));
+  if (hasNonIntermediateProgress) return true;
+
+  return !isWorkflowStateEligibleForProtocolRetry({
+    requirement,
+    workflowState: input.finalWorkflowState,
+  });
 }
 
 export function buildRequiredProtocolProgressError(input: {
@@ -905,8 +924,9 @@ export function isWorkflowStateEligibleForProtocolRetry(input: {
 
   switch (input.requirement.key) {
     case "assignment_engineer":
-    case "assignment_supervisor":
     case "reassignment_engineer":
+      return workflowState === "assigned" || workflowState === "accepted";
+    case "assignment_supervisor":
     case "reassignment_supervisor":
       return workflowState === "assigned";
     case "implementation_engineer":
@@ -914,9 +934,9 @@ export function isWorkflowStateEligibleForProtocolRetry(input: {
     case "change_request_engineer":
       return workflowState === "changes_requested";
     case "review_reviewer":
-      return workflowState === "submitted_for_review";
+      return workflowState === "submitted_for_review" || workflowState === "under_review";
     case "qa_gate_reviewer":
-      return workflowState === "qa_pending";
+      return workflowState === "qa_pending" || workflowState === "under_qa_review";
     case "approval_tech_lead":
       return workflowState === "approved";
     default:
@@ -2478,9 +2498,28 @@ export function heartbeatService(db: Db) {
               .filter((messageType): messageType is string => Boolean(messageType)),
           ),
         );
+        const issueStateSnapshot = issueId
+          ? await db
+            .select({
+              status: issues.status,
+              workflowState: issueProtocolState.workflowState,
+            })
+            .from(issues)
+            .leftJoin(
+              issueProtocolState,
+              and(
+                eq(issueProtocolState.issueId, issues.id),
+                eq(issueProtocolState.companyId, issues.companyId),
+              ),
+            )
+            .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+          : null;
         const satisfied = hasRequiredProtocolProgress({
           requirement: protocolRequirement,
           messages: protocolMessages,
+          finalWorkflowState: issueStateSnapshot?.workflowState ?? null,
         });
 
         protocolProgressResult = {
@@ -2494,24 +2533,6 @@ export function heartbeatService(db: Db) {
         };
 
         if (!satisfied) {
-          const issueStateSnapshot = issueId
-            ? await db
-              .select({
-                status: issues.status,
-                workflowState: issueProtocolState.workflowState,
-              })
-              .from(issues)
-              .leftJoin(
-                issueProtocolState,
-                and(
-                  eq(issueProtocolState.issueId, issues.id),
-                  eq(issueProtocolState.companyId, issues.companyId),
-                ),
-              )
-              .where(and(eq(issues.id, issueId), eq(issues.companyId, agent.companyId)))
-              .limit(1)
-              .then((rows) => rows[0] ?? null)
-            : null;
           const retryEnqueued = shouldEnqueueProtocolRequiredRetry({
             protocolRetryCount,
             issueStatus: issueStateSnapshot?.status ?? null,

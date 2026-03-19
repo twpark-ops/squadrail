@@ -467,6 +467,8 @@ describe("heartbeat internal helpers", () => {
       protocolMessageType: "SUBMIT_FOR_REVIEW",
       recipientRole: "reviewer",
       requiredMessageTypes: ["REVIEW_COMMENT", "APPROVE_REVIEW"],
+      firstActionMessageTypes: ["REVIEW_COMMENT"],
+      intermediateMessageTypes: [],
     } as const;
 
     expect(hasRequiredProtocolProgress({

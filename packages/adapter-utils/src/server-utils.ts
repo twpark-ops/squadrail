@@ -735,6 +735,7 @@ export function renderSquadrailRuntimeNote(input: {
     ) {
       lines.splice(3, 0, "- Do not start file reads, design notes, or implementation planning before the first protocol action is sent.");
       lines.push("- If you accept and can continue immediately, follow `ACK_ASSIGNMENT` with `START_IMPLEMENTATION` in the same run.");
+      lines.push("- Do not stop after `ACK_ASSIGNMENT` while the issue is still in `assigned` or `accepted`. ACK-only runs are incomplete and will be retried.");
       lines.push("- After `START_IMPLEMENTATION`, the server coalesces workspace context automatically via `workspaceUsageOverride`. Continue implementing in this run without waiting for a separate wake.");
       lines.push("- If the workspace is shared or analysis-only and no override is present, complete the protocol actions (ACK + START) and stop. The server routes your next wake to an isolated implementation workspace.");
     }
@@ -761,6 +762,7 @@ export function renderSquadrailRuntimeNote(input: {
 
     if (protocolRequirement.key === "review_reviewer") {
       lines.push("- Start review with `START_REVIEW`, then conclude with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+      lines.push("- Do not stop after `START_REVIEW` while the issue remains in `submitted_for_review` or `under_review`. Review-start-only runs are incomplete and will be retried.");
       lines.push("- Review artifacts first. The shared review workspace may still reflect base HEAD and can differ from the isolated implementation workspace.");
       lines.push("- Do not reject solely because the shared workspace file still shows the pre-change content; verify against the submitted diff, changed files, evidence, and implementation workspace binding.");
       lines.push("- If you need to inspect exact implementation files, use the implementation workspace path from the review submission context rather than assuming the shared workspace contains the patch.");
@@ -772,6 +774,7 @@ export function renderSquadrailRuntimeNote(input: {
     if (protocolRequirement.key === "qa_gate_reviewer") {
       lines.push("- You are the QA execution gate reviewer. Your role is to EXECUTE the built software, not just read code or diffs.");
       lines.push("- **Do not create, edit, or delete any source files.** You have implementation workspace access for running commands only. Code changes are the engineer's responsibility.");
+      lines.push("- Do not stop after `START_REVIEW` while the issue remains in `qa_pending` or `under_qa_review`. QA-start-only runs are incomplete and will be retried.");
       lines.push("- Start by reading the project runbook from your brief. If no runbook is available, send `ASK_CLARIFICATION` requesting execution instructions before approving.");
       lines.push("- Run the acceptance criteria commands or sanity checks in the project workspace. Record what you ran and what you observed.");
       lines.push("- Do not approve based on code reading alone. You must execute at least one verification command.");
@@ -782,6 +785,7 @@ export function renderSquadrailRuntimeNote(input: {
 
     if (protocolRequirement.key === "approval_tech_lead") {
       lines.push("- Approval wakes are not complete until a closing decision is recorded in protocol.");
+      lines.push("- Do not idle in `approved`. Record `CLOSE_TASK` or `REQUEST_HUMAN_DECISION` in the same run.");
       lines.push("- For `CLOSE_TASK.payload.mergeStatus`, use exactly one of: `merged`, `merge_not_required`, `pending_external_merge`.");
       lines.push("- Never invent aliases such as `merge_pending`, `merge_required`, or free-form merge labels.");
       lines.push("- If code is approved but merge has not happened yet, use `pending_external_merge` and explain the external merge owner in `remainingRisks[]`.");

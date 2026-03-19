@@ -19,6 +19,7 @@ describe("renderSquadrailRuntimeNote", () => {
     });
 
     expect(output).toContain("Do not create, edit, or delete any source files");
+    expect(output).toContain("QA-start-only runs are incomplete and will be retried.");
   });
 
   it("includes engineer single-flow guidance for assignment_engineer", () => {
@@ -37,6 +38,7 @@ describe("renderSquadrailRuntimeNote", () => {
     });
 
     expect(output).toContain("workspaceUsageOverride");
+    expect(output).toContain("ACK-only runs are incomplete and will be retried.");
   });
 
   it("includes implementation scope guidance for implementation_engineer", () => {
@@ -53,6 +55,21 @@ describe("renderSquadrailRuntimeNote", () => {
     });
 
     expect(output).toContain("acceptance criteria");
+  });
+
+  it("includes closure guidance for approval_tech_lead", () => {
+    const output = renderSquadrailRuntimeNote({
+      env: { SQUADRAIL_TASK_ID: "issue-4" },
+      context: {
+        issueId: "issue-4",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolRecipientRole: "tech_lead",
+        protocolWorkflowStateBefore: "under_qa_review",
+        protocolWorkflowStateAfter: "approved",
+      },
+    });
+
+    expect(output).toContain("Do not idle in `approved`.");
   });
 });
 
