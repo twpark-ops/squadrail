@@ -352,6 +352,11 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - ChangeReviewDesk merge-deploy panel
 - Overview / ProjectDetail가 canonical path를 가리지 않도록 정리
 
+### Phase 3 진행 메모
+
+- `ProjectDetail` overview는 project-scoped delivery summary와 parent issue current-delivery strip까지 반영됐다.
+- 다음 우선순위는 `IssueDetail` progress surface와 protocol-aware notifications를 더 직접적으로 연결하는 배치다.
+
 ## Phase 4. 반복 검증
 
 - canonical 5개 시나리오 전체를 3회 반복

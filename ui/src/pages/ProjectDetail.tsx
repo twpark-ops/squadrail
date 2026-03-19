@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
+import { useParams, useNavigate, useLocation, Navigate, Link } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PROJECT_COLORS, isUuidLike } from "@squadrail/shared";
-import { FolderKanban, Link2, Shapes, TimerReset } from "lucide-react";
+import { PROJECT_COLORS, isUuidLike, type Agent, type IssueProgressPhase } from "@squadrail/shared";
+import { AlertTriangle, FolderKanban, GitPullRequestArrow, Link2, MessageSquareMore, Shapes, TimerReset } from "lucide-react";
 import { projectsApi } from "../api/projects";
 import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
@@ -22,11 +22,57 @@ import { SupportPanel } from "../components/SupportPanel";
 import { IssuesList } from "../components/IssuesList";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { projectRouteRef } from "../lib/utils";
+import { buildProjectDeliverySummary } from "../lib/project-delivery-summary";
+import { workIssuePath } from "../lib/appRoutes";
 import { Tabs } from "@/components/ui/tabs";
 
 /* ── Top-level tab types ── */
 
 type ProjectTab = "overview" | "list";
+
+const PROJECT_DELIVERY_PHASE_LABELS: Record<IssueProgressPhase, string> = {
+  intake: "Intake",
+  clarification: "Clarification",
+  planning: "Planning",
+  implementing: "Implementing",
+  review: "Review",
+  qa: "QA",
+  merge: "Merge",
+  blocked: "Blocked",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+
+const PROJECT_DELIVERY_PHASE_TONE: Record<IssueProgressPhase, string> = {
+  intake: "border-border bg-background text-muted-foreground",
+  clarification:
+    "border-sky-300/70 bg-sky-500/10 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200",
+  planning: "border-border bg-background text-muted-foreground",
+  implementing: "border-border bg-background text-foreground",
+  review:
+    "border-amber-300/70 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200",
+  qa: "border-cyan-300/70 bg-cyan-500/10 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200",
+  merge:
+    "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
+  blocked:
+    "border-red-300/70 bg-red-500/10 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200",
+  done:
+    "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
+  cancelled: "border-border bg-background text-muted-foreground",
+};
+
+function projectOwnerLabel(issue: {
+  progressSnapshot?: { activeOwnerAgentId?: string | null; phase?: IssueProgressPhase | null } | null;
+}, agentMap: Map<string, Agent>) {
+  const snapshot = issue.progressSnapshot;
+  if (!snapshot) return "No owner";
+  if (snapshot.activeOwnerAgentId) {
+    return agentMap.get(snapshot.activeOwnerAgentId)?.name ?? "Assigned owner";
+  }
+  if (snapshot.phase === "clarification") return "Waiting on human reply";
+  if (snapshot.phase === "blocked") return "Recovery required";
+  return "No owner";
+}
 
 function resolveProjectTab(pathname: string, projectId: string): ProjectTab | null {
   const segments = pathname.split("/").filter(Boolean);
@@ -231,6 +277,31 @@ export function ProjectDetail() {
     setSelectedCompanyId(project.companyId, { source: "route_sync" });
   }, [project?.companyId, selectedCompanyId, setSelectedCompanyId]);
 
+  const { data: overviewIssues = [] } = useQuery({
+    queryKey: project?.id && resolvedCompanyId
+      ? queryKeys.issues.listByProject(resolvedCompanyId, project.id)
+      : ["project-overview-issues", routeProjectRef],
+    queryFn: () => issuesApi.list(resolvedCompanyId!, { projectId: project!.id, includeSubtasks: true }),
+    enabled: activeTab === "overview" && !!project?.id && !!resolvedCompanyId,
+  });
+
+  const { data: overviewAgents } = useQuery({
+    queryKey: queryKeys.agents.list(resolvedCompanyId!),
+    queryFn: () => agentsApi.list(resolvedCompanyId!),
+    enabled: activeTab === "overview" && !!resolvedCompanyId,
+  });
+
+  const overviewAgentMap = useMemo(() => {
+    const map = new Map<string, Agent>();
+    for (const agent of overviewAgents ?? []) map.set(agent.id, agent);
+    return map;
+  }, [overviewAgents]);
+
+  const projectDelivery = useMemo(
+    () => buildProjectDeliverySummary(overviewIssues),
+    [overviewIssues],
+  );
+
   const invalidateProject = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(routeProjectRef) });
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectLookupRef) });
@@ -374,6 +445,33 @@ export function ProjectDetail() {
       >
         {activeTab === "overview" && (
           <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <SupportMetricCard
+                icon={FolderKanban}
+                label="Active roots"
+                value={projectDelivery.activeRootCount}
+                detail="Parent issues still moving inside this project."
+              />
+              <SupportMetricCard
+                icon={AlertTriangle}
+                label="Blocked"
+                value={projectDelivery.blockedRootCount}
+                detail="Requests needing recovery or unblock attention."
+              />
+              <SupportMetricCard
+                icon={MessageSquareMore}
+                label="Clarifications"
+                value={projectDelivery.clarificationRootCount}
+                detail="Project requests currently waiting on an answer."
+              />
+              <SupportMetricCard
+                icon={GitPullRequestArrow}
+                label="Review / gate"
+                value={projectDelivery.reviewOrGateCount}
+                detail="Requests sitting in review, QA, or merge follow-up."
+                tone="accent"
+              />
+            </div>
             <div className="rounded-[1.25rem] border border-border/80 bg-background/70 px-4 py-4">
               <div className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground">
                 Project name
@@ -384,6 +482,84 @@ export function ProjectDetail() {
                 as="h2"
                 className="mt-2 text-2xl font-semibold tracking-[-0.04em]"
               />
+            </div>
+            <div className="rounded-[1.25rem] border border-border/80 bg-background/70 px-4 py-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground">
+                    Current project delivery
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Keep the project overview anchored on parent issues, not just project metadata.
+                  </p>
+                </div>
+                <Link
+                  to={`/projects/${canonicalProjectRef}/issues`}
+                  className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground no-underline transition-colors hover:border-primary/18 hover:bg-accent"
+                >
+                  Open project work
+                </Link>
+              </div>
+
+              {projectDelivery.currentDelivery.length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  No active parent issues yet. Create or route work into this project to expose delivery flow here.
+                </p>
+              ) : (
+                <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                  {projectDelivery.currentDelivery.map((issue) => {
+                    const snapshot = issue.progressSnapshot;
+                    if (!snapshot) return null;
+                    const subtaskSummary = snapshot.subtaskSummary;
+                    return (
+                      <Link
+                        key={issue.id}
+                        to={workIssuePath(issue.identifier ?? issue.id)}
+                        className="rounded-[1.1rem] border border-border bg-card px-4 py-4 no-underline shadow-card transition-colors hover:border-primary/18 hover:bg-accent/24"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${PROJECT_DELIVERY_PHASE_TONE[snapshot.phase]}`}
+                          >
+                            {PROJECT_DELIVERY_PHASE_LABELS[snapshot.phase]}
+                          </span>
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            {issue.identifier ?? issue.id.slice(0, 8)}
+                          </span>
+                        </div>
+                        <div className="mt-3">
+                          <div className="line-clamp-1 text-sm font-semibold text-foreground">
+                            {issue.title}
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                            {snapshot.headline}
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="rounded-full border border-border bg-background px-2 py-1">
+                            {projectOwnerLabel(issue, overviewAgentMap)}
+                          </span>
+                          {subtaskSummary.total > 0 && (
+                            <span className="rounded-full border border-border bg-background px-2 py-1">
+                              {subtaskSummary.done}/{subtaskSummary.total} subtasks done
+                            </span>
+                          )}
+                          {snapshot.pendingClarificationCount > 0 && (
+                            <span className="rounded-full border border-sky-300/70 bg-sky-500/10 px-2 py-1 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200">
+                              {snapshot.pendingClarificationCount} clarification
+                            </span>
+                          )}
+                          {subtaskSummary.blocked > 0 && (
+                            <span className="rounded-full border border-red-300/70 bg-red-500/10 px-2 py-1 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200">
+                              {subtaskSummary.blocked} blocked
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="rounded-[1.25rem] border border-border/80 bg-background/70 px-4 py-4">
               <OverviewContent
