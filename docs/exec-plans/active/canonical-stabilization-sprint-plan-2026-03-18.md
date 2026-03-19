@@ -355,7 +355,9 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 ### Phase 3 진행 메모
 
 - `ProjectDetail` overview는 project-scoped delivery summary와 parent issue current-delivery strip까지 반영됐다.
-- 다음 우선순위는 `IssueDetail` progress surface와 protocol-aware notifications를 더 직접적으로 연결하는 배치다.
+- `IssueDetail` progress strip은 clarification/subtask/review/QA/artifact 신호를 직접 드러내는 형태로 확장됐다.
+- live activity invalidation은 `issues.listByProject`와 `projects.detail`까지 갱신해 project-scoped surfaces가 protocol 변화에 뒤처지지 않도록 맞췄다.
+- protocol-aware notifications는 review / changes / merge / deploy 성격의 메시지를 `changes` surface로 연결하도록 정리됐다.
 
 ## Phase 4. 반복 검증
 

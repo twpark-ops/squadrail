@@ -8,6 +8,17 @@ export interface IssueToastContext {
   changesHref: string;
 }
 
+const CHANGE_VIEW_PROTOCOL_MESSAGE_TYPES = new Set([
+  "REQUEST_CHANGES",
+  "SUBMIT_FOR_REVIEW",
+  "APPROVE_IMPLEMENTATION",
+  "REQUEST_MERGE",
+  "APPROVE_MERGE",
+  "REJECT_MERGE",
+  "CONFIRM_DEPLOY",
+  "ROLLBACK_DEPLOY",
+]);
+
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -19,6 +30,35 @@ function truncate(text: string, max: number): string {
 
 function formatProtocolMessageType(messageType: string): string {
   return messageType.replace(/_/g, " ").toLowerCase();
+}
+
+function resolveProtocolMessageAction(issue: IssueToastContext, messageType: string) {
+  const href = CHANGE_VIEW_PROTOCOL_MESSAGE_TYPES.has(messageType)
+    ? issue.changesHref
+    : issue.href;
+  return {
+    href,
+    label: href === issue.changesHref ? `Open ${issue.ref} changes` : `View ${issue.ref}`,
+  };
+}
+
+function resolveProtocolTimeoutAction(
+  issue: IssueToastContext,
+  timeoutCode: string,
+  recipientRole: string | null,
+) {
+  const useChangesView =
+    timeoutCode.includes("changes")
+    || timeoutCode.includes("review")
+    || timeoutCode.includes("merge")
+    || timeoutCode.includes("deploy")
+    || recipientRole === "reviewer"
+    || recipientRole === "qa";
+  const href = useChangesView ? issue.changesHref : issue.href;
+  return {
+    href,
+    label: href === issue.changesHref ? `Open ${issue.ref} changes` : `View ${issue.ref}`,
+  };
 }
 
 export function sanitizeExternalToastHref(value: string | null): string | null {
@@ -79,22 +119,13 @@ export function buildProtocolMessageToast(
     ?? (workflowStateAfter
       ? `Workflow -> ${workflowStateAfter.replace(/_/g, " ")}`
       : issue.title ?? undefined);
-  const href =
-    messageType.includes("MERGE") || messageType.includes("DEPLOY") || messageType === "ROLLBACK_DEPLOY"
-      ? issue.changesHref
-      : issue.href;
+  const action = resolveProtocolMessageAction(issue, messageType);
 
   return {
     title,
     body: body ? truncate(body, 100) : undefined,
     tone: toneByMessageType[messageType] ?? "info",
-    action: {
-      label:
-        href === issue.changesHref
-          ? `Open ${issue.ref} changes`
-          : `View ${issue.ref}`,
-      href,
-    },
+    action,
     dedupeKey: `activity:issue.protocol_message.created:${issue.ref}:${messageType}:${workflowStateAfter ?? "na"}`,
   };
 }
@@ -149,6 +180,7 @@ export function buildProtocolTimeoutToast(
 ): ToastInput {
   const timeoutCode = readString(details?.timeoutCode) ?? "timeout";
   const recipientRole = readString(details?.recipientRole);
+  const action = resolveProtocolTimeoutAction(issue, timeoutCode, recipientRole);
   return {
     title: escalated ? `${issue.ref} needs recovery` : `${issue.ref} is waiting on action`,
     body: [
@@ -158,7 +190,7 @@ export function buildProtocolTimeoutToast(
       .filter(Boolean)
       .join(" · "),
     tone: escalated ? "warn" : "info",
-    action: { label: `View ${issue.ref}`, href: issue.href },
+    action,
     dedupeKey: `activity:timeout:${issue.ref}:${timeoutCode}:${recipientRole ?? "na"}:${escalated ? "escalated" : "reminder"}`,
   };
 }

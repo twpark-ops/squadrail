@@ -124,6 +124,10 @@ import {
   derivePendingHumanClarifications,
 } from "@squadrail/shared";
 import { appRoutes } from "../lib/appRoutes";
+import {
+  buildIssueProgressSignals,
+  type IssueProgressSignalTone,
+} from "../lib/issue-progress-signals";
 
 type CommentReassignment = {
   assigneeAgentId: string | null;
@@ -1214,21 +1218,46 @@ function ProgressHeroStrip({
   const ownerAgent = snapshot.activeOwnerAgentId
     ? agentMap.get(snapshot.activeOwnerAgentId)
     : null;
+  const signals = buildIssueProgressSignals(snapshot);
+  const signalToneClass: Record<IssueProgressSignalTone, string> = {
+    neutral: "border-border bg-background text-muted-foreground",
+    info: "border-sky-300/70 bg-sky-500/10 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200",
+    warn: "border-amber-300/70 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200",
+    blocked: "border-rose-300/70 bg-rose-500/10 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200",
+    success: "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
+  };
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm">
-      <ProgressPhaseBadge phase={snapshot.phase} />
-      <span className="truncate text-muted-foreground">{snapshot.headline}</span>
-      {ownerAgent && (
-        <span className="ml-auto shrink-0">
-          <Identity name={ownerAgent.name} size="sm" />
-        </span>
-      )}
-      {snapshot.phase === "blocked" && snapshot.blockedReason && (
-        <span className="ml-auto shrink-0 flex items-center gap-1 text-rose-600 dark:text-rose-400 text-xs">
-          <TriangleAlert className="h-3 w-3" />
-          {snapshot.blockedReason.replace(/_/g, " ")}
-        </span>
+    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <ProgressPhaseBadge phase={snapshot.phase} />
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{snapshot.headline}</span>
+        {ownerAgent && (
+          <span className="shrink-0">
+            <Identity name={ownerAgent.name} size="sm" />
+          </span>
+        )}
+        {snapshot.phase === "blocked" && snapshot.blockedReason && (
+          <span className="shrink-0 flex items-center gap-1 text-rose-600 dark:text-rose-400 text-xs">
+            <TriangleAlert className="h-3 w-3" />
+            {snapshot.blockedReason.replace(/_/g, " ")}
+          </span>
+        )}
+      </div>
+      {signals.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {signals.map((signal) => (
+            <span
+              key={signal.key}
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                signalToneClass[signal.tone],
+              )}
+            >
+              {signal.label}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

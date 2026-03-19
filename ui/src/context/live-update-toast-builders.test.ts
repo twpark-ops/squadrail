@@ -44,6 +44,19 @@ describe("live update toast builders", () => {
     expect(toast?.body).toContain("Need vendor-specific mapping details");
   });
 
+  it("routes change-request protocol toasts to the changes surface", () => {
+    const toast = buildProtocolMessageToast("Reviewer", issue, {
+      messageType: "REQUEST_CHANGES",
+      summary: "Vendor fallback needs another pass",
+      workflowStateAfter: "changes_requested",
+    });
+
+    expect(toast?.action).toEqual({
+      label: "Open CLO-25 changes",
+      href: "/changes/CLO-25",
+    });
+  });
+
   it("builds merge candidate toasts with merge commit suffix", () => {
     const toast = buildMergeCandidateToast(issue, {
       actionType: "resolved",
@@ -100,8 +113,8 @@ describe("live update toast builders", () => {
       title: "CLO-25 needs recovery",
       tone: "warn",
       action: {
-        label: "View CLO-25",
-        href: "/work/CLO-25",
+        label: "Open CLO-25 changes",
+        href: "/changes/CLO-25",
       },
     });
     expect(toast.body).toContain("changes ack timeout");
