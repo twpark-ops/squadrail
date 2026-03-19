@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildKnowledgeQualityDailyTrend } from "../services/knowledge.js";
+import {
+  buildKnowledgeQualityDailyTrend,
+  buildRetrievalQualityGateFailures,
+} from "../services/knowledge.js";
 
 describe("knowledge quality daily trend", () => {
   it("builds fixed daily buckets and aggregates cache, graph, and personalization counts", () => {
@@ -184,6 +187,27 @@ describe("knowledge quality daily trend", () => {
       topHitSourceTypeCounts: {},
       candidateCacheReasonCounts: {},
       finalCacheReasonCounts: {},
+    });
+  });
+
+  it("suppresses historical coverage failures for role-scoped quality gates", () => {
+    expect(buildRetrievalQualityGateFailures({
+      multiHopGraphExpandedRuns: 1,
+      candidateCacheHitCount: 0,
+      finalCacheHitCount: 0,
+      codeHitCountTotal: 3,
+      reviewHitCountTotal: 2,
+      issueTotalItems: 10,
+      issueLinkedDocumentCount: 9,
+      protocolTotalItems: 12,
+      protocolLinkedDocumentCount: 8,
+      reviewTotalItems: 7,
+      reviewLinkedDocumentCount: 5,
+      roleScoped: true,
+    })).toEqual({
+      functionalReadinessFailures: ["retrieval_cache"],
+      historicalHygieneFailures: [],
+      readinessFailures: ["retrieval_cache"],
     });
   });
 });

@@ -1,6 +1,7 @@
 # P1 Retrieval Stabilization and Multi-Hop Plan
 
 작성일: 2026-03-11
+완료일: 2026-03-19
 
 ## 목표
 
@@ -39,3 +40,13 @@
   - 서버 재기동 뒤 orphan `running knowledge sync job`이 readiness를 막지 않도록 fetch-time resume 추가
   - company/project readiness gate의 `protocol_memory_coverage`는 `pass`로 회복
   - 남은 리스크는 reviewer project scope의 `retrieval_cache` 경고 축
+- 2026-03-19 Batch 3:
+  - reviewer compatible cache reuse가 feedback drift, knowledge revision drift, revision signature drift를 허용하도록 정합성 보강
+  - role-scoped reviewer quality gate에서 historical coverage 경고를 분리해 실제 readiness failure만 남도록 수정
+  - live reviewer retrieval run에서 `candidate/final cache hit = true`, provenance `feedback_drift`를 직접 확인
+  - reviewer project scope quality gate의 `retrieval_cache` 경고가 `pass`로 회복
+
+## 종료 메모
+
+- readiness E2E와 live quality API 기준으로 engineer/reviewer top hit는 `code/review/test` direct evidence 우선으로 안정화됐다.
+- reviewer scope의 마지막 readiness 경고였던 `retrieval_cache`도 해소되었고, 현재 후속 retrieval 작업은 별도 hardening이 아닌 일반 운영 모니터링 범위다.

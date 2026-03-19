@@ -81,6 +81,44 @@ export type KnowledgeQualityTrendSample = {
   finalCacheProvenance: string | null;
 };
 
+export function buildRetrievalQualityGateFailures(input: {
+  multiHopGraphExpandedRuns: number;
+  candidateCacheHitCount: number;
+  finalCacheHitCount: number;
+  codeHitCountTotal: number;
+  reviewHitCountTotal: number;
+  issueTotalItems: number;
+  issueLinkedDocumentCount: number;
+  protocolTotalItems: number;
+  protocolLinkedDocumentCount: number;
+  reviewTotalItems: number;
+  reviewLinkedDocumentCount: number;
+  roleScoped: boolean;
+}) {
+  const functionalReadinessFailures = [
+    ...(input.multiHopGraphExpandedRuns > 0 ? [] : ["multi_hop_graph"]),
+    ...(input.candidateCacheHitCount > 0 || input.finalCacheHitCount > 0 ? [] : ["retrieval_cache"]),
+    ...(input.codeHitCountTotal > 0 ? [] : ["code_evidence"]),
+    ...(input.reviewHitCountTotal > 0 ? [] : ["review_evidence"]),
+  ];
+  const historicalHygieneFailures = input.roleScoped
+    ? []
+    : [
+      ...(input.issueTotalItems > 0 && input.issueLinkedDocumentCount < input.issueTotalItems ? ["issue_memory_coverage"] : []),
+      ...(input.protocolTotalItems > 0 && input.protocolLinkedDocumentCount < input.protocolTotalItems ? ["protocol_memory_coverage"] : []),
+      ...(input.reviewTotalItems > 0 && input.reviewLinkedDocumentCount < input.reviewTotalItems ? ["review_memory_coverage"] : []),
+    ];
+
+  return {
+    functionalReadinessFailures,
+    historicalHygieneFailures,
+    readinessFailures: [
+      ...functionalReadinessFailures,
+      ...historicalHygieneFailures,
+    ],
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -1511,6 +1549,8 @@ export function knowledgeService(db: Db) {
       stage: string;
       knowledgeRevision?: number;
       allowFeedbackDrift?: boolean;
+      allowKnowledgeRevisionDrift?: boolean;
+      allowRevisionSignatureDrift?: boolean;
       identity: {
         queryFingerprint: string;
         policyFingerprint: string;
@@ -1528,13 +1568,15 @@ export function knowledgeService(db: Db) {
             eq(retrievalCacheEntries.companyId, input.companyId),
             eqNullable(retrievalCacheEntries.projectId, input.projectId ?? null),
             eq(retrievalCacheEntries.stage, input.stage),
-            eq(retrievalCacheEntries.knowledgeRevision, revision),
+            input.allowKnowledgeRevisionDrift === true
+              ? undefined
+              : eq(retrievalCacheEntries.knowledgeRevision, revision),
             or(isNull(retrievalCacheEntries.expiresAt), gte(retrievalCacheEntries.expiresAt, now)),
           ),
         )
-        .orderBy(desc(retrievalCacheEntries.updatedAt));
+        .orderBy(desc(retrievalCacheEntries.knowledgeRevision), desc(retrievalCacheEntries.updatedAt));
 
-      const entry = entries.find((candidate) => {
+      const compatibleEntries = entries.filter((candidate) => {
         const metadata = asRecord(asRecord(candidate.valueJson).metadata);
         const cacheIdentity = readRetrievalCacheIdentity(metadata.cacheIdentity);
         return (
@@ -1544,9 +1586,19 @@ export function knowledgeService(db: Db) {
             cacheIdentity.feedbackFingerprint === input.identity.feedbackFingerprint
             || input.allowFeedbackDrift === true
           )
-          && (input.identity.revisionSignature == null || cacheIdentity.revisionSignature === input.identity.revisionSignature)
+          && (
+            input.identity.revisionSignature == null
+            || cacheIdentity.revisionSignature === input.identity.revisionSignature
+            || (
+              input.allowFeedbackDrift === true
+              && input.allowRevisionSignatureDrift === true
+            )
+          )
         );
-      }) ?? null;
+      });
+      const entry = compatibleEntries.find((candidate) => candidate.knowledgeRevision === revision)
+        ?? compatibleEntries[0]
+        ?? null;
 
       if (!entry) return null;
 
@@ -2937,21 +2989,24 @@ export function knowledgeService(db: Db) {
           .then((rows) => rows[0]?.count ?? 0),
       ]);
 
-      const functionalReadinessFailures = [
-        ...(multiHopGraphExpandedRuns > 0 ? [] : ["multi_hop_graph"]),
-        ...(candidateCacheHitCount > 0 || finalCacheHitCount > 0 ? [] : ["retrieval_cache"]),
-        ...(codeHitCountTotal > 0 ? [] : ["code_evidence"]),
-        ...(reviewHitCountTotal > 0 ? [] : ["review_evidence"]),
-      ];
-      const historicalHygieneFailures = [
-        ...(issueTotalItems > 0 && issueLinkedDocumentCount < issueTotalItems ? ["issue_memory_coverage"] : []),
-        ...(protocolTotalItems > 0 && protocolLinkedDocumentCount < protocolTotalItems ? ["protocol_memory_coverage"] : []),
-        ...(reviewTotalItems > 0 && reviewLinkedDocumentCount < reviewTotalItems ? ["review_memory_coverage"] : []),
-      ];
-      const readinessFailures = [
-        ...functionalReadinessFailures,
-        ...historicalHygieneFailures,
-      ];
+      const {
+        functionalReadinessFailures,
+        historicalHygieneFailures,
+        readinessFailures,
+      } = buildRetrievalQualityGateFailures({
+        multiHopGraphExpandedRuns,
+        candidateCacheHitCount,
+        finalCacheHitCount,
+        codeHitCountTotal,
+        reviewHitCountTotal,
+        issueTotalItems,
+        issueLinkedDocumentCount,
+        protocolTotalItems,
+        protocolLinkedDocumentCount,
+        reviewTotalItems,
+        reviewLinkedDocumentCount,
+        roleScoped: Boolean(input.role),
+      });
 
       return {
         companyId: input.companyId,

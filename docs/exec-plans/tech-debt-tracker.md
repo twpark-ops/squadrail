@@ -10,7 +10,7 @@
 
 ### Retrieval / Knowledge
 
-- `active/p1-retrieval-stabilization-plan.md`
+- `completed/p1-retrieval-stabilization-plan.md`
 - `../design-docs/retrieval-god-file-refactor-debt.md`
 
 ### Product / UX

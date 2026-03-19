@@ -576,4 +576,71 @@ describe("issue retrieval service body", () => {
       }),
     );
   });
+
+  it("allows reviewer cache compatibility across revision signature drift", async () => {
+    const db = createDbMock([
+      [],
+      [],
+      [],
+      [],
+    ]);
+    const service = issueRetrievalService(db as never);
+
+    await service.handleProtocolMessage({
+      companyId: "company-1",
+      issueId: "issue-1",
+      issue: {
+        id: "issue-1",
+        projectId: "project-1",
+        identifier: "CLO-21",
+        title: "Stabilize retry dispatch",
+        description: "Need review-ready runtime evidence.",
+        labels: [],
+        mentionedProjects: [],
+      },
+      triggeringMessageId: "message-1",
+      triggeringMessageSeq: 7,
+      message: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        artifacts: [],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Please review the retry stabilization patch.",
+        payload: {},
+      },
+      actor: {
+        actorType: "agent",
+        actorId: "eng-1",
+      },
+    });
+
+    expect(mockGetCompatibleRetrievalCacheEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "candidate_hits",
+        allowFeedbackDrift: true,
+        allowKnowledgeRevisionDrift: true,
+        allowRevisionSignatureDrift: true,
+      }),
+    );
+    expect(mockGetCompatibleRetrievalCacheEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "final_hits",
+        allowFeedbackDrift: true,
+        allowKnowledgeRevisionDrift: true,
+        allowRevisionSignatureDrift: true,
+      }),
+    );
+  });
 });

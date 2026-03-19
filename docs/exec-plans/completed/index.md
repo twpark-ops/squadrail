@@ -5,6 +5,7 @@
 - `canonical-stabilization-sprint-plan-2026-03-18.md`
 - `phase-0-security-baseline-design-2026-03-18.md`
 - `five-axis-hardening-plan-2026-03-18.md`
+- `p1-retrieval-stabilization-plan.md`
 - `phase-roadmap.md`
 - `phase1-team-supervisor-mvp.md`
 - `phase2-delivery-contract-mvp.md`

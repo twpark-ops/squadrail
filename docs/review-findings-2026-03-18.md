@@ -53,4 +53,4 @@ git diff --check
 - The toast-link issue was a client-side external navigation sink, not a server-side redirect endpoint.
 - The heartbeat wakeup increase is a rollout concern, not a correctness bug by itself.
 - The knowledge metric change should be reflected in any future dashboard or analytics copy that still assumes the old meaning.
-- Retrieval-axis stabilization is not isolated from canonical stabilization. It must be executed together with `docs/exec-plans/active/p1-retrieval-stabilization-plan.md`.
+- Retrieval-axis stabilization is not isolated from canonical stabilization. It must be executed together with `docs/exec-plans/completed/p1-retrieval-stabilization-plan.md`.

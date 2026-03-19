@@ -3551,6 +3551,8 @@ export function issueRetrievalService(db: Db) {
           stage: "candidate_hits",
           knowledgeRevision: context.primaryKnowledgeRevision,
           allowFeedbackDrift: true,
+          allowKnowledgeRevisionDrift: recipient.role === "reviewer",
+          allowRevisionSignatureDrift: recipient.role === "reviewer",
           identity: candidateCacheIdentity,
         });
         const candidateCacheInspection = candidateCacheEntry
@@ -3605,6 +3607,8 @@ export function issueRetrievalService(db: Db) {
           stage: "final_hits",
           knowledgeRevision: context.primaryKnowledgeRevision,
           allowFeedbackDrift: true,
+          allowKnowledgeRevisionDrift: recipient.role === "reviewer",
+          allowRevisionSignatureDrift: recipient.role === "reviewer",
           identity: finalCacheIdentity,
         });
         const finalCacheInspection = finalCacheEntry

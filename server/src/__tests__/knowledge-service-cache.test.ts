@@ -395,6 +395,93 @@ describe("knowledge service cache and revision flows", () => {
     expect(updateSets).toEqual([]);
   });
 
+  it("reuses compatible cache entries across revision signature drift when reviewer feedback drift is allowed", async () => {
+    const { db, updateSets } = createKnowledgeDbMock({
+      selectResults: [[createCacheEntry({
+        id: "entry-sig-drift",
+        cacheKey: "cache-sig-drift",
+        knowledgeRevision: 7,
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+        hitCount: 4,
+      })]],
+      updateResults: [[{
+        id: "entry-sig-drift",
+        hitCount: 5,
+      }]],
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.getCompatibleRetrievalCacheEntry({
+      companyId: "company-1",
+      stage: "final_hits",
+      knowledgeRevision: 7,
+      allowFeedbackDrift: true,
+      allowRevisionSignatureDrift: true,
+      identity: {
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-2",
+        revisionSignature: "rev-2",
+      },
+    });
+
+    expect(result).toMatchObject({
+      id: "entry-sig-drift",
+      hitCount: 5,
+    });
+    expect(updateSets[0]).toMatchObject({
+      hitCount: 5,
+      lastAccessedAt: expect.any(Date),
+      updatedAt: expect.any(Date),
+    });
+  });
+
+  it("reuses compatible cache entries across knowledge revision drift when reviewer cache reuse is enabled", async () => {
+    const { db, updateSets } = createKnowledgeDbMock({
+      selectResults: [[createCacheEntry({
+        id: "entry-revision-drift",
+        cacheKey: "cache-revision-drift",
+        knowledgeRevision: 6,
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+        hitCount: 8,
+      })]],
+      updateResults: [[{
+        id: "entry-revision-drift",
+        hitCount: 9,
+        knowledgeRevision: 6,
+      }]],
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.getCompatibleRetrievalCacheEntry({
+      companyId: "company-1",
+      stage: "candidate_hits",
+      knowledgeRevision: 7,
+      allowKnowledgeRevisionDrift: true,
+      identity: {
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+        revisionSignature: "rev-1",
+      },
+    });
+
+    expect(result).toMatchObject({
+      id: "entry-revision-drift",
+      hitCount: 9,
+      knowledgeRevision: 6,
+    });
+    expect(updateSets[0]).toMatchObject({
+      hitCount: 9,
+      lastAccessedAt: expect.any(Date),
+      updatedAt: expect.any(Date),
+    });
+  });
+
   it("updates existing cache entries in place when the stage key already exists", async () => {
     const { db, updateSets } = createKnowledgeDbMock({
       selectResults: [[{

@@ -28,7 +28,7 @@ mainfont: "Noto Sans"
 
 - [review-findings-2026-03-18.md](/home/taewoong/company-project/squadall/docs/review-findings-2026-03-18.md)
 - [phase-0-security-baseline-design-2026-03-18.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/phase-0-security-baseline-design-2026-03-18.md)
-- [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/active/p1-retrieval-stabilization-plan.md)
+- [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/p1-retrieval-stabilization-plan.md)
 - [five-axis-hardening-plan-2026-03-18.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/five-axis-hardening-plan-2026-03-18.md)
 
 # 배경
@@ -333,7 +333,7 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - old company / legacy corpus가 E2E 판단에 간섭하지 않게 격리
 - knowledge sync readiness 확인을 선행 조건으로 명시
 - migration `0024` 이후 현재 헤드까지 fresh run 검증
-- [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/active/p1-retrieval-stabilization-plan.md) 의
+- [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/p1-retrieval-stabilization-plan.md) 의
   선행 테스트/회귀 항목을 bootstrap phase에 연결
 - `retrieval-cache.test.ts`, `dashboard-service.test.ts`처럼 현재 known drift가 있는 테스트를 먼저 복구
 
@@ -438,7 +438,7 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - canonical path를 깨는 변경 금지
 - security baseline 선행
 - state/session invariant 우선
-- retrieval axis는 [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/active/p1-retrieval-stabilization-plan.md) 과
+- retrieval axis는 [p1-retrieval-stabilization-plan.md](/home/taewoong/company-project/squadall/docs/exec-plans/completed/p1-retrieval-stabilization-plan.md) 과
   분리하지 않고 같이 잠금
 - symptom-first routing 보존
 - green E2E를 “시연 결과”가 아니라 “제품 계약”으로 취급
