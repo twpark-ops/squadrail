@@ -1960,6 +1960,14 @@ async function captureFallbackRunDiagnostic(issueId) {
     agentName: activeRun.agentName ?? null,
     leaseStatus: activeRun.leaseStatus ?? null,
     leaseHeartbeatAt: activeRun.leaseHeartbeatAt ?? null,
+    runtimeDegradedState:
+      typeof activeRun.runtimeDegradedState === "string" && activeRun.runtimeDegradedState.length > 0
+        ? activeRun.runtimeDegradedState
+        : null,
+    runtimeHealth:
+      typeof activeRun.runtimeHealth === "string" && activeRun.runtimeHealth.length > 0
+        ? activeRun.runtimeHealth
+        : null,
     wakeReason:
       typeof contextSnapshot.wakeReason === "string" && contextSnapshot.wakeReason.length > 0
         ? contextSnapshot.wakeReason

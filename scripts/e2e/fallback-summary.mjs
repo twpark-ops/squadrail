@@ -15,6 +15,7 @@ function createEmptyRuntimeDegradedCounts() {
   return {
     adapter_retry: 0,
     claude_stream_incomplete: 0,
+    recovered_supervisory_invoke_stall: 0,
   };
 }
 
@@ -34,6 +35,17 @@ export function createFallbackTracker() {
 
 function inferRuntimeDegradedReason(runDiagnostic) {
   if (!runDiagnostic || typeof runDiagnostic !== "object") return null;
+  const runtimeDegradedState =
+    typeof runDiagnostic.runtimeDegradedState === "string" ? runDiagnostic.runtimeDegradedState : null;
+  if (runtimeDegradedState === "recovered_supervisory_invoke_stall") {
+    return "recovered_supervisory_invoke_stall";
+  }
+  if (runtimeDegradedState === "claude_stream_incomplete_retry_loop") {
+    return "claude_stream_incomplete";
+  }
+  if (runtimeDegradedState === "adapter_retry_loop") {
+    return "adapter_retry";
+  }
   const adapterRetryErrorCode =
     typeof runDiagnostic.adapterRetryErrorCode === "string" ? runDiagnostic.adapterRetryErrorCode : null;
   if (adapterRetryErrorCode === "claude_stream_incomplete") {

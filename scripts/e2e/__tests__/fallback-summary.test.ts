@@ -37,6 +37,7 @@ describe("fallback summary helpers", () => {
       runtimeDegradedCounts: {
         adapter_retry: 0,
         claude_stream_incomplete: 0,
+        recovered_supervisory_invoke_stall: 0,
       },
       events: [
         {
@@ -91,6 +92,24 @@ describe("fallback summary helpers", () => {
     expect(summarizeFallbackTracker(tracker).runtimeDegradedCounts).toEqual({
       adapter_retry: 1,
       claude_stream_incomplete: 1,
+      recovered_supervisory_invoke_stall: 0,
+    });
+  });
+
+  it("prefers explicit runtime degraded state from diagnostics", () => {
+    const tracker = createFallbackTracker();
+    recordFallbackEvent(tracker, {
+      reason: "close",
+      runDiagnostic: {
+        runtimeDegradedState: "recovered_supervisory_invoke_stall",
+        runtimeHealth: "degraded",
+      },
+    });
+
+    expect(summarizeFallbackTracker(tracker).runtimeDegradedCounts).toEqual({
+      adapter_retry: 0,
+      claude_stream_incomplete: 0,
+      recovered_supervisory_invoke_stall: 1,
     });
   });
 
@@ -121,6 +140,7 @@ describe("fallback summary helpers", () => {
       runtimeDegradedCounts: {
         adapter_retry: 0,
         claude_stream_incomplete: 0,
+        recovered_supervisory_invoke_stall: 0,
       },
       scenarios: [
         {
@@ -140,6 +160,7 @@ describe("fallback summary helpers", () => {
           runtimeDegradedCounts: {
             adapter_retry: 0,
             claude_stream_incomplete: 0,
+            recovered_supervisory_invoke_stall: 0,
           },
         },
         {
@@ -160,6 +181,7 @@ describe("fallback summary helpers", () => {
           runtimeDegradedCounts: {
             adapter_retry: 0,
             claude_stream_incomplete: 0,
+            recovered_supervisory_invoke_stall: 0,
           },
         },
       ],

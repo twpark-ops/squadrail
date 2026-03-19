@@ -115,6 +115,9 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `adapter_retry`
   - `claude_stream_incomplete`
 - active run route는 이제 `leaseStatus / checkpoint / leaseHeartbeatAt / latestEvent`를 함께 내려 fallback 시점의 active run 상태를 직접 보여준다.
+- active run route는 이제 `runtimeDegradedState / runtimeHealth`도 함께 내려준다.
+  - 예: `claude_stream_incomplete_retry_loop`
+  - 예: `recovered_supervisory_invoke_stall`
 - 짧은 protocol lane 전용 idle watchdog을 heartbeat per-run timer로 올렸다.
   - 포함: routing, staffing, reviewer, QA, close
   - 제외: 장시간 구현이 가능한 `implementation_engineer`

@@ -3,6 +3,8 @@ import { resolveProtocolRunRequirement } from "@squadrail/shared/protocol-run-re
 import {
   buildRequiredProtocolProgressError,
   classifyDegradedProtocolRunReason,
+  classifyProtocolRuntimeDegradedState,
+  describeProtocolRunRuntimeState,
   hasRequiredProtocolProgress,
   isIdleProtocolWatchdogEligibleRequirement,
   isSupersededProtocolWakeReason,
@@ -386,6 +388,56 @@ describe("heartbeat protocol progress helpers", () => {
         degradedThresholdMs: 20_000,
       }),
     ).toBe(false);
+  });
+
+  it("marks recovered supervisory runs that remain in adapter invoke as degraded runtime", () => {
+    const reviewRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "SUBMIT_FOR_REVIEW",
+      protocolRecipientRole: "reviewer",
+    });
+    const now = new Date("2026-03-20T10:01:05Z");
+    const checkpoint = {
+      phase: "adapter.invoke",
+      lastProgressAt: "2026-03-20T10:00:59Z",
+    };
+
+    expect(
+      classifyProtocolRuntimeDegradedState({
+        runStatus: "running",
+        requirement: reviewRequirement,
+        wakeReason: "adapter_retry",
+        protocolRequiredRetryCount: 1,
+        protocolDegradedRecoveryCount: 0,
+        protocolIdleRecovery: true,
+        adapterRetryCount: 2,
+        adapterRetryErrorCode: "adapter_failed",
+        checkpointJson: checkpoint,
+        startedAt: "2026-03-20T10:00:40Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe("recovered_supervisory_invoke_stall");
+
+    expect(
+      describeProtocolRunRuntimeState({
+        runStatus: "running",
+        contextSnapshot: {
+          protocolMessageType: "SUBMIT_FOR_REVIEW",
+          protocolRecipientRole: "reviewer",
+          wakeReason: "adapter_retry",
+          protocolRequiredRetryCount: 1,
+          protocolIdleRecovery: true,
+          adapterRetryCount: 2,
+          adapterRetryErrorCode: "adapter_failed",
+        },
+        checkpointJson: checkpoint,
+        startedAt: "2026-03-20T10:00:40Z",
+        now,
+      }),
+    ).toEqual({
+      runtimeDegradedState: "recovered_supervisory_invoke_stall",
+      runtimeHealth: "degraded",
+    });
   });
 
   it("skips stale protocol follow-up wakes once the issue is terminal", () => {

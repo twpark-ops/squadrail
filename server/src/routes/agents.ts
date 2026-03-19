@@ -31,6 +31,7 @@ import { conflict, forbidden, unprocessable } from "../errors.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { findServerAdapter, listAdapterModels } from "../adapters/index.js";
 import { redactEventPayload } from "../redaction.js";
+import { describeProtocolRunRuntimeState } from "../services/heartbeat.js";
 import { runClaudeLogin } from "@squadrail/adapter-claude-local/server";
 import { DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS } from "@squadrail/adapter-claude-local";
 import {
@@ -1416,6 +1417,13 @@ export function agentRoutes(db: Db) {
       .orderBy(desc(heartbeatRunEvents.seq))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+    const runtimeState = describeProtocolRunRuntimeState({
+      runStatus: run.status,
+      contextSnapshot: run.contextSnapshot,
+      checkpointJson: lease?.checkpointJson ?? null,
+      startedAt: run.startedAt,
+      now: new Date(),
+    });
 
     res.json({
       ...run,
@@ -1426,6 +1434,7 @@ export function agentRoutes(db: Db) {
       checkpoint: lease?.checkpointJson ?? null,
       leaseHeartbeatAt: lease?.heartbeatAt ?? null,
       latestEvent,
+      ...runtimeState,
     });
   });
 

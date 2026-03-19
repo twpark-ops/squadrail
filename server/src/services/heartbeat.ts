@@ -933,6 +933,89 @@ export function classifyDegradedProtocolRunReason(input: {
   return "adapter_retry_loop" as const;
 }
 
+export function classifyProtocolRuntimeDegradedState(input: {
+  runStatus: string;
+  requirement: ProtocolRunRequirement | null;
+  wakeReason?: string | null;
+  protocolRequiredRetryCount?: number;
+  protocolDegradedRecoveryCount?: number;
+  protocolIdleRecovery?: boolean;
+  adapterRetryCount: number;
+  adapterRetryErrorCode?: string | null;
+  checkpointJson?: unknown;
+  startedAt?: Date | string | null;
+  now?: Date;
+  degradedThresholdMs?: number;
+}) {
+  const degradedReason = classifyDegradedProtocolRunReason({
+    requirement: input.requirement,
+    wakeReason: input.wakeReason,
+    adapterRetryCount: input.adapterRetryCount,
+    adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
+  });
+  if (degradedReason === "claude_stream_incomplete_retry_loop") {
+    return degradedReason;
+  }
+  if (input.runStatus !== "running") return degradedReason;
+  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return degradedReason;
+
+  const checkpoint = parseObject(input.checkpointJson);
+  const checkpointPhase = readNonEmptyString(checkpoint.phase);
+  if (!isProtocolWatchdogCheckpointPhase(checkpointPhase)) return degradedReason;
+
+  const recoveryApplied =
+    input.protocolIdleRecovery === true
+    || (input.protocolRequiredRetryCount ?? 0) > 0
+    || (input.protocolDegradedRecoveryCount ?? 0) > 0;
+  if (!recoveryApplied) return degradedReason;
+
+  const startedAtMs = toEpochMillis(input.startedAt) ?? readLeaseLastProgressAt(checkpoint) ?? 0;
+  const degradedThresholdMs = input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS;
+  if ((input.now ?? new Date()).getTime() - startedAtMs < degradedThresholdMs) return degradedReason;
+
+  return "recovered_supervisory_invoke_stall" as const;
+}
+
+export function describeProtocolRunRuntimeState(input: {
+  runStatus: string;
+  contextSnapshot?: unknown;
+  checkpointJson?: unknown;
+  startedAt?: Date | string | null;
+  now?: Date;
+}) {
+  const context = parseObject(input.contextSnapshot);
+  const requirement = resolveProtocolRunRequirement({
+    protocolMessageType: readNonEmptyString(context.protocolMessageType),
+    protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
+  });
+  const runtimeDegradedState = classifyProtocolRuntimeDegradedState({
+    runStatus: input.runStatus,
+    requirement,
+    wakeReason: readNonEmptyString(context.wakeReason),
+    protocolRequiredRetryCount:
+      typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
+        ? context.protocolRequiredRetryCount
+        : 0,
+    protocolDegradedRecoveryCount:
+      typeof context.protocolDegradedRecoveryCount === "number" && Number.isFinite(context.protocolDegradedRecoveryCount)
+        ? context.protocolDegradedRecoveryCount
+        : 0,
+    protocolIdleRecovery: context.protocolIdleRecovery === true,
+    adapterRetryCount:
+      typeof context.adapterRetryCount === "number" && Number.isFinite(context.adapterRetryCount)
+        ? context.adapterRetryCount
+        : 0,
+    adapterRetryErrorCode: readNonEmptyString(context.adapterRetryErrorCode),
+    checkpointJson: input.checkpointJson,
+    startedAt: input.startedAt,
+    now: input.now,
+  });
+  return {
+    runtimeDegradedState,
+    runtimeHealth: runtimeDegradedState ? "degraded" as const : "normal" as const,
+  };
+}
+
 export function shouldRecoverDegradedProtocolRun(input: {
   runStatus: string;
   hasRunningProcess: boolean;
