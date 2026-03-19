@@ -1,6 +1,14 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, ne } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
-import { issues, knowledgeDocuments, rolePackSets, setupProgress } from "@squadrail/db";
+import {
+  agents,
+  issues,
+  knowledgeDocuments,
+  projectWorkspaces,
+  projects,
+  rolePackSets,
+  setupProgress,
+} from "@squadrail/db";
 import {
   SETUP_PROGRESS_STATES,
   type AgentAdapterType,
@@ -11,8 +19,11 @@ import {
 } from "@squadrail/shared";
 
 type SetupProgressRow = typeof setupProgress.$inferSelect;
+type AgentRow = typeof agents.$inferSelect;
+type ProjectWorkspaceRow = typeof projectWorkspaces.$inferSelect;
 
 type SetupStepFlags = SetupProgressView["steps"];
+const SETUP_ENGINE_FALLBACK_ORDER: AgentAdapterType[] = ["claude_local", "codex_local"];
 
 function toSetupProgressRow(companyId: string, row: SetupProgressRow | null): SetupProgress {
   return {
@@ -30,6 +41,27 @@ function readBooleanMetadata(metadata: Record<string, unknown>, key: string) {
   return metadata[key] === true;
 }
 
+function resolveDerivedSelectedWorkspaceId(rows: ProjectWorkspaceRow[]): string | null {
+  return rows[0]?.id ?? null;
+}
+
+function resolveDerivedSelectedEngine(rows: AgentRow[]): AgentAdapterType | null {
+  let bestAdapter: AgentAdapterType | null = null;
+  let bestCount = -1;
+  for (const adapterType of SETUP_ENGINE_FALLBACK_ORDER) {
+    const nextCount = rows.reduce((count, row) => {
+      if (row.status === "terminated") return count;
+      if (row.adapterType !== adapterType) return count;
+      return count + 1;
+    }, 0);
+    if (nextCount > bestCount) {
+      bestAdapter = nextCount > 0 ? adapterType : bestAdapter;
+      bestCount = nextCount;
+    }
+  }
+  return bestAdapter;
+}
+
 export function buildSetupProgressSteps(input: {
   selectedEngine: AgentAdapterType | null;
   selectedWorkspaceId: string | null;
@@ -37,9 +69,12 @@ export function buildSetupProgressSteps(input: {
   publishedRolePackCount: number;
   knowledgeDocumentCount?: number;
   issueCount?: number;
+  projectCount?: number;
+  activeAgentCount?: number;
 }): SetupStepFlags {
+  const teamConfigured = (input.projectCount ?? 0) > 0 && (input.activeAgentCount ?? 0) > 0;
   const squadReady =
-    input.publishedRolePackCount > 0 || readBooleanMetadata(input.metadata, "rolePacksSeeded");
+    input.publishedRolePackCount > 0 || readBooleanMetadata(input.metadata, "rolePacksSeeded") || teamConfigured;
   const engineReady = Boolean(input.selectedEngine);
   const workspaceConnected = Boolean(input.selectedWorkspaceId);
   const knowledgeSeeded =
@@ -100,6 +135,34 @@ async function countCompanyIssues(db: Db, companyId: string) {
   return Number(rows[0]?.count ?? 0);
 }
 
+async function countCompanyProjects(db: Db, companyId: string) {
+  const rows = await db
+    .select({ count: count() })
+    .from(projects)
+    .where(eq(projects.companyId, companyId));
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function countActiveCompanyAgents(db: Db, companyId: string) {
+  const rows = await db
+    .select({ count: count() })
+    .from(agents)
+    .where(and(eq(agents.companyId, companyId), ne(agents.status, "terminated")));
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function listCompanyWorkspaces(db: Db, companyId: string) {
+  return db
+    .select()
+    .from(projectWorkspaces)
+    .where(eq(projectWorkspaces.companyId, companyId))
+    .orderBy(desc(projectWorkspaces.isPrimary), asc(projectWorkspaces.createdAt));
+}
+
+async function listCompanyAgents(db: Db, companyId: string) {
+  return db.select().from(agents).where(eq(agents.companyId, companyId));
+}
+
 export function setupProgressService(db: Db) {
   async function getRaw(companyId: string) {
     return db
@@ -110,24 +173,43 @@ export function setupProgressService(db: Db) {
   }
 
   async function getView(companyId: string): Promise<SetupProgressView> {
-    const [row, publishedRolePackCount, knowledgeDocumentCount, issueCount] = await Promise.all([
+    const [
+      row,
+      publishedRolePackCount,
+      knowledgeDocumentCount,
+      issueCount,
+      projectCount,
+      activeAgentCount,
+      workspaceRows,
+      agentRows,
+    ] = await Promise.all([
       getRaw(companyId),
       countPublishedRolePacks(db, companyId),
       countKnowledgeDocuments(db, companyId),
       countCompanyIssues(db, companyId),
+      countCompanyProjects(db, companyId),
+      countActiveCompanyAgents(db, companyId),
+      listCompanyWorkspaces(db, companyId),
+      listCompanyAgents(db, companyId),
     ]);
     const base = toSetupProgressRow(companyId, row);
+    const selectedEngine = base.selectedEngine ?? resolveDerivedSelectedEngine(agentRows);
+    const selectedWorkspaceId = base.selectedWorkspaceId ?? resolveDerivedSelectedWorkspaceId(workspaceRows);
     const steps = buildSetupProgressSteps({
-      selectedEngine: base.selectedEngine,
-      selectedWorkspaceId: base.selectedWorkspaceId,
+      selectedEngine,
+      selectedWorkspaceId,
       metadata: base.metadata,
       publishedRolePackCount,
       knowledgeDocumentCount,
       issueCount,
+      projectCount,
+      activeAgentCount,
     });
     const derivedStatus = deriveSetupProgressState(steps);
     return {
       ...base,
+      selectedEngine,
+      selectedWorkspaceId,
       status: maxSetupProgressState(base.status, derivedStatus),
       steps,
     };
@@ -135,10 +217,13 @@ export function setupProgressService(db: Db) {
 
   async function update(companyId: string, patch: UpdateSetupProgress): Promise<SetupProgressView> {
     const current = await getView(companyId);
-    const [publishedRolePackCount, knowledgeDocumentCount, issueCount] = await Promise.all([
+    const [publishedRolePackCount, knowledgeDocumentCount, issueCount, projectCount, activeAgentCount] =
+      await Promise.all([
       countPublishedRolePacks(db, companyId),
       countKnowledgeDocuments(db, companyId),
       countCompanyIssues(db, companyId),
+      countCompanyProjects(db, companyId),
+      countActiveCompanyAgents(db, companyId),
     ]);
     const nextMetadata = patch.metadata
       ? {
@@ -156,6 +241,8 @@ export function setupProgressService(db: Db) {
       publishedRolePackCount,
       knowledgeDocumentCount,
       issueCount,
+      projectCount,
+      activeAgentCount,
     });
     const derivedStatus = deriveSetupProgressState(nextSteps);
     const nextStatus = maxSetupProgressState(
