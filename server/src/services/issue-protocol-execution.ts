@@ -452,6 +452,16 @@ export function buildProtocolExecutionDispatchPlan(input: {
     input.message.messageType === "APPROVE_IMPLEMENTATION" && input.message.workflowStateAfter === "approved"
       ? input.issueContext?.techLeadAgentId ?? null
       : null;
+  // Reviewer approval on internal work items can qualify for both the generic
+  // lead supervisor watch and the explicit close follow-up. When both target
+  // the same TL, only keep the closure wake; otherwise deferred wake merging
+  // can overwrite `issue_ready_for_closure` with the watch-only reason.
+  const suppressLeadSupervisorForApprovalClose =
+    approvalCloseFollowupAgentId
+    && leadSupervisorAgentId
+    && approvalCloseFollowupAgentId === leadSupervisorAgentId
+    && input.message.messageType === "APPROVE_IMPLEMENTATION"
+    && input.message.workflowStateAfter === "approved";
   const qaGateFollowupAgentId =
     input.message.messageType === "APPROVE_IMPLEMENTATION" && input.message.workflowStateAfter === "qa_pending"
       ? input.issueContext?.qaAgentId ?? null
@@ -522,6 +532,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
 
   if (
     leadSupervisorAgentId &&
+    !suppressLeadSupervisorForApprovalClose &&
     !input.message.recipients.some(
       (recipient) => recipient.recipientType === "agent" && recipient.recipientId === leadSupervisorAgentId,
     )

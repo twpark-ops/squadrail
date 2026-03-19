@@ -807,6 +807,69 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
   });
 
+  it("prefers closure follow-up over lead supervisor watch for internal implementation approval", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "child-approval-close-1",
+      protocolMessageId: "msg-child-approval-close-1",
+      senderAgentId: "reviewer-1",
+      issueContext: {
+        issueId: "child-approval-close-1",
+        parentId: "root-approval-1",
+        labelNames: ["team:internal", "work:implementation", "watch:lead"],
+        techLeadAgentId: "lead-1",
+      },
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "reviewer-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "approved",
+        summary: "approved for closure on internal work item",
+        payload: {
+          approvalSummary: "Ready for closure.",
+          approvalMode: "agent_review",
+          approvalChecklist: ["Focused tests passed."],
+          verifiedEvidence: ["pnpm test: PASS", "pnpm build: PASS"],
+          residualRisks: ["External merge remains pending."],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan).toHaveLength(2);
+    expect(plan.find((item) => item.recipientRole === "tech_lead")).toMatchObject({
+      kind: "wakeup",
+      recipientId: "lead-1",
+      reason: "issue_ready_for_closure",
+      payload: {
+        protocolDispatchMode: "approval_close_followup",
+        forceFollowupRun: true,
+        forceFreshAdapterSession: true,
+      },
+      contextSnapshot: {
+        protocolDispatchMode: "approval_close_followup",
+        wakeReason: "issue_ready_for_closure",
+      },
+    });
+    expect(
+      plan.some(
+        (item) =>
+          item.recipientRole === "tech_lead"
+          && item.reason === "issue_supervisor_implementation_approved",
+      ),
+    ).toBe(false);
+  });
+
   it("keeps board recipients as notify_only", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-1",
