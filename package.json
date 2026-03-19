@@ -28,6 +28,7 @@
     "smoke:openclaw-docker-ui": "./scripts/smoke/openclaw-docker-ui.sh",
     "smoke:local-ui-flow": "./scripts/smoke/local-ui-flow.sh",
     "e2e:full-delivery": "node scripts/e2e/full-delivery.mjs",
+    "e2e:canonical-repeat": "./scripts/e2e/run-canonical-repeat-validation.sh",
     "e2e:cloud-swiftsight-real-org": "node scripts/e2e/cloud-swiftsight-real-org.mjs",
     "e2e:cloud-swiftsight-kernel-burn-in": "node scripts/e2e/cloud-swiftsight-burn-in.mjs",
     "e2e:cloud-swiftsight-kernel-burn-in:strict": "SWIFTSIGHT_E2E_ALLOW_IMPLEMENTATION_RECOVERY=0 node scripts/e2e/cloud-swiftsight-burn-in.mjs",

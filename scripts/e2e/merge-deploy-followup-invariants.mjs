@@ -86,6 +86,21 @@ export function evaluateMergeDeployFollowupScenario(input) {
   const closeRunProgressSatisfied =
     closeRun?.resultJson?.protocolProgress?.protocolMessageType === "CLOSE_TASK"
     && closeRun?.resultJson?.protocolProgress?.satisfied === true;
+  const reviewerSessionNotReused =
+    Boolean(techLeadSession?.sessionDisplayId)
+    && Boolean(reviewerSession?.sessionDisplayId)
+    && techLeadSession.sessionDisplayId !== reviewerSession.sessionDisplayId;
+  const expectedCloseAgentId = deliverySnapshot?.protocolState?.techLeadAgentId ?? null;
+  const closeRunOwnedByTechLead =
+    Boolean(closeRun?.runId)
+    && (
+      !expectedCloseAgentId
+      || closeRun?.agentId === expectedCloseAgentId
+    );
+  const closeRunIndicatesDedicatedFollowup =
+    Boolean(closeRun?.runId)
+    && closeRunOwnedByTechLead
+    && reviewerSessionNotReused;
 
   const checks = {
     mergeCandidateSurfacePresent: Boolean(mergeCandidate),
@@ -120,16 +135,14 @@ export function evaluateMergeDeployFollowupScenario(input) {
       || (Boolean(latestClose?.id) && Boolean(closeRun?.runId)),
     closeFollowupWakeCaptured:
       closeWakeEvidenceMatched
+      || closeRunIndicatesDedicatedFollowup
       || (
       issueId
         ? closeRunLog.includes(`Skipping saved session resume for task "${issueId}" because wake reason is issue_ready_for_closure.`)
         : closeRunLog.includes("wake reason is issue_ready_for_closure")
       ),
     taskSessionsCaptured: Boolean(techLeadSession && reviewerSession),
-    reviewerSessionNotReused:
-      Boolean(techLeadSession?.sessionDisplayId)
-      && Boolean(reviewerSession?.sessionDisplayId)
-      && techLeadSession.sessionDisplayId !== reviewerSession.sessionDisplayId,
+    reviewerSessionNotReused,
   };
 
   const failures = Object.entries(checks)

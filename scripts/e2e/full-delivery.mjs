@@ -2,12 +2,13 @@
 
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertBypassOnlyOnLocalhost } from "./full-delivery-guards.mjs";
+import { findCloseWakeEvidence } from "./close-wake-evidence.mjs";
 import { assertCanonicalScenarioOne } from "./full-delivery-invariants.mjs";
 import {
   assertMergeDeployFollowupScenario,
@@ -660,45 +661,6 @@ async function fetchTaskSessions(agentId) {
 
 async function fetchRunLog(runId) {
   return api(`/api/heartbeat-runs/${runId}/log?tailBytes=65536`);
-}
-
-async function listFilesRecursive(rootPath) {
-  const entries = await readdir(rootPath, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const entryPath = path.join(rootPath, entry.name);
-      if (entry.isDirectory()) {
-        return listFilesRecursive(entryPath);
-      }
-      return [entryPath];
-    }),
-  );
-  return files.flat();
-}
-
-async function findCloseWakeEvidence(homeRoot, issueId) {
-  const codexHomesRoot = path.join(homeRoot, "instances");
-  try {
-    await access(codexHomesRoot);
-  } catch {
-    return { matched: false, path: null };
-  }
-
-  const candidateFiles = (await listFilesRecursive(codexHomesRoot))
-    .filter((filePath) => filePath.endsWith(".sh") || filePath.endsWith(".jsonl"));
-
-  for (const filePath of candidateFiles) {
-    const content = await readFile(filePath, "utf8").catch(() => "");
-    if (!content) continue;
-    if (
-      content.includes("SQUADRAIL_WAKE_REASON=issue_ready_for_closure")
-      && content.includes(issueId)
-    ) {
-      return { matched: true, path: filePath };
-    }
-  }
-
-  return { matched: false, path: null };
 }
 
 async function waitForCloseRunSnapshot(issueId, initialSnapshot, timeoutMs = 30_000) {

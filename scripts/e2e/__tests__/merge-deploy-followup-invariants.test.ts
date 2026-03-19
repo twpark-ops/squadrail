@@ -238,6 +238,71 @@ describe("merge/deploy follow-up invariants", () => {
     expect(evaluation.checks.closeFollowupWakeCaptured).toBe(true);
   });
 
+  it("accepts a dedicated close run when the follow-up wake evidence is not persisted", () => {
+    const evaluation = assertMergeDeployFollowupScenario({
+      issueId: "issue-1",
+      deliverySnapshot: {
+        issue: { id: "issue-1" },
+        protocolState: { techLeadAgentId: "lead-1" },
+        protocolMessages: [
+          makeMessage("APPROVE_IMPLEMENTATION", {
+            id: "approve-1",
+            createdAt: "2026-03-19T08:54:40.000Z",
+            payload: { approvalSummary: "Approved for external merge." },
+          }),
+          makeMessage("CLOSE_TASK", {
+            id: "close-1",
+            createdAt: "2026-03-19T08:54:46.000Z",
+            sender: { actorType: "agent", actorId: "lead-1", role: "tech_lead" },
+            payload: {
+              closureSummary: "Closed with pending external merge.",
+              verificationSummary: "pnpm test and pnpm build passed.",
+              rollbackPlan: "Drop the isolated worktree branch if merge is rejected.",
+            },
+          }),
+        ],
+        runs: [
+          {
+            runId: "run-close-1",
+            agentId: "lead-1",
+            createdAt: "2026-03-19T08:54:47.000Z",
+            resultJson: {
+              protocolProgress: {
+                protocolMessageType: "CLOSE_TASK",
+                satisfied: true,
+              },
+            },
+          },
+        ],
+      },
+      changeSurface: {
+        changedFiles: ["src/release-label.js"],
+        mergeCandidate: {
+          state: "pending",
+          closeMessageId: "close-1",
+          sourceBranch: "squadrail/del-2/lead-1",
+          headSha: "abc123",
+          workspacePath: "/tmp/worktree",
+          diffStat: "1 file changed, 4 insertions(+)",
+          changedFiles: ["src/release-label.js"],
+          closeSummary: "Closed with pending external merge.",
+          verificationSummary: "pnpm test and pnpm build passed.",
+          approvalSummary: "Approved for external merge.",
+          rollbackPlan: "Drop the isolated worktree branch if merge is rejected.",
+          remainingRisks: ["Base workspace stays unchanged until external merge completes."],
+          gateStatus: null,
+        },
+      },
+      closeRunLog: { content: "" },
+      closeWakeEvidence: { matched: false, path: null },
+      techLeadSessions: [{ taskKey: "issue-1", sessionDisplayId: "lead-session-2" }],
+      reviewerSessions: [{ taskKey: "issue-1", sessionDisplayId: "review-session-1" }],
+    });
+
+    expect(evaluation.failures).toEqual([]);
+    expect(evaluation.checks.closeFollowupWakeCaptured).toBe(true);
+  });
+
   it("reports missing merge candidate provenance and stale-session hints as failures", () => {
     const evaluation = evaluateMergeDeployFollowupScenario({
       issueId: "issue-1",

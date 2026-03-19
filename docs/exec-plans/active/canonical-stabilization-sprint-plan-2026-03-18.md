@@ -79,7 +79,13 @@ mainfont: "Noto Sans"
     `qa-gate-invariants.mjs`)
   - 시나리오 5: merge/deploy follow-up (`full-delivery.mjs`,
     `merge-deploy-followup-invariants.mjs`)
-- 현재 다음 타깃은 `Phase 3 UI surface alignment`다.
+- Phase 3는 아래 UI surface 정합성까지 반영됐다.
+  - `IssueDetail` progress strip 신호 강화
+  - protocol-aware toast action을 `changes` surface 중심으로 정렬
+  - project-scoped issue cache invalidation 보강
+  - project overview smoke 추가
+- Phase 4는 repeat validation harness가 추가됐고, `ITERATIONS=1` 기준 canonical 묶음 전체가 green이다.
+- 현재 다음 타깃은 `Phase 4 최종 게이트(3회 연속 green)`다.
 
 # 선행 조건: Security Baseline
 
