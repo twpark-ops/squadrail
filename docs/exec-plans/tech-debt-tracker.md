@@ -6,6 +6,7 @@
 
 - `completed/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `completed/five-axis-hardening-plan-2026-03-18.md`
+- `active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
 
 ### Retrieval / Knowledge
 

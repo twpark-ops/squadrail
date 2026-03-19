@@ -1,0 +1,43 @@
+@startuml
+title P2 Autonomy Fallback Hardening Plan (2026-03-19)
+
+left to right direction
+skinparam packageStyle rectangle
+
+package "Canonical Loop" {
+  [PM Routing] as PM
+  [TL Staffing] as TL
+  [Review Handoff] as Review
+  [QA Gate] as QA
+  [Close Follow-up] as Close
+}
+
+package "Fallback Families" {
+  [routing fallback] as F1
+  [staffing/wake fallback] as F2
+  [review fallback] as F3
+  [qa fallback] as F4
+  [close fallback] as F5
+}
+
+package "Target State" {
+  [fallback counters in E2E summary] as Counters
+  [server-side follow-up fixes] as ServerFix
+  [canonical repeat stays green] as Green
+}
+
+PM --> F1
+TL --> F2
+Review --> F3
+QA --> F4
+Close --> F5
+
+F1 --> Counters
+F2 --> Counters
+F3 --> Counters
+F4 --> Counters
+F5 --> Counters
+
+Counters --> ServerFix
+ServerFix --> Green
+@enduml

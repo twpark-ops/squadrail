@@ -12,6 +12,7 @@
 ## Retrieval / Runtime Stability
 
 - `exec-plans/active/p1-retrieval-stabilization-plan.md`
+- `exec-plans/active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
 - `exec-plans/completed/five-axis-hardening-plan-2026-03-18.md`
 - `exec-plans/completed/phase3-real-repo-execution-hardening.md`
 
