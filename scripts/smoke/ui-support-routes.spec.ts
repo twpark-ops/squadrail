@@ -148,6 +148,15 @@ test("support routes render with updated UI-only surfaces", async ({ page }) => 
   await page.goto(`${baseUrl}/${companyPrefix}/projects`);
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project directory", exact: true })).toBeVisible();
+  const smokeProjectLink = page.getByRole("link", { name: /Smoke Workspace/i }).first();
+  await expect(smokeProjectLink).toBeVisible();
+  const smokeProjectHref = await smokeProjectLink.getAttribute("href");
+  expect(smokeProjectHref, "smoke project href").toBeTruthy();
+  await page.goto(`${baseUrl}${smokeProjectHref}/overview`);
+  await expect(page.getByRole("heading", { level: 1, name: "Smoke Workspace", exact: true })).toBeVisible();
+  await expect(page.getByText("Current project delivery").first()).toBeVisible();
+  await expect(page.getByText("Active roots").first()).toBeVisible();
+  await expect(page.getByText(/No active parent issues yet|Smoke protocol issue/).first()).toBeVisible();
 
   await page.goto(`${baseUrl}/${companyPrefix}/goals`);
   await expect(page.getByRole("heading", { name: "Goals", exact: true })).toBeVisible();
