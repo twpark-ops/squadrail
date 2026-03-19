@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertBypassOnlyOnLocalhost } from "./full-delivery-guards.mjs";
+import { assertCanonicalScenarioOne } from "./full-delivery-invariants.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -652,10 +653,23 @@ async function createPmIntakeIssue(companyId, request) {
 }
 
 async function previewProjection(issueId, body = { coordinationOnly: false }) {
-  return api(`/api/issues/${issueId}/intake/projection-preview`, {
-    method: "POST",
-    body,
-  });
+  let lastError = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await api(`/api/issues/${issueId}/intake/projection-preview`, {
+        method: "POST",
+        body,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("Issue not found") || attempt === 4) {
+        throw error;
+      }
+      lastError = error;
+      await sleep(250 * (attempt + 1));
+    }
+  }
+  throw lastError ?? new Error(`Projection preview did not become available for issue ${issueId}`);
 }
 
 async function applyProjection(issueId, draft) {
@@ -675,10 +689,6 @@ function summarizeRun(run) {
   return `${run.runId} :: ${run.status} :: ${run.invocationSource ?? "unknown"} :: changedFiles=${changedCount}`;
 }
 
-function findLatestMessage(messages, messageType) {
-  return [...messages].reverse().find((message) => message.messageType === messageType) ?? null;
-}
-
 function extractIsolatedWorkspacePath(latestReviewMessage) {
   if (!latestReviewMessage || !Array.isArray(latestReviewMessage.artifacts)) return null;
   for (const artifact of latestReviewMessage.artifacts) {
@@ -691,14 +701,6 @@ function extractIsolatedWorkspacePath(latestReviewMessage) {
     }
   }
   return null;
-}
-
-function findImplementationRun(runs) {
-  return runs.find((run) => {
-    const snapshot = run?.resultJson?.workspaceGitSnapshot;
-    const changedFiles = Array.isArray(snapshot?.changedFiles) ? snapshot.changedFiles : [];
-    return changedFiles.length > 0;
-  }) ?? null;
 }
 
 async function maybeImportKnowledge(projectId, workspaceId) {
@@ -974,52 +976,19 @@ async function main() {
       if (snapshot.protocolState?.workflowState === "done") {
         section("Post-Completion Verification");
         const rootSnapshot = await fetchIssueSnapshot(intakeIssue.id);
-        const messageTypes = new Set(snapshot.protocolMessages.map((message) => message.messageType));
-        const requiredTypes = [
-          "ASSIGN_TASK",
-          "ACK_ASSIGNMENT",
-          "START_IMPLEMENTATION",
-          "SUBMIT_FOR_REVIEW",
-          "START_REVIEW",
-          "APPROVE_IMPLEMENTATION",
-          "CLOSE_TASK",
-        ];
-        for (const messageType of requiredTypes) {
-          if (!messageTypes.has(messageType)) {
-            throw new Error(`Missing required protocol message type: ${messageType}`);
-          }
-        }
-
-        const rootMessageTypes = new Set(rootSnapshot.protocolMessages.map((message) => message.messageType));
-        if (!rootMessageTypes.has("ASSIGN_TASK")) {
-          throw new Error(
-            `Root intake issue did not record the expected PM loop. Root messages: ${Array.from(rootMessageTypes).join(", ")}`,
-          );
-        }
-
-        if (snapshot.briefs.length < 2) {
-          throw new Error(`Expected at least 2 briefs, found ${snapshot.briefs.length}`);
-        }
-
-        const implementationRun = findImplementationRun(snapshot.runs);
-        if (!implementationRun) {
-          throw new Error("Could not find an implementation run with changed files");
-        }
-
-        const latestReviewMessage = findLatestMessage(snapshot.protocolMessages, "SUBMIT_FOR_REVIEW");
-        if (!latestReviewMessage) {
-          throw new Error("Missing SUBMIT_FOR_REVIEW message");
-        }
-
-        const artifactKinds = Array.isArray(latestReviewMessage.artifacts)
-          ? latestReviewMessage.artifacts.map((artifact) => artifact.kind)
-          : [];
-        if (!artifactKinds.includes("diff")) {
-          throw new Error("SUBMIT_FOR_REVIEW did not capture a diff artifact");
-        }
-        if (!artifactKinds.includes("test_run") || !artifactKinds.includes("build_run")) {
-          throw new Error(`Expected test_run and build_run artifacts, found: ${artifactKinds.join(", ")}`);
-        }
+        const scenarioOne = assertCanonicalScenarioOne({
+          expectedProjectId: project.id,
+          expectedStaffing: {
+            techLeadAgentId: techLead.id,
+            engineerAgentId: engineer.id,
+            reviewerAgentId: reviewer.id,
+          },
+          projectionPreview,
+          rootSnapshot,
+          deliverySnapshot: snapshot,
+        });
+        const latestReviewMessage = scenarioOne.latestSubmit;
+        const implementationRun = scenarioOne.implementationRun;
 
         const isolatedWorkspacePath = extractIsolatedWorkspacePath(latestReviewMessage);
         if (!isolatedWorkspacePath) {
@@ -1049,6 +1018,8 @@ async function main() {
 
         note(`Root issue identifier: ${rootSnapshot.issue.identifier}`);
         note(`Projected issue identifier: ${snapshot.issue.identifier}`);
+        note(`Invariant summary: ${Object.entries(scenarioOne.checks).filter(([, passed]) => passed).length}/${Object.keys(scenarioOne.checks).length} checks`);
+        note(`Implementation run: ${implementationRun.runId}`);
         note(`Isolated workspace: ${isolatedWorkspacePath}`);
         note(`Server log: ${serverLog}`);
         note(`Temp root: ${tempRoot}`);
