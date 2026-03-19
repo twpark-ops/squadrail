@@ -16,7 +16,7 @@ describe("deterministic approval payloads", () => {
     expect(message.workflowStateAfter).toBe("qa_pending");
     expect(message.payload).toMatchObject({
       approvalMode: "agent_review",
-      approvalSummary: expect.stringContaining("resubmitted focused evidence"),
+      approvalSummary: expect.stringContaining("focused evidence"),
     });
     expect(message.recipients).toEqual([
       { recipientType: "agent", recipientId: "reviewer-1", role: "reviewer" },
@@ -49,8 +49,8 @@ describe("deterministic approval payloads", () => {
     expect(message.workflowStateAfter).toBe("approved");
     expect(message.payload).toMatchObject({
       approvalMode: "agent_review",
-      executionLog: "go test ./internal/observability -count=1 passed in the recovery resubmission evidence.",
-      outputVerified: "Observed focused observability validation evidence in the latest review submission.",
+      executionLog: "Focused execution evidence passed for the QA gate scenario.",
+      outputVerified: "Observed focused validation evidence in the latest review submission.",
       sanityCommand: "go test ./internal/observability -count=1",
     });
     expect(message.recipients).toEqual([

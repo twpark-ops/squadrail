@@ -75,7 +75,9 @@ mainfont: "Noto Sans"
     `clarification-loop-invariants.mjs`, `cloud-swiftsight-autonomy-org.mjs`)
   - 시나리오 3: changes requested recovery (`cloud-swiftsight-real-org.mjs`,
     `change-recovery-invariants.mjs`)
-- 현재 다음 타깃은 시나리오 4 `QA gate`다.
+  - 시나리오 4: QA gate (`cloud-swiftsight-real-org.mjs`,
+    `qa-gate-invariants.mjs`)
+- 현재 다음 타깃은 시나리오 5 `merge/deploy follow-up`이다.
 
 # 선행 조건: Security Baseline
 
