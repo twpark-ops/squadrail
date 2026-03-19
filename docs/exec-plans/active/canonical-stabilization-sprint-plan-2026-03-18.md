@@ -69,7 +69,7 @@ mainfont: "Noto Sans"
   - `dashboard-service.test.ts` health 규칙 정렬
   - fresh DB bootstrap verifier 추가 및 실제 migration head 검증
   - canonical company bootstrap helper를 `scripts/e2e/company-bootstrap.mjs`로 통일
-- Phase 2는 아래 시나리오까지 invariant + 실제 E2E로 잠겼다.
+- Phase 2는 canonical 5개 시나리오가 모두 invariant + 실제 E2E로 잠겼다.
   - 시나리오 1: canonical full delivery (`full-delivery.mjs`, `full-delivery-invariants.mjs`)
   - 시나리오 2: clarification loop (`cloud-swiftsight-domain-aware-pm-eval.mjs`,
     `clarification-loop-invariants.mjs`, `cloud-swiftsight-autonomy-org.mjs`)
@@ -77,7 +77,9 @@ mainfont: "Noto Sans"
     `change-recovery-invariants.mjs`)
   - 시나리오 4: QA gate (`cloud-swiftsight-real-org.mjs`,
     `qa-gate-invariants.mjs`)
-- 현재 다음 타깃은 시나리오 5 `merge/deploy follow-up`이다.
+  - 시나리오 5: merge/deploy follow-up (`full-delivery.mjs`,
+    `merge-deploy-followup-invariants.mjs`)
+- 현재 다음 타깃은 `Phase 3 UI surface alignment`다.
 
 # 선행 조건: Security Baseline
 
@@ -333,6 +335,15 @@ approved 이후 merge/deploy 후속이 올바르게 표시되고, close 또는 p
 - `P1 retrieval plan`의 `issue_snapshot demotion`, signal seed, lexical term 안정화 항목을
   retrieval axis의 하위 작업으로 포함
 - external dependency flakiness를 줄이기 위해 OpenAI API mock/stub 전략 또는 determinism control을 문서화
+
+### Phase 2 진행 메모
+
+- `full-delivery.mjs`는 시나리오 1과 시나리오 5를 함께 잠근다.
+- `cloud-swiftsight-domain-aware-pm-eval.mjs`는 시나리오 2를 잠근다.
+- `cloud-swiftsight-real-org.mjs`는 시나리오 3과 시나리오 4를 잠근다.
+- merge/deploy follow-up은 `change surface`, `close run candidate`, `close wake evidence`,
+  `agent task session`까지 읽어서 `pending_external_merge`, merge candidate provenance,
+  close follow-up wake 분리 여부를 검증한다.
 
 ## Phase 3. UI surface 정합성
 

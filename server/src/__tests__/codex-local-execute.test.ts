@@ -223,6 +223,71 @@ describe("codex execute", () => {
     }
   });
 
+  it("forces an ephemeral codex session when the wake requests a fresh adapter session", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-ephemeral-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const capturePath = path.join(root, "capture.json");
+    const previousCodexHome = process.env.CODEX_HOME;
+
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeCodexCommand(commandPath);
+
+    try {
+      delete process.env.CODEX_HOME;
+      const result = await execute({
+        runId: "run-ephemeral",
+        agent: {
+          id: "agent-ephemeral",
+          companyId: "company-1",
+          name: "Codex Engineer",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: "thread-old",
+          sessionParams: {
+            sessionId: "thread-old",
+            cwd: workspace,
+          },
+          sessionDisplayId: "thread-old",
+          taskKey: "issue-1",
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Run with a forced fresh session.",
+        },
+        context: {
+          forceFreshAdapterSession: true,
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-ephemeral",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "analysis",
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.argv).toContain("--ephemeral");
+      expect(capture.argv).not.toContain("resume");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("respects an explicit CODEX_HOME config override with home expansion", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-codex-explicit-home-"));
     const workspace = path.join(root, "workspace");

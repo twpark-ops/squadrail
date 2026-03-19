@@ -678,10 +678,12 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       reason: "issue_ready_for_closure",
       payload: {
         forceFollowupRun: true,
+        forceFreshAdapterSession: true,
         protocolDispatchMode: "approval_close_followup",
       },
       contextSnapshot: {
         forceFollowupRun: true,
+        forceFreshAdapterSession: true,
         protocolDispatchMode: "approval_close_followup",
         protocolRecipientRole: "tech_lead",
       },
@@ -742,6 +744,65 @@ describe("buildProtocolExecutionDispatchPlan", () => {
         forceFollowupRun: true,
         protocolDispatchMode: "qa_gate_followup",
         protocolRecipientRole: "qa",
+      },
+    });
+  });
+
+  it("promotes direct tech lead approval recipients into a closure follow-up wake", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-approval-direct-close-1",
+      protocolMessageId: "msg-approval-direct-close-1",
+      senderAgentId: "reviewer-1",
+      issueContext: {
+        issueId: "issue-approval-direct-close-1",
+        parentId: null,
+        labelNames: [],
+        techLeadAgentId: "lead-1",
+      },
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "reviewer-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "approved",
+        summary: "approved for closure",
+        payload: {
+          approvalSummary: "Ready for closure.",
+          approvalMode: "agent_review",
+          approvalChecklist: ["Focused tests passed."],
+          verifiedEvidence: ["pnpm test: PASS", "pnpm build: PASS"],
+          residualRisks: ["External merge remains pending."],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      recipientId: "lead-1",
+      recipientRole: "tech_lead",
+      reason: "issue_ready_for_closure",
+      payload: {
+        forceFollowupRun: true,
+        forceFreshAdapterSession: true,
+        protocolDispatchMode: "approval_close_followup",
+      },
+      contextSnapshot: {
+        forceFollowupRun: true,
+        forceFreshAdapterSession: true,
+        protocolDispatchMode: "approval_close_followup",
+        protocolRecipientRole: "tech_lead",
       },
     });
   });

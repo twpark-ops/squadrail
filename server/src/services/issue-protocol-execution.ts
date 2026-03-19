@@ -229,6 +229,7 @@ function buildDispatchPlanBase(input: {
   issueContext?: InternalWorkItemSupervisorContext | null;
   dispatchMode?: ProtocolDispatchMode;
   forceFollowupRun?: boolean;
+  forceFreshAdapterSession?: boolean;
 }) {
   const internalMetadata = buildInternalWorkItemDispatchMetadata(input.issueContext);
   const reviewSubmission = buildReviewSubmissionSnapshot(input.message, input.protocolPayload);
@@ -238,6 +239,7 @@ function buildDispatchPlanBase(input: {
         ? { protocolDispatchMode: input.dispatchMode }
         : {}),
       ...(input.forceFollowupRun ? { forceFollowupRun: true } : {}),
+      ...(input.forceFreshAdapterSession ? { forceFreshAdapterSession: true } : {}),
     };
 
   return {
@@ -372,6 +374,11 @@ export function buildProtocolExecutionDispatchPlan(input: {
       (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
       internalWorkItemKind !== "implementation" &&
       isReviewerWatchEnabled(input.issueContext);
+    const approvalCloseDirectRecipient =
+      recipient.recipientType === "agent" &&
+      recipient.role === "tech_lead" &&
+      input.message.messageType === "APPROVE_IMPLEMENTATION" &&
+      input.message.workflowStateAfter === "approved";
     const leadImplementationWatchOnly =
       recipient.recipientType === "agent" &&
       recipient.role === "tech_lead" &&
@@ -392,12 +399,24 @@ export function buildProtocolExecutionDispatchPlan(input: {
         ...(recipient.role === "qa" ? { readOnlyWorkspace: true } : {}),
       },
       source,
-      reason: reviewerWatchActive ? reviewerWatchReason(input.message.messageType) : reason,
+      reason:
+        approvalCloseDirectRecipient
+          ? "issue_ready_for_closure"
+          : reviewerWatchActive
+            ? reviewerWatchReason(input.message.messageType)
+            : reason,
       recipient,
       recipientHint,
       issueContext: input.issueContext,
-      dispatchMode: reviewerWatchActive ? "reviewer_watch" : "default",
-      forceFollowupRun: engineerSelfStart || engineerChangeRequestRecovery,
+      dispatchMode:
+        approvalCloseDirectRecipient
+          ? "approval_close_followup"
+          : reviewerWatchActive
+            ? "reviewer_watch"
+            : "default",
+      forceFollowupRun:
+        engineerSelfStart || engineerChangeRequestRecovery || approvalCloseDirectRecipient,
+      forceFreshAdapterSession: approvalCloseDirectRecipient,
     });
 
     if (recipient.recipientType !== "agent") {
@@ -496,6 +515,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
         issueContext: input.issueContext,
         dispatchMode: "approval_close_followup",
         forceFollowupRun: true,
+        forceFreshAdapterSession: true,
       }),
     });
   }

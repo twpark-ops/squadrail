@@ -2,13 +2,17 @@
 
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertBypassOnlyOnLocalhost } from "./full-delivery-guards.mjs";
 import { assertCanonicalScenarioOne } from "./full-delivery-invariants.mjs";
+import {
+  assertMergeDeployFollowupScenario,
+  findCloseFollowupRun,
+} from "./merge-deploy-followup-invariants.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -486,9 +490,14 @@ function techLeadInstructions() {
     "",
     "- You are closing the delivery loop after reviewer approval.",
     "- Do not edit code.",
+    "- If `SQUADRAIL_WAKE_REASON` is not `issue_ready_for_closure`, do not inspect files or helper internals. Exit quietly.",
     "- Ignore wakes unless the current workflow state is `approved`.",
-    "- When approved, run `node tools/protocol-helper.mjs techlead-close`.",
-    "- Use close semantics that preserve the fact that merge is still pending outside the isolated worktree.",
+    "- Do not read `tools/protocol-helper.mjs`, do not inspect repository files, and do not improvise a different close payload in this wake.",
+    "- When approved, run the exact command block below as your first and only protocol action, then stop.",
+    "",
+    "```bash",
+    "node \"$SQUADRAIL_PROTOCOL_HELPER_PATH\" close-task --issue \"$SQUADRAIL_TASK_ID\" --close-reason completed --summary \"Reviewer approved implementation; recording closure with external merge still pending.\" --closure-summary \"Delivery fixture implementation and review handoff are complete in this isolated workspace; final merge remains pending in external repository workflow.\" --verification-summary \"Reviewer issued APPROVE_IMPLEMENTATION and confirmed contract evidence; no additional repository actions were required in this wake.\" --rollback-plan \"If post-merge issues surface, revert the merge commit in the target branch and reopen implementation follow-up from the approved patch baseline.\" --final-artifacts \"pending_external_merge||delivery-handoff:completed\" --final-test-status passed --merge-status pending_external_merge --remaining-risks \"External merge not executed yet; owner: repository maintainer/merge operator outside isolated worktree.\"",
+    "```",
   ].join("\n");
 }
 
@@ -639,6 +648,77 @@ async function fetchIssueSnapshot(issueId) {
     }
   }
   throw lastError ?? new Error(`Timed out waiting for issue snapshot: ${issueId}`);
+}
+
+async function fetchIssueChangeSurface(issueId) {
+  return api(`/api/issues/${issueId}/change-surface`);
+}
+
+async function fetchTaskSessions(agentId) {
+  return api(`/api/agents/${agentId}/task-sessions`);
+}
+
+async function fetchRunLog(runId) {
+  return api(`/api/heartbeat-runs/${runId}/log?tailBytes=65536`);
+}
+
+async function listFilesRecursive(rootPath) {
+  const entries = await readdir(rootPath, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(rootPath, entry.name);
+      if (entry.isDirectory()) {
+        return listFilesRecursive(entryPath);
+      }
+      return [entryPath];
+    }),
+  );
+  return files.flat();
+}
+
+async function findCloseWakeEvidence(homeRoot, issueId) {
+  const codexHomesRoot = path.join(homeRoot, "instances");
+  try {
+    await access(codexHomesRoot);
+  } catch {
+    return { matched: false, path: null };
+  }
+
+  const candidateFiles = (await listFilesRecursive(codexHomesRoot))
+    .filter((filePath) => filePath.endsWith(".sh") || filePath.endsWith(".jsonl"));
+
+  for (const filePath of candidateFiles) {
+    const content = await readFile(filePath, "utf8").catch(() => "");
+    if (!content) continue;
+    if (
+      content.includes("SQUADRAIL_WAKE_REASON=issue_ready_for_closure")
+      && content.includes(issueId)
+    ) {
+      return { matched: true, path: filePath };
+    }
+  }
+
+  return { matched: false, path: null };
+}
+
+async function waitForCloseRunSnapshot(issueId, initialSnapshot, timeoutMs = 30_000) {
+  const existingCloseRun = findCloseFollowupRun(initialSnapshot);
+  if (existingCloseRun?.runId) {
+    return initialSnapshot;
+  }
+
+  const startedAt = Date.now();
+  let latestSnapshot = initialSnapshot;
+  while (Date.now() - startedAt < timeoutMs) {
+    await sleep(1500);
+    latestSnapshot = await fetchIssueSnapshot(issueId);
+    const closeRun = findCloseFollowupRun(latestSnapshot);
+    if (closeRun?.runId) {
+      return latestSnapshot;
+    }
+  }
+
+  throw new Error("Could not resolve the close follow-up run");
 }
 
 async function createPmIntakeIssue(companyId, request) {
@@ -913,6 +993,13 @@ async function main() {
     );
     note(`Quick request created: ${intakeIssue.identifier ?? intakeIssue.id}`);
 
+    // The canonical full-delivery harness drives PM projection explicitly via preview/apply.
+    // Pause the PM agent immediately after intake creation so the root issue does not race
+    // the deterministic board-side projection flow.
+    await api(`/api/agents/${pm.id}/pause`, {
+      method: "POST",
+    });
+
     const projectionPreview = await previewProjection(intakeIssue.id, {
       // Keep the intake root as a PM-owned coordination record and drive the
       // autonomous delivery loop through the projected child issue only.
@@ -975,6 +1062,7 @@ async function main() {
 
       if (snapshot.protocolState?.workflowState === "done") {
         section("Post-Completion Verification");
+        const completionSnapshot = await waitForCloseRunSnapshot(deliveryIssue.id, snapshot);
         const rootSnapshot = await fetchIssueSnapshot(intakeIssue.id);
         const scenarioOne = assertCanonicalScenarioOne({
           expectedProjectId: project.id,
@@ -985,10 +1073,29 @@ async function main() {
           },
           projectionPreview,
           rootSnapshot,
-          deliverySnapshot: snapshot,
+          deliverySnapshot: completionSnapshot,
         });
         const latestReviewMessage = scenarioOne.latestSubmit;
         const implementationRun = scenarioOne.implementationRun;
+        const changeSurface = await fetchIssueChangeSurface(deliveryIssue.id);
+        const techLeadSessions = await fetchTaskSessions(techLead.id);
+        const reviewerSessions = await fetchTaskSessions(reviewer.id);
+        const closeRun = findCloseFollowupRun(completionSnapshot);
+        if (!closeRun?.runId) {
+          throw new Error("Could not resolve the close follow-up run from the completed snapshot");
+        }
+        const closeRunLog = await fetchRunLog(closeRun.runId);
+        const closeWakeEvidence = await findCloseWakeEvidence(squadrailHome, deliveryIssue.id);
+        const scenarioFive = assertMergeDeployFollowupScenario({
+          issueId: deliveryIssue.id,
+          deliverySnapshot: completionSnapshot,
+          changeSurface,
+          closeRun,
+          closeRunLog,
+          closeWakeEvidence,
+          techLeadSessions,
+          reviewerSessions,
+        });
 
         const isolatedWorkspacePath = extractIsolatedWorkspacePath(latestReviewMessage);
         if (!isolatedWorkspacePath) {
@@ -1019,7 +1126,9 @@ async function main() {
         note(`Root issue identifier: ${rootSnapshot.issue.identifier}`);
         note(`Projected issue identifier: ${snapshot.issue.identifier}`);
         note(`Invariant summary: ${Object.entries(scenarioOne.checks).filter(([, passed]) => passed).length}/${Object.keys(scenarioOne.checks).length} checks`);
+        note(`Merge/deploy invariant summary: ${Object.entries(scenarioFive.checks).filter(([, passed]) => passed).length}/${Object.keys(scenarioFive.checks).length} checks`);
         note(`Implementation run: ${implementationRun.runId}`);
+        note(`Close run: ${closeRun.runId}`);
         note(`Isolated workspace: ${isolatedWorkspacePath}`);
         note(`Server log: ${serverLog}`);
         note(`Temp root: ${tempRoot}`);
