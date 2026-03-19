@@ -69,8 +69,11 @@ mainfont: "Noto Sans"
   - `dashboard-service.test.ts` health 규칙 정렬
   - fresh DB bootstrap verifier 추가 및 실제 migration head 검증
   - canonical company bootstrap helper를 `scripts/e2e/company-bootstrap.mjs`로 통일
-- Phase 1의 다음 검증 포인트는 helper를 사용하는 harness들을 burn-in에 재연결하고,
-  Phase 2 canonical 시나리오 invariant로 승격하는 것이다.
+- Phase 2는 아래 시나리오까지 invariant + 실제 E2E로 잠겼다.
+  - 시나리오 1: canonical full delivery (`full-delivery.mjs`, `full-delivery-invariants.mjs`)
+  - 시나리오 2: clarification loop (`cloud-swiftsight-domain-aware-pm-eval.mjs`,
+    `clarification-loop-invariants.mjs`, `cloud-swiftsight-autonomy-org.mjs`)
+- 현재 다음 타깃은 시나리오 3 `changes_requested recovery`다.
 
 # 선행 조건: Security Baseline
 

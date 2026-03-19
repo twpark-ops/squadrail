@@ -267,6 +267,10 @@ function formatList(values) {
   return values.join("||");
 }
 
+function uniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.length > 0))];
+}
+
 async function runProtocolHelper({ companyId, agentId, issueId, args }) {
   const apiKey = await ensureAgentApiKey(agentId);
   const { stdout } = await execFileAsync("node", [PROTOCOL_HELPER_PATH, ...args], {
@@ -653,6 +657,55 @@ async function closeTask(issueId, companyId, fallbackTechLeadAgentId, project) {
   });
 }
 
+async function expectCloseBlockedWhileClarificationPending(issueId, companyId, fallbackTechLeadAgentId, project) {
+  try {
+    await closeTask(issueId, companyId, fallbackTechLeadAgentId, project);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    assert(
+      /failed with (?:400|409)|workflow|blocked|clarification|cannot/i.test(message),
+      `Unexpected error while asserting clarification close gate for ${issueId}: ${message}`,
+    );
+    return {
+      blocked: true,
+      error: message,
+    };
+  }
+
+  throw new Error(`Clarification gate allowed CLOSE_TASK before the pending question was answered for ${issueId}`);
+}
+
+async function waitForRetrievalBriefsAfterClarification(issueId, answerSeq) {
+  return retryWithBackoff(
+    async () => {
+      const briefs = await listProtocolBriefs(issueId);
+      const retrievalRunIdsAfterClarification = uniqueStrings(
+        briefs
+          .filter((brief) =>
+            typeof brief?.retrievalRunId === "string"
+            && Number.isFinite(brief?.generatedFromMessageSeq)
+            && brief.generatedFromMessageSeq > answerSeq)
+          .map((brief) => brief.retrievalRunId),
+      );
+      if (retrievalRunIdsAfterClarification.length === 0) {
+        throw new Error(`Expected retrieval brief after clarification answer seq ${answerSeq} for ${issueId}`);
+      }
+      return {
+        briefs,
+        retrievalRunIdsAfterClarification,
+      };
+    },
+    {
+      attempts: 10,
+      baseDelayMs: 250,
+      shouldRetry(error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return message.includes("Expected retrieval brief after clarification answer seq");
+      },
+    },
+  );
+}
+
 function assertMessageSequence(messages, requiredTypes) {
   let lastIndex = -1;
   for (const type of requiredTypes) {
@@ -733,6 +786,7 @@ async function executeChildDeliveryLoop(input) {
 
   let finalPreReviewState = implementingState;
   let askMessage = null;
+  let closeBlockedWhileClarificationPending = true;
   if (clarificationMode !== "none") {
     const clarificationTarget = resolveClarificationTarget(preview, clarificationMode);
     await escalateBlocker(
@@ -752,6 +806,13 @@ async function executeChildDeliveryLoop(input) {
       blockedState.workflowState,
       clarificationTarget,
     );
+    const closeGate = await expectCloseBlockedWhileClarificationPending(
+      childIssue.id,
+      companyId,
+      preview.staffing.techLeadAgentId,
+      project,
+    );
+    closeBlockedWhileClarificationPending = closeGate.blocked;
     await answerClarification(childIssue.id, companyId, askMessage, clarificationTarget);
     finalPreReviewState = await waitForProtocolState(childIssue.id, "implementing");
     assert.equal(finalPreReviewState.workflowState, "implementing");
@@ -826,12 +887,16 @@ async function executeChildDeliveryLoop(input) {
   assert.equal(doneState.workflowState, "done");
 
   const messages = await waitForProtocolMessages(childIssue.id, "CLOSE_TASK");
+  let latestAnswer = null;
+  let retrievalRunIdsAfterClarification = [];
   if (askMessage) {
-    const latestAnswer = [...messages]
+    latestAnswer = [...messages]
       .reverse()
       .find((message) => message.messageType === "ANSWER_CLARIFICATION");
     assert(latestAnswer, "Clarification answer was not recorded on the projected child");
     assert.equal(latestAnswer.causalMessageId, askMessage.id);
+    const clarificationBriefs = await waitForRetrievalBriefsAfterClarification(childIssue.id, latestAnswer.seq);
+    retrievalRunIdsAfterClarification = clarificationBriefs.retrievalRunIdsAfterClarification;
   }
 
   assertMessageSequence(
@@ -845,6 +910,13 @@ async function executeChildDeliveryLoop(input) {
     finalPreReviewState,
     doneState,
     askMessageId: askMessage?.id ?? null,
+    askMessageSeq: askMessage?.seq ?? null,
+    answerMessageId: latestAnswer?.id ?? null,
+    answerMessageSeq: latestAnswer?.seq ?? null,
+    answerCausalMessageId: latestAnswer?.causalMessageId ?? null,
+    closeBlockedWhileClarificationPending,
+    resumedWorkflowState: finalPreReviewState.workflowState,
+    retrievalRunIdsAfterClarification,
     messageCount: messages.length,
     clarificationMode,
   };
@@ -1028,6 +1100,13 @@ async function main() {
       clarificationMode: childResult.clarificationMode,
       finalWorkflowState: childResult.doneState.workflowState,
       askMessageId: childResult.askMessageId,
+      askMessageSeq: childResult.askMessageSeq,
+      answerMessageId: childResult.answerMessageId,
+      answerMessageSeq: childResult.answerMessageSeq,
+      answerCausalMessageId: childResult.answerCausalMessageId,
+      closeBlockedWhileClarificationPending: childResult.closeBlockedWhileClarificationPending,
+      resumedWorkflowState: childResult.resumedWorkflowState,
+      retrievalRunIdsAfterClarification: childResult.retrievalRunIdsAfterClarification,
       implementationAssigneeAgentId: childPreview.preview.staffing.implementationAssigneeAgentId ?? null,
       techLeadAgentId: childPreview.preview.staffing.techLeadAgentId ?? null,
       reviewerAgentId: childPreview.preview.staffing.reviewerAgentId ?? null,
@@ -1036,11 +1115,11 @@ async function main() {
       finalTechLeadAgentId: childResult.doneState.techLeadAgentId ?? null,
       finalReviewerAgentId: childResult.doneState.reviewerAgentId ?? null,
       finalQaAgentId: childResult.doneState.qaAgentId ?? null,
-      retrievalRunIds: [...new Set(
+      retrievalRunIds: uniqueStrings(
         (await listProtocolBriefs(childIssue.id))
           .map((brief) => (typeof brief?.retrievalRunId === "string" ? brief.retrievalRunId : null))
           .filter((runId) => typeof runId === "string" && runId.length > 0),
-      )],
+      ),
     });
       note(`child ${childIssue.identifier ?? childIssue.id} closed ${childResult.doneState.workflowState}`);
     }
@@ -1085,6 +1164,13 @@ async function main() {
       clarificationMode: childResult.clarificationMode,
       finalWorkflowState: childResult.doneState.workflowState,
       askMessageId: childResult.askMessageId,
+      askMessageSeq: childResult.askMessageSeq,
+      answerMessageId: childResult.answerMessageId,
+      answerMessageSeq: childResult.answerMessageSeq,
+      answerCausalMessageId: childResult.answerCausalMessageId,
+      closeBlockedWhileClarificationPending: childResult.closeBlockedWhileClarificationPending,
+      resumedWorkflowState: childResult.resumedWorkflowState,
+      retrievalRunIdsAfterClarification: childResult.retrievalRunIdsAfterClarification,
       implementationAssigneeAgentId: preview.staffing.implementationAssigneeAgentId ?? null,
       techLeadAgentId: preview.staffing.techLeadAgentId ?? null,
       reviewerAgentId: preview.staffing.reviewerAgentId ?? null,
@@ -1093,11 +1179,11 @@ async function main() {
       finalTechLeadAgentId: childResult.doneState.techLeadAgentId ?? null,
       finalReviewerAgentId: childResult.doneState.reviewerAgentId ?? null,
       finalQaAgentId: childResult.doneState.qaAgentId ?? null,
-      retrievalRunIds: [...new Set(
+      retrievalRunIds: uniqueStrings(
         childBriefs
           .map((brief) => (typeof brief?.retrievalRunId === "string" ? brief.retrievalRunId : null))
           .filter((runId) => typeof runId === "string" && runId.length > 0),
-      )],
+      ),
     });
     note(`projected child ${childIssue.identifier ?? childIssue.id}`);
     note(`delivery loop closed ${childResult.doneState.workflowState}`);

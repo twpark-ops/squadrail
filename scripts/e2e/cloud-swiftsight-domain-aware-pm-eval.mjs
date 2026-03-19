@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { extractJsonTail } from "./rag-readiness-utils.mjs";
 import { ensureCompanyContext } from "./company-bootstrap.mjs";
+import { evaluateClarificationLoopInvariant } from "./clarification-loop-invariants.mjs";
 import {
   evaluateDomainAwarePmPreview,
   listDomainAwarePmScenarioKeys,
@@ -369,6 +370,13 @@ function evaluateImplementationOwnership(childResults, scenario) {
 }
 
 export async function evaluateDomainAwarePmDelivery(delivery, scenario, options = {}) {
+  const expectedClarificationMode = scenario.clarificationMode ?? "human_board";
+  const expectsClarification = expectedClarificationMode !== "none";
+  const requiresRetrievalAfterResume = expectsClarification
+    && (
+      (Array.isArray(scenario.requiredKnowledgeTags) && scenario.requiredKnowledgeTags.length > 0)
+      || (Array.isArray(scenario.expectedKnowledgePathHints) && scenario.expectedKnowledgePathHints.length > 0)
+    );
   if (!delivery) {
     return {
       score: 0,
@@ -384,16 +392,21 @@ export async function evaluateDomainAwarePmDelivery(delivery, scenario, options 
         knowledgePathCoverage: false,
         implementationOwnerMatched: false,
       },
+      clarificationLoopEvaluation: evaluateClarificationLoopInvariant({
+        expectedClarificationMode,
+        childResults: [],
+        requiresRetrievalAfterResume,
+      }),
       retrievalEvidence: null,
     };
   }
 
   const childResults = Array.isArray(delivery.childResults) ? delivery.childResults : [];
-  const expectedClarificationMode = scenario.clarificationMode ?? "human_board";
-  const expectsClarification = expectedClarificationMode !== "none";
-  const unexpectedClarification = childResults.some((child) =>
-    typeof child?.askMessageId === "string" && child.askMessageId.length > 0,
-  );
+  const clarificationLoopEvaluation = evaluateClarificationLoopInvariant({
+    expectedClarificationMode,
+    childResults,
+    requiresRetrievalAfterResume,
+  });
   const retrievalRunIds = uniqueStrings(
     childResults.flatMap((child) => Array.isArray(child?.retrievalRunIds) ? child.retrievalRunIds : []),
   );
@@ -415,12 +428,13 @@ export async function evaluateDomainAwarePmDelivery(delivery, scenario, options 
   const checks = {
     projectionApplied: Number(delivery.projectedChildCount ?? 0) > 0,
     childDeliveryClosed: childResults.length > 0 && childResults.every((child) => child?.finalWorkflowState === "done"),
-    clarificationModeMatched: expectsClarification
-      ? childResults.some((child) => child?.clarificationMode === expectedClarificationMode)
-      : childResults.every((child) => (child?.clarificationMode ?? "none") === "none"),
-    clarificationRecorded: expectsClarification
-      ? childResults.some((child) => typeof child?.askMessageId === "string" && child.askMessageId.length > 0)
-      : !unexpectedClarification,
+    clarificationModeMatched: clarificationLoopEvaluation.checks.clarificationModeMatched,
+    clarificationRecorded: clarificationLoopEvaluation.checks.clarificationRecorded,
+    clarificationAnswered: clarificationLoopEvaluation.checks.answerRecorded,
+    clarificationAnswerLinked: clarificationLoopEvaluation.checks.answerLinked,
+    clarificationCloseBlockedWhilePending: clarificationLoopEvaluation.checks.closeBlockedWhilePending,
+    clarificationResumedToImplementing: clarificationLoopEvaluation.checks.resumedToImplementing,
+    clarificationRetrievalAfterResume: clarificationLoopEvaluation.checks.retrievalAfterResume,
     retrievalUsed: retrievalEvidence.retrievalRunCount > 0 && retrievalEvidence.totalHitCount > 0,
     knowledgePathCoverage:
       retrievalEvidence.expectedPathHints.length === 0
@@ -450,6 +464,7 @@ export async function evaluateDomainAwarePmDelivery(delivery, scenario, options 
     rootWorkflowState: delivery.rootWorkflowState ?? null,
     projectedChildCount: delivery.projectedChildCount ?? 0,
     childResults,
+    clarificationLoopEvaluation,
     retrievalEvidence,
   };
 }
@@ -520,9 +535,22 @@ async function main() {
     note(`childDeliveryClosed=${deliveryEvaluation.checks.childDeliveryClosed}`);
     note(`clarificationModeMatched=${deliveryEvaluation.checks.clarificationModeMatched}`);
     note(`clarificationRecorded=${deliveryEvaluation.checks.clarificationRecorded}`);
+    note(`clarificationAnswered=${deliveryEvaluation.checks.clarificationAnswered}`);
+    note(`clarificationAnswerLinked=${deliveryEvaluation.checks.clarificationAnswerLinked}`);
+    note(`clarificationCloseBlockedWhilePending=${deliveryEvaluation.checks.clarificationCloseBlockedWhilePending}`);
+    note(`clarificationResumedToImplementing=${deliveryEvaluation.checks.clarificationResumedToImplementing}`);
+    note(`clarificationRetrievalAfterResume=${deliveryEvaluation.checks.clarificationRetrievalAfterResume}`);
     note(`retrievalUsed=${deliveryEvaluation.checks.retrievalUsed}`);
     note(`knowledgePathCoverage=${deliveryEvaluation.checks.knowledgePathCoverage}`);
     note(`implementationOwnerMatched=${deliveryEvaluation.checks.implementationOwnerMatched}`);
+    assert.equal(
+      deliveryEvaluation.clarificationLoopEvaluation.failures.length,
+      0,
+      [
+        "Clarification loop invariant failures:",
+        ...deliveryEvaluation.clarificationLoopEvaluation.failures.map((failure) => `- ${failure}`),
+      ].join("\n"),
+    );
   } else {
     deliveryEvaluation = await evaluateDomainAwarePmDelivery(null, scenario);
   }

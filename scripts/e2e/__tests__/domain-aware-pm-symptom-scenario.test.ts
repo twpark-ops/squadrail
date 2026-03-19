@@ -173,5 +173,59 @@ describe("domain-aware PM symptom-first scenario", () => {
 
     expect(evaluation.checks.clarificationModeMatched).toBe(false);
     expect(evaluation.checks.clarificationRecorded).toBe(false);
+    expect(evaluation.clarificationLoopEvaluation.failures).toEqual(
+      expect.arrayContaining(["clarificationModeMatched", "clarificationRecorded"]),
+    );
+  });
+
+  it("requires linked answers, blocked close, resume, and retrieval after clarification for board-driven scenarios", async () => {
+    const scenario = resolveDomainAwarePmScenario("workflow_mismatch_diagnostics");
+    const delivery = {
+      projectedChildCount: 1,
+      rootWorkflowState: "assigned",
+      childResults: [
+        {
+          issueId: "child-1",
+          finalWorkflowState: "done",
+          clarificationMode: "human_board",
+          askMessageId: "ask-1",
+          askMessageSeq: 4,
+          answerMessageId: "answer-1",
+          answerMessageSeq: 6,
+          answerCausalMessageId: "ask-1",
+          closeBlockedWhileClarificationPending: true,
+          resumedWorkflowState: "implementing",
+          retrievalRunIdsAfterClarification: ["run-2"],
+          implementationAssigneeAgentId: "engineer-1",
+          finalPrimaryEngineerAgentId: "engineer-1",
+          finalTechLeadAgentId: "tl-1",
+          retrievalRunIds: ["run-1", "run-2"],
+        },
+      ],
+    };
+
+    const evaluation = await evaluateDomainAwarePmDelivery(delivery, scenario, {
+      fetchRetrievalRunHits: async (runId) => ({
+        retrievalRun: { id: runId },
+        hits: [
+          {
+            documentPath: "internal/server/settings/workflow_metadata.go",
+            documentTitle: "workflow_metadata.go",
+            headingPath: "matching diagnostics",
+            symbolName: "describeWorkflowMismatch",
+            textContent: `workflow mismatch diagnostic evidence for ${runId}`,
+          },
+        ],
+      }),
+    });
+
+    expect(evaluation.checks.clarificationModeMatched).toBe(true);
+    expect(evaluation.checks.clarificationRecorded).toBe(true);
+    expect(evaluation.checks.clarificationAnswered).toBe(true);
+    expect(evaluation.checks.clarificationAnswerLinked).toBe(true);
+    expect(evaluation.checks.clarificationCloseBlockedWhilePending).toBe(true);
+    expect(evaluation.checks.clarificationResumedToImplementing).toBe(true);
+    expect(evaluation.checks.clarificationRetrievalAfterResume).toBe(true);
+    expect(evaluation.clarificationLoopEvaluation.failures).toEqual([]);
   });
 });
