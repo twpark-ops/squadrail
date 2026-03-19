@@ -1,5 +1,6 @@
 import { agentRuntimeState, agents, agentTaskSessions, agentWakeupRequests, heartbeatRunEvents, heartbeatRunLeases, heartbeatRuns, issues } from "@squadrail/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { runningProcesses } from "@squadrail/adapter-utils/server-utils";
 
 const {
   mockEnqueueAfterDbCommit,
@@ -155,6 +156,7 @@ describe("heartbeat service flow coverage", () => {
     vi.clearAllMocks();
     mockEnqueueAfterDbCommit.mockReturnValue(true);
     mockRunWithoutDbContext.mockImplementation((fn: () => unknown) => fn());
+    runningProcesses.clear();
   });
 
   it("queues a standalone wakeup run and links the wakeup request", async () => {

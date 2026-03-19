@@ -514,6 +514,12 @@ if (config.heartbeatSchedulerEnabled) {
         logger.error({ err }, "periodic reap of orphaned heartbeat runs failed");
       });
 
+    void heartbeat
+      .recoverIdleProtocolRuns()
+      .catch((err) => {
+        logger.error({ err }, "idle protocol watchdog failed");
+      });
+
     void protocolTimeouts
       .tick(new Date())
       .then((result) => {

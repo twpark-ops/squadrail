@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Db } from "@squadrail/db";
-import { agents as agentsTable, companies, heartbeatRuns } from "@squadrail/db";
+import { agents as agentsTable, companies, heartbeatRunEvents, heartbeatRunLeases, heartbeatRuns } from "@squadrail/db";
 import { and, desc, eq, inArray, not, sql } from "drizzle-orm";
 import {
   createAgentKeySchema,
@@ -1395,11 +1395,37 @@ export function agentRoutes(db: Db) {
       return;
     }
 
+    const lease = await db
+      .select({
+        status: heartbeatRunLeases.status,
+        checkpointJson: heartbeatRunLeases.checkpointJson,
+        heartbeatAt: heartbeatRunLeases.heartbeatAt,
+      })
+      .from(heartbeatRunLeases)
+      .where(eq(heartbeatRunLeases.runId, run.id))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    const latestEvent = await db
+      .select({
+        eventType: heartbeatRunEvents.eventType,
+        message: heartbeatRunEvents.message,
+        createdAt: heartbeatRunEvents.createdAt,
+      })
+      .from(heartbeatRunEvents)
+      .where(eq(heartbeatRunEvents.runId, run.id))
+      .orderBy(desc(heartbeatRunEvents.seq))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+
     res.json({
       ...run,
       agentId: agent.id,
       agentName: agent.name,
       adapterType: agent.adapterType,
+      leaseStatus: lease?.status ?? null,
+      checkpoint: lease?.checkpointJson ?? null,
+      leaseHeartbeatAt: lease?.heartbeatAt ?? null,
+      latestEvent,
     });
   });
 

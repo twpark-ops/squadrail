@@ -1936,6 +1936,64 @@ async function listActiveIssueRuns(companyId, issueId) {
   );
 }
 
+async function captureFallbackRunDiagnostic(issueId) {
+  const activeRun = await api(`/api/issues/${issueId}/active-run`).catch(() => null);
+  if (!activeRun?.id) return null;
+  const contextSnapshot =
+    activeRun.contextSnapshot && typeof activeRun.contextSnapshot === "object"
+      ? activeRun.contextSnapshot
+      : {};
+
+  const latestEvent = activeRun.latestEvent
+    ?? await api(`/api/heartbeat-runs/${activeRun.id}/events?limit=50`)
+      .then((events) => (Array.isArray(events) && events.length > 0 ? events[events.length - 1] : null))
+      .catch(() => null);
+  const checkpointPayload =
+    activeRun.checkpoint && typeof activeRun.checkpoint === "object"
+      ? activeRun.checkpoint
+      : {};
+
+  return {
+    runId: activeRun.id,
+    status: activeRun.status ?? null,
+    agentId: activeRun.agentId ?? null,
+    agentName: activeRun.agentName ?? null,
+    leaseStatus: activeRun.leaseStatus ?? null,
+    leaseHeartbeatAt: activeRun.leaseHeartbeatAt ?? null,
+    wakeReason:
+      typeof contextSnapshot.wakeReason === "string" && contextSnapshot.wakeReason.length > 0
+        ? contextSnapshot.wakeReason
+        : null,
+    adapterRetryCount:
+      typeof contextSnapshot.adapterRetryCount === "number" && Number.isFinite(contextSnapshot.adapterRetryCount)
+        ? contextSnapshot.adapterRetryCount
+        : 0,
+    adapterRetryErrorCode:
+      typeof contextSnapshot.adapterRetryErrorCode === "string" && contextSnapshot.adapterRetryErrorCode.length > 0
+        ? contextSnapshot.adapterRetryErrorCode
+        : null,
+    forceFreshAdapterSession: contextSnapshot.forceFreshAdapterSession === true,
+    latestEventType: latestEvent?.eventType ?? null,
+    latestEventMessage: latestEvent?.message ?? null,
+    checkpointPhase:
+      typeof checkpointPayload.phase === "string" && checkpointPayload.phase.length > 0
+        ? checkpointPayload.phase
+        : null,
+    checkpointMessage:
+      typeof checkpointPayload.message === "string" && checkpointPayload.message.length > 0
+        ? checkpointPayload.message
+        : latestEvent?.message ?? null,
+  };
+}
+
+async function recordFallbackWithDiagnostic(tracker, issueId, input) {
+  const runDiagnostic = await captureFallbackRunDiagnostic(issueId);
+  recordFallbackEvent(tracker, {
+    ...input,
+    runDiagnostic,
+  });
+}
+
 async function cancelAgentRunsForIssue(companyId, issueId, agentId, label) {
   const activeRuns = await listActiveIssueRuns(companyId, issueId);
   const agentRuns = activeRuns.filter((run) => run.agentId === agentId);
@@ -2427,7 +2485,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] assigned state persisted without PM routing; sending deterministic PM reassign fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "routing_reassign",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2455,7 +2513,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] TL lane stayed assigned without engineer execution; sending deterministic TL staffing fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "staffing_reassign",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2501,7 +2559,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
             note(
               `[${scenario.key}] assigned state still lacks engineer execution after staffing; waking ${engineerId} and cancelling ${blockingRuns.length} blocking run(s)`,
             );
-            recordFallbackEvent(fallbackTracker, {
+            await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
               reason: "engineer_wake",
               workflowState: snapshot.state?.workflowState ?? null,
             });
@@ -2529,7 +2587,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] accepted state stalled after ACK_ASSIGNMENT; sending deterministic START_IMPLEMENTATION fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "implementation_start",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2553,7 +2611,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] implementing state stalled without SUBMIT_FOR_REVIEW; sending deterministic review handoff fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "review_submission",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2609,7 +2667,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] recovery resubmission stalled in ${snapshot.state?.workflowState}; sending deterministic reviewer approval fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "reviewer_approval",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2639,7 +2697,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] review stage stalled in ${snapshot.state?.workflowState}; sending deterministic reviewer approval fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "reviewer_approval",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2668,7 +2726,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] QA gate stalled in ${snapshot.state?.workflowState}; sending deterministic QA approval fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "qa_approval",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2698,7 +2756,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] QA gate stalled in ${snapshot.state?.workflowState}; sending deterministic QA approval fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "qa_approval",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2722,7 +2780,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] ${snapshot.state.workflowState} persisted after approval without CLOSE_TASK, sending fallback close`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "close",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2743,7 +2801,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] ${snapshot.state.workflowState} persisted after REQUEST_HUMAN_DECISION, sending board approval fallback`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "human_decision",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2764,7 +2822,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           note(
             `[${scenario.key}] blocked after late manager reroute; sending board recovery reassign to restore engineer ownership`,
           );
-          recordFallbackEvent(fallbackTracker, {
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
             reason: "implementation_recovery",
             workflowState: snapshot.state?.workflowState ?? null,
           });
@@ -2817,7 +2875,7 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       note(
         `[${scenario.key}] final timeout snapshot remained ${snapshot.state.workflowState}; sending fallback close before failing`,
       );
-      recordFallbackEvent(fallbackTracker, {
+      await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
         reason: "close",
         workflowState: snapshot.state?.workflowState ?? null,
       });

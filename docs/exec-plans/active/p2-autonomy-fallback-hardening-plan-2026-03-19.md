@@ -104,6 +104,25 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 # Current Status
 
 - fallback family summary와 scenario별 count는 실제 E2E 출력에 포함되도록 구현했다.
+- fallback event는 이제 active run diagnostic도 포함한다.
+  - `runId`
+  - `status`
+  - `agentId / agentName`
+  - `wakeReason / adapterRetryCount / adapterRetryErrorCode`
+  - `latestEventType / latestEventMessage`
+  - `checkpointPhase / checkpointMessage`
+- fallback summary는 이제 runtime degraded count도 함께 남긴다.
+  - `adapter_retry`
+  - `claude_stream_incomplete`
+- active run route는 이제 `leaseStatus / checkpoint / leaseHeartbeatAt / latestEvent`를 함께 내려 fallback 시점의 active run 상태를 직접 보여준다.
+- 짧은 protocol lane 전용 idle watchdog을 heartbeat per-run timer로 올렸다.
+  - 포함: routing, staffing, reviewer, QA, close
+  - 제외: 장시간 구현이 가능한 `implementation_engineer`
+- supervisory lane에서 `adapter_retry`가 반복되고 age threshold를 넘기면 `protocol_required_retry`로 승격하는 degraded recovery를 추가했다.
+  - 조건: short lane + retry-eligible workflow + adapter/preflight phase + degraded threshold 초과
+  - `claude_stream_incomplete`는 `adapterRetryCount >= 1`부터 degraded로 본다.
+  - degraded recovery는 `protocolRequiredRetryCount`와 별도 1회 budget(`protocolDegradedRecoveryCount`)를 쓴다.
+  - 현재는 `implementation_engineer`는 제외한다.
 - `swiftsight-agent-tl-qa-loop`는 현재 기준 `total=7` fallback으로 측정된다.
   - `pm_routing: 1`
   - `staffing_and_wake: 2`
@@ -119,9 +138,27 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - engineer assignment/reassignment에서 `ACK_ASSIGNMENT`
   - reviewer/QA lane에서 `START_REVIEW`
 - 다만 위 contract 강화는 run이 **종료된 뒤** retry를 거는 성격이므로, active run이 장시간 멈춘 경우까지 즉시 해결하지는 못한다.
+- 최신 재검증(`CLO-171`)에서 active run API는 아래를 보여줬다.
+  - `leaseStatus: executing`
+  - `checkpoint.phase: adapter.invoke`
+  - `checkpoint.lastProgressAt`는 실제로 계속 advance
+  - `wakeReason: adapter_retry`
+  - `adapterRetryCount: 2`
+- 즉 남은 PM/reviewer/QA/close fallback의 상당 부분은 "idle run" 자체보다 `claude_stream_incomplete -> adapter_retry` 계열 runtime degraded state에 더 가깝다.
+- 따라서 fallback 수 자체와 별도로 `runtime degraded` count를 함께 봐야 한다.
+- 이번 슬라이스 이후에도 fallback이 남는다면, 우선순위는 fallback reason보다 `degraded runtime loop`를 줄이는 쪽으로 잡는다.
+- 최신 재검증(`CLO-174`)에서는 watchdog recovery가 실제로 개입한 흔적이 보였다.
+  - active run context에 `protocolIdleRecovery: true`
+  - `protocolRequiredRetryCount: 1`
+  - `adapterRetryCount: 2`
+  - `forceFreshAdapterSession: true`
+- 다만 recovery 이후에도 같은 supervisory lane run이 다시 `adapter.invoke`에 장시간 머무를 수 있었다.
+  - 즉 "recovery enqueue 자체가 안 된다"는 단계는 넘겼고,
+  - 남은 문제는 "recovered run이 adapter runtime에서 다시 빠져나오지 못하는 degraded loop"에 더 가깝다.
 
 # Next Slice
 
-1. fallback 시점의 active run checkpoint / phase / last event를 summary에 붙여 원인을 바로 보이게 한다.
-2. idle-but-running run에 대한 watchdog 또는 phase-aware cancellation/retry 정책을 검토한다.
-3. `reviewer approval`, `qa approval`, `close` 세 family 중 하나라도 zero로 줄어드는지 반복 검증한다.
+1. recovered supervisory run에 대해 `adapter.invoke` 장기 체류를 별도 runtime state로 분리한다.
+2. `protocol recovery applied` 이후에도 같은 issue/role에서 재차 stuck되면 adapter/provider-level degrade로 표기한다.
+3. `adapter_retry`가 남더라도 protocol recovery로 자율 수습되는 비율을 separate KPI로 남긴다.
+4. `implementation_engineer` fallback은 별도 slice로 분리한다.

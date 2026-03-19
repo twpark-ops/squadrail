@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { resolveProtocolRunRequirement } from "@squadrail/shared/protocol-run-requirements";
 import {
   buildRequiredProtocolProgressError,
+  classifyDegradedProtocolRunReason,
   hasRequiredProtocolProgress,
+  isIdleProtocolWatchdogEligibleRequirement,
   isSupersededProtocolWakeReason,
+  readLeaseLastProgressAt,
   shouldEnqueueRetryableAdapterFailure,
+  shouldRecoverDegradedProtocolRun,
   shouldEnqueueProtocolRequiredRetry,
+  shouldRecoverIdleProtocolRun,
   shouldSkipSupersededProtocolFollowup,
   shouldResetTaskSessionForWake,
 } from "../services/heartbeat.js";
@@ -267,6 +272,120 @@ describe("heartbeat protocol progress helpers", () => {
         finalWorkflowState: "approved",
       }),
     ).toBe(true);
+  });
+
+  it("recovers idle short-lane protocol runs but leaves long implementation lanes alone", () => {
+    const reviewRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "SUBMIT_FOR_REVIEW",
+      protocolRecipientRole: "reviewer",
+    });
+    const implementationRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "START_IMPLEMENTATION",
+      protocolRecipientRole: "engineer",
+    });
+    const now = new Date("2026-03-20T10:00:30Z");
+    const idleCheckpoint = {
+      phase: "adapter.invoke",
+      lastProgressAt: "2026-03-20T10:00:00Z",
+    };
+
+    expect(readLeaseLastProgressAt(idleCheckpoint)).toBe(new Date("2026-03-20T10:00:00Z").getTime());
+    expect(isIdleProtocolWatchdogEligibleRequirement(reviewRequirement)).toBe(true);
+    expect(isIdleProtocolWatchdogEligibleRequirement(implementationRequirement)).toBe(false);
+    expect(
+      shouldRecoverIdleProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: reviewRequirement,
+        issueStatus: "in_review",
+        workflowState: "submitted_for_review",
+        protocolRetryCount: 0,
+        checkpointJson: idleCheckpoint,
+        latestEvent: {
+          eventType: "adapter.invoke",
+          createdAt: "2026-03-20T10:00:00Z",
+        },
+        startedAt: "2026-03-20T10:00:00Z",
+        now,
+        idleThresholdMs: 20_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverIdleProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: implementationRequirement,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        protocolRetryCount: 0,
+        checkpointJson: idleCheckpoint,
+        latestEvent: {
+          eventType: "adapter.invoke",
+          createdAt: "2026-03-20T10:00:00Z",
+        },
+        startedAt: "2026-03-20T10:00:00Z",
+        now,
+        idleThresholdMs: 20_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("escalates degraded supervisory adapter retries into protocol recovery", () => {
+    const reviewRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "SUBMIT_FOR_REVIEW",
+      protocolRecipientRole: "reviewer",
+    });
+    const now = new Date("2026-03-20T10:01:05Z");
+
+    expect(
+      classifyDegradedProtocolRunReason({
+        requirement: reviewRequirement,
+        wakeReason: "adapter_retry",
+        adapterRetryCount: 1,
+        adapterRetryErrorCode: "claude_stream_incomplete",
+      }),
+    ).toBe("claude_stream_incomplete_retry_loop");
+    expect(
+      shouldRecoverDegradedProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: reviewRequirement,
+        wakeReason: "adapter_retry",
+        issueStatus: "in_review",
+        workflowState: "submitted_for_review",
+        protocolRetryCount: 0,
+        protocolDegradedRecoveryCount: 0,
+        adapterRetryCount: 1,
+        adapterRetryErrorCode: "claude_stream_incomplete",
+        checkpointJson: {
+          phase: "adapter.invoke",
+          lastProgressAt: "2026-03-20T10:00:55Z",
+        },
+        startedAt: "2026-03-20T10:00:00Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverDegradedProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: reviewRequirement,
+        wakeReason: "adapter_retry",
+        issueStatus: "in_review",
+        workflowState: "submitted_for_review",
+        protocolRetryCount: 1,
+        protocolDegradedRecoveryCount: 1,
+        adapterRetryCount: 0,
+        adapterRetryErrorCode: "claude_stream_incomplete",
+        checkpointJson: {
+          phase: "adapter.invoke",
+        },
+        startedAt: "2026-03-20T10:00:40Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe(false);
   });
 
   it("skips stale protocol follow-up wakes once the issue is terminal", () => {

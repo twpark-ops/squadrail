@@ -47,6 +47,8 @@ const RUN_LEASE_TTL_MS = 45_000;
 const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
+const RUN_PROTOCOL_IDLE_WATCHDOG_MS = 10_000;
+const RUN_PROTOCOL_DEGRADED_WATCHDOG_MS = 20_000;
 const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
 const RETRYABLE_ADAPTER_FAILURE_LIMIT = 2;
 const DISPATCH_PRIORITY_ESCALATION_STEP_MS = 20 * 60 * 1000;
@@ -62,6 +64,16 @@ const SUPERSEDED_PROTOCOL_WAKE_REASONS = new Set([
 ]);
 const RETRYABLE_ADAPTER_ERROR_CODES = new Set([
   "claude_stream_incomplete",
+]);
+const IDLE_PROTOCOL_WATCHDOG_REQUIREMENT_KEYS = new Set<ProtocolRunRequirement["key"]>([
+  "assignment_engineer",
+  "assignment_supervisor",
+  "reassignment_engineer",
+  "reassignment_supervisor",
+  "change_request_engineer",
+  "review_reviewer",
+  "qa_gate_reviewer",
+  "approval_tech_lead",
 ]);
 
 class SupersededProtocolFollowupError extends Error {
@@ -841,6 +853,130 @@ type ObservedProtocolProgressMessage = {
   messageType: string;
 };
 
+type HeartbeatRunEventLike = {
+  eventType?: string | null;
+  createdAt?: Date | string | null;
+};
+
+export function readLeaseLastProgressAt(checkpointJson: unknown) {
+  const checkpoint = parseObject(checkpointJson);
+  return toEpochMillis(readNonEmptyString(checkpoint.lastProgressAt));
+}
+
+function isProtocolWatchdogCheckpointPhase(checkpointPhase: string | null) {
+  return (
+    checkpointPhase === "adapter.invoke"
+    || checkpointPhase === "adapter.execute_start"
+    || Boolean(checkpointPhase && (checkpointPhase.startsWith("preflight.") || checkpointPhase.startsWith("adapter.")))
+  );
+}
+
+export function isIdleProtocolWatchdogEligibleRequirement(requirement: ProtocolRunRequirement | null | undefined) {
+  return Boolean(requirement && IDLE_PROTOCOL_WATCHDOG_REQUIREMENT_KEYS.has(requirement.key));
+}
+
+export function shouldRecoverIdleProtocolRun(input: {
+  runStatus: string;
+  hasRunningProcess: boolean;
+  requirement: ProtocolRunRequirement | null;
+  issueStatus?: string | null;
+  workflowState?: string | null;
+  protocolRetryCount: number;
+  checkpointJson?: unknown;
+  latestEvent?: HeartbeatRunEventLike | null;
+  startedAt?: Date | string | null;
+  now?: Date;
+  idleThresholdMs?: number;
+}) {
+  if (input.runStatus !== "running") return false;
+  if (!input.hasRunningProcess) return false;
+  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return false;
+  if (!shouldEnqueueProtocolRequiredRetry({
+    protocolRetryCount: input.protocolRetryCount,
+    issueStatus: input.issueStatus ?? null,
+    workflowState: input.workflowState ?? null,
+    requirement: input.requirement,
+  })) {
+    return false;
+  }
+
+  const checkpoint = parseObject(input.checkpointJson);
+  const checkpointPhase = readNonEmptyString(checkpoint.phase);
+  const checkpointLooksIdle = isProtocolWatchdogCheckpointPhase(checkpointPhase);
+  if (!checkpointLooksIdle) return false;
+
+  const lastProgressAtMs =
+    readLeaseLastProgressAt(checkpoint)
+    ?? toEpochMillis(input.latestEvent?.createdAt)
+    ?? toEpochMillis(input.startedAt)
+    ?? 0;
+  const idleThresholdMs = input.idleThresholdMs ?? RUN_PROTOCOL_IDLE_WATCHDOG_MS;
+  return (input.now ?? new Date()).getTime() - lastProgressAtMs >= idleThresholdMs;
+}
+
+export function classifyDegradedProtocolRunReason(input: {
+  requirement: ProtocolRunRequirement | null;
+  wakeReason?: string | null;
+  adapterRetryCount: number;
+  adapterRetryErrorCode?: string | null;
+}) {
+  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return null;
+  if (readNonEmptyString(input.wakeReason) !== "adapter_retry") return null;
+
+  if (
+    readNonEmptyString(input.adapterRetryErrorCode) === "claude_stream_incomplete"
+    && input.adapterRetryCount >= 1
+  ) {
+    return "claude_stream_incomplete_retry_loop" as const;
+  }
+  if (input.adapterRetryCount < RETRYABLE_ADAPTER_FAILURE_LIMIT) return null;
+  return "adapter_retry_loop" as const;
+}
+
+export function shouldRecoverDegradedProtocolRun(input: {
+  runStatus: string;
+  hasRunningProcess: boolean;
+  requirement: ProtocolRunRequirement | null;
+  wakeReason?: string | null;
+  issueStatus?: string | null;
+  workflowState?: string | null;
+  protocolRetryCount: number;
+  protocolDegradedRecoveryCount: number;
+  adapterRetryCount: number;
+  adapterRetryErrorCode?: string | null;
+  checkpointJson?: unknown;
+  startedAt?: Date | string | null;
+  now?: Date;
+  degradedThresholdMs?: number;
+}) {
+  if (input.runStatus !== "running") return false;
+  if (!input.hasRunningProcess) return false;
+  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return false;
+  if (input.protocolDegradedRecoveryCount >= 1) return false;
+  if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
+  if (!input.requirement || !input.workflowState) return false;
+  if (!isWorkflowStateEligibleForProtocolRetry({
+    requirement: input.requirement,
+    workflowState: input.workflowState,
+  })) return false;
+
+  const degradedReason = classifyDegradedProtocolRunReason({
+    requirement: input.requirement,
+    wakeReason: input.wakeReason,
+    adapterRetryCount: input.adapterRetryCount,
+    adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
+  });
+  if (!degradedReason) return false;
+
+  const checkpoint = parseObject(input.checkpointJson);
+  const checkpointPhase = readNonEmptyString(checkpoint.phase);
+  if (!isProtocolWatchdogCheckpointPhase(checkpointPhase)) return false;
+
+  const startedAtMs = toEpochMillis(input.startedAt) ?? readLeaseLastProgressAt(checkpoint) ?? 0;
+  const degradedThresholdMs = input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS;
+  return (input.now ?? new Date()).getTime() - startedAtMs >= degradedThresholdMs;
+}
+
 export function hasRequiredProtocolProgress(input: {
   requirement: ProtocolRunRequirement | null;
   messages: ObservedProtocolProgressMessage[];
@@ -1157,6 +1293,7 @@ export function heartbeatService(db: Db) {
   const secretsSvc = secretService(db);
   const dispatchWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const dispatchWatchdogAttempts = new Map<string, number>();
+  const protocolIdleWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function clearDispatchWatchdog(runId: string) {
     const timer = dispatchWatchdogTimers.get(runId);
@@ -1165,6 +1302,14 @@ export function heartbeatService(db: Db) {
       dispatchWatchdogTimers.delete(runId);
     }
     dispatchWatchdogAttempts.delete(runId);
+  }
+
+  function clearProtocolIdleWatchdog(runId: string) {
+    const timer = protocolIdleWatchdogTimers.get(runId);
+    if (timer) {
+      clearTimeout(timer);
+      protocolIdleWatchdogTimers.delete(runId);
+    }
   }
 
   function scheduleDispatchWatchdog(runId: string) {
@@ -1858,6 +2003,7 @@ export function heartbeatService(db: Db) {
       dispatchAgentQueueStart(run.agentId);
       runningProcesses.delete(run.id);
       clearDispatchWatchdog(run.id);
+      clearProtocolIdleWatchdog(run.id);
       reaped.push(run.id);
     }
 
@@ -1865,6 +2011,289 @@ export function heartbeatService(db: Db) {
       logger.warn({ reapedCount: reaped.length, runIds: reaped }, "reaped orphaned heartbeat runs");
     }
     return { reaped: reaped.length, runIds: reaped };
+  }
+
+  async function recoverIdleProtocolRunIfNeeded(input: {
+    run: typeof heartbeatRuns.$inferSelect;
+    lease?: typeof heartbeatRunLeases.$inferSelect | null;
+    now?: Date;
+    idleThresholdMs?: number;
+  }) {
+    if (!runningProcesses.has(input.run.id)) return false;
+    const context = parseObject(input.run.contextSnapshot);
+    const issueId = readNonEmptyString(context.issueId);
+    if (!issueId) return false;
+
+    const requirement = resolveProtocolRunRequirement({
+      protocolMessageType: readNonEmptyString(context.protocolMessageType),
+      protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
+    });
+    if (!isIdleProtocolWatchdogEligibleRequirement(requirement)) return false;
+
+    const issueStateSnapshot = await db
+      .select({
+        status: issues.status,
+        workflowState: issueProtocolState.workflowState,
+      })
+      .from(issues)
+      .leftJoin(
+        issueProtocolState,
+        and(
+          eq(issueProtocolState.issueId, issues.id),
+          eq(issueProtocolState.companyId, issues.companyId),
+        ),
+      )
+      .where(and(eq(issues.id, issueId), eq(issues.companyId, input.run.companyId)))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    const latestEvent = await db
+      .select({
+        eventType: heartbeatRunEvents.eventType,
+        createdAt: heartbeatRunEvents.createdAt,
+      })
+      .from(heartbeatRunEvents)
+      .where(eq(heartbeatRunEvents.runId, input.run.id))
+      .orderBy(desc(heartbeatRunEvents.seq))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    const protocolRetryCount =
+      typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
+        ? context.protocolRequiredRetryCount
+        : 0;
+
+    if (!shouldRecoverIdleProtocolRun({
+      runStatus: input.run.status,
+      hasRunningProcess: true,
+      requirement,
+      issueStatus: issueStateSnapshot?.status ?? null,
+      workflowState: issueStateSnapshot?.workflowState ?? null,
+      protocolRetryCount,
+      checkpointJson: input.lease?.checkpointJson ?? null,
+      latestEvent,
+      startedAt: input.run.startedAt,
+      now: input.now,
+      idleThresholdMs: input.idleThresholdMs,
+    })) {
+      return false;
+    }
+
+    const checkpoint = parseObject(input.lease?.checkpointJson);
+    await enqueueWakeup(input.run.agentId, {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "protocol_required_retry",
+      payload: {
+        issueId,
+        protocolRequiredPreviousRunId: input.run.id,
+        protocolIdleRecovery: true,
+      },
+      contextSnapshot: {
+        ...context,
+        issueId,
+        taskId: issueId,
+        wakeReason: "protocol_required_retry",
+        protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+        protocolRequiredRetryCount: protocolRetryCount + 1,
+        protocolRequiredPreviousRunId: input.run.id,
+        protocolIdleRecovery: true,
+        protocolIdleRecoveryPhase:
+          readNonEmptyString(checkpoint.phase)
+          ?? readNonEmptyString(latestEvent?.eventType),
+        forceFollowupRun: true,
+        forceFreshAdapterSession: true,
+      },
+    });
+
+    await cancelRunInternal(input.run.id, {
+      message: "Cancelled stalled protocol follow-up after idle adapter startup",
+      checkpointMessage: "run cancelled after idle protocol stall",
+    });
+    return true;
+  }
+
+  async function recoverDegradedProtocolRunIfNeeded(input: {
+    run: typeof heartbeatRuns.$inferSelect;
+    lease?: typeof heartbeatRunLeases.$inferSelect | null;
+    now?: Date;
+    degradedThresholdMs?: number;
+  }) {
+    if (!runningProcesses.has(input.run.id)) return false;
+    const context = parseObject(input.run.contextSnapshot);
+    const issueId = readNonEmptyString(context.issueId);
+    if (!issueId) return false;
+
+    const requirement = resolveProtocolRunRequirement({
+      protocolMessageType: readNonEmptyString(context.protocolMessageType),
+      protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
+    });
+    const issueStateSnapshot = await db
+      .select({
+        status: issues.status,
+        workflowState: issueProtocolState.workflowState,
+      })
+      .from(issues)
+      .leftJoin(
+        issueProtocolState,
+        and(
+          eq(issueProtocolState.issueId, issues.id),
+          eq(issueProtocolState.companyId, issues.companyId),
+        ),
+      )
+      .where(and(eq(issues.id, issueId), eq(issues.companyId, input.run.companyId)))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    const protocolRetryCount =
+      typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
+        ? context.protocolRequiredRetryCount
+        : 0;
+    const protocolDegradedRecoveryCount =
+      typeof context.protocolDegradedRecoveryCount === "number" && Number.isFinite(context.protocolDegradedRecoveryCount)
+        ? context.protocolDegradedRecoveryCount
+        : 0;
+    const adapterRetryCount =
+      typeof context.adapterRetryCount === "number" && Number.isFinite(context.adapterRetryCount)
+        ? context.adapterRetryCount
+        : 0;
+    const adapterRetryErrorCode = readNonEmptyString(context.adapterRetryErrorCode);
+
+    if (!shouldRecoverDegradedProtocolRun({
+      runStatus: input.run.status,
+      hasRunningProcess: true,
+      requirement,
+      wakeReason: readNonEmptyString(context.wakeReason),
+      issueStatus: issueStateSnapshot?.status ?? null,
+      workflowState: issueStateSnapshot?.workflowState ?? null,
+      protocolRetryCount,
+      protocolDegradedRecoveryCount,
+      adapterRetryCount,
+      adapterRetryErrorCode,
+      checkpointJson: input.lease?.checkpointJson ?? null,
+      startedAt: input.run.startedAt,
+      now: input.now,
+      degradedThresholdMs: input.degradedThresholdMs,
+    })) {
+      return false;
+    }
+
+    const degradedReason = classifyDegradedProtocolRunReason({
+      requirement,
+      wakeReason: readNonEmptyString(context.wakeReason),
+      adapterRetryCount,
+      adapterRetryErrorCode,
+    });
+    if (!degradedReason) return false;
+
+    await enqueueWakeup(input.run.agentId, {
+      source: "automation",
+      triggerDetail: "system",
+      reason: "protocol_required_retry",
+      payload: {
+        issueId,
+        protocolRequiredPreviousRunId: input.run.id,
+        protocolDegradedRecovery: true,
+        protocolDegradedRecoveryReason: degradedReason,
+      },
+      contextSnapshot: {
+        ...context,
+        issueId,
+        taskId: issueId,
+        wakeReason: "protocol_required_retry",
+        protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+        protocolRequiredRetryCount: protocolRetryCount + 1,
+        protocolDegradedRecoveryCount: protocolDegradedRecoveryCount + 1,
+        protocolRequiredPreviousRunId: input.run.id,
+        protocolDegradedRecovery: true,
+        protocolDegradedRecoveryReason: degradedReason,
+        forceFollowupRun: true,
+        forceFreshAdapterSession: true,
+      },
+    });
+
+    await cancelRunInternal(input.run.id, {
+      message: `Cancelled degraded protocol follow-up after repeated adapter retries (${degradedReason})`,
+      checkpointMessage: "run cancelled after degraded protocol retry loop",
+    });
+    return true;
+  }
+
+  async function handleProtocolIdleWatchdog(runId: string) {
+    protocolIdleWatchdogTimers.delete(runId);
+
+    const run = await getRun(runId);
+    if (!run || run.status !== "running") {
+      clearProtocolIdleWatchdog(runId);
+      return;
+    }
+
+    const lease = await getRunLease(run.id);
+    const recovered = await recoverIdleProtocolRunIfNeeded({
+      run,
+      lease,
+      now: new Date(),
+      idleThresholdMs: RUN_PROTOCOL_IDLE_WATCHDOG_MS,
+    }) || await recoverDegradedProtocolRunIfNeeded({
+      run,
+      lease,
+      now: new Date(),
+      degradedThresholdMs: RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+    });
+    if (!recovered && runningProcesses.has(run.id)) {
+      scheduleProtocolIdleWatchdog(run.id);
+    }
+  }
+
+  function scheduleProtocolIdleWatchdog(runId: string) {
+    clearProtocolIdleWatchdog(runId);
+    const timer = setTimeout(() => {
+      runDispatchWatchdogOutsideDbContext(() => {
+        void handleProtocolIdleWatchdog(runId).catch((err) => {
+          logger.error({ err, runId }, "idle protocol watchdog failed");
+        });
+      });
+    }, RUN_PROTOCOL_IDLE_WATCHDOG_MS);
+    timer.unref?.();
+    protocolIdleWatchdogTimers.set(runId, timer);
+  }
+
+  async function recoverIdleProtocolRuns(opts?: { idleThresholdMs?: number }) {
+    const now = new Date();
+    const idleThresholdMs = opts?.idleThresholdMs ?? RUN_PROTOCOL_IDLE_WATCHDOG_MS;
+    const activeRuns = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    const leases = activeRuns.length > 0
+      ? await db
+          .select()
+          .from(heartbeatRunLeases)
+          .where(inArray(heartbeatRunLeases.runId, activeRuns.map((run) => run.id)))
+      : [];
+    const leaseByRunId = new Map(leases.map((lease) => [lease.runId, lease]));
+    const recovered: string[] = [];
+
+    for (const run of activeRuns) {
+      const lease = leaseByRunId.get(run.id) ?? null;
+      const didRecover = await recoverIdleProtocolRunIfNeeded({
+        run,
+        lease,
+        now,
+        idleThresholdMs,
+      }) || await recoverDegradedProtocolRunIfNeeded({
+        run,
+        lease,
+        now,
+        degradedThresholdMs: RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+      });
+      if (didRecover) {
+        recovered.push(run.id);
+      }
+    }
+
+    if (recovered.length > 0) {
+      logger.warn({ recoveredCount: recovered.length, runIds: recovered }, "recovered protocol heartbeat runs");
+    }
+
+    return { recovered: recovered.length, runIds: recovered };
   }
 
   async function updateRuntimeState(
@@ -2064,6 +2493,7 @@ export function heartbeatService(db: Db) {
     let stderrExcerpt = "";
     let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let currentPhase = "preflight.init";
+    let lastProgressAt = new Date();
     let eventRun = run;
     let taskSession: typeof agentTaskSessions.$inferSelect | null = null;
     let previousSessionParams: Record<string, unknown> | null = null;
@@ -2081,6 +2511,15 @@ export function heartbeatService(db: Db) {
       sessionDisplayId: null,
       taskKey,
     };
+    const idleWatchdogRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: readNonEmptyString(context.protocolMessageType),
+      protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
+    });
+    const idleWatchdogEligible = isIdleProtocolWatchdogEligibleRequirement(idleWatchdogRequirement);
+    const bumpProtocolIdleWatchdog = () => {
+      if (!idleWatchdogEligible) return;
+      scheduleProtocolIdleWatchdog(runId);
+    };
 
     const appendCheckpoint = async (
       phase: string,
@@ -2088,12 +2527,15 @@ export function heartbeatService(db: Db) {
       payload?: Record<string, unknown>,
     ) => {
       currentPhase = phase;
+      const progressAt = new Date();
+      lastProgressAt = progressAt;
       await upsertRunLease({
         run: eventRun,
         status: phase.startsWith("finalize.") ? "finalizing" : phase.startsWith("adapter.") ? "executing" : "launching",
         checkpointJson: {
           phase,
           message,
+          lastProgressAt: progressAt.toISOString(),
           ...(payload ?? {}),
         },
       });
@@ -2104,6 +2546,9 @@ export function heartbeatService(db: Db) {
         message,
         payload,
       });
+      if (phase.startsWith("adapter.")) {
+        bumpProtocolIdleWatchdog();
+      }
     };
 
     try {
@@ -2267,6 +2712,7 @@ export function heartbeatService(db: Db) {
       });
 
       const startedAt = run.startedAt ?? new Date();
+      lastProgressAt = startedAt;
       const runningWithSession = await db
         .update(heartbeatRuns)
         .set({
@@ -2328,6 +2774,8 @@ export function heartbeatService(db: Db) {
       });
 
       const onLog = async (stream: "stdout" | "stderr" | "system", chunk: string) => {
+        lastProgressAt = new Date();
+        bumpProtocolIdleWatchdog();
         if (stream === "stdout") stdoutExcerpt = appendExcerpt(stdoutExcerpt, chunk);
         if (stream === "stderr") stderrExcerpt = appendExcerpt(stderrExcerpt, chunk);
 
@@ -2380,6 +2828,8 @@ export function heartbeatService(db: Db) {
       });
       const onAdapterMeta = async (meta: AdapterInvocationMeta) => {
         currentPhase = "adapter.invoke";
+        lastProgressAt = new Date();
+        bumpProtocolIdleWatchdog();
         await appendRunEvent(eventRun, seq++, {
           eventType: "adapter.invoke",
           stream: "system",
@@ -2414,6 +2864,7 @@ export function heartbeatService(db: Db) {
           checkpointJson: {
             phase: currentPhase,
             message: "lease heartbeat",
+            lastProgressAt: lastProgressAt.toISOString(),
           },
         });
       }, RUN_LEASE_HEARTBEAT_INTERVAL_MS);
@@ -2624,6 +3075,7 @@ export function heartbeatService(db: Db) {
             adapterRetryPreviousRunId: run.id,
             adapterRetryErrorCode: adapterResult.errorCode,
             forceFollowupRun: true,
+            forceFreshAdapterSession: true,
           };
           await enqueueWakeup(agent.id, {
             source: "automation",
@@ -2945,6 +3397,7 @@ export function heartbeatService(db: Db) {
       await finalizeAgentStatus(agent.id, errorCode === "superseded_followup" ? "cancelled" : "failed");
     } finally {
       clearDispatchWatchdog(runId);
+      clearProtocolIdleWatchdog(runId);
       if (leaseHeartbeatTimer) {
         clearInterval(leaseHeartbeatTimer);
       }
@@ -3644,13 +4097,16 @@ export function heartbeatService(db: Db) {
     return newRun;
   }
 
-  async function cancelRunInternal(runId: string) {
+  async function cancelRunInternal(
+    runId: string,
+    opts?: { message?: string; checkpointMessage?: string },
+  ) {
     const run = await getRun(runId);
     if (!run) throw notFound("Heartbeat run not found");
     if (run.status !== "running" && run.status !== "queued" && run.status !== "claimed") return run;
     const cancellation = buildHeartbeatCancellationArtifacts({
-      message: "Cancelled by control plane",
-      checkpointMessage: "run cancelled by control plane",
+      message: readNonEmptyString(opts?.message) ?? "Cancelled by control plane",
+      checkpointMessage: readNonEmptyString(opts?.checkpointMessage) ?? "run cancelled by control plane",
     });
 
     const running = runningProcesses.get(run.id);
@@ -3690,6 +4146,7 @@ export function heartbeatService(db: Db) {
 
     runningProcesses.delete(run.id);
     clearDispatchWatchdog(run.id);
+    clearProtocolIdleWatchdog(run.id);
     await finalizeAgentStatus(run.agentId, "cancelled");
     dispatchAgentQueueStart(run.agentId);
     return cancelled;
@@ -3827,6 +4284,7 @@ export function heartbeatService(db: Db) {
     wakeup: enqueueWakeup,
 
     reapOrphanedRuns,
+    recoverIdleProtocolRuns,
 
     tickTimers: async (now = new Date()) => {
       const allAgents = await db.select().from(agents);
@@ -4024,6 +4482,7 @@ export function heartbeatService(db: Db) {
           runningProcesses.delete(run.id);
         }
         clearDispatchWatchdog(run.id);
+        clearProtocolIdleWatchdog(run.id);
         await releaseIssueExecutionAndPromote(run);
       }
 

@@ -9,7 +9,14 @@ import {
 describe("fallback summary helpers", () => {
   it("groups fallback events by family and reason", () => {
     const tracker = createFallbackTracker();
-    recordFallbackEvent(tracker, { reason: "routing_reassign", workflowState: "assigned" });
+    recordFallbackEvent(tracker, {
+      reason: "routing_reassign",
+      workflowState: "assigned",
+      runDiagnostic: {
+        runId: "run-1",
+        checkpointPhase: "adapter.execute",
+      },
+    });
     recordFallbackEvent(tracker, { reason: "reviewer_approval", workflowState: "under_review" });
     recordFallbackEvent(tracker, { reason: "close", workflowState: "approved" });
 
@@ -27,11 +34,63 @@ describe("fallback summary helpers", () => {
         reviewer_approval: 1,
         close: 1,
       },
+      runtimeDegradedCounts: {
+        adapter_retry: 0,
+        claude_stream_incomplete: 0,
+      },
       events: [
-        { family: "pm_routing", reason: "routing_reassign", workflowState: "assigned", note: null },
-        { family: "review_handoff", reason: "reviewer_approval", workflowState: "under_review", note: null },
-        { family: "closure", reason: "close", workflowState: "approved", note: null },
+        {
+          family: "pm_routing",
+          reason: "routing_reassign",
+          workflowState: "assigned",
+          note: null,
+          runtimeDegradedReason: null,
+          runDiagnostic: {
+            runId: "run-1",
+            checkpointPhase: "adapter.execute",
+          },
+        },
+        {
+          family: "review_handoff",
+          reason: "reviewer_approval",
+          workflowState: "under_review",
+          note: null,
+          runtimeDegradedReason: null,
+          runDiagnostic: null,
+        },
+        {
+          family: "closure",
+          reason: "close",
+          workflowState: "approved",
+          note: null,
+          runtimeDegradedReason: null,
+          runDiagnostic: null,
+        },
       ],
+    });
+  });
+
+  it("tracks runtime degraded reasons from run diagnostics", () => {
+    const tracker = createFallbackTracker();
+    recordFallbackEvent(tracker, {
+      reason: "reviewer_approval",
+      runDiagnostic: {
+        wakeReason: "adapter_retry",
+        adapterRetryCount: 2,
+      },
+    });
+    recordFallbackEvent(tracker, {
+      reason: "qa_approval",
+      runDiagnostic: {
+        wakeReason: "adapter_retry",
+        adapterRetryCount: 2,
+        adapterRetryErrorCode: "claude_stream_incomplete",
+      },
+    });
+
+    expect(summarizeFallbackTracker(tracker).runtimeDegradedCounts).toEqual({
+      adapter_retry: 1,
+      claude_stream_incomplete: 1,
     });
   });
 
@@ -59,6 +118,10 @@ describe("fallback summary helpers", () => {
         qa_approval: 1,
         implementation_start: 1,
       },
+      runtimeDegradedCounts: {
+        adapter_retry: 0,
+        claude_stream_incomplete: 0,
+      },
       scenarios: [
         {
           scenario: "s1",
@@ -73,6 +136,10 @@ describe("fallback summary helpers", () => {
           },
           reasonCounts: {
             routing_reassign: 1,
+          },
+          runtimeDegradedCounts: {
+            adapter_retry: 0,
+            claude_stream_incomplete: 0,
           },
         },
         {
@@ -89,6 +156,10 @@ describe("fallback summary helpers", () => {
           reasonCounts: {
             qa_approval: 1,
             implementation_start: 1,
+          },
+          runtimeDegradedCounts: {
+            adapter_retry: 0,
+            claude_stream_incomplete: 0,
           },
         },
       ],
