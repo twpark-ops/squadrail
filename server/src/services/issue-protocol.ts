@@ -511,6 +511,15 @@ async function getOpenReviewCycle(tx: any, issueId: string) {
     .then((rows: Array<typeof issueReviewCycles.$inferSelect>) => rows[0] ?? null);
 }
 
+async function getReviewCycleByNumber(tx: any, issueId: string, cycleNumber: number) {
+  return tx
+    .select()
+    .from(issueReviewCycles)
+    .where(and(eq(issueReviewCycles.issueId, issueId), eq(issueReviewCycles.cycleNumber, cycleNumber)))
+    .orderBy(desc(issueReviewCycles.openedAt))
+    .then((rows: Array<typeof issueReviewCycles.$inferSelect>) => rows[0] ?? null);
+}
+
 async function getLatestSubmittedReviewMessage(tx: any, issueId: string) {
   return tx
     .select()
@@ -539,6 +548,13 @@ async function getMessageArtifacts(
     .select({ kind: issueProtocolArtifacts.artifactKind, metadata: issueProtocolArtifacts.metadata })
     .from(issueProtocolArtifacts)
     .where(eq(issueProtocolArtifacts.messageId, messageId));
+}
+
+function resolveReviewCycleNumber(
+  payload: Record<string, unknown>,
+  currentState: typeof issueProtocolState.$inferSelect | null,
+) {
+  return Number(payload.reviewCycle ?? (currentState?.currentReviewCycle ?? 0) + 1);
 }
 
 export function issueProtocolService(db: Db) {
@@ -1031,7 +1047,11 @@ export function issueProtocolService(db: Db) {
             throw conflict("Cannot start review without SUBMIT_FOR_REVIEW");
           }
           const payload = effectiveMessage.payload as Record<string, unknown>;
-          const reviewCycle = typeof payload.reviewCycle === "number" ? payload.reviewCycle : 1;
+          const reviewCycle = resolveReviewCycleNumber(payload, currentState);
+          const existingCycle = await getReviewCycleByNumber(tx, issue.id, reviewCycle);
+          if (existingCycle) {
+            throw conflict(`Review cycle ${reviewCycle} already exists`);
+          }
           await tx.insert(issueReviewCycles).values({
             companyId: issue.companyId,
             issueId: issue.id,
@@ -1064,6 +1084,10 @@ export function issueProtocolService(db: Db) {
         const workflowState = effectiveMessage.workflowStateAfter;
         const coarseIssueStatus = mapProtocolStateToIssueStatus(workflowState);
         const currentPayload = effectiveMessage.payload as Record<string, unknown>;
+        const nextReviewCycle =
+          effectiveMessage.messageType === "START_REVIEW"
+            ? resolveReviewCycleNumber(currentPayload, currentState)
+            : currentState?.currentReviewCycle ?? 0;
         const resolvedOwnership = resolveProtocolOwnershipForMessage({
           currentState: currentState
             ? {
@@ -1102,10 +1126,7 @@ export function issueProtocolService(db: Db) {
           primaryEngineerAgentId: resolvedOwnership.primaryEngineerAgentId,
           reviewerAgentId: resolvedOwnership.reviewerAgentId,
           qaAgentId: resolvedOwnership.qaAgentId,
-          currentReviewCycle:
-            effectiveMessage.messageType === "START_REVIEW"
-              ? Number(currentPayload.reviewCycle ?? (currentState?.currentReviewCycle ?? 0) + 1)
-              : currentState?.currentReviewCycle ?? 0,
+          currentReviewCycle: nextReviewCycle,
           lastProtocolMessageId: sealedMessage.id,
           lastTransitionAt: new Date(),
           blockedPhase:

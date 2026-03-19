@@ -562,6 +562,74 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     expect(plan[0].payload).not.toHaveProperty("protocolDispatchMode");
   });
 
+  it("forces a fresh engineer recovery run after REQUEST_CHANGES", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-1",
+      protocolMessageId: "msg-recovery-1",
+      senderAgentId: "reviewer-1",
+      message: {
+        messageType: "REQUEST_CHANGES",
+        sender: {
+          actorType: "agent",
+          actorId: "reviewer-1",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "changes_requested",
+        summary: "Need one deterministic recovery cycle",
+        payload: {
+          reviewSummary: "Recovery proof is required before approval.",
+          requiredEvidence: [
+            "ACK_CHANGE_REQUEST from the active engineer owner",
+            "Focused resubmission from the same implementation lane",
+          ],
+          changeRequests: [
+            {
+              title: "refresh-evidence",
+              reason: "Reviewer wants one explicit recovery cycle.",
+              affectedFiles: ["internal/observability/tracing.go"],
+              suggestedAction: "Acknowledge and resubmit from the same engineer lane.",
+            },
+          ],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan.find((item) => item.recipientRole === "engineer")).toMatchObject({
+      kind: "wakeup",
+      recipientId: "eng-1",
+      reason: "protocol_changes_requested",
+      payload: {
+        forceFollowupRun: true,
+        workspaceUsageOverride: "implementation",
+      },
+      contextSnapshot: {
+        forceFollowupRun: true,
+        workspaceUsageOverride: "implementation",
+        protocolRecipientRole: "engineer",
+      },
+    });
+
+    expect(plan.find((item) => item.recipientRole === "tech_lead")).toMatchObject({
+      kind: "notify_only",
+      recipientId: "lead-1",
+      reason: "protocol_changes_requested",
+    });
+  });
+
   it("requeues the project tech lead for CLOSE_TASK after reviewer approval, even when reviewer and tech lead are the same agent", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-approval-1",

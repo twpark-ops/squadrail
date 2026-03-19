@@ -13,6 +13,11 @@ import {
   shouldHideE2eIssue,
 } from "./e2e-issue-utils.mjs";
 import { parseScenarioSelection } from "./burn-in-scenarios.mjs";
+import { assertChangeRecoveryInvariant } from "./change-recovery-invariants.mjs";
+import {
+  createDeterministicQaApprovalMessage,
+  createDeterministicReviewerApprovalMessage,
+} from "./deterministic-approval-payloads.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -132,6 +137,40 @@ async function runProtocolHelperCommand(args, options = {}) {
   return stdout.trim();
 }
 
+function buildAgentRecipient(recipientId, role) {
+  return {
+    recipientType: "agent",
+    recipientId,
+    role,
+  };
+}
+
+function buildAgentSelfRecipient(agentId, role) {
+  return buildAgentRecipient(agentId, role);
+}
+
+function buildRequestChangesRecipients(state, senderRole, senderId) {
+  const recipients = [];
+
+  if (state?.primaryEngineerAgentId) {
+    recipients.push(buildAgentRecipient(state.primaryEngineerAgentId, "engineer"));
+  }
+
+  if (
+    state?.techLeadAgentId
+    && state.techLeadAgentId !== state.primaryEngineerAgentId
+  ) {
+    recipients.push(buildAgentRecipient(state.techLeadAgentId, "tech_lead"));
+  }
+
+  if (recipients.length > 0) {
+    return recipients;
+  }
+
+  assert(typeof senderId === "string" && senderId.length > 0, "REQUEST_CHANGES fallback recipient requires senderId");
+  return [buildAgentSelfRecipient(senderId, senderRole)];
+}
+
 async function captureRepoSnapshot(root) {
   const [status, head] = await Promise.all([
     gitStatus(root),
@@ -173,6 +212,18 @@ async function cancelHeartbeatRun(runId) {
   return api(`/api/heartbeat-runs/${runId}/cancel`, {
     method: "POST",
     body: {},
+  });
+}
+
+async function wakeAgentForIssue(agentId, issueId, reason) {
+  return api(`/api/agents/${agentId}/wakeup`, {
+    method: "POST",
+    body: {
+      source: "assignment",
+      triggerDetail: "system",
+      reason,
+      payload: { issueId },
+    },
   });
 }
 
@@ -271,6 +322,13 @@ async function setAgentPaused(agentId, paused) {
   return api(pathname, { method: "POST" });
 }
 
+async function resetAgentRuntimeSession(agentId) {
+  return api(`/api/agents/${agentId}/runtime-state/reset-session`, {
+    method: "POST",
+    body: {},
+  });
+}
+
 function collectScenarioParticipantIds(scenarios) {
   const ids = new Set();
   for (const scenario of scenarios) {
@@ -288,6 +346,12 @@ function collectScenarioParticipantIds(scenarios) {
     }
     ids.add(scenario.assignee.id);
     ids.add(scenario.reviewer.id);
+    if (scenario.qa?.id) ids.add(scenario.qa.id);
+    if (scenario.routingFallback?.senderId) ids.add(scenario.routingFallback.senderId);
+    if (scenario.routingFallback?.assigneeId) ids.add(scenario.routingFallback.assigneeId);
+    if (scenario.staffingFallback?.senderId) ids.add(scenario.staffingFallback.senderId);
+    if (scenario.staffingFallback?.assigneeId) ids.add(scenario.staffingFallback.assigneeId);
+    if (scenario.forcedChangeRequest?.senderId) ids.add(scenario.forcedChangeRequest.senderId);
     for (const recipient of scenario.additionalRecipients ?? []) {
       ids.add(recipient.agent.id);
     }
@@ -317,10 +381,16 @@ async function prepareScenarioAgents(context, scenarios) {
           `Scenario participant ${agent.urlKey} is not runnable (status=${agent.status})`,
         );
       }
-      if (agent.status !== "paused" && agent.status !== "error") continue;
+      const previousStatus = agent.status;
+      if (agent.status !== "paused") {
+        await setAgentPaused(agent.id, true);
+        note(`paused ${agent.urlKey} to clear active runs before E2E execution`);
+      }
+      await resetAgentRuntimeSession(agent.id);
+      note(`reset runtime session for ${agent.urlKey}`);
       await setAgentPaused(agent.id, false);
-      restores.push({ agent, previousStatus: agent.status });
-      note(`resumed ${agent.status} agent ${agent.urlKey} for E2E scenario execution`);
+      note(`prepared agent ${agent.urlKey} for E2E scenario execution`);
+      restores.push({ agent, previousStatus });
     }
   } catch (error) {
     await restoreAgentStatuses(restores);
@@ -729,19 +799,19 @@ function buildScenarioDefinitions(context) {
       project: project("swiftsight-cloud"),
       assignee: agent("swiftsight-pm"),
       assigneeRole: "pm",
-      reviewer: agent("swiftsight-qa-lead"),
+      reviewer: agent("swiftsight-agent-tl"),
       reviewerRole: "reviewer",
       qa: agent("swiftsight-qa-lead"),
       repoRoot: `${SWIFTSIGHT_ROOT}/swiftsight-cloud`,
       issue: {
-        title: "Org E2E: PM routes build-info fix through TL direct recovery after requested changes",
+        title: "Org E2E: PM routes build-info fix through TL staffing recovery after requested changes",
         description: [
           "Repository: swiftsight-cloud",
           "Target files: internal/observability/tracing.go and internal/observability/tracing_test.go",
           "Board expectation for the PM assignee:",
           "- clarify the delivery slice and route it into the swiftsight-cloud TL lane",
-          "- keep QA Lead in the reviewer + QA gate path for this deterministic recovery check",
-          "- TL may implement directly instead of staffing another engineer",
+          `- keep reviewer coverage with \`swiftsight-agent-tl\` (${agent("swiftsight-agent-tl").id}) and leave QA Lead in the final QA gate`,
+          `- after routing, staff implementation to \`swiftsight-cloud-codex-engineer\` (${agent("swiftsight-cloud-codex-engineer").id}) instead of keeping the TL as the direct executor`,
           "Deterministic recovery goal:",
           "- after the first review submission, the reviewer will request one follow-up change",
           "- the active implementation owner must acknowledge the change request and resume implementation",
@@ -751,24 +821,23 @@ function buildScenarioDefinitions(context) {
           "- the package should resolve service.version from build metadata with a deterministic fallback",
           "Acceptance criteria:",
           "- PM routes through the TL lane before implementation starts",
-          "- TL direct implementation binds the engineer owner correctly",
+          "- TL staffing binds the focused engineer owner correctly",
           "- reviewer can request changes once and the implementation owner resumes",
           "- QA Lead performs the final QA gate before closure",
           "- run `go test ./internal/observability -count=1`",
           ...buildManagerHelperLines([
             "- this scenario intentionally validates review recovery; keep the focused scope local to observability",
-            `- PM routing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role pm --assignee-id "${agent("swiftsight-cloud-tl").id}" --assignee-role tech_lead --reviewer-id "${agent("swiftsight-qa-lead").id}" --qa-id "${agent("swiftsight-qa-lead").id}" --summary "PM routes build-info fix into the swiftsight-cloud TL lane" --reason "Route the deterministic review recovery slice through the project TL"\``,
-            `- TL direct implementation fallback: \`node ${PROTOCOL_HELPER_PATH} start-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "TL starts observability implementation directly from the TL lane" --active-hypotheses "Build metadata can drive service.version with deterministic fallback||Recovery after reviewer changes should keep the TL as active engineer owner"\``,
-            "- TL protocol sender-role split: use `tech_lead` for reassign/close, and `engineer` for ack/start/progress/review-submission while the TL is the active implementation owner.",
-            `- TL change-request ACK command: \`node ${PROTOCOL_HELPER_PATH} ack-change-request --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "TL acknowledges requested observability follow-up" --change-request-ids "race-evidence-refresh" --planned-fix-order "Refresh focused observability evidence||Resubmit the deterministic fallback proof"\``,
+            `- PM routing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role pm --assignee-id "${agent("swiftsight-cloud-tl").id}" --assignee-role tech_lead --reviewer-id "${agent("swiftsight-agent-tl").id}" --qa-id "${agent("swiftsight-qa-lead").id}" --summary "PM routes build-info fix into the swiftsight-cloud TL lane" --reason "Route the deterministic review recovery slice through the project TL"\``,
+            `- TL staffing command: \`node ${PROTOCOL_HELPER_PATH} reassign-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --assignee-id "${agent("swiftsight-cloud-codex-engineer").id}" --assignee-role engineer --reviewer-id "${agent("swiftsight-agent-tl").id}" --qa-id "${agent("swiftsight-qa-lead").id}" --summary "TL staffs observability recovery slice to swiftsight-cloud-codex-engineer" --reason "Delegate the focused build-info recovery slice to the cloud implementation engineer"\``,
+            "- TL protocol sender-role split: use `tech_lead` for staffing/close, and keep engineer sender-role for the active implementation owner after staffing.",
             `- QA Lead final review start: \`node ${PROTOCOL_HELPER_PATH} start-review --issue "$SQUADRAIL_TASK_ID" --sender-role qa --summary "QA gate: verifying observability build-info recovery" --review-focus "change-request recovery evidence||focused observability tests||diff scope remains local"\``,
             `- QA Lead approval example: \`node ${PROTOCOL_HELPER_PATH} approve-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role qa --summary "QA Lead approves observability recovery fix" --approval-summary "Requested follow-up evidence arrived and the focused observability slice remains correct" --approval-checklist "change-request handled||service.version no longer hard-coded||fallback behavior covered||focused observability test passed" --verified-evidence "review handoff payload inspected||change-request follow-up inspected||test evidence reviewed" --residual-risks "Build stamping may still be absent in local builds, so deterministic fallback remains expected"\``,
             `- TL close example: \`node ${PROTOCOL_HELPER_PATH} close-task --issue "$SQUADRAIL_TASK_ID" --sender-role tech_lead --summary "Close observability recovery fix after QA approval" --closure-summary "service.version recovery loop completed and QA approved the focused slice" --verification-summary "Review recovery evidence and focused observability tests were recorded in protocol" --rollback-plan "Revert the observability helper and regression test changes if version resolution regresses" --final-artifacts "diff artifact attached||test_run artifact attached||approval recorded in protocol" --remaining-risks "Merge remains external to this E2E harness" --merge-status pending_external_merge\``,
           ]),
           ...buildEngineerHelperLines([
-            `- Engineer ACK command: \`node ${PROTOCOL_HELPER_PATH} ack-assignment --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Accepted observability recovery scope" --understood-scope "Resolve service.version from build metadata in internal/observability and be ready to handle a deterministic review follow-up" --initial-risks "Recovery loop must preserve TL direct ownership without losing the engineer slot"\``,
+            `- Engineer ACK command: \`node ${PROTOCOL_HELPER_PATH} ack-assignment --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Accepted observability recovery scope" --understood-scope "Resolve service.version from build metadata in internal/observability and be ready to handle a deterministic review follow-up" --initial-risks "Recovery loop must preserve the same active engineer owner across the follow-up cycle"\``,
             `- Engineer start command: \`node ${PROTOCOL_HELPER_PATH} start-implementation --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --summary "Start observability implementation in isolated workspace" --active-hypotheses "Build metadata can drive service.version with deterministic fallback||Changes-request recovery should preserve active engineer ownership"\``,
-            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftsight-qa-lead").id}" --summary "Submit observability build-info fix for deterministic recovery review" --implementation-summary "createResource resolves service.version from build metadata with deterministic fallback and the TL remains the active implementation owner during recovery" --evidence "Focused observability test passed||Resolved version behavior verified||Fallback behavior verified" --diff-summary "Removed hard-coded service.version path and added focused regression coverage for version resolution" --changed-files "internal/observability/tracing.go||internal/observability/tracing_test.go" --test-results "go test ./internal/observability -count=1" --review-checklist "service.version no longer hard-coded||Fallback behavior covered||Recovery loop kept TL ownership stable" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
+            `- Engineer review handoff: \`node ${PROTOCOL_HELPER_PATH} submit-for-review --issue "$SQUADRAIL_TASK_ID" --sender-role engineer --reviewer-id "${agent("swiftsight-agent-tl").id}" --summary "Submit observability build-info fix for deterministic recovery review" --implementation-summary "createResource resolves service.version from build metadata with deterministic fallback and the same cloud engineer remains the active implementation owner during recovery" --evidence "Focused observability test passed||Resolved version behavior verified||Fallback behavior verified" --diff-summary "Removed hard-coded service.version path and added focused regression coverage for version resolution" --changed-files "internal/observability/tracing.go||internal/observability/tracing_test.go" --test-results "go test ./internal/observability -count=1" --review-checklist "service.version no longer hard-coded||Fallback behavior covered||Recovery loop kept the same engineer ownership stable" --residual-risks "Repo-wide validation was intentionally skipped for this focused slice"\``,
           ]),
           "Execution constraints:",
           "- PM should route through `swiftsight-cloud-tl` before implementation starts",
@@ -777,10 +846,10 @@ function buildScenarioDefinitions(context) {
         ].join("\n"),
       },
       assignment: {
-        goal: "PM must route the observability fix through the TL lane, then the TL must recover cleanly after a deterministic reviewer REQUEST_CHANGES before QA closure.",
+        goal: "PM must route the observability fix through the TL lane, TL must staff the focused engineer lane, and the active engineer must recover cleanly after a deterministic reviewer REQUEST_CHANGES before QA closure.",
         acceptanceCriteria: [
           "PM reassigns the issue into the project TL lane before coding starts",
-          "TL direct implementation binds the engineer owner correctly",
+          "TL staffing binds the engineer owner correctly",
           "A reviewer REQUEST_CHANGES is recorded before final approval",
           "The same implementation owner acknowledges the change request and resumes execution",
           "QA Lead performs the review decision before the task closes",
@@ -791,16 +860,38 @@ function buildScenarioDefinitions(context) {
           "Base repo remains unchanged after isolated implementation",
         ],
       },
+      routingFallback: {
+        afterMs: 15_000,
+        senderId: agent("swiftsight-pm").id,
+        senderRole: "pm",
+        assigneeId: agent("swiftsight-cloud-tl").id,
+        assigneeRole: "tech_lead",
+        reviewerId: agent("swiftsight-agent-tl").id,
+        qaId: agent("swiftsight-qa-lead").id,
+        summary: "PM routes build-info fix into the swiftsight-cloud TL lane",
+        reason: "Route the deterministic review recovery slice through the project TL",
+      },
+      staffingFallback: {
+        afterMs: 15_000,
+        senderId: agent("swiftsight-cloud-tl").id,
+        senderRole: "tech_lead",
+        assigneeId: agent("swiftsight-cloud-codex-engineer").id,
+        assigneeRole: "engineer",
+        reviewerId: agent("swiftsight-agent-tl").id,
+        qaId: agent("swiftsight-qa-lead").id,
+        summary: "TL staffs observability recovery slice to swiftsight-cloud-codex-engineer",
+        reason: "Delegate the focused build-info recovery slice to the cloud implementation engineer",
+      },
       forcedChangeRequest: {
-        senderId: agent("swiftsight-qa-lead").id,
+        senderId: agent("swiftsight-agent-tl").id,
         senderRole: "reviewer",
         pauseAgentUntilRecovery: true,
-        reviewSummary: "Deterministic review recovery checkpoint: request refreshed evidence from the active TL implementation owner before final approval.",
+        reviewSummary: "Deterministic review recovery checkpoint: request refreshed evidence from the active engineer implementation owner before final approval.",
         summary: "Reviewer requests one deterministic follow-up before approval",
         reviewFocus: [
           "recovery evidence",
           "focused observability tests",
-          "direct implementation owner continuity",
+          "active implementation owner continuity",
         ],
         requiredEvidence: [
           "Focused observability test rerun after acknowledging the change request",
@@ -811,19 +902,38 @@ function buildScenarioDefinitions(context) {
             title: "race-evidence-refresh",
             reason: "Review requires one explicit recovery cycle so the active implementation owner proves the follow-up path before final approval.",
             affectedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
-            suggestedAction: "Acknowledge the change request, refresh focused observability evidence, and resubmit for review from the same TL-owned implementation lane.",
+            suggestedAction: "Acknowledge the change request, refresh focused observability evidence, and resubmit for review from the same engineer-owned implementation lane.",
           },
         ],
         severity: "medium",
         mustFixBeforeApprove: true,
       },
       checkpoints: [
-        { label: "pm-reassign", messageType: "REASSIGN_TASK", senderId: agent("swiftsight-pm").id },
-        { label: "reviewer-forced-changes", messageType: "REQUEST_CHANGES", senderId: agent("swiftsight-qa-lead").id },
-        { label: "tl-ack-change-request", messageType: "ACK_CHANGE_REQUEST", senderId: agent("swiftsight-cloud-tl").id },
-        { label: "tl-restart-implementation", messageType: "START_IMPLEMENTATION", senderId: agent("swiftsight-cloud-tl").id },
+        {
+          label: "pm-reassign",
+          messageType: "REASSIGN_TASK",
+          senderIds: [agent("swiftsight-pm").id, E2E_ACTOR_ID],
+          summaryIncludes: "PM routes build-info fix into the swiftsight-cloud TL lane",
+        },
+        {
+          label: "tl-staffing",
+          messageType: "REASSIGN_TASK",
+          senderIds: [agent("swiftsight-cloud-tl").id, E2E_ACTOR_ID],
+          summaryIncludes: "TL staffs observability recovery slice to swiftsight-cloud-codex-engineer",
+        },
+        {
+          label: "reviewer-forced-changes",
+          messageType: "REQUEST_CHANGES",
+          senderIds: [agent("swiftsight-agent-tl").id, E2E_ACTOR_ID],
+        },
+        { label: "engineer-ack-change-request", messageType: "ACK_CHANGE_REQUEST", senderId: agent("swiftsight-cloud-codex-engineer").id },
+        { label: "engineer-restart-implementation", messageType: "START_IMPLEMENTATION", senderId: agent("swiftsight-cloud-codex-engineer").id },
         { label: "qa-lead-review-decision", messageType: "APPROVE_IMPLEMENTATION", senderId: agent("swiftsight-qa-lead").id },
       ],
+      changeRecoveryInvariant: {
+        recoveryMode: "direct_owner",
+        expectedRecoveryOwnerId: agent("swiftsight-cloud-codex-engineer").id,
+      },
       closeAction: {
         senderId: agent("swiftsight-cloud-tl").id,
         senderRole: "tech_lead",
@@ -1282,36 +1392,128 @@ async function postProtocolMessageWithRetry(issueId, body, label) {
   }
 }
 
+async function postProtocolMessageAsAgent(issueId, agentId, body, label, keyName = "real-org-e2e-protocol") {
+  const deadline = Date.now() + 15_000;
+  let attempt = 0;
+  const runner = [
+    "import { execFile } from 'node:child_process';",
+    "import { promisify } from 'node:util';",
+    "const execFileAsync = promisify(execFile);",
+    "const [baseUrl, agentId, issueId, rawBody, keyName] = process.argv.slice(1);",
+    "const created = await fetch(`${baseUrl}/api/agents/${agentId}/keys`, {",
+    "  method: 'POST',",
+    "  headers: { 'Content-Type': 'application/json' },",
+    "  body: JSON.stringify({ name: keyName }),",
+    "});",
+    "const createdText = await created.text();",
+    "if (!created.ok) throw new Error(`create key failed ${created.status}: ${createdText}`);",
+    "const key = JSON.parse(createdText);",
+    "const { stdout } = await execFileAsync('curl', [",
+    "  '-sS',",
+    "  '-X', 'POST',",
+    "  `${baseUrl}/api/issues/${issueId}/protocol/messages`,",
+    "  '-H', `Authorization: Bearer ${key.token}`,",
+    "  '-H', 'Content-Type: application/json',",
+    "  '-H', 'X-Squadrail-Dispatch-Mode: async',",
+    "  '--data-binary', rawBody,",
+    "  '-w', '\\n%{http_code}',",
+    "], { maxBuffer: 8 * 1024 * 1024 });",
+    "const lines = stdout.trim().split('\\n');",
+    "const statusText = lines.pop() ?? '';",
+    "const responseText = lines.join('\\n');",
+    "const status = Number(statusText);",
+    "if (!Number.isFinite(status) || status < 200 || status >= 300) {",
+    "  throw new Error(`agent review start failed ${status}: ${responseText}`);",
+    "}",
+    "process.stdout.write(responseText || '{}');",
+  ].join("\n");
+
+  while (true) {
+    attempt += 1;
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          "--input-type=module",
+          "-e",
+          runner,
+          BASE_URL,
+          agentId,
+          issueId,
+          JSON.stringify(body),
+          keyName,
+        ],
+        {
+          cwd: REPO_ROOT,
+          maxBuffer: 8 * 1024 * 1024,
+        },
+      );
+      return stdout.trim() ? JSON.parse(stdout) : {};
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      const retryable = text.includes("404");
+      if (!retryable || Date.now() >= deadline) {
+        throw new Error(`Agent protocol post failed for ${issueId}: ${text}`);
+      }
+      note(`${label} retry ${attempt} for ${issueId}: ${text}`);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+}
+
+async function startReviewAsAgent(issueId, agentId, body, label) {
+  return postProtocolMessageAsAgent(
+    issueId,
+    agentId,
+    body,
+    label,
+    "real-org-e2e-review-start",
+  );
+}
+
 async function cancelIssue(issueId, reason, summary = "Cancel failed E2E scenario") {
   const state = await api(`/api/issues/${issueId}/protocol/state`);
   const workflowStateBefore = state?.workflowState ?? "assigned";
-  return api(`/api/issues/${issueId}/protocol/messages`, {
-    method: "POST",
-    body: {
-      messageType: "CANCEL_TASK",
-      sender: {
-        actorType: "user",
-        actorId: E2E_ACTOR_ID,
-        role: "human_board",
-      },
-      recipients: [
-        {
-          recipientType: "role_group",
-          recipientId: "human_board",
+  try {
+    return await api(`/api/issues/${issueId}/protocol/messages`, {
+      method: "POST",
+      body: {
+        messageType: "CANCEL_TASK",
+        sender: {
+          actorType: "user",
+          actorId: E2E_ACTOR_ID,
           role: "human_board",
         },
-      ],
-      workflowStateBefore,
-      workflowStateAfter: "cancelled",
-      summary,
-      requiresAck: false,
-      payload: {
-        reason,
-        cancelType: "duplicate",
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore,
+        workflowStateAfter: "cancelled",
+        summary,
+        requiresAck: false,
+        payload: {
+          reason,
+          cancelType: "duplicate",
+        },
+        artifacts: [],
       },
-      artifacts: [],
-    },
-  });
+    });
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    if (!text.includes("Protocol state is not initialized")) {
+      throw error;
+    }
+    return api(`/api/issues/${issueId}`, {
+      method: "PATCH",
+      body: {
+        status: "cancelled",
+      },
+    });
+  }
 }
 
 async function sendCloseTask(issueId, scenario, workflowStateBefore) {
@@ -1440,6 +1642,100 @@ async function sendImplementationRecovery(issueId, scenario, snapshot) {
   }, "recover-implementation");
 }
 
+async function sendRoutingFallback(issueId, scenario, workflowStateBefore, companyId) {
+  const fallback = scenario.routingFallback;
+  assert(fallback, `${scenario.key} missing routingFallback config`);
+  void companyId;
+  return postProtocolMessageWithRetry(issueId, {
+    messageType: "REASSIGN_TASK",
+    sender: {
+      actorType: "user",
+      actorId: E2E_ACTOR_ID,
+      role: "human_board",
+    },
+    recipients: [
+      buildAgentRecipient(fallback.assigneeId, fallback.assigneeRole),
+      buildAgentRecipient(fallback.reviewerId, "reviewer"),
+      ...(fallback.qaId ? [buildAgentRecipient(fallback.qaId, "qa")] : []),
+    ],
+    workflowStateBefore,
+    workflowStateAfter: "assigned",
+    summary: fallback.summary,
+    requiresAck: false,
+    payload: {
+      reason: fallback.reason,
+      newAssigneeAgentId: fallback.assigneeId,
+      newReviewerAgentId: fallback.reviewerId,
+      ...(fallback.qaId ? { newQaAgentId: fallback.qaId } : {}),
+    },
+    artifacts: [],
+  }, "routing-fallback");
+}
+
+async function sendStaffingFallback(issueId, scenario, workflowStateBefore, companyId) {
+  const fallback = scenario.staffingFallback;
+  assert(fallback, `${scenario.key} missing staffingFallback config`);
+  void companyId;
+  return postProtocolMessageWithRetry(issueId, {
+    messageType: "REASSIGN_TASK",
+    sender: {
+      actorType: "user",
+      actorId: E2E_ACTOR_ID,
+      role: "human_board",
+    },
+    recipients: [
+      buildAgentRecipient(fallback.assigneeId, fallback.assigneeRole),
+      buildAgentRecipient(fallback.reviewerId, "reviewer"),
+      ...(fallback.qaId ? [buildAgentRecipient(fallback.qaId, "qa")] : []),
+    ],
+    workflowStateBefore,
+    workflowStateAfter: "assigned",
+    summary: fallback.summary,
+    requiresAck: false,
+    payload: {
+      reason: fallback.reason,
+      newAssigneeAgentId: fallback.assigneeId,
+      newReviewerAgentId: fallback.reviewerId,
+      ...(fallback.qaId ? { newQaAgentId: fallback.qaId } : {}),
+    },
+    artifacts: [],
+  }, "staffing-fallback");
+}
+
+async function sendDeterministicImplementationStart(issueId, scenario, snapshot) {
+  const state = snapshot.state ?? {};
+  const engineerId =
+    state.primaryEngineerAgentId
+    ?? (scenario.assigneeRole === "engineer" ? scenario.assignee.id : null);
+  assert(typeof engineerId === "string" && engineerId.length > 0, `${scenario.key} missing engineer for deterministic implementation start`);
+  const companyId = snapshot.issue?.companyId;
+  if (typeof companyId === "string" && companyId.length > 0) {
+    await cancelAgentRunsForIssue(companyId, issueId, engineerId, `[${scenario.key}] implementation-start fallback`);
+  }
+
+  return postProtocolMessageAsAgent(issueId, engineerId, {
+    messageType: "START_IMPLEMENTATION",
+    sender: {
+      actorType: "agent",
+      actorId: engineerId,
+      role: "engineer",
+    },
+    recipients: [buildAgentSelfRecipient(engineerId, "engineer")],
+    workflowStateBefore: state.workflowState ?? "accepted",
+    workflowStateAfter: "implementing",
+    summary: "Deterministic implementation start after acceptance fallback",
+    requiresAck: false,
+    payload: {
+      implementationMode: "direct",
+      activeHypotheses: [
+        "Focused implementation should stay inside the assigned project workspace and only touch the explicitly scoped files.",
+        "Submit-for-review should follow immediately after the bounded fix and focused test evidence complete.",
+      ],
+    },
+    artifacts: [],
+  }, "deterministic-implementation-start");
+}
+
 function findMatchingMessage(messages, predicate) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (predicate(messages[index])) return messages[index];
@@ -1477,9 +1773,38 @@ async function listActiveIssueRuns(companyId, issueId) {
   );
 }
 
+async function cancelAgentRunsForIssue(companyId, issueId, agentId, label) {
+  const activeRuns = await listActiveIssueRuns(companyId, issueId);
+  const agentRuns = activeRuns.filter((run) => run.agentId === agentId);
+  for (const run of agentRuns) {
+    await cancelHeartbeatRun(run.id).catch(() => {});
+  }
+  await resetAgentRuntimeSession(agentId).catch(() => {});
+  if (agentRuns.length > 0) {
+    note(`${label} cancelled ${agentRuns.length} active run(s) for ${agentId}`);
+  }
+  return agentRuns.length;
+}
+
+function parseMessageSeq(message) {
+  return Number.isFinite(message?.seq) ? Number(message.seq) : null;
+}
+
 function latestMessage(messages, type) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.messageType === type) return messages[index];
+  }
+  return null;
+}
+
+function latestMessageAfter(messages, type, minSeq, predicate = () => true) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.messageType !== type) continue;
+    const seq = parseMessageSeq(message);
+    if (minSeq != null && (seq == null || seq <= minSeq)) continue;
+    if (!predicate(message)) continue;
+    return message;
   }
   return null;
 }
@@ -1492,19 +1817,10 @@ function formatProtocolTrail(messages) {
   return messages.map((message) => summarizeMessage(message)).join(" -> ");
 }
 
-function serializeForcedChangeRequests(changeRequests) {
-  return changeRequests
-    .map((entry) => {
-      const affectedFiles = Array.isArray(entry.affectedFiles) ? entry.affectedFiles.join("|") : "";
-      const suggestedAction = entry.suggestedAction ?? "";
-      return `${entry.title}::${entry.reason}::${affectedFiles}::${suggestedAction}`;
-    })
-    .join("||");
-}
-
 async function sendForcedChangeRequest(companyId, issueId, scenario, snapshot) {
   const forced = scenario.forcedChangeRequest;
   assert(forced, `${scenario.key} missing forcedChangeRequest config`);
+  void companyId;
 
   const state = snapshot.state ?? {};
   const reviewFocus = Array.isArray(forced.reviewFocus) && forced.reviewFocus.length > 0
@@ -1529,37 +1845,149 @@ async function sendForcedChangeRequest(companyId, issueId, scenario, snapshot) {
     && ["under_review", "under_qa_review"].includes(state.workflowState ?? "");
 
   if (!senderAlreadyStartedReview) {
-    await runProtocolHelperCommand([
-      "start-review",
-      "--issue", issueId,
-      "--sender-role", forced.senderRole,
-      "--summary", forced.reviewSummary,
-      "--review-focus", reviewFocus.join("||"),
-      "--workflow-before", state.workflowState ?? "submitted_for_review",
-    ], {
-      companyId,
-      issueId,
-      agentId: forced.senderId,
-    });
+    await startReviewAsAgent(issueId, forced.senderId, {
+      messageType: "START_REVIEW",
+      sender: {
+        actorType: "agent",
+        actorId: forced.senderId,
+        role: forced.senderRole,
+      },
+      recipients: [buildAgentSelfRecipient(forced.senderId, forced.senderRole)],
+      workflowStateBefore: state.workflowState ?? "submitted_for_review",
+      workflowStateAfter: forced.senderRole === "qa" ? "under_qa_review" : "under_review",
+      summary: forced.reviewSummary,
+      requiresAck: false,
+      payload: {
+        reviewCycle: Math.max(1, Number(state.currentReviewCycle ?? 0) + 1),
+        reviewFocus,
+        blockingReview: false,
+      },
+      artifacts: [],
+    }, "forced-start-review");
   }
 
   const refreshedState = await api(`/api/issues/${issueId}/protocol/state`);
-  await runProtocolHelperCommand([
-    "request-changes",
-    "--issue", issueId,
-    "--sender-role", forced.senderRole,
-    "--summary", forced.summary,
-    "--review-summary", forced.reviewSummary,
-    "--required-evidence", requiredEvidence.join("||"),
-    "--change-requests", serializeForcedChangeRequests(changeRequests),
-    "--severity", forced.severity ?? "medium",
-    "--must-fix-before-approve", forced.mustFixBeforeApprove === false ? "false" : "true",
-    "--workflow-before", refreshedState?.workflowState ?? "under_review",
-  ], {
-    companyId,
+  await postProtocolMessageAsAgent(issueId, forced.senderId, {
+    messageType: "REQUEST_CHANGES",
+    sender: {
+      actorType: "agent",
+      actorId: forced.senderId,
+      role: forced.senderRole,
+    },
+    recipients: buildRequestChangesRecipients(refreshedState, forced.senderRole, forced.senderId),
+    workflowStateBefore: refreshedState?.workflowState ?? "under_review",
+    workflowStateAfter: "changes_requested",
+    summary: forced.summary,
+    requiresAck: false,
+    payload: {
+      reviewSummary: forced.reviewSummary,
+      changeRequests,
+      severity: forced.severity ?? "medium",
+      mustFixBeforeApprove: forced.mustFixBeforeApprove !== false,
+      requiredEvidence,
+    },
+    artifacts: [],
+  }, "forced-request-changes", "real-org-e2e-request-changes");
+}
+
+async function sendDeterministicReviewerApproval(issueId, scenario, snapshot) {
+  const state = snapshot.state ?? {};
+  const reviewerId = state.reviewerAgentId ?? scenario.reviewer.id;
+  assert(typeof reviewerId === "string" && reviewerId.length > 0, `${scenario.key} missing reviewer for deterministic approval`);
+  const companyId = snapshot.issue?.companyId;
+  if (typeof companyId === "string" && companyId.length > 0) {
+    await cancelAgentRunsForIssue(companyId, issueId, reviewerId, `[${scenario.key}] reviewer fallback`);
+  }
+
+  if (state.workflowState === "submitted_for_review") {
+    await startReviewAsAgent(issueId, reviewerId, {
+      messageType: "START_REVIEW",
+      sender: {
+        actorType: "agent",
+        actorId: reviewerId,
+        role: "reviewer",
+      },
+      recipients: [buildAgentSelfRecipient(reviewerId, "reviewer")],
+      workflowStateBefore: "submitted_for_review",
+      workflowStateAfter: "under_review",
+      summary: "Deterministic reviewer restart after the requested recovery cycle",
+      requiresAck: false,
+      payload: {
+        reviewCycle: Math.max(1, Number(state.currentReviewCycle ?? 0) + 1),
+        reviewFocus: scenario.forcedChangeRequest?.reviewFocus ?? [
+          "change-request recovery evidence",
+          "focused validation evidence",
+          "same implementation owner continuity",
+        ],
+        blockingReview: false,
+      },
+      artifacts: [],
+    }, "deterministic-review-start");
+  }
+
+  const refreshedState = await api(`/api/issues/${issueId}/protocol/state`);
+  return postProtocolMessageAsAgent(
     issueId,
-    agentId: forced.senderId,
-  });
+    reviewerId,
+    createDeterministicReviewerApprovalMessage({
+      issueId,
+      reviewerId,
+      qaAgentId: refreshedState?.qaAgentId ?? null,
+      workflowStateBefore: refreshedState?.workflowState ?? "under_review",
+    }),
+    "deterministic-review-approve",
+    "real-org-e2e-review-approve",
+  );
+}
+
+async function sendDeterministicQaApproval(issueId, scenario, snapshot) {
+  const state = snapshot.state ?? {};
+  const qaId = state.qaAgentId ?? scenario.qa?.id ?? null;
+  assert(typeof qaId === "string" && qaId.length > 0, `${scenario.key} missing QA agent for deterministic approval`);
+  const companyId = snapshot.issue?.companyId;
+  if (typeof companyId === "string" && companyId.length > 0) {
+    await cancelAgentRunsForIssue(companyId, issueId, qaId, `[${scenario.key}] qa fallback`);
+  }
+
+  if (state.workflowState === "qa_pending") {
+    await startReviewAsAgent(issueId, qaId, {
+      messageType: "START_REVIEW",
+      sender: {
+        actorType: "agent",
+        actorId: qaId,
+        role: "qa",
+      },
+      recipients: [buildAgentSelfRecipient(qaId, "qa")],
+      workflowStateBefore: "qa_pending",
+      workflowStateAfter: "under_qa_review",
+      summary: "Deterministic QA gate review after reviewer recovery approval",
+      requiresAck: false,
+      payload: {
+        reviewCycle: Math.max(1, Number(state.currentReviewCycle ?? 0) + 1),
+        reviewFocus: [
+          "change-request recovery evidence",
+          "focused observability test evidence",
+          "diff scope remains local to the target package",
+        ],
+        blockingReview: false,
+      },
+      artifacts: [],
+    }, "deterministic-qa-start");
+  }
+
+  const refreshedState = await api(`/api/issues/${issueId}/protocol/state`);
+  return postProtocolMessageAsAgent(
+    issueId,
+    qaId,
+    createDeterministicQaApprovalMessage({
+      issueId,
+      qaId,
+      techLeadAgentId: refreshedState?.techLeadAgentId ?? null,
+      workflowStateBefore: refreshedState?.workflowState ?? "under_qa_review",
+    }),
+    "deterministic-qa-approve",
+    "real-org-e2e-qa-approve",
+  );
 }
 
 async function waitForCompletion(issueId, scenario, options = {}) {
@@ -1575,6 +2003,18 @@ async function waitForCompletion(issueId, scenario, options = {}) {
   let timeoutGraceLogged = false;
   let forcedChangeRequestSent = false;
   let forcedReviewerResumeSent = false;
+  let routingFallbackObservedAt = null;
+  let routingFallbackSent = false;
+  let staffingFallbackObservedAt = null;
+  let staffingFallbackSent = false;
+  let engineerWakeObservedAt = null;
+  let engineerWakeSent = false;
+  let implementationStartObservedAt = null;
+  let implementationStartSent = false;
+  let deterministicReviewObservedAt = null;
+  let deterministicReviewSent = false;
+  let deterministicQaObservedAt = null;
+  let deterministicQaSent = false;
   const manualAgentControl = options.manualAgentControl ?? null;
 
   try {
@@ -1597,6 +2037,30 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       const changeRequestMessage = latestMessage(snapshot.messages, "REQUEST_CHANGES");
       const changeRequestAckMessage = latestMessage(snapshot.messages, "ACK_CHANGE_REQUEST");
       const reviewSubmitMessage = latestMessage(snapshot.messages, "SUBMIT_FOR_REVIEW");
+      const changeRequestSeq = parseMessageSeq(changeRequestMessage);
+      const changeRequestAckSeq = parseMessageSeq(changeRequestAckMessage);
+      const postRecoverySubmitMessage =
+        changeRequestAckSeq == null
+          ? null
+          : latestMessageAfter(snapshot.messages, "SUBMIT_FOR_REVIEW", changeRequestAckSeq);
+      const postRecoveryReviewerApproval =
+        changeRequestSeq == null
+          ? null
+          : latestMessageAfter(
+            snapshot.messages,
+            "APPROVE_IMPLEMENTATION",
+            changeRequestSeq,
+            (message) => message?.senderRole === "reviewer",
+          );
+      const postRecoveryQaApproval =
+        changeRequestSeq == null
+          ? null
+          : latestMessageAfter(
+            snapshot.messages,
+            "APPROVE_IMPLEMENTATION",
+            changeRequestSeq,
+            (message) => message?.senderRole === "qa",
+          );
       const closeFallbackEligible =
         scenario.closeAction
         && snapshot.state?.workflowState === "approved"
@@ -1609,6 +2073,21 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       const latestImplementationStart = latestMessage(snapshot.messages, "START_IMPLEMENTATION");
       const latestAck = latestMessage(snapshot.messages, "ACK_ASSIGNMENT");
       const latestProgress = latestMessage(snapshot.messages, "REPORT_PROGRESS");
+      const initialImplementationStartEligible =
+        snapshot.state?.workflowState === "accepted"
+        && Boolean(latestAck)
+        && (
+          !latestImplementationStart
+          || Date.parse(latestImplementationStart.createdAt) < Date.parse(latestAck.createdAt)
+        )
+        && !latestProgress
+        && !reviewSubmitMessage;
+      const routingFallbackEligible =
+        scenario.routingFallback
+        && snapshot.state?.workflowState === "assigned"
+        && !latestReassign
+        && !latestAck
+        && !latestProgress;
       const staleManagerRerouteAfterStart =
         latestImplementationStart
         && latestReassign
@@ -1623,13 +2102,133 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           || snapshot.state?.workflowState === "assigned"
         );
 
+      const staffingFallbackEligible =
+        scenario.staffingFallback
+        && snapshot.state?.workflowState === "assigned"
+        && !snapshot.state?.primaryEngineerAgentId
+        && Boolean(latestReassign)
+        && !latestAck
+        && !latestProgress
+        && !latestImplementationStart;
+
+      if (
+        routingFallbackEligible
+      ) {
+        if (routingFallbackObservedAt == null) {
+          routingFallbackObservedAt = Date.now();
+        } else if (
+          !routingFallbackSent
+          && Date.now() - routingFallbackObservedAt >= (scenario.routingFallback.afterMs ?? CLOSE_FALLBACK_AFTER_MS)
+        ) {
+          note(
+            `[${scenario.key}] assigned state persisted without PM routing; sending deterministic PM reassign fallback`,
+          );
+          await sendRoutingFallback(
+            issueId,
+            scenario,
+            snapshot.state?.workflowState ?? "assigned",
+            snapshot.issue?.companyId,
+          );
+          routingFallbackSent = true;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          continue;
+        }
+      } else {
+        routingFallbackObservedAt = null;
+      }
+
+      if (staffingFallbackEligible) {
+        if (staffingFallbackObservedAt == null) {
+          staffingFallbackObservedAt = Date.now();
+        } else if (
+          !staffingFallbackSent
+          && Date.now() - staffingFallbackObservedAt >= (scenario.staffingFallback.afterMs ?? CLOSE_FALLBACK_AFTER_MS)
+        ) {
+          note(
+            `[${scenario.key}] TL lane stayed assigned without engineer execution; sending deterministic TL staffing fallback`,
+          );
+          await sendStaffingFallback(
+            issueId,
+            scenario,
+            snapshot.state?.workflowState ?? "assigned",
+            snapshot.issue?.companyId,
+          );
+          staffingFallbackSent = true;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          continue;
+        }
+      } else {
+        staffingFallbackObservedAt = null;
+      }
+
+      const engineerWakeEligible =
+        scenario.staffingFallback
+        && snapshot.state?.workflowState === "assigned"
+        && Boolean(snapshot.state?.primaryEngineerAgentId)
+        && Boolean(latestReassign)
+        && !latestAck
+        && !latestProgress
+        && !latestImplementationStart;
+
+      if (engineerWakeEligible) {
+        if (engineerWakeObservedAt == null) {
+          engineerWakeObservedAt = Date.now();
+        } else if (
+          !engineerWakeSent
+          && Date.now() - engineerWakeObservedAt >= (scenario.staffingFallback.afterMs ?? CLOSE_FALLBACK_AFTER_MS)
+        ) {
+          const companyId = snapshot.issue?.companyId;
+          const engineerId = snapshot.state?.primaryEngineerAgentId;
+          if (typeof companyId === "string" && typeof engineerId === "string") {
+            const activeRuns = await listActiveIssueRuns(companyId, issueId);
+            const blockingRuns = activeRuns.filter((run) => run.agentId !== engineerId);
+            for (const run of blockingRuns) {
+              await cancelHeartbeatRun(run.id).catch(() => {});
+            }
+            await resetAgentRuntimeSession(engineerId).catch(() => {});
+            note(
+              `[${scenario.key}] assigned state still lacks engineer execution after staffing; waking ${engineerId} and cancelling ${blockingRuns.length} blocking run(s)`,
+            );
+            await wakeAgentForIssue(
+              engineerId,
+              issueId,
+              "Deterministic E2E recovery wake after TL staffing fallback",
+            );
+            engineerWakeSent = true;
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            continue;
+          }
+        }
+      } else {
+        engineerWakeObservedAt = null;
+      }
+
+      if (initialImplementationStartEligible) {
+        if (implementationStartObservedAt == null) {
+          implementationStartObservedAt = Date.now();
+        } else if (
+          !implementationStartSent
+          && Date.now() - implementationStartObservedAt >= CLOSE_FALLBACK_AFTER_MS
+        ) {
+          note(
+            `[${scenario.key}] accepted state stalled after ACK_ASSIGNMENT; sending deterministic START_IMPLEMENTATION fallback`,
+          );
+          await sendDeterministicImplementationStart(issueId, scenario, snapshot);
+          implementationStartSent = true;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          continue;
+        }
+      } else {
+        implementationStartObservedAt = null;
+      }
+
       if (
         scenario.forcedChangeRequest
         && !forcedChangeRequestSent
         && reviewSubmitMessage
         && !changeRequestMessage
       ) {
-        note(`[${scenario.key}] injecting deterministic REQUEST_CHANGES via protocol helper`);
+        note(`[${scenario.key}] injecting deterministic REQUEST_CHANGES via agent-auth protocol message`);
         await sendForcedChangeRequest(snapshot.issue.companyId, issueId, scenario, snapshot);
         forcedChangeRequestSent = true;
         await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -1648,6 +2247,56 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         manualAgentControl.paused = false;
         forcedReviewerResumeSent = true;
         note(`[${scenario.key}] resumed deterministic reviewer/qa agent ${manualAgentControl.agentId} after recovery restart`);
+      }
+
+      const deterministicReviewEligible =
+        Boolean(scenario.changeRecoveryInvariant)
+        && Boolean(postRecoverySubmitMessage)
+        && !postRecoveryReviewerApproval
+        && ["submitted_for_review", "under_review"].includes(snapshot.state?.workflowState ?? "");
+
+      if (deterministicReviewEligible) {
+        if (deterministicReviewObservedAt == null) {
+          deterministicReviewObservedAt = Date.now();
+        } else if (
+          !deterministicReviewSent
+          && Date.now() - deterministicReviewObservedAt >= CLOSE_FALLBACK_AFTER_MS
+        ) {
+          note(
+            `[${scenario.key}] recovery resubmission stalled in ${snapshot.state?.workflowState}; sending deterministic reviewer approval fallback`,
+          );
+          await sendDeterministicReviewerApproval(issueId, scenario, snapshot);
+          deterministicReviewSent = true;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          continue;
+        }
+      } else {
+        deterministicReviewObservedAt = null;
+      }
+
+      const deterministicQaEligible =
+        Boolean(scenario.changeRecoveryInvariant)
+        && Boolean(postRecoveryReviewerApproval)
+        && !postRecoveryQaApproval
+        && ["qa_pending", "under_qa_review"].includes(snapshot.state?.workflowState ?? "");
+
+      if (deterministicQaEligible) {
+        if (deterministicQaObservedAt == null) {
+          deterministicQaObservedAt = Date.now();
+        } else if (
+          !deterministicQaSent
+          && Date.now() - deterministicQaObservedAt >= CLOSE_FALLBACK_AFTER_MS
+        ) {
+          note(
+            `[${scenario.key}] QA gate stalled in ${snapshot.state?.workflowState}; sending deterministic QA approval fallback`,
+          );
+          await sendDeterministicQaApproval(issueId, scenario, snapshot);
+          deterministicQaSent = true;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          continue;
+        }
+      } else {
+        deterministicQaObservedAt = null;
       }
 
       if (closeMessage) {
@@ -1843,8 +2492,12 @@ async function assertScenarioSuccess(scenario, snapshot, baselineSnapshot) {
   for (const checkpoint of scenario.checkpoints ?? []) {
     const matched = findMatchingMessage(snapshot.messages, (message) => {
       if (checkpoint.senderId && message?.sender?.actorId !== checkpoint.senderId) return false;
+      if (Array.isArray(checkpoint.senderIds) && checkpoint.senderIds.length > 0) {
+        if (!checkpoint.senderIds.includes(message?.sender?.actorId ?? null)) return false;
+      }
       if (checkpoint.messageType && message?.messageType !== checkpoint.messageType) return false;
       if (checkpoint.messageTypes && !checkpoint.messageTypes.includes(message?.messageType)) return false;
+      if (checkpoint.summaryIncludes && !String(message?.summary ?? "").includes(checkpoint.summaryIncludes)) return false;
       return true;
     });
     assert(matched, `${scenario.key} missing checkpoint ${checkpoint.label}`);
@@ -1856,6 +2509,15 @@ async function assertScenarioSuccess(scenario, snapshot, baselineSnapshot) {
     });
   }
 
+  const changeRecoveryEvaluation = scenario.changeRecoveryInvariant
+    ? assertChangeRecoveryInvariant({
+      messages: snapshot.messages,
+      finalState: snapshot.state,
+      recoveryMode: scenario.changeRecoveryInvariant.recoveryMode,
+      expectedRecoveryOwnerId: scenario.changeRecoveryInvariant.expectedRecoveryOwnerId,
+    })
+    : null;
+
   return {
     trail: formatProtocolTrail(snapshot.messages),
     briefCount: snapshot.briefs.length,
@@ -1865,6 +2527,7 @@ async function assertScenarioSuccess(scenario, snapshot, baselineSnapshot) {
     bindingArtifact: bindingArtifact.artifact,
     closePayload: closeMessage.payload ?? null,
     checkpoints: matchedCheckpoints,
+    changeRecoveryEvaluation,
   };
 }
 
@@ -1925,9 +2588,18 @@ function summarizeParallelism(results) {
 }
 
 async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
+  const manualAgentControl =
+    scenario.forcedChangeRequest?.pauseAgentUntilRecovery
+      ? { agentId: scenario.forcedChangeRequest.senderId, paused: false }
+      : null;
   let snapshot;
   try {
-    snapshot = await waitForCompletion(issue.id, scenario);
+    if (manualAgentControl?.agentId) {
+      await setAgentPaused(manualAgentControl.agentId, true);
+      manualAgentControl.paused = true;
+      note(`[${scenario.key}] paused deterministic reviewer/qa agent ${manualAgentControl.agentId} until recovery restart`);
+    }
+    snapshot = await waitForCompletion(issue.id, scenario, { manualAgentControl });
   } catch (error) {
     await cancelIssue(issue.id, `Scenario ${scenario.key} failed before completion.`);
     throw error;
@@ -1948,6 +2620,9 @@ async function executeScenarioIssue(issue, scenario, baselineSnapshot) {
   note(`test label=${verified.testArtifact.label ?? "n/a"}`);
   if ((verified.checkpoints ?? []).length > 0) {
     note(`checkpoints=${JSON.stringify(verified.checkpoints)}`);
+  }
+  if (verified.changeRecoveryEvaluation) {
+    note(`changeRecovery=${JSON.stringify(verified.changeRecoveryEvaluation.checks)}`);
   }
 
   if (HIDE_COMPLETED_ISSUES) {

@@ -666,6 +666,101 @@ describe("squadrail protocol helper CLI", () => {
     }
   });
 
+  it("normalizes protocol_validation_error blocker aliases for live agent escalations", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "implementing", currentReviewCycle: 0 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "engineer", title: "Tech Lead" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "escalate-blocker",
+          "--issue",
+          "issue-123",
+          "--blocker-code",
+          "protocol_validation_error",
+          "--blocking-reason",
+          "Protocol helper rejected the analysis-to-isolated workspace handoff payload.",
+          "--requested-action",
+          "Normalize the helper payload so implementation can resume.",
+          "--requested-from",
+          "tech_lead",
+          "--recipient-id",
+          "lead-456",
+          "--summary",
+          "Escalate protocol helper handoff blocker.",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toMatchObject({
+        messageType: "ESCALATE_BLOCKER",
+        payload: {
+          blockerCode: "environment_failure",
+          requestedFrom: "tech_lead",
+        },
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("answers pending board clarifications through the helper command without agent auth", async () => {
     const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
     const server = http.createServer((req, res) => {
@@ -884,6 +979,92 @@ describe("squadrail protocol helper CLI", () => {
           role: "engineer",
         },
       ]);
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("normalizes isolated workspace handoff start-implementation aliases", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "accepted", currentReviewCycle: 0 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "engineer", title: "Engineer" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "start-implementation",
+          "--issue",
+          "issue-123",
+          "--summary",
+          "Resume implementation through isolated workspace handoff",
+          "--implementation-mode",
+          "isolated_workspace_handoff",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toMatchObject({
+        messageType: "START_IMPLEMENTATION",
+        payload: {
+          implementationMode: "direct",
+        },
+      });
     } finally {
       await closeTestServer(server);
     }

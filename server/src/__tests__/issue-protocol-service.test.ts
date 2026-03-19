@@ -1017,6 +1017,126 @@ describe("issue protocol service", () => {
     });
   });
 
+  it("keeps the direct TL owner when ACK_CHANGE_REQUEST resumes changes_requested work", async () => {
+    const issue = {
+      id: "issue-direct-recovery",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "lead-1",
+      status: "in_review",
+    };
+    const currentState = {
+      issueId: "issue-direct-recovery",
+      companyId: "company-1",
+      workflowState: "changes_requested",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "lead-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: null,
+      currentReviewCycle: 1,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-direct-recovery",
+      issueId: "issue-direct-recovery",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-direct-recovery-1",
+      issueId: "issue-direct-recovery",
+      threadId: "thread-direct-recovery",
+      seq: 9,
+      integritySignature: null,
+    };
+    const createdMessage = {
+      id: "message-direct-recovery-2",
+      issueId: "issue-direct-recovery",
+      threadId: "thread-direct-recovery",
+      seq: 10,
+      messageType: "ACK_CHANGE_REQUEST",
+      senderActorType: "agent",
+      senderActorId: "lead-1",
+      senderRole: "engineer",
+      workflowStateBefore: "changes_requested",
+      workflowStateAfter: "implementing",
+      summary: "Direct owner acknowledges requested changes",
+      payload: {
+        changeRequestIds: ["req-1"],
+        plannedFixOrder: ["refresh evidence", "resubmit focused review"],
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-direct-recovery",
+    };
+    const { db, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [thread],
+        [lastMessage],
+      ],
+      insertResults: [[createdMessage], [], []],
+      updateResults: [[sealedMessage], [], []],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-direct-recovery",
+      authorAgentId: "lead-1",
+      message: {
+        messageType: "ACK_CHANGE_REQUEST",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "rev-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "changes_requested",
+        workflowStateAfter: "implementing",
+        summary: "Direct owner acknowledges requested changes",
+        payload: {
+          changeRequestIds: ["req-1"],
+          plannedFixOrder: ["refresh evidence", "resubmit focused review"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.state).toMatchObject({
+      workflowState: "implementing",
+      coarseIssueStatus: "in_progress",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "lead-1",
+      reviewerAgentId: "rev-1",
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        workflowState: "implementing",
+        primaryEngineerAgentId: "lead-1",
+      }),
+    });
+  });
+
   it("rejects reassignment back to the tech lead after implementation has started", async () => {
     const issue = {
       id: "issue-reassign-to-lead",
@@ -1283,6 +1403,7 @@ describe("issue protocol service", () => {
         [lastMessage],
         [],
         [submittedMessage],
+        [],
       ],
       insertResults: [[createdMessage]],
       updateResults: [[sealedMessage]],
@@ -1438,6 +1559,7 @@ describe("issue protocol service", () => {
         [lastMessage],
         [],
         [submittedMessage],
+        [],
       ],
       insertResults: [[createdMessage]],
       updateResults: [[sealedMessage]],
@@ -1492,6 +1614,136 @@ describe("issue protocol service", () => {
       value: expect.objectContaining({
         workflowState: "under_review",
         currentReviewCycle: 1,
+      }),
+    });
+  });
+
+  it("opens a fresh QA gate review cycle from qa_pending and increments the cycle when payload omits reviewCycle", async () => {
+    const issue = {
+      id: "issue-qa-gate-review",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+    };
+    const currentState = {
+      issueId: "issue-qa-gate-review",
+      companyId: "company-1",
+      workflowState: "qa_pending",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: "qa-1",
+      currentReviewCycle: 2,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-qa-gate-review",
+      issueId: "issue-qa-gate-review",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-qa-gate-review-9",
+      issueId: "issue-qa-gate-review",
+      threadId: "thread-qa-gate-review",
+      seq: 9,
+      integritySignature: null,
+    };
+    const submittedMessage = {
+      id: "submit-qa-gate-review-2",
+      issueId: "issue-qa-gate-review",
+      threadId: "thread-qa-gate-review",
+      seq: 8,
+      messageType: "SUBMIT_FOR_REVIEW",
+    };
+    const createdMessage = {
+      id: "message-qa-gate-review-10",
+      issueId: "issue-qa-gate-review",
+      threadId: "thread-qa-gate-review",
+      seq: 10,
+      messageType: "START_REVIEW",
+      senderActorType: "agent",
+      senderActorId: "qa-1",
+      senderRole: "qa",
+      workflowStateBefore: "qa_pending",
+      workflowStateAfter: "under_qa_review",
+      summary: "QA starts gate review",
+      payload: {
+        reviewFocus: ["Verify resubmitted recovery evidence"],
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-qa-gate-review",
+    };
+    const { db, insertValues, updateValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [],
+        [submittedMessage],
+        [],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    const appended = await service.appendMessage({
+      issueId: "issue-qa-gate-review",
+      authorAgentId: "qa-1",
+      message: {
+        messageType: "START_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "qa-1",
+          role: "qa",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "qa-1",
+            role: "qa",
+          },
+        ],
+        workflowStateBefore: "qa_pending",
+        workflowStateAfter: "under_qa_review",
+        summary: "QA starts gate review",
+        payload: {
+          reviewFocus: ["Verify resubmitted recovery evidence"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(appended.state).toMatchObject({
+      workflowState: "under_qa_review",
+      coarseIssueStatus: "in_review",
+      currentReviewCycle: 3,
+    });
+    expect(insertValues).toContainEqual({
+      table: issueReviewCycles,
+      value: expect.objectContaining({
+        issueId: "issue-qa-gate-review",
+        cycleNumber: 3,
+        reviewerAgentId: "qa-1",
+        submittedMessageId: "submit-qa-gate-review-2",
+      }),
+    });
+    expect(updateValues).toContainEqual({
+      table: issueProtocolState,
+      value: expect.objectContaining({
+        workflowState: "under_qa_review",
+        currentReviewCycle: 3,
       }),
     });
   });
@@ -1711,6 +1963,110 @@ describe("issue protocol service", () => {
         payload: { reviewCycle: 3 },
       },
     })).rejects.toThrow("An active review cycle already exists");
+  });
+
+  it("rejects START_REVIEW when the requested review cycle number already exists", async () => {
+    const issue = {
+      id: "issue-review-duplicate-cycle",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-1",
+    };
+    const currentState = {
+      issueId: "issue-review-duplicate-cycle",
+      companyId: "company-1",
+      workflowState: "qa_pending",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-1",
+      primaryEngineerAgentId: "eng-1",
+      reviewerAgentId: "rev-1",
+      qaAgentId: "qa-1",
+      currentReviewCycle: 2,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-review-duplicate-cycle",
+      issueId: "issue-review-duplicate-cycle",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-review-duplicate-cycle-9",
+      issueId: "issue-review-duplicate-cycle",
+      threadId: "thread-review-duplicate-cycle",
+      seq: 9,
+      integritySignature: null,
+    };
+    const submittedMessage = {
+      id: "submit-review-duplicate-cycle-2",
+      issueId: "issue-review-duplicate-cycle",
+      threadId: "thread-review-duplicate-cycle",
+      seq: 8,
+      messageType: "SUBMIT_FOR_REVIEW",
+    };
+    const createdMessage = {
+      id: "message-review-duplicate-cycle-10",
+      issueId: "issue-review-duplicate-cycle",
+      threadId: "thread-review-duplicate-cycle",
+      seq: 10,
+      messageType: "START_REVIEW",
+      senderActorType: "agent",
+      senderActorId: "qa-1",
+      senderRole: "qa",
+      workflowStateBefore: "qa_pending",
+      workflowStateAfter: "under_qa_review",
+      summary: "Retry QA start with duplicate cycle",
+      payload: { reviewCycle: 2 },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-review-duplicate-cycle",
+    };
+    const { db } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+        [],
+        [submittedMessage],
+        [{ id: "cycle-2", issueId: "issue-review-duplicate-cycle", cycleNumber: 2 }],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await expect(service.appendMessage({
+      issueId: "issue-review-duplicate-cycle",
+      authorAgentId: "qa-1",
+      message: {
+        messageType: "START_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "qa-1",
+          role: "qa",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "qa-1",
+            role: "qa",
+          },
+        ],
+        workflowStateBefore: "qa_pending",
+        workflowStateAfter: "under_qa_review",
+        summary: "Retry QA start with duplicate cycle",
+        payload: { reviewCycle: 2 },
+        artifacts: [],
+      },
+    })).rejects.toThrow("Review cycle 2 already exists");
   });
 
   it("rejects START_REVIEW when review has not been submitted yet", async () => {

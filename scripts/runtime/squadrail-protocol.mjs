@@ -248,8 +248,20 @@ const COMMAND_HELP = {
 };
 
 function normalizeImplementationMode(value) {
-  if (value === "guided" || value === "code_change" || value === "isolated_workspace") {
+  if (
+    value === "guided"
+    || value === "code_change"
+    || value === "isolated_workspace"
+    || value === "isolated_workspace_handoff"
+  ) {
     return "direct";
+  }
+  return value;
+}
+
+function normalizeBlockerCode(value) {
+  if (value === "protocol_validation_error") {
+    return "environment_failure";
   }
   return value;
 }
@@ -987,7 +999,8 @@ async function escalateBlockerCommand(options) {
     ["blocker-code", "blockerCode"],
     payloadPatch.blockerCode ?? null,
   );
-  if (!blockerCode) fail("Missing required option: --blocker-code");
+  const normalizedBlockerCode = normalizeBlockerCode(blockerCode);
+  if (!normalizedBlockerCode) fail("Missing required option: --blocker-code");
   const blockingReason = readAliasedOption(
     options,
     ["blocking-reason", "blockingReason"],
@@ -1033,7 +1046,7 @@ async function escalateBlockerCommand(options) {
     summary,
     requiresAck: false,
     payload: {
-      blockerCode,
+      blockerCode: normalizedBlockerCode,
       blockingReason,
       requestedAction,
       requestedFrom,

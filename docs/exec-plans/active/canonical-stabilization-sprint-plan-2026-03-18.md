@@ -73,7 +73,9 @@ mainfont: "Noto Sans"
   - 시나리오 1: canonical full delivery (`full-delivery.mjs`, `full-delivery-invariants.mjs`)
   - 시나리오 2: clarification loop (`cloud-swiftsight-domain-aware-pm-eval.mjs`,
     `clarification-loop-invariants.mjs`, `cloud-swiftsight-autonomy-org.mjs`)
-- 현재 다음 타깃은 시나리오 3 `changes_requested recovery`다.
+  - 시나리오 3: changes requested recovery (`cloud-swiftsight-real-org.mjs`,
+    `change-recovery-invariants.mjs`)
+- 현재 다음 타깃은 시나리오 4 `QA gate`다.
 
 # 선행 조건: Security Baseline
 

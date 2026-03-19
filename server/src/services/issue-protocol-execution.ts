@@ -351,6 +351,21 @@ export function buildProtocolExecutionDispatchPlan(input: {
       && input.message.messageType === "START_IMPLEMENTATION"
       && Boolean(input.senderAgentId)
       && recipient.recipientId === input.senderAgentId;
+    // Change-request recovery must always land in a fresh followup run. If it
+    // coalesces into the active implementation run, the prior SUBMIT_FOR_REVIEW
+    // can incorrectly satisfy the protocol progress requirement without an
+    // explicit ACK_CHANGE_REQUEST recovery cycle.
+    const engineerChangeRequestRecovery =
+      recipient.recipientType === "agent"
+      && recipient.role === "engineer"
+      && input.message.messageType === "REQUEST_CHANGES";
+    const leadChangeRequestWatchOnly =
+      recipient.recipientType === "agent"
+      && recipient.role === "tech_lead"
+      && input.message.messageType === "REQUEST_CHANGES"
+      && input.message.recipients.some(
+        (candidate) => candidate.recipientType === "agent" && candidate.role === "engineer",
+      );
     const reviewerWatchActive =
       recipient.recipientType === "agent" &&
       recipient.role === "reviewer" &&
@@ -373,7 +388,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       protocolPayload,
       wakeHints: {
         ...wakeHints,
-        ...(engineerSelfStart ? { workspaceUsageOverride: "implementation" } : {}),
+        ...(engineerSelfStart || engineerChangeRequestRecovery ? { workspaceUsageOverride: "implementation" } : {}),
         ...(recipient.role === "qa" ? { readOnlyWorkspace: true } : {}),
       },
       source,
@@ -382,7 +397,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       recipientHint,
       issueContext: input.issueContext,
       dispatchMode: reviewerWatchActive ? "reviewer_watch" : "default",
-      forceFollowupRun: engineerSelfStart,
+      forceFollowupRun: engineerSelfStart || engineerChangeRequestRecovery,
     });
 
     if (recipient.recipientType !== "agent") {
@@ -390,6 +405,10 @@ export function buildProtocolExecutionDispatchPlan(input: {
     }
 
     if (leadImplementationWatchOnly) {
+      return { kind: "notify_only", ...base };
+    }
+
+    if (leadChangeRequestWatchOnly) {
       return { kind: "notify_only", ...base };
     }
 
