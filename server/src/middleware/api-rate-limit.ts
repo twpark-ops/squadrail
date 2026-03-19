@@ -20,6 +20,27 @@ function resolveClientKey(req: Parameters<RequestHandler>[0]) {
   return req.ip || req.socket.remoteAddress || "anonymous";
 }
 
+function isLoopbackAddress(value: string | undefined) {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase().replace(/^::ffff:/, "");
+  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
+}
+
+function shouldBypassRateLimit(req: Parameters<RequestHandler>[0]) {
+  const requestedBypass =
+    (typeof req.header === "function"
+      ? req.header("x-squadrail-e2e-bypass-rate-limit")
+      : typeof (req as { get?: (name: string) => string | undefined }).get === "function"
+        ? (req as { get: (name: string) => string | undefined }).get("x-squadrail-e2e-bypass-rate-limit")
+        : undefined) === "true";
+  if (!requestedBypass) return false;
+
+  const isLocalImplicitBoard = req.actor.type === "board" && req.actor.source === "local_implicit";
+  if (!isLocalImplicitBoard) return false;
+
+  return isLoopbackAddress(req.ip) || isLoopbackAddress(req.socket?.remoteAddress);
+}
+
 export function apiRateLimit(opts?: {
   windowMs?: number;
   maxReadRequests?: number;
@@ -38,6 +59,10 @@ export function apiRateLimit(opts?: {
 
   return (req, res, next) => {
     if (req.path === "/health" || req.path.startsWith("/health/")) {
+      next();
+      return;
+    }
+    if (shouldBypassRateLimit(req)) {
       next();
       return;
     }

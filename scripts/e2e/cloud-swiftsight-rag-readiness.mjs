@@ -55,6 +55,7 @@ async function api(pathname, options = {}) {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
+      "x-squadrail-e2e-bypass-rate-limit": "true",
       ...(options.headers ?? {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -81,6 +82,7 @@ async function runNodeScript(scriptPath, extraEnv = {}) {
     env: {
       ...process.env,
       SQUADRAIL_BASE_URL: BASE_URL,
+      SQUADRAIL_E2E_BYPASS_RATE_LIMIT: "1",
       ...extraEnv,
     },
     maxBuffer: 16 * 1024 * 1024,
@@ -311,6 +313,12 @@ async function main() {
     followInspect.reviewQuality.reviewHitCount > 0 || followInspect.reviewQuality.codeHitCount > 0,
     "Follow-up reviewer brief still lacks concrete review/code evidence",
   );
+  assert(
+    followInspect.reviewQuality.topHitSourceType === "code"
+      || followInspect.reviewQuality.topHitSourceType === "test_report"
+      || followInspect.reviewQuality.topHitSourceType === "review",
+    `Follow-up reviewer brief top hit is still not direct evidence: ${followInspect.reviewQuality.topHitSourceType}/${followInspect.reviewQuality.topHitArtifactKind}`,
+  );
   assert(followInspect.reviewQuality.exactPathSatisfied, "Follow-up reviewer brief did not satisfy exact path evidence");
   assert(
     !followInspect.reviewQuality.hitSourceTypes.every((sourceType) => sourceType === "issue"),
@@ -341,6 +349,12 @@ async function main() {
   note(`replay review quality=${JSON.stringify(replayInspect.reviewQuality)}`);
 
   assert(replayInspect.reviewQuality.exactPathSatisfied, "Replay reviewer brief lost exact path evidence");
+  assert(
+    replayInspect.reviewQuality.topHitSourceType === "code"
+      || replayInspect.reviewQuality.topHitSourceType === "test_report"
+      || replayInspect.reviewQuality.topHitSourceType === "review",
+    `Replay reviewer brief top hit is still not direct evidence: ${replayInspect.reviewQuality.topHitSourceType}/${replayInspect.reviewQuality.topHitArtifactKind}`,
+  );
 
   const quality = await fetchKnowledgeQuality(company.id);
   const projectQuality = await fetchProjectKnowledgeQuality(company.id, targetProject.projectId);

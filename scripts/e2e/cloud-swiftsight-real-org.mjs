@@ -87,6 +87,9 @@ async function api(pathname, options = {}) {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
+      ...(process.env.SQUADRAIL_E2E_BYPASS_RATE_LIMIT === "1"
+        ? { "x-squadrail-e2e-bypass-rate-limit": "true" }
+        : {}),
       ...(options.headers ?? {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -107,6 +110,14 @@ async function api(pathname, options = {}) {
   }
 
   return body;
+}
+
+function parseRetryAfterSecondsFromError(text) {
+  if (typeof text !== "string") return null;
+  const match = text.match(/"retryAfterSeconds":\s*(\d+)/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1] ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function gitStatus(root) {
@@ -1571,8 +1582,25 @@ async function startReviewAsAgent(issueId, agentId, body, label) {
 }
 
 async function cancelIssue(issueId, reason, summary = "Cancel failed E2E scenario") {
-  const state = await api(`/api/issues/${issueId}/protocol/state`);
-  const workflowStateBefore = state?.workflowState ?? "assigned";
+  let workflowStateBefore = "assigned";
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const state = await api(`/api/issues/${issueId}/protocol/state`);
+      workflowStateBefore = state?.workflowState ?? "assigned";
+      break;
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (!text.includes("429")) {
+        note(`cancelIssue state lookup skipped for ${issueId}: ${text}`);
+        break;
+      }
+      const retryAfterSeconds = parseRetryAfterSecondsFromError(text);
+      const waitMs = Math.min(5_000, Math.max(1_000, (retryAfterSeconds ?? 1) * 1_000));
+      note(`cancelIssue state lookup rate-limited for ${issueId}; waiting ${waitMs}ms (attempt ${attempt})`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+
   try {
     return await api(`/api/issues/${issueId}/protocol/messages`, {
       method: "POST",
@@ -1603,15 +1631,28 @@ async function cancelIssue(issueId, reason, summary = "Cancel failed E2E scenari
     });
   } catch (error) {
     const text = error instanceof Error ? error.message : String(error);
+    if (text.includes("429")) {
+      note(`cancelIssue skipped for ${issueId} after rate limit: ${text}`);
+      return null;
+    }
     if (!text.includes("Protocol state is not initialized")) {
       throw error;
     }
-    return api(`/api/issues/${issueId}`, {
-      method: "PATCH",
-      body: {
-        status: "cancelled",
-      },
-    });
+    try {
+      return await api(`/api/issues/${issueId}`, {
+        method: "PATCH",
+        body: {
+          status: "cancelled",
+        },
+      });
+    } catch (fallbackError) {
+      const fallbackText = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      if (fallbackText.includes("429")) {
+        note(`cancelIssue fallback skipped for ${issueId} after rate limit: ${fallbackText}`);
+        return null;
+      }
+      throw fallbackError;
+    }
   }
 }
 

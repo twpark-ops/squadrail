@@ -123,9 +123,13 @@ describe("rag-readiness-utils", () => {
       organizationalMemoryHitCount: 0,
       codeHitCount: 0,
       reviewHitCount: 0,
+      executableEvidenceHitCount: 0,
       degradedReasons: ["narrow_source_diversity"],
       hitPaths: ["internal/observability/tracing.go"],
       hitSourceTypes: [],
+      topHitPath: "internal/observability/tracing.go",
+      topHitSourceType: null,
+      topHitArtifactKind: null,
     });
   });
 

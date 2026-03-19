@@ -54,12 +54,15 @@ export function summarizeBriefQuality(brief) {
   const content = asRecord(brief?.contentJson);
   const quality = asRecord(content.quality);
   const hits = Array.isArray(content.hits) ? content.hits : [];
+  const firstHit = asRecord(hits[0]);
   const hitPaths = hits
     .map((hit) => (typeof hit?.path === "string" ? hit.path : null))
     .filter((value) => value != null);
   const hitSourceTypes = hits
     .map((hit) => (typeof hit?.sourceType === "string" ? hit.sourceType : null))
     .filter((value) => value != null);
+  const executableEvidenceHitCount = hitSourceTypes.filter((sourceType) =>
+    sourceType === "code" || sourceType === "test_report").length;
   const degradedReasons = Array.isArray(quality.degradedReasons)
     ? quality.degradedReasons.filter((value) => typeof value === "string")
     : [];
@@ -87,9 +90,19 @@ export function summarizeBriefQuality(brief) {
       typeof quality.organizationalMemoryHitCount === "number" ? quality.organizationalMemoryHitCount : 0,
     codeHitCount: typeof quality.codeHitCount === "number" ? quality.codeHitCount : 0,
     reviewHitCount: typeof quality.reviewHitCount === "number" ? quality.reviewHitCount : 0,
+    executableEvidenceHitCount,
     degradedReasons,
     hitPaths,
     hitSourceTypes,
+    topHitPath: typeof firstHit.path === "string" ? firstHit.path : null,
+    topHitSourceType: typeof firstHit.sourceType === "string" ? firstHit.sourceType : null,
+    topHitArtifactKind:
+      typeof firstHit.documentMetadata === "object"
+        && firstHit.documentMetadata !== null
+        && !Array.isArray(firstHit.documentMetadata)
+        && typeof firstHit.documentMetadata.artifactKind === "string"
+        ? firstHit.documentMetadata.artifactKind
+        : null,
   };
 }
 

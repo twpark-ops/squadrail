@@ -8,6 +8,7 @@ import {
   applyEvidenceDiversityGuard,
   applyOrganizationalBridgeGuard,
   applyGraphConnectivityGuard,
+  applyTopHitConcreteEvidenceGuard,
   buildFeedbackPathLabel,
 } from "../services/retrieval-evidence-guards.js";
 
@@ -325,6 +326,68 @@ describe("applyGraphConnectivityGuard", () => {
 
     const result = applyGraphConnectivityGuard({ hits, finalK: 2, signals });
     // No change — multi-hop already in window
+    expect(result).toBe(hits);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  applyTopHitConcreteEvidenceGuard                                  */
+/* ------------------------------------------------------------------ */
+
+describe("applyTopHitConcreteEvidenceGuard", () => {
+  it("moves exact-path executable evidence ahead of an issue snapshot top hit", () => {
+    const hits = [
+      buildHit({
+        chunkId: "issue-top",
+        sourceType: "issue",
+        fusedScore: 10,
+        documentMetadata: { artifactKind: "issue_snapshot", changedPaths: ["src/worker.ts"] },
+      }),
+      buildHit({
+        chunkId: "code-direct",
+        sourceType: "code",
+        path: "src/worker.ts",
+        fusedScore: 8,
+      }),
+      buildHit({
+        chunkId: "review",
+        sourceType: "review",
+        fusedScore: 7,
+        documentMetadata: { artifactKind: "review_event", changedPaths: ["src/worker.ts"] },
+      }),
+    ];
+    const signals = buildSignals({
+      exactPaths: ["src/worker.ts"],
+      fileNames: ["worker.ts"],
+    });
+
+    const result = applyTopHitConcreteEvidenceGuard({ hits, finalK: 3, signals });
+    expect(result[0]?.chunkId).toBe("code-direct");
+    expect(result[0]?.diversityMetadata?.promotedReason).toBe("top_hit_executable_evidence");
+    expect(result[0]?.diversityMetadata?.replacedSourceType).toBe("issue");
+  });
+
+  it("does not reorder hits when implementation signals are absent", () => {
+    const hits = [
+      buildHit({
+        chunkId: "issue-top",
+        sourceType: "issue",
+        fusedScore: 10,
+        documentMetadata: { artifactKind: "issue_snapshot" },
+      }),
+      buildHit({
+        chunkId: "code-direct",
+        sourceType: "code",
+        path: "src/worker.ts",
+        fusedScore: 8,
+      }),
+    ];
+
+    const result = applyTopHitConcreteEvidenceGuard({
+      hits,
+      finalK: 2,
+      signals: buildSignals(),
+    });
     expect(result).toBe(hits);
   });
 });

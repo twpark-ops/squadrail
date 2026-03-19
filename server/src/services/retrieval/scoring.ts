@@ -314,8 +314,15 @@ export function computeCurrentIssueArtifactPenalty(input: {
   if (input.pathBoost.kind === "direct" || input.symbolBoost > 0) return 0;
 
   switch (classifyOrganizationalArtifact(input.hit)) {
-    case "issue":
-      return -1.8;
+    case "issue": {
+      const denseScore = clampScore(input.hit.denseScore);
+      const sparseScore = clampScore(input.hit.sparseScore);
+      const semanticRelief =
+        input.pathBoost.kind === "none" && denseScore >= 0.75 && (denseScore + sparseScore) >= 1.4
+          ? 0.95
+          : 0;
+      return -1.8 + semanticRelief;
+    }
     case "protocol":
       return -1.35;
     case "review":

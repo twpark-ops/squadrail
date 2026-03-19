@@ -26,3 +26,10 @@
 - engineer/reviewer retrieval run의 top hits에 code/review/test evidence가 실제로 올라온다.
 - `multiHopGraphHitCount` 또는 `graphSeedCount`가 direct signal seed를 반영한다.
 - stale `issue_snapshot`은 metadata path만으로 direct code hit를 이기지 못한다.
+
+## 진행 상태
+
+- 2026-03-19 Batch 1:
+  - `issue_snapshot`가 top hit를 먹는 마지막 케이스를 selected-window guard로 보정
+  - RAG readiness가 `topHitSourceType/topHitArtifactKind`를 직접 검증하도록 강화
+  - direct evidence 우선 규칙을 focused test와 readiness E2E 기준에 반영

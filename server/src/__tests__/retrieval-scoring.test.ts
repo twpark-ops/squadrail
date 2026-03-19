@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RetrievalHitView, RetrievalSignals } from "../services/issue-retrieval.js";
 import {
   buildHitRationale,
+  computeCurrentIssueArtifactPenalty,
   computeSummaryMetadataBoost,
   type RetrievalRerankWeights,
 } from "../services/retrieval/scoring.js";
@@ -153,5 +154,50 @@ describe("retrieval scoring", () => {
     });
 
     expect(rationale).toContain("summary_metadata_match");
+  });
+
+  it("reduces current-issue self-echo penalty for strong semantic issue snapshots without metadata path echoes", () => {
+    const penalty = computeCurrentIssueArtifactPenalty({
+      hit: makeHit({
+        sourceType: "issue",
+        documentIssueId: "issue-1",
+        denseScore: 0.92,
+        sparseScore: 0.88,
+        documentMetadata: {
+          artifactKind: "issue_snapshot",
+        },
+      }),
+      issueId: "issue-1",
+      pathBoost: {
+        score: 0,
+        kind: "none",
+      },
+      symbolBoost: 0,
+    });
+
+    expect(penalty).toBeCloseTo(-0.85, 6);
+  });
+
+  it("keeps the full current-issue penalty when the issue snapshot only matches metadata paths", () => {
+    const penalty = computeCurrentIssueArtifactPenalty({
+      hit: makeHit({
+        sourceType: "issue",
+        documentIssueId: "issue-1",
+        denseScore: 0.96,
+        sparseScore: 0.92,
+        documentMetadata: {
+          artifactKind: "issue_snapshot",
+          changedPaths: ["internal/storage/path.go"],
+        },
+      }),
+      issueId: "issue-1",
+      pathBoost: {
+        score: 1.75,
+        kind: "metadata_exact",
+      },
+      symbolBoost: 0,
+    });
+
+    expect(penalty).toBe(-1.8);
   });
 });

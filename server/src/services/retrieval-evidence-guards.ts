@@ -30,6 +30,27 @@ export function isExecutableEvidenceSourceType(sourceType: string) {
   return sourceType === "code" || sourceType === "test_report";
 }
 
+function matchesDirectSymbolHint(hit: RetrievalHitView, signals: RetrievalSignals) {
+  if (!hit.symbolName || signals.symbolHints.length === 0) return false;
+  const normalizedSymbol = hit.symbolName.toLowerCase();
+  return signals.symbolHints.some((hint) => {
+    const normalizedHint = hint.toLowerCase();
+    return normalizedHint === normalizedSymbol
+      || normalizedSymbol.includes(normalizedHint)
+      || normalizedHint.includes(normalizedSymbol);
+  });
+}
+
+function isTopHitPromotionCandidate(hit: RetrievalHitView, signals: RetrievalSignals) {
+  if (isExecutableEvidenceSourceType(hit.sourceType)) {
+    if (matchesDirectExactPath(hit, signals) || matchesDirectSymbolHint(hit, signals)) {
+      return "top_hit_executable_evidence" as const;
+    }
+  }
+
+  return null;
+}
+
 function deriveOrganizationalMemorySaturationPath(hit: RetrievalHitView) {
   const changedPaths = metadataStringArray(hit.documentMetadata, ["changedPaths"]).map(normalizeHintPath);
   const primaryChangedPath = changedPaths[0] ?? null;
@@ -164,6 +185,55 @@ export function applyEvidenceDiversityGuard(input: {
   });
 
   return [...adjustedSelected, ...remainingHits.slice(input.finalK)];
+}
+
+export function applyTopHitConcreteEvidenceGuard(input: {
+  hits: RetrievalHitView[];
+  finalK: number;
+  signals: RetrievalSignals;
+}) {
+  if (input.finalK <= 0 || input.hits.length === 0) return input.hits;
+  if (input.signals.exactPaths.length === 0 && input.signals.symbolHints.length === 0) return input.hits;
+
+  const selected = input.hits.slice(0, input.finalK);
+  const topHit = selected[0];
+  if (!topHit || classifyOrganizationalArtifact(topHit) !== "issue") return input.hits;
+
+  const candidate = selected
+    .slice(1)
+    .map((hit) => ({
+      hit,
+      promotedReason: isTopHitPromotionCandidate(hit, input.signals),
+    }))
+    .filter((entry): entry is {
+      hit: RetrievalHitView;
+      promotedReason: "top_hit_executable_evidence";
+    } => entry.promotedReason !== null)
+    .sort((left, right) => {
+      const leftExactPath = matchesDirectExactPath(left.hit, input.signals) ? 1 : 0;
+      const rightExactPath = matchesDirectExactPath(right.hit, input.signals) ? 1 : 0;
+      if (rightExactPath !== leftExactPath) return rightExactPath - leftExactPath;
+
+      const leftSymbol = matchesDirectSymbolHint(left.hit, input.signals) ? 1 : 0;
+      const rightSymbol = matchesDirectSymbolHint(right.hit, input.signals) ? 1 : 0;
+      if (rightSymbol !== leftSymbol) return rightSymbol - leftSymbol;
+
+      if (right.hit.fusedScore !== left.hit.fusedScore) return right.hit.fusedScore - left.hit.fusedScore;
+      return right.hit.updatedAt.getTime() - left.hit.updatedAt.getTime();
+    })[0];
+
+  if (!candidate) return input.hits;
+
+  const promoted = {
+    ...candidate.hit,
+    diversityMetadata: {
+      promotedReason: candidate.promotedReason,
+      replacedSourceType: topHit.sourceType,
+    },
+  } satisfies RetrievalHitView;
+
+  const remainingSelected = selected.filter((hit) => hit.chunkId !== candidate.hit.chunkId);
+  return [promoted, ...remainingSelected, ...input.hits.slice(input.finalK)];
 }
 
 function deriveCompanionPathCandidates(pathValue: string) {

@@ -43,6 +43,7 @@ import {
   applyGraphConnectivityGuard,
   applyOrganizationalBridgeGuard,
   applyOrganizationalMemorySaturationGuard,
+  applyTopHitConcreteEvidenceGuard,
   classifyOrganizationalArtifact,
   isExecutableEvidenceSourceType,
 } from "./retrieval-evidence-guards.js";
@@ -111,6 +112,7 @@ export {
   applyGraphConnectivityGuard,
   applyOrganizationalBridgeGuard,
   applyOrganizationalMemorySaturationGuard,
+  applyTopHitConcreteEvidenceGuard,
 } from "./retrieval-evidence-guards.js";
 export {
   buildGraphExpansionSeeds,
@@ -213,6 +215,7 @@ export interface RetrievalHitView {
     promotedReason:
       | "exact_path_code"
       | "exact_path_test_report"
+      | "top_hit_executable_evidence"
       | "organizational_bridge_exact_path"
       | "organizational_bridge_related_path"
       | "graph_multihop_code"
@@ -2284,11 +2287,15 @@ export function rerankRetrievalHits(input: {
     });
 
   return applyGraphConnectivityGuard({
-    hits: applyOrganizationalBridgeGuard({
-      hits: applyEvidenceDiversityGuard({
-        hits: applyOrganizationalMemorySaturationGuard({
-          hits: scoredHits,
+    hits: applyTopHitConcreteEvidenceGuard({
+      hits: applyOrganizationalBridgeGuard({
+        hits: applyEvidenceDiversityGuard({
+          hits: applyOrganizationalMemorySaturationGuard({
+            hits: scoredHits,
+            finalK: input.finalK,
+          }),
           finalK: input.finalK,
+          signals: input.signals,
         }),
         finalK: input.finalK,
         signals: input.signals,

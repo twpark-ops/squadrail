@@ -93,4 +93,69 @@ describe("apiRateLimit", () => {
     expect(res3.headers.get("x-ratelimit-limit")).toBe("3");
     expect(res3.headers.get("x-ratelimit-remaining")).toBe("0");
   });
+
+  it("allows explicit loopback E2E bypass only for local implicit board requests", () => {
+    const middleware = apiRateLimit({
+      windowMs: 60_000,
+      maxReadRequests: 1,
+      maxWriteRequests: 1,
+      now: () => 1_000,
+    });
+    const next = vi.fn();
+
+    const makeReq = () => ({
+      path: "/issues/abc/protocol/state",
+      method: "GET",
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      header: (name: string) => name.toLowerCase() === "x-squadrail-e2e-bypass-rate-limit" ? "true" : undefined,
+      actor: {
+        type: "board",
+        source: "local_implicit",
+        userId: "local-board",
+        isInstanceAdmin: true,
+      },
+    }) as any;
+
+    const res1 = createRes();
+    middleware(makeReq(), res1 as any, next);
+    const res2 = createRes();
+    middleware(makeReq(), res2 as any, next);
+
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(res1.headers.size).toBe(0);
+    expect(res2.statusCode).toBe(200);
+  });
+
+  it("does not bypass rate limit for non-local board traffic even when the header is present", () => {
+    const middleware = apiRateLimit({
+      windowMs: 60_000,
+      maxReadRequests: 1,
+      maxWriteRequests: 1,
+      now: () => 1_000,
+    });
+    const next = vi.fn();
+
+    const makeReq = () => ({
+      path: "/issues/abc/protocol/state",
+      method: "GET",
+      ip: "10.0.0.5",
+      socket: { remoteAddress: "10.0.0.5" },
+      header: (name: string) => name.toLowerCase() === "x-squadrail-e2e-bypass-rate-limit" ? "true" : undefined,
+      actor: {
+        type: "board",
+        source: "local_implicit",
+        userId: "local-board",
+        isInstanceAdmin: true,
+      },
+    }) as any;
+
+    const res1 = createRes();
+    middleware(makeReq(), res1 as any, next);
+    const blocked = createRes();
+    middleware(makeReq(), blocked as any, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(blocked.statusCode).toBe(429);
+  });
 });
