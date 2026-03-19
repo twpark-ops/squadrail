@@ -81,6 +81,23 @@ Review handoffs, approvals, protocol violations, closures, and recovery decision
 
 <br/>
 
+## Current status
+
+The current system baseline is no longer just a prototype UI. The core delivery contract has been hardened and repeatedly validated:
+
+- **Batch A shipped** — issue documents, deliverables, and overview-level current delivery visibility
+- **Canonical stabilization completed** — the core delivery loop now passes `full delivery`, `clarification`, `changes requested recovery`, `QA gate`, and `merge/deploy follow-up`
+- **Repeat validation locked** — the canonical bundle passes `ITERATIONS=3 pnpm e2e:canonical-repeat`
+- **Current active engineering focus** — retrieval stabilization and brief-quality hardening
+
+See:
+
+- [docs/PLANS.md](docs/PLANS.md)
+- [docs/RELIABILITY.md](docs/RELIABILITY.md)
+- [docs/exec-plans/active/p1-retrieval-stabilization-plan.md](docs/exec-plans/active/p1-retrieval-stabilization-plan.md)
+
+<br/>
+
 ## Control plane UI
 
 The control plane provides operational visibility across the entire delivery lifecycle:
@@ -126,6 +143,28 @@ docs/                         Product, API, CLI, and architecture documentation
 doc/                          Development guides and internal specs
 scripts/                      Build, dev, and operational scripts
 ```
+
+<br/>
+
+## Documentation maps
+
+The repository now uses a harness-style docs layout:
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — repository architecture entry point
+- [docs/PRODUCT_SENSE.md](docs/PRODUCT_SENSE.md) — product-level overview and direction
+- [docs/DESIGN.md](docs/DESIGN.md) — design and architecture map
+- [docs/PLANS.md](docs/PLANS.md) — active and completed execution plans
+- [docs/RELIABILITY.md](docs/RELIABILITY.md) — canonical E2E and runtime reliability
+- [docs/SECURITY.md](docs/SECURITY.md) — security baseline and hardening
+- [docs/QUALITY_SCORE.md](docs/QUALITY_SCORE.md) — review findings and quality posture
+- [AGENTS.md](AGENTS.md) — short repository map for coding agents
+
+Plan and spec placement follows these rules:
+
+- active execution plans: `docs/exec-plans/active/`
+- completed plans: `docs/exec-plans/completed/`
+- design docs: `docs/design-docs/`
+- product specs: `docs/product-specs/`
 
 <br/>
 
@@ -231,6 +270,7 @@ pnpm dev:ui                       # UI only
 pnpm typecheck                    # typecheck all workspaces
 pnpm test:run                     # run all tests
 pnpm build                        # build all packages
+pnpm docs:check                   # validate docs placement and links
 
 # Operations
 pnpm squadrail run                # bootstrap + doctor + start
@@ -246,6 +286,10 @@ pnpm knowledge:rebuild-versions   # rebuild document version state
 
 # Smoke tests
 pnpm smoke:local-ui-flow          # browser smoke test for main UI flow
+
+# Canonical E2E
+pnpm e2e:full-delivery            # canonical full delivery path
+ITERATIONS=3 pnpm e2e:canonical-repeat
 ```
 
 <br/>
@@ -266,6 +310,11 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for environment details, bootstrap fl
 
 | Guide | Description |
 |-------|-------------|
+| [Architecture Map](ARCHITECTURE.md) | Repository-level map for code and docs entry points |
+| [Plans Map](docs/PLANS.md) | Active vs completed execution plans |
+| [Reliability Map](docs/RELIABILITY.md) | Canonical E2E, stabilization, runtime validation |
+| [Security Map](docs/SECURITY.md) | Security baseline, auth, and deployment guardrails |
+| [Quality Map](docs/QUALITY_SCORE.md) | Review findings and hardening programs |
 | [Architecture](docs/start/architecture.md) | System design, component boundaries, data flow |
 | [API Overview](docs/api/overview.md) | REST endpoints, protocol message contracts |
 | [CLI Overview](docs/cli/overview.md) | Commands, flags, diagnostics |
