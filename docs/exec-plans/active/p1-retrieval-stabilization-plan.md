@@ -33,3 +33,9 @@
   - `issue_snapshot`가 top hit를 먹는 마지막 케이스를 selected-window guard로 보정
   - RAG readiness가 `topHitSourceType/topHitArtifactKind`를 직접 검증하도록 강화
   - direct evidence 우선 규칙을 focused test와 readiness E2E 기준에 반영
+- 2026-03-19 Batch 2:
+  - `knowledge sync`가 `backfillOrganizationalMemory`를 기본 global step으로 수행하도록 승격
+  - selected project 범위를 organizational memory backfill에도 그대로 전달하도록 정합성 보강
+  - 서버 재기동 뒤 orphan `running knowledge sync job`이 readiness를 막지 않도록 fetch-time resume 추가
+  - company/project readiness gate의 `protocol_memory_coverage`는 `pass`로 회복
+  - 남은 리스크는 reviewer project scope의 `retrieval_cache` 경고 축

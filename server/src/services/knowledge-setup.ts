@@ -30,6 +30,7 @@ import { normalizeAgentUrlKey } from "@squadrail/shared";
 import { agentService } from "./agents.js";
 import { knowledgeBackfillService } from "./knowledge-backfill.js";
 import { knowledgeImportService } from "./knowledge-import.js";
+import { organizationalMemoryService } from "./organizational-memory-ingest.js";
 import { projectService } from "./projects.js";
 import { retrievalPersonalizationService } from "./retrieval-personalization.js";
 import { setupProgressService } from "./setup-progress.js";
@@ -333,6 +334,7 @@ export function knowledgeSetupService(db: Db) {
   const setupSvc = setupProgressService(db);
   const imports = knowledgeImportService(db);
   const backfill = knowledgeBackfillService(db);
+  const organizationalMemory = organizationalMemoryService(db);
   const personalization = retrievalPersonalizationService(db);
 
   async function requireCompany(companyId: string) {
@@ -677,11 +679,6 @@ export function knowledgeSetupService(db: Db) {
     });
   }
 
-  async function getKnowledgeSyncJob(companyId: string, jobId: string) {
-    const jobs = await loadJobViews(companyId, 50);
-    return jobs.find((job) => job.id === jobId) ?? null;
-  }
-
   async function updateJobSummary(jobId: string, summaryJson: Record<string, unknown>, status?: string, error?: string | null) {
     const now = new Date();
     await db
@@ -694,6 +691,42 @@ export function knowledgeSetupService(db: Db) {
         updatedAt: now,
       })
       .where(eq(knowledgeSyncJobs.id, jobId));
+  }
+
+  function scheduleKnowledgeSyncExecution(input: {
+    companyId: string;
+    jobId: string;
+    selectedProjectCount?: number;
+  }) {
+    if (activeKnowledgeSyncJobs.has(input.jobId)) {
+      return;
+    }
+    const run = () => {
+      void executeKnowledgeSyncJob(input.companyId, input.jobId).catch(async (error) => {
+        await updateJobSummary(input.jobId, {
+          selectedProjectCount: input.selectedProjectCount ?? 0,
+          completedProjectCount: 0,
+          failedProjectCount: input.selectedProjectCount ?? 0,
+          globalSteps: {},
+        }, "failed", error instanceof Error ? error.message : String(error));
+      });
+    };
+    if (!enqueueAfterDbCommit(run)) {
+      run();
+    }
+  }
+
+  async function getKnowledgeSyncJob(companyId: string, jobId: string) {
+    const jobs = await loadJobViews(companyId, 50);
+    const job = jobs.find((entry) => entry.id === jobId) ?? null;
+    if (job && (job.status === "queued" || job.status === "running") && !activeKnowledgeSyncJobs.has(job.id)) {
+      scheduleKnowledgeSyncExecution({
+        companyId,
+        jobId: job.id,
+        selectedProjectCount: job.selectedProjectIds.length,
+      });
+    }
+    return job;
   }
 
   async function executeKnowledgeSyncJob(companyId: string, jobId: string) {
@@ -829,6 +862,12 @@ export function knowledgeSetupService(db: Db) {
             projectIds: selectedProjects.map((project) => project.id),
           });
         }
+        if (optionsJson.backfillOrganizationalMemory !== false) {
+          globalSteps.backfillOrganizationalMemory = await organizationalMemory.backfillCompany({
+            companyId,
+            projectIds: selectedProjects.map((project) => project.id),
+          });
+        }
         if (optionsJson.backfillPersonalization !== false) {
           globalSteps.backfillPersonalization = await personalization.backfillProtocolFeedback({
             companyId,
@@ -899,6 +938,7 @@ export function knowledgeSetupService(db: Db) {
           maxFiles: input.maxFiles ?? null,
           rebuildGraph: input.rebuildGraph !== false,
           rebuildVersions: input.rebuildVersions !== false,
+          backfillOrganizationalMemory: input.backfillOrganizationalMemory !== false,
           backfillPersonalization: input.backfillPersonalization !== false,
         },
         summaryJson: {
@@ -925,19 +965,11 @@ export function knowledgeSetupService(db: Db) {
     );
     invalidateKnowledgeSetupCache(companyId);
 
-    const scheduleExecution = () => {
-      void executeKnowledgeSyncJob(companyId, job.id).catch(async (error) => {
-        await updateJobSummary(job.id, {
-          selectedProjectCount: selectedProjects.length,
-          completedProjectCount: 0,
-          failedProjectCount: selectedProjects.length,
-          globalSteps: {},
-        }, "failed", error instanceof Error ? error.message : String(error));
-      });
-    };
-    if (!enqueueAfterDbCommit(scheduleExecution)) {
-      scheduleExecution();
-    }
+    scheduleKnowledgeSyncExecution({
+      companyId,
+      jobId: job.id,
+      selectedProjectCount: selectedProjects.length,
+    });
 
     const createdJob = await getKnowledgeSyncJob(companyId, job.id);
     if (!createdJob) {

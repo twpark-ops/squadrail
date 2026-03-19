@@ -18,6 +18,7 @@ const {
   mockImportProjectWorkspace,
   mockRebuildCompanyCodeGraph,
   mockRebuildCompanyDocumentVersions,
+  mockBackfillOrganizationalMemory,
   mockBackfillProtocolFeedback,
   mockCanonicalTemplateForCompanyName,
   mockResolveCanonicalTemplateForCompany,
@@ -32,6 +33,7 @@ const {
   mockImportProjectWorkspace: vi.fn(),
   mockRebuildCompanyCodeGraph: vi.fn(),
   mockRebuildCompanyDocumentVersions: vi.fn(),
+  mockBackfillOrganizationalMemory: vi.fn(),
   mockBackfillProtocolFeedback: vi.fn(),
   mockCanonicalTemplateForCompanyName: vi.fn(),
   mockResolveCanonicalTemplateForCompany: vi.fn(),
@@ -76,6 +78,12 @@ vi.mock("../services/knowledge-backfill.js", () => ({
   knowledgeBackfillService: () => ({
     rebuildCompanyCodeGraph: mockRebuildCompanyCodeGraph,
     rebuildCompanyDocumentVersions: mockRebuildCompanyDocumentVersions,
+  }),
+}));
+
+vi.mock("../services/organizational-memory-ingest.js", () => ({
+  organizationalMemoryService: () => ({
+    backfillCompany: mockBackfillOrganizationalMemory,
   }),
 }));
 
@@ -360,6 +368,7 @@ describe("knowledge setup service", () => {
     });
     mockRebuildCompanyCodeGraph.mockResolvedValue({ edges: 12 });
     mockRebuildCompanyDocumentVersions.mockResolvedValue({ versions: 4 });
+    mockBackfillOrganizationalMemory.mockResolvedValue({ protocolDocumentCount: 6, reviewDocumentCount: 3 });
     mockBackfillProtocolFeedback.mockResolvedValue({ profiles: 2 });
 
     const createdAt = new Date("2026-03-13T10:05:00.000Z");
@@ -373,6 +382,7 @@ describe("knowledge setup service", () => {
         maxFiles: 200,
         rebuildGraph: true,
         rebuildVersions: true,
+        backfillOrganizationalMemory: true,
         backfillPersonalization: true,
       },
       summaryJson: {
@@ -478,6 +488,10 @@ describe("knowledge setup service", () => {
       companyId: COMPANY_ID,
       projectIds: ["project-1"],
     });
+    expect(mockBackfillOrganizationalMemory).toHaveBeenCalledWith({
+      companyId: COMPANY_ID,
+      projectIds: ["project-1"],
+    });
     expect(updateSets.filter((entry) => entry.table === knowledgeSyncJobs)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -515,6 +529,114 @@ describe("knowledge setup service", () => {
     )).rejects.toThrow("No projects selected for knowledge sync");
     expect(insertValues).toEqual([]);
     expect(updateSets).toEqual([]);
+  });
+
+  it("resumes an orphaned running knowledge sync job when it is fetched", async () => {
+    mockEnqueueAfterDbCommit.mockReturnValue(false);
+    mockProjectList.mockResolvedValue([
+      {
+        id: "project-1",
+        name: "Runtime",
+        primaryWorkspace: { id: "workspace-1" },
+      },
+    ]);
+    mockImportProjectWorkspace.mockResolvedValue({
+      importMode: "delta",
+      documentCount: 3,
+    });
+    mockRebuildCompanyCodeGraph.mockResolvedValue({ edges: 12 });
+    mockRebuildCompanyDocumentVersions.mockResolvedValue({ versions: 4 });
+    mockBackfillOrganizationalMemory.mockResolvedValue({ protocolDocumentCount: 6, reviewDocumentCount: 3 });
+    mockBackfillProtocolFeedback.mockResolvedValue({ profiles: 2 });
+
+    const now = new Date("2026-03-13T10:05:00.000Z");
+    const runningJob = {
+      id: "job-running-1",
+      companyId: COMPANY_ID,
+      status: "running",
+      selectedProjectIds: ["project-1"],
+      optionsJson: {
+        forceFull: false,
+        maxFiles: null,
+        rebuildGraph: true,
+        rebuildVersions: true,
+        backfillOrganizationalMemory: true,
+        backfillPersonalization: true,
+      },
+      summaryJson: {
+        selectedProjectCount: 1,
+        completedProjectCount: 1,
+        failedProjectCount: 0,
+        globalSteps: {},
+      },
+      error: null,
+      startedAt: now,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const { db } = createKnowledgeSetupDbMock({
+      selectRows: new Map([
+        [knowledgeSyncJobs, [
+          [runningJob],
+          [runningJob],
+        ]],
+        [knowledgeSyncProjectRuns, [[{
+          id: "project-run-1",
+          jobId: "job-running-1",
+          projectId: "project-1",
+          workspaceId: "workspace-1",
+          status: "completed",
+          stepJson: {
+            importWorkspace: {
+              status: "completed",
+            },
+          },
+          resultJson: {
+            importMode: "delta",
+          },
+          error: null,
+          createdAt: now,
+          updatedAt: now,
+        }], [{
+          id: "project-run-1",
+          jobId: "job-running-1",
+          projectId: "project-1",
+          workspaceId: "workspace-1",
+          status: "completed",
+          stepJson: {
+            importWorkspace: {
+              status: "completed",
+            },
+          },
+          resultJson: {
+            importMode: "delta",
+          },
+          error: null,
+          createdAt: now,
+          updatedAt: now,
+        }]]],
+      ]),
+    });
+    const service = knowledgeSetupService(db as never);
+
+    const existing = await service.getKnowledgeSyncJob(COMPANY_ID, "job-running-1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(existing).toMatchObject({
+      id: "job-running-1",
+      status: "running",
+    });
+    expect(mockImportProjectWorkspace).toHaveBeenCalledWith({
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+      maxFiles: undefined,
+      forceFull: false,
+    });
+    expect(mockBackfillOrganizationalMemory).toHaveBeenCalledWith({
+      companyId: COMPANY_ID,
+      projectIds: ["project-1"],
+    });
   });
 
   it("repairs org sync by updating legacy agents, creating missing ones, and pausing extras", async () => {

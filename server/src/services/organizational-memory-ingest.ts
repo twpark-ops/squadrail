@@ -1085,17 +1085,23 @@ export function organizationalMemoryService(db: Db) {
 
   async function backfillCompany(input: {
     companyId: string;
+    projectIds?: string[];
     issueLimit?: number;
     messageLimit?: number;
     issueIds?: string[];
     messageIds?: string[];
   }) {
+    const projectIds = input.projectIds?.filter((value) => value.trim().length > 0) ?? [];
+    const projectScope = projectIds.length > 0 ? inArray(issues.projectId, projectIds) : undefined;
     const issueIds = input.issueIds && input.issueIds.length > 0
       ? input.issueIds
       : await db
         .select({ id: issues.id })
         .from(issues)
-        .where(eq(issues.companyId, input.companyId))
+        .where(and(
+          eq(issues.companyId, input.companyId),
+          ...(projectScope ? [projectScope] : []),
+        ))
         .orderBy(asc(issues.createdAt))
         .limit(input.issueLimit ?? 5_000)
         .then((rows) => rows.map((row) => row.id));
@@ -1105,9 +1111,11 @@ export function organizationalMemoryService(db: Db) {
       : await db
         .select({ id: issueProtocolMessages.id })
         .from(issueProtocolMessages)
+        .innerJoin(issues, eq(issueProtocolMessages.issueId, issues.id))
         .where(
           and(
             eq(issueProtocolMessages.companyId, input.companyId),
+            ...(projectScope ? [projectScope] : []),
             inArray(
               issueProtocolMessages.messageType,
               [

@@ -2368,6 +2368,7 @@ describe("company routes", () => {
       optionsJson: {
         rebuildGraph: true,
         rebuildVersions: true,
+        backfillOrganizationalMemory: true,
         backfillPersonalization: true,
       },
       summaryJson: {},
@@ -2387,6 +2388,7 @@ describe("company routes", () => {
         projectIds: ["11111111-1111-4111-8111-111111111111"],
         rebuildGraph: true,
         rebuildVersions: true,
+        backfillOrganizationalMemory: true,
         backfillPersonalization: true,
       },
     });
@@ -2399,6 +2401,7 @@ describe("company routes", () => {
         forceFull: false,
         rebuildGraph: true,
         rebuildVersions: true,
+        backfillOrganizationalMemory: true,
         backfillPersonalization: true,
       },
       expect.objectContaining({

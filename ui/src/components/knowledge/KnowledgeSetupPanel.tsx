@@ -104,6 +104,7 @@ export function KnowledgeSetupPanel({
         forceFull: false,
         rebuildGraph: true,
         rebuildVersions: true,
+        backfillOrganizationalMemory: true,
         backfillPersonalization: true,
       }),
     onSuccess: (job) => {

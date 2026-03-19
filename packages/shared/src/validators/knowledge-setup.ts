@@ -17,6 +17,7 @@ export const createKnowledgeSyncJobSchema = z.object({
   maxFiles: z.number().int().min(1).max(500).optional(),
   rebuildGraph: z.boolean().optional().default(true),
   rebuildVersions: z.boolean().optional().default(true),
+  backfillOrganizationalMemory: z.boolean().optional().default(true),
   backfillPersonalization: z.boolean().optional().default(true),
 }).strict();
 

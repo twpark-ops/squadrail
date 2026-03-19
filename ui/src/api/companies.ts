@@ -180,6 +180,7 @@ export const companiesApi = {
       forceFull: false,
       rebuildGraph: true,
       rebuildVersions: true,
+      backfillOrganizationalMemory: true,
       backfillPersonalization: true,
     },
   ) =>
