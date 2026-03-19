@@ -4,8 +4,8 @@
 
 ### Reliability
 
-- `active/canonical-stabilization-sprint-plan-2026-03-18.md`
-- `active/five-axis-hardening-plan-2026-03-18.md`
+- `completed/canonical-stabilization-sprint-plan-2026-03-18.md`
+- `completed/five-axis-hardening-plan-2026-03-18.md`
 
 ### Retrieval / Knowledge
 
@@ -20,5 +20,5 @@
 
 ### Security
 
-- `active/phase-0-security-baseline-design-2026-03-18.md`
+- `completed/phase-0-security-baseline-design-2026-03-18.md`
 - `../review-findings-2026-03-18.md`

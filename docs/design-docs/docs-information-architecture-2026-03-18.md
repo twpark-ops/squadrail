@@ -38,10 +38,10 @@
 
 ### Active execution plans
 
-- `exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
-- `exec-plans/active/phase-0-security-baseline-design-2026-03-18.md`
+- `exec-plans/completed/canonical-stabilization-sprint-plan-2026-03-18.md`
+- `exec-plans/completed/phase-0-security-baseline-design-2026-03-18.md`
 - `exec-plans/active/p1-retrieval-stabilization-plan.md`
-- `exec-plans/active/five-axis-hardening-plan-2026-03-18.md`
+- `exec-plans/completed/five-axis-hardening-plan-2026-03-18.md`
 
 ### Product specs
 

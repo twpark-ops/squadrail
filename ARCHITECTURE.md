@@ -22,6 +22,6 @@
 
 ## Current Operating Focus
 
-- Canonical stabilization: `docs/exec-plans/active/canonical-stabilization-sprint-plan-2026-03-18.md`
-- Phase 0 security baseline: `docs/exec-plans/active/phase-0-security-baseline-design-2026-03-18.md`
 - Retrieval stabilization: `docs/exec-plans/active/p1-retrieval-stabilization-plan.md`
+- Completed stabilization baseline: `docs/exec-plans/completed/canonical-stabilization-sprint-plan-2026-03-18.md`
+- Completed security baseline: `docs/exec-plans/completed/phase-0-security-baseline-design-2026-03-18.md`
