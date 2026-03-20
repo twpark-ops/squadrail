@@ -197,10 +197,16 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - 즉 이번 시나리오에서 provider/runtime degraded debt는 더 이상 주된 원인이 아니다.
   - 다만 total fallback은 여전히 `7`로 유지됐다.
   - 남은 `reviewer_approval`, `qa_approval`, `close` fallback은 `runtimeHealth = normal` 상태의 current-lane follow-up autonomy 부족으로 보는 편이 더 정확하다.
+- 최신 재검증(`CLO-183`)에서는 reviewer/QA/close lane이 다시 일관되게 `supervisory_invoke_stall`로 표면화됐다.
+  - `runtimeDegradedTotal = 3`
+  - `supervisoryInvokeStallCount = 3`
+  - `providerRuntimeDebt = true`
+  - 즉 남은 debt는 "정상 runtime" 일반론보다, 짧은 supervisory lane이 `adapter.invoke`에서 decision message 없이 멈추는 패턴으로 더 정확히 표현된다.
+  - `human_board` close는 failure-learning gate가 있어도 operator review 자체로 인정되도록 policy를 맞췄고, latest close는 이 경로로 정상 완료됐다.
 
 # Next Slice
 
-1. remaining `reviewer_approval`, `qa_approval`, `close`를 provider/runtime 문제가 아니라 `normal-runtime follow-up autonomy debt`로 분리 추적한다.
+1. `reviewer_approval`, `qa_approval`, `close`를 `supervisory_invoke_stall` family로 고정 추적한다.
 2. reviewer/QA/closure lane에서 deterministic fallback 직전 active run의 protocol helper 사용 여부, protocol message attempt, latest event progression을 더 수집한다.
-3. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 정상 runtime에서도 왜 decision message를 남기지 못하는지 server-side follow-up contract를 좁힌다.
+3. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 `adapter.invoke`를 빠져나오지 못하는 이유를 adapter/provider 경계까지 좁힌다.
 4. `implementation_engineer` fallback은 별도 slice로 분리한다.

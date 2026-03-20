@@ -556,6 +556,26 @@ describe("heartbeat protocol progress helpers", () => {
         degradedThresholdMs: 20_000,
       }),
     ).toBe(false);
+    expect(
+      shouldRecoverDegradedProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: qaRequirement,
+        wakeReason: "protocol_implementation_approved",
+        issueStatus: "in_progress",
+        workflowState: "qa_pending",
+        protocolRetryCount: 0,
+        protocolDegradedRecoveryCount: 0,
+        adapterRetryCount: 0,
+        adapterRetryErrorCode: null,
+        checkpointJson: {
+          phase: "adapter.execute_start",
+        },
+        startedAt: "2026-03-20T10:00:54Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe(true);
   });
 
   it("skips stale protocol follow-up wakes once the issue is terminal", () => {

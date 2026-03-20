@@ -356,6 +356,7 @@ export function evaluateProtocolEvidenceRequirement(input: {
       (message.payload.mergeStatus === "merged" || message.payload.closeReason === "completed")
       && input.failureLearningGate
       && input.failureLearningGate.closeReady === false
+      && message.sender.role !== "human_board"
     ) {
       return {
         violationCode: "close_without_verification",

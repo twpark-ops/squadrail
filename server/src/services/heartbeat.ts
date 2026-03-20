@@ -979,6 +979,19 @@ function classifySupervisoryInvokeStallReason(input: {
   return "supervisory_invoke_stall" as const;
 }
 
+function resolveProtocolRecoveryThresholdMs(input: {
+  degradedReason: string | null;
+  degradedThresholdMs?: number;
+}) {
+  if (input.degradedReason === "supervisory_invoke_stall") {
+    return Math.min(
+      input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+      RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS,
+    );
+  }
+  return input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS;
+}
+
 function resolveDegradedProtocolRecoveryReason(input: {
   runStatus: string;
   requirement: ProtocolRunRequirement | null;
@@ -1138,7 +1151,10 @@ export function shouldRecoverDegradedProtocolRun(input: {
   if (!isProtocolWatchdogCheckpointPhase(checkpointPhase)) return false;
 
   const startedAtMs = toEpochMillis(input.startedAt) ?? readLeaseLastProgressAt(checkpoint) ?? 0;
-  const degradedThresholdMs = input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS;
+  const degradedThresholdMs = resolveProtocolRecoveryThresholdMs({
+    degradedReason,
+    degradedThresholdMs: input.degradedThresholdMs,
+  });
   return (input.now ?? new Date()).getTime() - startedAtMs >= degradedThresholdMs;
 }
 

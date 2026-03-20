@@ -806,6 +806,48 @@ describe("evaluateProtocolEvidenceRequirement", () => {
     expect(violation?.message).toContain("repeated failure signals");
   });
 
+  it("allows human board close when repeated runtime failures were explicitly reviewed", () => {
+    const violation = evaluateProtocolEvidenceRequirement({
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "role_group",
+            recipientId: "human_board",
+            role: "human_board",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "human board close after runtime review",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Operator reviewed runtime failure history and approved close.",
+          verificationSummary: "Verification evidence reviewed.",
+          rollbackPlan: "Re-open and rerun if the runtime issue reappears.",
+          finalArtifacts: ["pr://42"],
+          finalTestStatus: "passed_with_known_risk",
+          mergeStatus: "pending_external_merge",
+          remainingRisks: ["Merge remains external to the automated harness."],
+        },
+        artifacts: [],
+      },
+      failureLearningGate: {
+        closeReady: false,
+        blockingReasons: [
+          "Process-lost runtime failure has not been followed by a successful retry.",
+        ],
+      },
+    });
+
+    expect(violation).toBeNull();
+  });
+
   it("rejects CLOSE_TASK with passed_with_known_risk and empty remainingRisks", () => {
     const violation = evaluateProtocolEvidenceRequirement({
       message: {
