@@ -21,6 +21,7 @@ const {
   mockIssueCreateLabel,
   mockHeartbeatWakeup,
   mockHeartbeatGetRun,
+  mockHeartbeatCancelRun,
   mockHeartbeatRecordExternalRunEvent,
   mockHeartbeatCancelIssueScope,
   mockHeartbeatCancelSupersededIssueFollowups,
@@ -80,6 +81,7 @@ const {
   mockIssueCreateLabel: vi.fn(),
   mockHeartbeatWakeup: vi.fn(),
   mockHeartbeatGetRun: vi.fn(),
+  mockHeartbeatCancelRun: vi.fn(),
   mockHeartbeatRecordExternalRunEvent: vi.fn(),
   mockHeartbeatCancelIssueScope: vi.fn(),
   mockHeartbeatCancelSupersededIssueFollowups: vi.fn(),
@@ -146,6 +148,7 @@ vi.mock("../services/index.js", () => ({
   heartbeatService: () => ({
     wakeup: mockHeartbeatWakeup,
     getRun: mockHeartbeatGetRun,
+    cancelRun: mockHeartbeatCancelRun,
     recordExternalRunEvent: mockHeartbeatRecordExternalRunEvent,
     cancelIssueScope: mockHeartbeatCancelIssueScope,
     cancelSupersededIssueFollowups: mockHeartbeatCancelSupersededIssueFollowups,
@@ -417,6 +420,10 @@ describe("issue routes wakeup handling", () => {
     mockAgentList.mockResolvedValue([]);
     mockProjectList.mockResolvedValue([]);
     mockHeartbeatGetRun.mockResolvedValue(null);
+    mockHeartbeatCancelRun.mockResolvedValue({
+      id: "run-cancelled-1",
+      status: "cancelled",
+    });
     mockHeartbeatRecordExternalRunEvent.mockResolvedValue(true);
     mockHeartbeatCancelIssueScope.mockResolvedValue({
       cancelledWakeupCount: 0,
@@ -3972,6 +3979,75 @@ describe("issue routes wakeup handling", () => {
         senderRole: "engineer",
         dispatchMode: "async",
       },
+    });
+  });
+
+  it("cancels a running actor lane immediately after the protocol advances beyond its requirement", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-205",
+      title: "Reviewer follow-up issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+      status: "in_progress",
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "rev-1",
+      companyId: "company-1",
+      role: "reviewer",
+      title: "Reviewer",
+      permissions: {},
+    });
+    mockHeartbeatGetRun.mockResolvedValue({
+      id: "run-review-1",
+      companyId: "company-1",
+      agentId: "rev-1",
+      invocationSource: "automation",
+      status: "running",
+      startedAt: new Date("2026-03-10T00:00:00.000Z"),
+      finishedAt: null,
+      contextSnapshot: {
+        issueId: "11111111-1111-4111-8111-111111111111",
+        protocolMessageType: "SUBMIT_FOR_REVIEW",
+        protocolRecipientRole: "reviewer",
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: {
+        ...buildAgentActor("rev-1"),
+        runId: "run-review-1",
+      },
+      body: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-1",
+          role: "reviewer",
+        },
+        recipients: [],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "qa_pending",
+        summary: "Approved for QA gate",
+        payload: {
+          approvalSummary: "Looks good",
+          approvalChecklist: ["Focused review complete"],
+          verifiedEvidence: ["Diff reviewed"],
+          residualRisks: ["Monitor QA result"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatCancelRun).toHaveBeenCalledWith("run-review-1", {
+      message: "Cancelled actor run after APPROVE_IMPLEMENTATION advanced the protocol lane",
+      checkpointMessage: "run cancelled after protocol lane advanced",
     });
   });
 

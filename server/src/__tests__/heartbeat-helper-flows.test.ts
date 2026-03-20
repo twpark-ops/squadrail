@@ -52,6 +52,12 @@ describe("heartbeat helper flows", () => {
       wakeReason: "issue_ready_for_qa_gate",
     })).toBe("wake reason is issue_ready_for_qa_gate");
     expect(describeSessionResetReason({
+      wakeReason: "protocol_review_requested",
+    })).toBe("wake reason is protocol_review_requested");
+    expect(describeSessionResetReason({
+      wakeReason: "protocol_implementation_approved",
+    })).toBe("wake reason is protocol_implementation_approved");
+    expect(describeSessionResetReason({
       protocolRequiredRetryCount: 2,
     })).toBe("a protocol-required retry is forcing a fresh session");
     expect(describeSessionResetReason({

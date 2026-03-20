@@ -50,6 +50,7 @@ import {
   enrichProtocolMessageArtifactsFromRun,
   runMatchesIssueScope,
 } from "../services/protocol-run-artifacts.js";
+import { shouldSkipSupersededProtocolFollowup } from "../services/heartbeat.js";
 import { registerIssueApprovalRoutes } from "./issues/approvals-routes.js";
 import { registerIssueAttachmentRoutes } from "./issues/attachments-routes.js";
 import { registerIssueIntakeRoutes } from "./issues/intake-routes.js";
@@ -130,6 +131,17 @@ function readProtocolHelperTransportHeader(req: Request) {
     transport,
     command,
   };
+}
+
+function readRunContextProtocolField(
+  contextSnapshot: unknown,
+  key: "protocolMessageType" | "protocolRecipientRole",
+) {
+  if (!contextSnapshot || typeof contextSnapshot !== "object" || Array.isArray(contextSnapshot)) {
+    return null;
+  }
+  const value = (contextSnapshot as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 const PROTOCOL_RETRIEVAL_MESSAGE_TYPES = new Set<CreateIssueProtocolMessage["messageType"]>([
@@ -2395,6 +2407,42 @@ export function issueRoutes(
       next(err);
       return;
     }
+
+    if (actor.actorType === "agent" && actor.runId) {
+      const actorRunId = actor.runId;
+      void (async () => {
+        const actorRun = await heartbeat.getRun(actorRunId);
+        if (!actorRun || actorRun.status !== "running" || !runMatchesIssueScope(actorRun, issue.id)) {
+          return;
+        }
+
+        const currentProtocolMessageType = readRunContextProtocolField(actorRun.contextSnapshot, "protocolMessageType");
+        const currentProtocolRecipientRole = readRunContextProtocolField(actorRun.contextSnapshot, "protocolRecipientRole");
+        if (!currentProtocolMessageType || !currentProtocolRecipientRole) {
+          return;
+        }
+
+        if (!shouldSkipSupersededProtocolFollowup({
+          issueStatus: issue.status,
+          workflowState: message.workflowStateAfter,
+          protocolMessageType: currentProtocolMessageType,
+          protocolRecipientRole: currentProtocolRecipientRole,
+        })) {
+          return;
+        }
+
+        await heartbeat.cancelRun(actorRunId, {
+          message: `Cancelled actor run after ${message.messageType} advanced the protocol lane`,
+          checkpointMessage: "run cancelled after protocol lane advanced",
+        });
+      })().catch((err) => {
+        logger.warn(
+          { err, runId: actorRunId, issueId: issue.id, messageType: message.messageType },
+          "Failed to cancel superseded actor protocol run",
+        );
+      });
+    }
+
     res.status(201).json(
       dispatch.warnings.length > 0
         ? { ...dispatch.result, warnings: dispatch.warnings }

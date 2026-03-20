@@ -421,6 +421,16 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     });
 
     expect(plan[0]?.kind).toBe("wakeup");
+    expect(plan[0]).toMatchObject({
+      payload: {
+        forceFollowupRun: true,
+        forceFreshAdapterSession: true,
+      },
+      contextSnapshot: {
+        forceFollowupRun: true,
+        forceFreshAdapterSession: true,
+      },
+    });
     expect(plan[0]?.contextSnapshot.reviewSubmission).toMatchObject({
       implementationSummary: "Implemented build-info version resolution.",
       changedFiles: ["internal/observability/tracing.go", "internal/observability/tracing_test.go"],
@@ -738,10 +748,12 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       reason: "issue_ready_for_qa_gate",
       payload: {
         forceFollowupRun: true,
+        forceFreshAdapterSession: true,
         protocolDispatchMode: "qa_gate_followup",
       },
       contextSnapshot: {
         forceFollowupRun: true,
+        forceFreshAdapterSession: true,
         protocolDispatchMode: "qa_gate_followup",
         protocolRecipientRole: "qa",
       },

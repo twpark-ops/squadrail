@@ -95,6 +95,7 @@ git diff --check
 | P2-3 | HIGH | `human_board` close could still be blocked by failure-learning gate even though the policy text required operator review before close | `issue-protocol-policy.ts`: treat `human_board` close as satisfying the operator-review gate for unresolved repeated runtime failures |
 | P2-4 | MEDIUM | idle recovery exception could skip degraded recovery because watchdog chained both branches in a single boolean expression | `heartbeat.ts`: split idle/degraded recovery into independently guarded execution via `runProtocolWatchdogRecoveries()` |
 | P2-7 | MEDIUM | active-run diagnostics only proved helper contract injection, not whether shell-level helper POST actually reached the protocol route | `squadrail-protocol.mjs`, `issues.ts`, `agents.ts`, `active-run-protocol-progress.ts`: helper POSTs now send explicit transport headers, the issue route records `protocol.helper_invocation` run events, and `helperTrace` exposes observed helper transport alongside prompt/env contract injection |
+| P2-8 | MEDIUM | reviewer / QA / close follow-up wakes could still inherit stale adapter sessions | `issue-protocol-execution.ts`, `claude-local execute.ts`, `heartbeat.ts`: short supervisory follow-ups now propagate `forceFreshAdapterSession` end-to-end, and `claude_local` explicitly skips `--resume` when the wake requests a fresh session |
 
 ### Open — Active Reliability Debt
 
@@ -114,3 +115,4 @@ git diff --check
 - P2 follow-up changed the diagnosis of the remaining QA/close debt. The latest real-org runs show `supervisory_invoke_stall` as the dominant signature, so the remaining work is now "why short supervisory lanes do not emit a decision message" rather than "whether runtime degradation exists at all."
 - The latest helper-tracing slice narrows that further: the next question is whether stalled supervisory runs even reach shell-level helper execution (`helperTransportObserved`) before fallback.
 - The latest real-org run (`CLO-187`) showed `helperTransportObserved = false` across the stalled fallback runs, so the remaining debt is now more clearly "why current-lane runs never reach shell-level helper execution" than "what happens after the helper POST succeeds."
+- The latest real-org run (`CLO-191`) confirmed that reviewer / QA / close lanes now carry `forceFreshAdapterSession = true`, but they still stall with `helperTransportObserved = false`. That shifts the remaining P2 debt from "stale session reuse" to "fresh supervisory Claude runs never reaching shell-level helper execution."

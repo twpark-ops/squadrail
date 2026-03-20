@@ -242,6 +242,8 @@ describe("shouldResetTaskSessionForWake", () => {
   it("resets session context on protocol stage follow-up wakes", () => {
     expect(shouldResetTaskSessionForWake({ wakeReason: "issue_ready_for_closure" })).toBe(true);
     expect(shouldResetTaskSessionForWake({ wakeReason: "issue_ready_for_qa_gate" })).toBe(true);
+    expect(shouldResetTaskSessionForWake({ wakeReason: "protocol_review_requested" })).toBe(true);
+    expect(shouldResetTaskSessionForWake({ wakeReason: "protocol_implementation_approved" })).toBe(true);
   });
 
   it("resets session context on timer heartbeats", () => {

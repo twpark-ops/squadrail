@@ -244,6 +244,72 @@ describe("claude execute", () => {
     }
   });
 
+  it("skips Claude session resume when the wake requests a fresh adapter session", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-claude-fresh-session-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "claude");
+    const capturePath = path.join(root, "capture.json");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeClaudeCommand(commandPath);
+
+    const stderrLogs: string[] = [];
+    try {
+      const result = await execute({
+        runId: "run-fresh-session",
+        agent: {
+          id: "agent-reviewer",
+          companyId: "company-1",
+          name: "Claude Reviewer",
+          adapterType: "claude_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: "claude-session-stale",
+          sessionParams: {
+            sessionId: "claude-session-stale",
+            cwd: workspace,
+          },
+          sessionDisplayId: "claude-session-stale",
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Review the current Squadrail task.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-fresh",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "review",
+          },
+          issueId: "issue-fresh",
+          wakeReason: "protocol_review_requested",
+          forceFreshAdapterSession: true,
+        },
+        onLog: async (stream, chunk) => {
+          if (stream === "stderr") stderrLogs.push(chunk);
+        },
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.argv).not.toContain("--resume");
+      expect(capture.argv).not.toContain("claude-session-stale");
+      expect(stderrLogs.join("")).toContain("Forcing a fresh Claude session for this wake.");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("marks incomplete Claude streams as retryable adapter failures", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-claude-stream-incomplete-"));
     const commandPath = path.join(root, "claude");

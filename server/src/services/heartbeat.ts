@@ -428,6 +428,8 @@ export function shouldResetTaskSessionForWake(
     wakeReason === "issue_reassigned" ||
     wakeReason === "issue_watch_assigned" ||
     wakeReason === "issue_watch_reassigned" ||
+    wakeReason === "protocol_review_requested" ||
+    wakeReason === "protocol_implementation_approved" ||
     wakeReason === "protocol_required_retry" ||
     wakeReason === "issue_ready_for_closure" ||
     wakeReason === "issue_ready_for_qa_gate"
@@ -455,6 +457,8 @@ export function describeSessionResetReason(
     wakeReason === "issue_reassigned" ||
     wakeReason === "issue_watch_assigned" ||
     wakeReason === "issue_watch_reassigned" ||
+    wakeReason === "protocol_review_requested" ||
+    wakeReason === "protocol_implementation_approved" ||
     wakeReason === "protocol_required_retry" ||
     wakeReason === "issue_ready_for_closure" ||
     wakeReason === "issue_ready_for_qa_gate"

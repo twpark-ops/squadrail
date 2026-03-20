@@ -115,6 +115,8 @@ P2 남은 debt를 아래 두 층으로 분리한다.
 - 따라서 다음 진단부터는 "helper contract가 prompt/env에 있었는가"와 "실제 helper POST가 서버에 도달했는가"를 분리해서 볼 수 있다.
 - latest real-org run(`CLO-187`) 기준 stalled fallback run은 모두 `helperTransportObserved = false`였다.
 - 따라서 현재 남은 gap은 "helper POST 이후 decision 유실"보다 `adapter.invoke` 이전 단계에서 shell-level helper execution까지 못 가는 문제`로 더 좁혀졌다.
+- latest real-org run(`CLO-191`) 기준 reviewer / QA / close lane은 모두 `forceFreshAdapterSession = true`로 관측됐다.
+- 즉 session reuse는 더 이상 주요 가설이 아니고, **fresh Claude session에서도 short supervisory lane이 helper execution까지 도달하지 못하는지**가 핵심 질문이 됐다.
 
 ## Phase B. Current-lane Follow-up Contract
 
@@ -183,3 +185,4 @@ P2 남은 debt를 아래 두 층으로 분리한다.
 
 1. `reviewer_approval`, `qa_approval`, `close` 중 최소 두 개가 deterministic fallback 없이 자율 완료된다.
 2. 남은 fallback이 모두 `supervisory_invoke_stall` 또는 명시적 provider/runtime error로 수렴하고, adapter/provider boundary debt로 확정된다.
+3. reviewer / QA / close lane에서 `forceFreshAdapterSession = true`가 유지된 상태로도 `helperTransportObserved = false`가 반복되면, 이 설계 문서는 provider/runtime boundary debt로 completed 처리한다.

@@ -374,6 +374,19 @@ export function buildProtocolExecutionDispatchPlan(input: {
       (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
       internalWorkItemKind !== "implementation" &&
       isReviewerWatchEnabled(input.issueContext);
+    const reviewerDirectFollowup =
+      recipient.recipientType === "agent" &&
+      recipient.role === "reviewer" &&
+      input.message.messageType === "SUBMIT_FOR_REVIEW" &&
+      input.message.workflowStateAfter === "submitted_for_review";
+    const qaGateDirectRecipient =
+      recipient.recipientType === "agent" &&
+      recipient.role === "qa" &&
+      input.message.messageType === "APPROVE_IMPLEMENTATION" &&
+      input.message.workflowStateAfter === "qa_pending";
+    // Short supervisory lanes should always start in a fresh follow-up run so
+    // reviewer/QA/close decisions do not inherit a stale adapter session from
+    // earlier assignment or implementation phases.
     const approvalCloseDirectRecipient =
       recipient.recipientType === "agent" &&
       recipient.role === "tech_lead" &&
@@ -413,10 +426,17 @@ export function buildProtocolExecutionDispatchPlan(input: {
           ? "approval_close_followup"
           : reviewerWatchActive
             ? "reviewer_watch"
+            : qaGateDirectRecipient
+              ? "qa_gate_followup"
             : "default",
       forceFollowupRun:
-        engineerSelfStart || engineerChangeRequestRecovery || approvalCloseDirectRecipient,
-      forceFreshAdapterSession: approvalCloseDirectRecipient,
+        engineerSelfStart
+        || engineerChangeRequestRecovery
+        || reviewerDirectFollowup
+        || qaGateDirectRecipient
+        || approvalCloseDirectRecipient,
+      forceFreshAdapterSession:
+        reviewerDirectFollowup || qaGateDirectRecipient || approvalCloseDirectRecipient,
     });
 
     if (recipient.recipientType !== "agent") {
@@ -494,6 +514,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
         issueContext: input.issueContext,
         dispatchMode: "qa_gate_followup",
         forceFollowupRun: true,
+        forceFreshAdapterSession: true,
       }),
     });
   }

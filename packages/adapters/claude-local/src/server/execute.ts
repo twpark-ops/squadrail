@@ -336,14 +336,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const runtimeSessionParams = parseObject(runtime.sessionParams);
   const runtimeSessionId = asString(runtimeSessionParams.sessionId, runtime.sessionId ?? "");
   const runtimeSessionCwd = asString(runtimeSessionParams.cwd, "");
+  const forceFreshAdapterSession = asBoolean(context.forceFreshAdapterSession, false);
   const canResumeSession =
     runtimeSessionId.length > 0 &&
     (runtimeSessionCwd.length === 0 || path.resolve(runtimeSessionCwd) === path.resolve(cwd));
-  const sessionId = canResumeSession ? runtimeSessionId : null;
+  const sessionId = !forceFreshAdapterSession && canResumeSession ? runtimeSessionId : null;
   if (runtimeSessionId && !canResumeSession) {
     await onLog(
       "stderr",
       `[squadrail] Claude session "${runtimeSessionId}" was saved for cwd "${runtimeSessionCwd}" and will not be resumed in "${cwd}".\n`,
+    );
+  }
+  if (forceFreshAdapterSession) {
+    await onLog(
+      "stderr",
+      "[squadrail] Forcing a fresh Claude session for this wake.\n",
     );
   }
   const prompt = renderTemplate(promptTemplate, {

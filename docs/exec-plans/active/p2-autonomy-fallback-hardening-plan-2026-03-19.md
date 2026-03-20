@@ -263,9 +263,13 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - 따라서 남은 debt는 "helper를 설명했는데 안 쓴다"와 "helper POST까지 갔는데 그 뒤가 막힌다"를 분리해서 볼 수 있다.
 - 최신 재검증(`CLO-187`)에서는 fallback 직전 stalled run이 모두 `helperTransportObserved = false`였다.
   - 즉 이번 시점의 남은 debt는 "helper POST가 서버에 도달한 뒤 decision이 막힌다"보다, **current-lane run이 shell-level helper execution까지 가지 못한다**는 쪽에 더 가깝다.
+- 최신 재검증(`CLO-191`)에서는 reviewer / QA / close lane에 `forceFreshAdapterSession = true`가 실제로 전파됐다.
+  - 즉 `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` follow-up이 stale adapter session을 재사용하는 문제는 닫혔다.
+  - 하지만 같은 run들에서 여전히 `helperTransportObserved = false`였고, fallback total도 `7`로 유지됐다.
+  - 따라서 남은 debt는 session reuse가 아니라, **fresh session에서도 Claude supervisory lane이 shell-level helper execution까지 못 가는 provider/runtime boundary**로 더 좁혀졌다.
 
 # Next Slice
 
-1. `reviewer_approval`, `qa_approval`, `close`에서 `helperTransportObserved = false`인 stalled run의 공통 패턴을 좁힌다.
+1. `reviewer_approval`, `qa_approval`, `close`에서 `forceFreshAdapterSession = true`인데도 `helperTransportObserved = false`인 stalled run의 공통 패턴을 좁힌다.
 2. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 왜 helper execution까지 못 가는지 adapter/provider 경계까지 좁힌다.
 3. `implementation_engineer` fallback은 별도 slice로 분리한다.
