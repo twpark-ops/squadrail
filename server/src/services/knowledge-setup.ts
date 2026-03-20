@@ -43,8 +43,10 @@ import {
   type CanonicalAgentDefinition,
 } from "./swiftsight-org-canonical.js";
 import { inspectWorkspaceVersionContext } from "./workspace-git-snapshot.js";
+import { logger } from "../middleware/logger.js";
 
 const activeKnowledgeSyncJobs = new Set<string>();
+const scheduledKnowledgeSyncJobs = new Set<string>();
 const KNOWLEDGE_SETUP_CACHE_FRESH_MS = 15_000;
 const KNOWLEDGE_SETUP_CACHE_STALE_MS = 2 * 60_000;
 
@@ -698,17 +700,31 @@ export function knowledgeSetupService(db: Db) {
     jobId: string;
     selectedProjectCount?: number;
   }) {
-    if (activeKnowledgeSyncJobs.has(input.jobId)) {
+    if (activeKnowledgeSyncJobs.has(input.jobId) || scheduledKnowledgeSyncJobs.has(input.jobId)) {
       return;
     }
+    scheduledKnowledgeSyncJobs.add(input.jobId);
     const run = () => {
+      scheduledKnowledgeSyncJobs.delete(input.jobId);
       void executeKnowledgeSyncJob(input.companyId, input.jobId).catch(async (error) => {
-        await updateJobSummary(input.jobId, {
-          selectedProjectCount: input.selectedProjectCount ?? 0,
-          completedProjectCount: 0,
-          failedProjectCount: input.selectedProjectCount ?? 0,
-          globalSteps: {},
-        }, "failed", error instanceof Error ? error.message : String(error));
+        try {
+          await updateJobSummary(input.jobId, {
+            selectedProjectCount: input.selectedProjectCount ?? 0,
+            completedProjectCount: 0,
+            failedProjectCount: input.selectedProjectCount ?? 0,
+            globalSteps: {},
+          }, "failed", error instanceof Error ? error.message : String(error));
+        } catch (summaryError) {
+          logger.error(
+            {
+              err: summaryError,
+              jobId: input.jobId,
+              companyId: input.companyId,
+              originalError: error instanceof Error ? error.message : String(error),
+            },
+            "failed to persist knowledge sync job failure summary",
+          );
+        }
       });
     };
     if (!enqueueAfterDbCommit(run)) {
@@ -894,6 +910,7 @@ export function knowledgeSetupService(db: Db) {
     } finally {
       invalidateKnowledgeSetupCache(companyId);
       activeKnowledgeSyncJobs.delete(jobId);
+      scheduledKnowledgeSyncJobs.delete(jobId);
     }
   }
 

@@ -482,6 +482,59 @@ describe("knowledge service cache and revision flows", () => {
     });
   });
 
+  it("does not reuse reviewer cache entries from a future knowledge revision", async () => {
+    const { db, updateSets } = createKnowledgeDbMock({
+      selectResults: [[
+        createCacheEntry({
+          id: "entry-revision-future",
+          cacheKey: "cache-revision-future",
+          knowledgeRevision: 8,
+          queryFingerprint: "query-1",
+          policyFingerprint: "policy-1",
+          feedbackFingerprint: "feedback-1",
+          hitCount: 3,
+        }),
+        createCacheEntry({
+          id: "entry-revision-past",
+          cacheKey: "cache-revision-past",
+          knowledgeRevision: 6,
+          queryFingerprint: "query-1",
+          policyFingerprint: "policy-1",
+          feedbackFingerprint: "feedback-1",
+          hitCount: 4,
+        }),
+      ]],
+      updateResults: [[{
+        id: "entry-revision-past",
+        hitCount: 5,
+        knowledgeRevision: 6,
+      }]],
+    });
+    const service = knowledgeService(db as never);
+
+    const result = await service.getCompatibleRetrievalCacheEntry({
+      companyId: "company-1",
+      stage: "candidate_hits",
+      knowledgeRevision: 7,
+      allowKnowledgeRevisionDrift: true,
+      identity: {
+        queryFingerprint: "query-1",
+        policyFingerprint: "policy-1",
+        feedbackFingerprint: "feedback-1",
+        revisionSignature: "rev-1",
+      },
+    });
+
+    expect(result).toMatchObject({
+      id: "entry-revision-past",
+      hitCount: 5,
+      knowledgeRevision: 6,
+    });
+    expect(updateSets[0]).toMatchObject({
+      hitCount: 5,
+    });
+  });
+
   it("updates existing cache entries in place when the stage key already exists", async () => {
     const { db, updateSets } = createKnowledgeDbMock({
       selectResults: [[{

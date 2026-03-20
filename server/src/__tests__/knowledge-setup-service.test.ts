@@ -639,6 +639,66 @@ describe("knowledge setup service", () => {
     });
   });
 
+  it("schedules an orphaned running job only once while a resume callback is already pending", async () => {
+    const scheduledRuns: Array<() => void> = [];
+    mockEnqueueAfterDbCommit.mockImplementation((callback: () => void) => {
+      scheduledRuns.push(callback);
+      return true;
+    });
+
+    const now = new Date("2026-03-13T10:05:00.000Z");
+    const runningJob = {
+      id: "job-running-pending-1",
+      companyId: COMPANY_ID,
+      status: "running",
+      selectedProjectIds: ["project-1"],
+      optionsJson: {
+        forceFull: false,
+      },
+      summaryJson: {
+        selectedProjectCount: 1,
+        completedProjectCount: 0,
+        failedProjectCount: 0,
+        globalSteps: {},
+      },
+      error: null,
+      startedAt: now,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const projectRun = {
+      id: "project-run-pending-1",
+      jobId: "job-running-pending-1",
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+      status: "running",
+      stepJson: {},
+      resultJson: {},
+      error: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const { db } = createKnowledgeSetupDbMock({
+      selectRows: new Map([
+        [knowledgeSyncJobs, [
+          [runningJob],
+          [runningJob],
+        ]],
+        [knowledgeSyncProjectRuns, [
+          [projectRun],
+          [projectRun],
+        ]],
+      ]),
+    });
+    const service = knowledgeSetupService(db as never);
+
+    await service.getKnowledgeSyncJob(COMPANY_ID, "job-running-pending-1");
+    await service.getKnowledgeSyncJob(COMPANY_ID, "job-running-pending-1");
+
+    expect(scheduledRuns).toHaveLength(1);
+  });
+
   it("repairs org sync by updating legacy agents, creating missing ones, and pausing extras", async () => {
     mockResolveCanonicalTemplateForCompany.mockReturnValue({
       templateKey: "swiftsight",

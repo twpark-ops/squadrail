@@ -1400,8 +1400,8 @@ export function heartbeatService(db: Db) {
     const timer = protocolIdleWatchdogTimers.get(runId);
     if (timer) {
       clearTimeout(timer);
-      protocolIdleWatchdogTimers.delete(runId);
     }
+    protocolIdleWatchdogTimers.delete(runId);
     if (opts?.resetAttempts !== false) {
       protocolIdleWatchdogAttempts.delete(runId);
     }

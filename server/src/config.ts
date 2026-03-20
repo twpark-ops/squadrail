@@ -28,11 +28,16 @@ if (existsSync(SQUADRAIL_ENV_FILE_PATH)) {
 }
 
 function readEnvAlias(...keys: string[]) {
-  for (const key of keys) {
+  for (const key of new Set(keys.filter((value) => typeof value === "string" && value.length > 0))) {
     const value = process.env[key];
     if (value !== undefined) return value;
   }
   return undefined;
+}
+
+function readBooleanEnvAlias(keys: string[], fallback: boolean) {
+  const value = readEnvAlias(...keys);
+  return value !== undefined ? value === "true" : fallback;
 }
 
 type DatabaseMode = "embedded-postgres" | "postgres";
@@ -87,13 +92,13 @@ export function loadConfig(): Config {
   const fileDatabaseBackup = fileConfig?.database.backup;
   const fileSecrets = fileConfig?.secrets;
   const fileStorage = fileConfig?.storage;
-  const strictModeFromEnv = readEnvAlias("SQUADRAIL_SECRETS_STRICT_MODE", "SQUADRAIL_SECRETS_STRICT_MODE");
+  const strictModeFromEnv = readEnvAlias("SQUADRAIL_SECRETS_STRICT_MODE");
   const secretsStrictMode =
     strictModeFromEnv !== undefined
       ? strictModeFromEnv === "true"
       : (fileSecrets?.strictMode ?? false);
 
-  const providerFromEnvRaw = readEnvAlias("SQUADRAIL_SECRETS_PROVIDER", "SQUADRAIL_SECRETS_PROVIDER");
+  const providerFromEnvRaw = readEnvAlias("SQUADRAIL_SECRETS_PROVIDER");
   const providerFromEnv =
     providerFromEnvRaw && SECRET_PROVIDERS.includes(providerFromEnvRaw as SecretProvider)
       ? (providerFromEnvRaw as SecretProvider)
@@ -101,33 +106,33 @@ export function loadConfig(): Config {
   const providerFromFile = fileSecrets?.provider;
   const secretsProvider: SecretProvider = providerFromEnv ?? providerFromFile ?? "local_encrypted";
 
-  const storageProviderFromEnvRaw = readEnvAlias("SQUADRAIL_STORAGE_PROVIDER", "SQUADRAIL_STORAGE_PROVIDER");
+  const storageProviderFromEnvRaw = readEnvAlias("SQUADRAIL_STORAGE_PROVIDER");
   const storageProviderFromEnv =
     storageProviderFromEnvRaw && STORAGE_PROVIDERS.includes(storageProviderFromEnvRaw as StorageProvider)
       ? (storageProviderFromEnvRaw as StorageProvider)
       : null;
   const storageProvider: StorageProvider = storageProviderFromEnv ?? fileStorage?.provider ?? "local_disk";
   const storageLocalDiskBaseDir = resolveHomeAwarePath(
-    readEnvAlias("SQUADRAIL_STORAGE_LOCAL_DIR", "SQUADRAIL_STORAGE_LOCAL_DIR") ??
+    readEnvAlias("SQUADRAIL_STORAGE_LOCAL_DIR") ??
       fileStorage?.localDisk?.baseDir ??
       resolveDefaultStorageDir(),
   );
-  const storageS3Bucket = readEnvAlias("SQUADRAIL_STORAGE_S3_BUCKET", "SQUADRAIL_STORAGE_S3_BUCKET") ?? fileStorage?.s3?.bucket ?? "squadrail";
-  const storageS3Region = readEnvAlias("SQUADRAIL_STORAGE_S3_REGION", "SQUADRAIL_STORAGE_S3_REGION") ?? fileStorage?.s3?.region ?? "us-east-1";
-  const storageS3Endpoint = readEnvAlias("SQUADRAIL_STORAGE_S3_ENDPOINT", "SQUADRAIL_STORAGE_S3_ENDPOINT") ?? fileStorage?.s3?.endpoint ?? undefined;
-  const storageS3Prefix = readEnvAlias("SQUADRAIL_STORAGE_S3_PREFIX", "SQUADRAIL_STORAGE_S3_PREFIX") ?? fileStorage?.s3?.prefix ?? "";
-  const storageS3ForcePathStyle =
-    readEnvAlias("SQUADRAIL_STORAGE_S3_FORCE_PATH_STYLE", "SQUADRAIL_STORAGE_S3_FORCE_PATH_STYLE") !== undefined
-      ? readEnvAlias("SQUADRAIL_STORAGE_S3_FORCE_PATH_STYLE", "SQUADRAIL_STORAGE_S3_FORCE_PATH_STYLE") === "true"
-      : (fileStorage?.s3?.forcePathStyle ?? false);
+  const storageS3Bucket = readEnvAlias("SQUADRAIL_STORAGE_S3_BUCKET") ?? fileStorage?.s3?.bucket ?? "squadrail";
+  const storageS3Region = readEnvAlias("SQUADRAIL_STORAGE_S3_REGION") ?? fileStorage?.s3?.region ?? "us-east-1";
+  const storageS3Endpoint = readEnvAlias("SQUADRAIL_STORAGE_S3_ENDPOINT") ?? fileStorage?.s3?.endpoint ?? undefined;
+  const storageS3Prefix = readEnvAlias("SQUADRAIL_STORAGE_S3_PREFIX") ?? fileStorage?.s3?.prefix ?? "";
+  const storageS3ForcePathStyle = readBooleanEnvAlias(
+    ["SQUADRAIL_STORAGE_S3_FORCE_PATH_STYLE"],
+    fileStorage?.s3?.forcePathStyle ?? false,
+  );
 
-  const deploymentModeFromEnvRaw = readEnvAlias("SQUADRAIL_DEPLOYMENT_MODE", "SQUADRAIL_DEPLOYMENT_MODE");
+  const deploymentModeFromEnvRaw = readEnvAlias("SQUADRAIL_DEPLOYMENT_MODE");
   const deploymentModeFromEnv =
     deploymentModeFromEnvRaw && DEPLOYMENT_MODES.includes(deploymentModeFromEnvRaw as DeploymentMode)
       ? (deploymentModeFromEnvRaw as DeploymentMode)
       : null;
   const deploymentMode: DeploymentMode = deploymentModeFromEnv ?? fileConfig?.server.deploymentMode ?? "local_trusted";
-  const deploymentExposureFromEnvRaw = readEnvAlias("SQUADRAIL_DEPLOYMENT_EXPOSURE", "SQUADRAIL_DEPLOYMENT_EXPOSURE");
+  const deploymentExposureFromEnvRaw = readEnvAlias("SQUADRAIL_DEPLOYMENT_EXPOSURE");
   const deploymentExposureFromEnv =
     deploymentExposureFromEnvRaw &&
     DEPLOYMENT_EXPOSURES.includes(deploymentExposureFromEnvRaw as DeploymentExposure)
@@ -137,14 +142,14 @@ export function loadConfig(): Config {
     deploymentMode === "local_trusted"
       ? "private"
       : (deploymentExposureFromEnv ?? fileConfig?.server.exposure ?? "private");
-  const authBaseUrlModeFromEnvRaw = readEnvAlias("SQUADRAIL_AUTH_BASE_URL_MODE", "SQUADRAIL_AUTH_BASE_URL_MODE");
+  const authBaseUrlModeFromEnvRaw = readEnvAlias("SQUADRAIL_AUTH_BASE_URL_MODE");
   const authBaseUrlModeFromEnv =
     authBaseUrlModeFromEnvRaw &&
     AUTH_BASE_URL_MODES.includes(authBaseUrlModeFromEnvRaw as AuthBaseUrlMode)
       ? (authBaseUrlModeFromEnvRaw as AuthBaseUrlMode)
       : null;
   const authPublicBaseUrlRaw =
-    readEnvAlias("SQUADRAIL_AUTH_PUBLIC_BASE_URL", "SQUADRAIL_AUTH_PUBLIC_BASE_URL") ??
+    readEnvAlias("SQUADRAIL_AUTH_PUBLIC_BASE_URL") ??
     process.env.BETTER_AUTH_URL ??
     fileConfig?.auth?.publicBaseUrl;
   const authPublicBaseUrl = authPublicBaseUrlRaw?.trim() || undefined;
@@ -160,7 +165,7 @@ export function loadConfig(): Config {
     authBaseUrlModeFromEnv ??
     fileConfig?.auth?.baseUrlMode ??
     (authPublicBaseUrl ? "explicit" : "auto");
-  const allowedHostnamesFromEnvRaw = readEnvAlias("SQUADRAIL_ALLOWED_HOSTNAMES", "SQUADRAIL_ALLOWED_HOSTNAMES");
+  const allowedHostnamesFromEnvRaw = readEnvAlias("SQUADRAIL_ALLOWED_HOSTNAMES");
   const allowedHostnamesFromEnv = allowedHostnamesFromEnvRaw
     ? allowedHostnamesFromEnvRaw
       .split(",")
@@ -170,29 +175,29 @@ export function loadConfig(): Config {
   const allowedHostnames = Array.from(
     new Set((allowedHostnamesFromEnv ?? fileConfig?.server.allowedHostnames ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean)),
   );
-  const companyDeletionEnvRaw = readEnvAlias("SQUADRAIL_ENABLE_COMPANY_DELETION", "SQUADRAIL_ENABLE_COMPANY_DELETION");
+  const companyDeletionEnvRaw = readEnvAlias("SQUADRAIL_ENABLE_COMPANY_DELETION");
   const companyDeletionEnabled =
     companyDeletionEnvRaw !== undefined
       ? companyDeletionEnvRaw === "true"
       : deploymentMode === "local_trusted";
-  const databaseBackupEnabled =
-    readEnvAlias("SQUADRAIL_DB_BACKUP_ENABLED", "SQUADRAIL_DB_BACKUP_ENABLED") !== undefined
-      ? readEnvAlias("SQUADRAIL_DB_BACKUP_ENABLED", "SQUADRAIL_DB_BACKUP_ENABLED") === "true"
-      : (fileDatabaseBackup?.enabled ?? true);
+  const databaseBackupEnabled = readBooleanEnvAlias(
+    ["SQUADRAIL_DB_BACKUP_ENABLED"],
+    fileDatabaseBackup?.enabled ?? true,
+  );
   const databaseBackupIntervalMinutes = Math.max(
     1,
-    Number(readEnvAlias("SQUADRAIL_DB_BACKUP_INTERVAL_MINUTES", "SQUADRAIL_DB_BACKUP_INTERVAL_MINUTES")) ||
+    Number(readEnvAlias("SQUADRAIL_DB_BACKUP_INTERVAL_MINUTES")) ||
       fileDatabaseBackup?.intervalMinutes ||
       60,
   );
   const databaseBackupRetentionDays = Math.max(
     1,
-    Number(readEnvAlias("SQUADRAIL_DB_BACKUP_RETENTION_DAYS", "SQUADRAIL_DB_BACKUP_RETENTION_DAYS")) ||
+    Number(readEnvAlias("SQUADRAIL_DB_BACKUP_RETENTION_DAYS")) ||
       fileDatabaseBackup?.retentionDays ||
       30,
   );
   const databaseBackupDir = resolveHomeAwarePath(
-    readEnvAlias("SQUADRAIL_DB_BACKUP_DIR", "SQUADRAIL_DB_BACKUP_DIR") ??
+    readEnvAlias("SQUADRAIL_DB_BACKUP_DIR") ??
       fileDatabaseBackup?.dir ??
       resolveDefaultBackupDir(),
   );
@@ -220,12 +225,12 @@ export function loadConfig(): Config {
       process.env.SERVE_UI !== undefined
         ? process.env.SERVE_UI === "true"
         : fileConfig?.server.serveUi ?? true,
-    uiDevMiddleware: readEnvAlias("SQUADRAIL_UI_DEV_MIDDLEWARE", "SQUADRAIL_UI_DEV_MIDDLEWARE") === "true",
+    uiDevMiddleware: readBooleanEnvAlias(["SQUADRAIL_UI_DEV_MIDDLEWARE"], false),
     secretsProvider,
     secretsStrictMode,
     secretsMasterKeyFilePath:
       resolveHomeAwarePath(
-        readEnvAlias("SQUADRAIL_SECRETS_MASTER_KEY_FILE", "SQUADRAIL_SECRETS_MASTER_KEY_FILE") ??
+        readEnvAlias("SQUADRAIL_SECRETS_MASTER_KEY_FILE") ??
           fileSecrets?.localEncrypted.keyFilePath ??
           resolveDefaultSecretsKeyFilePath(),
       ),
@@ -238,21 +243,21 @@ export function loadConfig(): Config {
     storageS3ForcePathStyle,
     heartbeatSchedulerEnabled: process.env.HEARTBEAT_SCHEDULER_ENABLED !== "false",
     heartbeatSchedulerIntervalMs: Math.max(10000, Number(process.env.HEARTBEAT_SCHEDULER_INTERVAL_MS) || 30000),
-    knowledgeEmbeddingBackfillEnabled: readEnvAlias("SQUADRAIL_KNOWLEDGE_BACKFILL_ENABLED", "SQUADRAIL_KNOWLEDGE_BACKFILL_ENABLED") === "true",
+    knowledgeEmbeddingBackfillEnabled: readBooleanEnvAlias(["SQUADRAIL_KNOWLEDGE_BACKFILL_ENABLED"], false),
     knowledgeEmbeddingBackfillIntervalMs: Math.max(
       30000,
-      Number(readEnvAlias("SQUADRAIL_KNOWLEDGE_BACKFILL_INTERVAL_MS", "SQUADRAIL_KNOWLEDGE_BACKFILL_INTERVAL_MS")) || 5 * 60 * 1000,
+      Number(readEnvAlias("SQUADRAIL_KNOWLEDGE_BACKFILL_INTERVAL_MS")) || 5 * 60 * 1000,
     ),
     knowledgeEmbeddingBackfillBatchSize: Math.max(
       1,
-      Math.min(50, Number(readEnvAlias("SQUADRAIL_KNOWLEDGE_BACKFILL_BATCH_SIZE", "SQUADRAIL_KNOWLEDGE_BACKFILL_BATCH_SIZE")) || 5),
+      Math.min(50, Number(readEnvAlias("SQUADRAIL_KNOWLEDGE_BACKFILL_BATCH_SIZE")) || 5),
     ),
     companyDeletionEnabled,
     issueDocumentMaxBodyChars: Math.max(
       1_000,
       Math.min(
         2_000_000,
-        Number(readEnvAlias("SQUADRAIL_ISSUE_DOCUMENT_MAX_BODY_CHARS", "SQUADRAIL_ISSUE_DOCUMENT_MAX_BODY_CHARS"))
+        Number(readEnvAlias("SQUADRAIL_ISSUE_DOCUMENT_MAX_BODY_CHARS"))
           || fileConfig?.server.issueDocumentMaxBodyChars
           || 200_000,
       ),

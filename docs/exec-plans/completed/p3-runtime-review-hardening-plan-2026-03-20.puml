@@ -1,0 +1,21 @@
+@startuml
+title P3 Runtime Review Hardening
+
+rectangle "Review Findings" as Review
+rectangle "Config Helper Cleanup" as Config
+rectangle "Reviewer Cache Revision Bound" as Cache
+rectangle "Knowledge Sync Schedule Guard" as Sync
+rectangle "Watchdog Cleanup + Backoff" as Watchdog
+rectangle "Focused Regression Tests" as Tests
+
+Review --> Config
+Review --> Cache
+Review --> Sync
+Review --> Watchdog
+
+Config --> Tests
+Cache --> Tests
+Sync --> Tests
+Watchdog --> Tests
+
+@enduml

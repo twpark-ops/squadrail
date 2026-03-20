@@ -1580,6 +1580,11 @@ export function knowledgeService(db: Db) {
         const metadata = asRecord(asRecord(candidate.valueJson).metadata);
         const cacheIdentity = readRetrievalCacheIdentity(metadata.cacheIdentity);
         return (
+          (
+            input.allowKnowledgeRevisionDrift !== true
+            || candidate.knowledgeRevision <= revision
+          )
+          && (
           cacheIdentity.queryFingerprint === input.identity.queryFingerprint
           && cacheIdentity.policyFingerprint === input.identity.policyFingerprint
           && (
@@ -1593,6 +1598,7 @@ export function knowledgeService(db: Db) {
               input.allowFeedbackDrift === true
               && input.allowRevisionSignatureDrift === true
             )
+          )
           )
         );
       });
