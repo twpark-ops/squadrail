@@ -321,15 +321,35 @@ describe("heartbeat failure and protocol retry helpers", () => {
     ).toBe(false);
   });
 
-  it("only skips superseded protocol follow-ups for terminal issues", () => {
+  it("skips superseded protocol follow-ups when the workflow has moved beyond the original lane", () => {
     expect(isSupersededProtocolWakeReason("issue_ready_for_qa_gate")).toBe(true);
     expect(isSupersededProtocolWakeReason("issue_commented")).toBe(false);
     expect(
       shouldSkipSupersededProtocolFollowup({
         wakeReason: "issue_ready_for_qa_gate",
         issueStatus: "done",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolRecipientRole: "qa",
       }),
     ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "issue_ready_for_qa_gate",
+        issueStatus: "in_progress",
+        workflowState: "approved",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolRecipientRole: "qa",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "issue_ready_for_qa_gate",
+        issueStatus: "in_progress",
+        workflowState: "qa_pending",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolRecipientRole: "qa",
+      }),
+    ).toBe(false);
     expect(
       shouldSkipSupersededProtocolFollowup({
         wakeReason: "issue_ready_for_qa_gate",

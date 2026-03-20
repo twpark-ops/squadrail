@@ -449,12 +449,16 @@ describe("heartbeat protocol progress helpers", () => {
       shouldSkipSupersededProtocolFollowup({
         wakeReason: "issue_ready_for_closure",
         issueStatus: "done",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolRecipientRole: "tech_lead",
       }),
     ).toBe(true);
     expect(
       shouldSkipSupersededProtocolFollowup({
         wakeReason: "issue_ready_for_qa_gate",
         issueStatus: "cancelled",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolRecipientRole: "qa",
       }),
     ).toBe(true);
     expect(
@@ -502,5 +506,23 @@ describe("heartbeat protocol progress helpers", () => {
         protocolRecipientRole: "reviewer",
       }),
     ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "protocol_implementation_started",
+        issueStatus: "in_progress",
+        workflowState: "submitted_for_review",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolRecipientRole: "engineer",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipSupersededProtocolFollowup({
+        wakeReason: "protocol_implementation_started",
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        protocolMessageType: "START_IMPLEMENTATION",
+        protocolRecipientRole: "engineer",
+      }),
+    ).toBe(false);
   });
 });

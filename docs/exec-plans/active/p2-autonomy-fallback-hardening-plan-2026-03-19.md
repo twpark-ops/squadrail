@@ -182,6 +182,11 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `recoveredSupervisoryInvokeStallRate = 0.1429`
   - `providerRuntimeDebtScenarios = [swiftsight-agent-tl-qa-loop]`
   - 추가로 `claude_stream_incomplete_retry_loop`가 `engineer_wake` short-circuit로도 표면화됐다.
+- 최신 재검증(`CLO-177`)에서는 mid-run superseded cancellation 보강 이후 아래가 확인됐다.
+  - `submitted_for_review` 시점 active run이 이전 engineer lane에서 reviewer lane(TL)으로 바뀌었다.
+  - `qa_pending` 시점 active run도 QA agent lane으로 바뀌었다.
+  - 즉 "이전 lane run이 계속 남아 새 lane을 가린다"는 문제는 일부 줄었다.
+  - 다만 total fallback은 여전히 `7`로 유지돼, 남은 reviewer/QA/close fallback은 now-running lane 자체의 follow-up 자율성 부족 쪽으로 더 좁혀졌다.
 
 # Next Slice
 

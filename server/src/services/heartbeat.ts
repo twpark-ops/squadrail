@@ -1170,23 +1170,22 @@ export function shouldSkipSupersededProtocolFollowup(input: {
   protocolMessageType?: string | null;
   protocolRecipientRole?: string | null;
 }) {
-  if (input.issueStatus === "done" || input.issueStatus === "cancelled") {
-    return isSupersededProtocolWakeReason(input.wakeReason) || readNonEmptyString(input.wakeReason) === "adapter_retry";
-  }
-
-  const wakeReason = readNonEmptyString(input.wakeReason);
-  if (!wakeReason) return false;
-  if (!isSupersededProtocolWakeReason(wakeReason) && wakeReason !== "adapter_retry") return false;
-
   const requirement = resolveProtocolRunRequirement({
     protocolMessageType: readNonEmptyString(input.protocolMessageType) ?? undefined,
     protocolRecipientRole: readNonEmptyString(input.protocolRecipientRole) ?? undefined,
   });
   if (!requirement) return false;
 
+  if (input.issueStatus === "done" || input.issueStatus === "cancelled") {
+    return true;
+  }
+
+  const workflowState = readNonEmptyString(input.workflowState);
+  if (!workflowState) return false;
+
   return !isWorkflowStateEligibleForProtocolRetry({
     requirement,
-    workflowState: input.workflowState,
+    workflowState,
   });
 }
 
@@ -2299,6 +2298,55 @@ export function heartbeatService(db: Db) {
     return true;
   }
 
+  async function cancelSupersededProtocolRunIfNeeded(input: {
+    run: typeof heartbeatRuns.$inferSelect;
+    context: Record<string, unknown>;
+  }) {
+    if (input.run.status !== "running") return false;
+    if (!runningProcesses.has(input.run.id)) return false;
+
+    const issueId = readNonEmptyString(input.context.issueId);
+    if (!issueId) return false;
+
+    const issueStateSnapshot = await db
+      .select({
+        status: issues.status,
+        workflowState: issueProtocolState.workflowState,
+      })
+      .from(issues)
+      .leftJoin(
+        issueProtocolState,
+        and(
+          eq(issueProtocolState.issueId, issues.id),
+          eq(issueProtocolState.companyId, issues.companyId),
+        ),
+      )
+      .where(and(eq(issues.id, issueId), eq(issues.companyId, input.run.companyId)))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+
+    if (!shouldSkipSupersededProtocolFollowup({
+      wakeReason: readNonEmptyString(input.context.wakeReason),
+      issueStatus: issueStateSnapshot?.status ?? null,
+      workflowState: issueStateSnapshot?.workflowState ?? null,
+      protocolMessageType: readNonEmptyString(input.context.protocolMessageType),
+      protocolRecipientRole: readNonEmptyString(input.context.protocolRecipientRole),
+    })) {
+      return false;
+    }
+
+    const message =
+      issueStateSnapshot?.status === "done" || issueStateSnapshot?.status === "cancelled"
+        ? `Cancelled superseded protocol run because issue is already ${issueStateSnapshot.status}.`
+        : "Cancelled superseded protocol run because issue workflow moved beyond this protocol lane.";
+
+    await cancelRunInternal(input.run.id, {
+      message,
+      checkpointMessage: "run cancelled after superseded protocol workflow transition",
+    });
+    return true;
+  }
+
   async function handleProtocolIdleWatchdog(runId: string) {
     protocolIdleWatchdogTimers.delete(runId);
 
@@ -2940,16 +2988,30 @@ export function heartbeatService(db: Db) {
       await appendCheckpoint("adapter.execute_start", "starting adapter execution", {
         adapterType: agent.adapterType,
       });
+      let supersededProtocolCheckInFlight = false;
       leaseHeartbeatTimer = setInterval(() => {
-        void upsertRunLease({
-          run: eventRun,
-          status: "executing",
-          checkpointJson: {
-            phase: currentPhase,
-            message: "lease heartbeat",
-            lastProgressAt: lastProgressAt.toISOString(),
-          },
-        });
+        void (async () => {
+          await upsertRunLease({
+            run: eventRun,
+            status: "executing",
+            checkpointJson: {
+              phase: currentPhase,
+              message: "lease heartbeat",
+              lastProgressAt: lastProgressAt.toISOString(),
+            },
+          });
+
+          if (supersededProtocolCheckInFlight) return;
+          supersededProtocolCheckInFlight = true;
+          try {
+            await cancelSupersededProtocolRunIfNeeded({
+              run: eventRun,
+              context,
+            });
+          } finally {
+            supersededProtocolCheckInFlight = false;
+          }
+        })();
       }, RUN_LEASE_HEARTBEAT_INTERVAL_MS);
       leaseHeartbeatTimer.unref?.();
       const adapterResult = await adapter.execute({
