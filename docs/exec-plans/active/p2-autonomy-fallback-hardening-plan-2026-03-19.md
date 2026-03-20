@@ -138,6 +138,13 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `wakeReason / adapterRetryCount / adapterRetryErrorCode`
   - `latestEventType / latestEventMessage`
   - `checkpointPhase / checkpointMessage`
+- active run diagnostic는 이제 `protocolProgress`도 포함한다.
+  - `requirementKey`
+  - `actorAttemptedAfterRunStart`
+  - `actorMessageCount`
+  - `latestActorMessageType / latestDecisionMessageType`
+  - `latestHumanOverrideMessageType`
+  - `intermediateOnly / requiredProgressRecorded`
 - fallback summary는 이제 runtime degraded count도 함께 남긴다.
   - `adapter_retry`
   - `claude_stream_incomplete`
@@ -230,10 +237,14 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `providerRuntimeDebt = true`
   - 즉 남은 debt는 "정상 runtime" 일반론보다, 짧은 supervisory lane이 `adapter.invoke`에서 decision message 없이 멈추는 패턴으로 더 정확히 표현된다.
   - `human_board` close는 failure-learning gate가 있어도 operator review 자체로 인정되도록 policy를 맞췄고, latest close는 이 경로로 정상 완료됐다.
+- 최신 재검증(`CLO-185`)에서는 active-run protocol progress 계측이 실제로 붙었다.
+  - `reviewer_approval`, `qa_approval`, `close` fallback 직전 run은 모두 `actorAttemptedAfterRunStart = false`
+  - 같은 시나리오에서 `implementation_start` run은 `ACK_ASSIGNMENT`, `review_submission` run은 `START_IMPLEMENTATION`이 잡혔다
+  - 즉 남은 supervisory debt는 "메시지를 보냈는데 decision이 유실된다"보다, **supervisory lane이 helper/decision 시도까지 못 간다**는 설명이 더 정확하다.
 
 # Next Slice
 
 1. `reviewer_approval`, `qa_approval`, `close`를 `supervisory_invoke_stall` family로 고정 추적한다.
-2. reviewer/QA/closure lane에서 deterministic fallback 직전 active run의 protocol helper 사용 여부, protocol message attempt, latest event progression을 더 수집한다.
+2. reviewer/QA/closure lane에서 deterministic fallback 직전 active run의 **helper invocation trace**를 더 수집한다.
 3. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 `adapter.invoke`를 빠져나오지 못하는 이유를 adapter/provider 경계까지 좁힌다.
 4. `implementation_engineer` fallback은 별도 slice로 분리한다.

@@ -1953,6 +1953,10 @@ async function captureFallbackRunDiagnostic(issueId) {
     activeRun.checkpoint && typeof activeRun.checkpoint === "object"
       ? activeRun.checkpoint
       : {};
+  const protocolProgress =
+    activeRun.protocolProgress && typeof activeRun.protocolProgress === "object"
+      ? activeRun.protocolProgress
+      : null;
 
   return {
     runId: activeRun.id,
@@ -1992,6 +1996,33 @@ async function captureFallbackRunDiagnostic(issueId) {
       typeof checkpointPayload.message === "string" && checkpointPayload.message.length > 0
         ? checkpointPayload.message
         : latestEvent?.message ?? null,
+    protocolProgress: protocolProgress
+      ? {
+        requirementKey:
+          typeof protocolProgress.requirementKey === "string" && protocolProgress.requirementKey.length > 0
+            ? protocolProgress.requirementKey
+            : null,
+        actorAttemptedAfterRunStart: protocolProgress.actorAttemptedAfterRunStart === true,
+        actorMessageCount:
+          typeof protocolProgress.actorMessageCount === "number" && Number.isFinite(protocolProgress.actorMessageCount)
+            ? protocolProgress.actorMessageCount
+            : 0,
+        latestActorMessageType:
+          typeof protocolProgress.latestActorMessageType === "string" && protocolProgress.latestActorMessageType.length > 0
+            ? protocolProgress.latestActorMessageType
+            : null,
+        latestDecisionMessageType:
+          typeof protocolProgress.latestDecisionMessageType === "string" && protocolProgress.latestDecisionMessageType.length > 0
+            ? protocolProgress.latestDecisionMessageType
+            : null,
+        latestHumanOverrideMessageType:
+          typeof protocolProgress.latestHumanOverrideMessageType === "string" && protocolProgress.latestHumanOverrideMessageType.length > 0
+            ? protocolProgress.latestHumanOverrideMessageType
+            : null,
+        intermediateOnly: protocolProgress.intermediateOnly === true,
+        requiredProgressRecorded: protocolProgress.requiredProgressRecorded === true,
+      }
+      : null,
   };
 }
 

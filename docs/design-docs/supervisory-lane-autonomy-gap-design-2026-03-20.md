@@ -99,6 +99,15 @@ P2 남은 debt를 아래 두 층으로 분리한다.
   - protocol helper invocation 흔적
   - last protocol message attempt
 
+### Implementation update — 2026-03-20
+
+- `active-run` route는 이제 fallback 직전 run의 `protocolProgress`를 내려준다.
+- latest real-org run(`CLO-185`) 기준:
+  - reviewer / QA / close lane은 `actorAttemptedAfterRunStart = false`
+  - engineer reassignment lane은 `ACK_ASSIGNMENT`
+  - implementation lane은 `START_IMPLEMENTATION`
+- 따라서 현재 남은 gap은 "decision 이후 유실"보다 `supervisory lane이 decision 시도 전 adapter.invoke에 머무는 문제`로 보는 편이 정확하다.
+
 ## Phase B. Current-lane Follow-up Contract
 
 - reviewer / QA / close lane에서

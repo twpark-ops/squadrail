@@ -5,6 +5,16 @@ export interface ActiveRunForIssue extends HeartbeatRun {
   agentId: string;
   agentName: string;
   adapterType: string;
+  protocolProgress?: {
+    requirementKey: string | null;
+    actorAttemptedAfterRunStart: boolean;
+    actorMessageCount: number;
+    latestActorMessageType: string | null;
+    latestDecisionMessageType: string | null;
+    latestHumanOverrideMessageType: string | null;
+    intermediateOnly: boolean;
+    requiredProgressRecorded: boolean;
+  } | null;
 }
 
 export interface LiveRunForIssue {

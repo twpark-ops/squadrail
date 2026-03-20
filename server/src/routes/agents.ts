@@ -2,8 +2,16 @@ import { Router, type Request } from "express";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Db } from "@squadrail/db";
-import { agents as agentsTable, companies, heartbeatRunEvents, heartbeatRunLeases, heartbeatRuns } from "@squadrail/db";
-import { and, desc, eq, inArray, not, sql } from "drizzle-orm";
+import {
+  agents as agentsTable,
+  companies,
+  heartbeatRunEvents,
+  heartbeatRunLeases,
+  heartbeatRuns,
+  issueProtocolMessages,
+  issueProtocolState,
+} from "@squadrail/db";
+import { and, asc, desc, eq, gt, inArray, not, sql } from "drizzle-orm";
 import {
   createAgentKeySchema,
   createAgentHireSchema,
@@ -32,6 +40,7 @@ import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { findServerAdapter, listAdapterModels } from "../adapters/index.js";
 import { redactEventPayload } from "../redaction.js";
 import { describeProtocolRunRuntimeState } from "../services/heartbeat.js";
+import { summarizeActiveRunProtocolProgress } from "../services/active-run-protocol-progress.js";
 import { runClaudeLogin } from "@squadrail/adapter-claude-local/server";
 import { DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS } from "@squadrail/adapter-claude-local";
 import {
@@ -1424,6 +1433,60 @@ export function agentRoutes(db: Db) {
       startedAt: run.startedAt,
       now: new Date(),
     });
+    const context = asRecord(run.contextSnapshot) ?? {};
+    const protocolMessageType = asNonEmptyString(context.protocolMessageType);
+    const protocolRecipientRole = asNonEmptyString(context.protocolRecipientRole);
+    let protocolProgress = null;
+
+    if (protocolMessageType && protocolRecipientRole) {
+      const startedAtValue = run.startedAt ?? run.createdAt ?? null;
+      const startedAt =
+        startedAtValue instanceof Date
+          ? startedAtValue
+          : typeof startedAtValue === "string"
+            ? new Date(startedAtValue)
+            : null;
+      const messageWindowStart =
+        startedAt && Number.isFinite(startedAt.getTime())
+          ? new Date(startedAt.getTime() - 1_000)
+          : null;
+      const [workflowStateRow, protocolMessages] = await Promise.all([
+        db
+          .select({
+            workflowState: issueProtocolState.workflowState,
+          })
+          .from(issueProtocolState)
+          .where(and(eq(issueProtocolState.companyId, issue.companyId), eq(issueProtocolState.issueId, issue.id)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null),
+        db
+          .select({
+            messageType: issueProtocolMessages.messageType,
+            senderActorType: issueProtocolMessages.senderActorType,
+            senderActorId: issueProtocolMessages.senderActorId,
+            senderRole: issueProtocolMessages.senderRole,
+            createdAt: issueProtocolMessages.createdAt,
+          })
+          .from(issueProtocolMessages)
+          .where(
+            and(
+              eq(issueProtocolMessages.companyId, issue.companyId),
+              eq(issueProtocolMessages.issueId, issue.id),
+              ...(messageWindowStart ? [gt(issueProtocolMessages.createdAt, messageWindowStart)] : []),
+            ),
+          )
+          .orderBy(asc(issueProtocolMessages.createdAt)),
+      ]);
+
+      protocolProgress = summarizeActiveRunProtocolProgress({
+        protocolMessageType,
+        protocolRecipientRole,
+        agentId: agent.id,
+        startedAt,
+        workflowState: workflowStateRow?.workflowState ?? null,
+        messages: protocolMessages,
+      });
+    }
 
     res.json({
       ...run,
@@ -1434,6 +1497,7 @@ export function agentRoutes(db: Db) {
       checkpoint: lease?.checkpointJson ?? null,
       leaseHeartbeatAt: lease?.heartbeatAt ?? null,
       latestEvent,
+      protocolProgress,
       ...runtimeState,
     });
   });
