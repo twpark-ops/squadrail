@@ -118,6 +118,9 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 - active run route는 이제 `runtimeDegradedState / runtimeHealth`도 함께 내려준다.
   - 예: `claude_stream_incomplete_retry_loop`
   - 예: `recovered_supervisory_invoke_stall`
+- real-org harness는 이제 `runtimeDegradedState / runtimeHealth`를 보고 short-circuit fallback policy를 적용한다.
+  - 목표: degraded supervisory lane을 더 이상 full timeout까지 기다리지 않고 바로 deterministic handoff로 넘긴다.
+  - 범위: `routing_reassign`, `staffing_reassign`, `engineer_wake`, `implementation_start`, `review_submission`, `reviewer_approval`, `qa_approval`, `close`
 - 짧은 protocol lane 전용 idle watchdog을 heartbeat per-run timer로 올렸다.
   - 포함: routing, staffing, reviewer, QA, close
   - 제외: 장시간 구현이 가능한 `implementation_engineer`
@@ -158,10 +161,17 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 - 다만 recovery 이후에도 같은 supervisory lane run이 다시 `adapter.invoke`에 장시간 머무를 수 있었다.
   - 즉 "recovery enqueue 자체가 안 된다"는 단계는 넘겼고,
   - 남은 문제는 "recovered run이 adapter runtime에서 다시 빠져나오지 못하는 degraded loop"에 더 가깝다.
+- 이번 슬라이스로 "recovered run이 degraded loop에 머물 때도 harness가 무한 대기한다"는 운영성 갭은 닫았다.
+  - degraded runtime state는 이제 fallback family로 직접 매핑된다.
+  - 따라서 남은 문제는 "기다림"이 아니라 "왜 degraded state가 반복되느냐"로 축소된다.
+- 최신 재검증(`CLO-175`)에서는 아래가 실제로 확인됐다.
+  - `accepted` 상태에서 `recovered_supervisory_invoke_stall`이 관측되자 `implementation_start` fallback이 즉시 short-circuit 되었다.
+  - 결과적으로 `ACK_ASSIGNMENT -> START_IMPLEMENTATION` 구간의 full timeout 대기는 사라졌다.
+  - 다만 total fallback은 아직 `7`이고, runtime degraded count는 `recovered_supervisory_invoke_stall = 2`였다.
 
 # Next Slice
 
-1. recovered supervisory run에 대해 `adapter.invoke` 장기 체류를 별도 runtime state로 분리한다.
-2. `protocol recovery applied` 이후에도 같은 issue/role에서 재차 stuck되면 adapter/provider-level degrade로 표기한다.
+1. `recovered_supervisory_invoke_stall` 발생률을 시나리오별 KPI로 남기고, repeat harness에서 추세를 확인한다.
+2. `protocol recovery applied` 이후에도 같은 issue/role에서 재차 stuck되면 adapter/provider-level degrade로 분류해 tech debt로 추적한다.
 3. `adapter_retry`가 남더라도 protocol recovery로 자율 수습되는 비율을 separate KPI로 남긴다.
 4. `implementation_engineer` fallback은 별도 slice로 분리한다.

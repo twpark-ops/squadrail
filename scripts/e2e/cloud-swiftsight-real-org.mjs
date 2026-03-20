@@ -25,6 +25,7 @@ import {
   summarizeFallbackTracker,
 } from "./fallback-summary.mjs";
 import { assertQaGateInvariant } from "./qa-gate-invariants.mjs";
+import { resolveRuntimeDegradedFallbackPolicy } from "./runtime-degraded-fallback-policy.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -2015,6 +2016,30 @@ async function cancelAgentRunsForIssue(companyId, issueId, agentId, label) {
   return agentRuns.length;
 }
 
+async function sendEngineerWakeFallback(issueId, scenario, snapshot) {
+  const companyId = snapshot.issue?.companyId;
+  const engineerId = snapshot.state?.primaryEngineerAgentId;
+  if (typeof companyId !== "string" || typeof engineerId !== "string") {
+    return false;
+  }
+
+  const activeRuns = await listActiveIssueRuns(companyId, issueId);
+  const blockingRuns = activeRuns.filter((run) => run.agentId !== engineerId);
+  for (const run of blockingRuns) {
+    await cancelHeartbeatRun(run.id).catch(() => {});
+  }
+  await resetAgentRuntimeSession(engineerId).catch(() => {});
+  note(
+    `[${scenario.key}] assigned state still lacks engineer execution after staffing; waking ${engineerId} and cancelling ${blockingRuns.length} blocking run(s)`,
+  );
+  await wakeAgentForIssue(
+    engineerId,
+    issueId,
+    "Deterministic E2E recovery wake after TL staffing fallback",
+  );
+  return true;
+}
+
 function parseMessageSeq(message) {
   return Number.isFinite(message?.seq) ? Number(message.seq) : null;
 }
@@ -2555,27 +2580,12 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           !engineerWakeSent
           && Date.now() - engineerWakeObservedAt >= (scenario.staffingFallback.afterMs ?? CLOSE_FALLBACK_AFTER_MS)
         ) {
-          const companyId = snapshot.issue?.companyId;
-          const engineerId = snapshot.state?.primaryEngineerAgentId;
-          if (typeof companyId === "string" && typeof engineerId === "string") {
-            const activeRuns = await listActiveIssueRuns(companyId, issueId);
-            const blockingRuns = activeRuns.filter((run) => run.agentId !== engineerId);
-            for (const run of blockingRuns) {
-              await cancelHeartbeatRun(run.id).catch(() => {});
-            }
-            await resetAgentRuntimeSession(engineerId).catch(() => {});
-            note(
-              `[${scenario.key}] assigned state still lacks engineer execution after staffing; waking ${engineerId} and cancelling ${blockingRuns.length} blocking run(s)`,
-            );
-            await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
-              reason: "engineer_wake",
-              workflowState: snapshot.state?.workflowState ?? null,
-            });
-            await wakeAgentForIssue(
-              engineerId,
-              issueId,
-              "Deterministic E2E recovery wake after TL staffing fallback",
-            );
+          await recordFallbackWithDiagnostic(fallbackTracker, issueId, {
+            reason: "engineer_wake",
+            workflowState: snapshot.state?.workflowState ?? null,
+          });
+          const wakeSent = await sendEngineerWakeFallback(issueId, scenario, snapshot);
+          if (wakeSent) {
             engineerWakeSent = true;
             await new Promise((resolve) => setTimeout(resolve, 1_000));
             continue;
@@ -2775,6 +2785,98 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         }
       } else if (!scenario.changeRecoveryInvariant) {
         deterministicQaObservedAt = null;
+      }
+
+      const reviewerApprovalFallbackReady =
+        !deterministicReviewSent
+        && (deterministicReviewEligible || genericDeterministicReviewEligible);
+      const qaApprovalFallbackReady =
+        !deterministicQaSent
+        && (deterministicQaEligible || genericQaDeterministicEligible);
+      const runtimeDegradedFallbackReady =
+        (!routingFallbackSent && routingFallbackEligible)
+        || (!staffingFallbackSent && staffingFallbackEligible)
+        || (!engineerWakeSent && engineerWakeEligible)
+        || (!implementationStartSent && initialImplementationStartEligible)
+        || (!reviewSubmissionSent && reviewSubmissionFallbackEligible)
+        || reviewerApprovalFallbackReady
+        || qaApprovalFallbackReady
+        || (!closeFallbackSent && closeFallbackEligible);
+      const runtimeDegradedDiagnostic = runtimeDegradedFallbackReady
+        ? await captureFallbackRunDiagnostic(issueId)
+        : null;
+      const runtimeDegradedFallback = resolveRuntimeDegradedFallbackPolicy({
+        runDiagnostic: runtimeDegradedDiagnostic,
+        routingFallbackReady: !routingFallbackSent && routingFallbackEligible,
+        staffingFallbackReady: !staffingFallbackSent && staffingFallbackEligible,
+        engineerWakeFallbackReady: !engineerWakeSent && engineerWakeEligible,
+        implementationStartFallbackReady: !implementationStartSent && initialImplementationStartEligible,
+        reviewSubmissionFallbackReady: !reviewSubmissionSent && reviewSubmissionFallbackEligible,
+        reviewerApprovalFallbackReady,
+        qaApprovalFallbackReady,
+        closeFallbackReady: !closeFallbackSent && closeFallbackEligible,
+      });
+
+      if (runtimeDegradedFallback) {
+        note(
+          `[${scenario.key}] ${runtimeDegradedFallback.note}; workflow=${snapshot.state?.workflowState ?? "unknown"}`,
+        );
+        recordFallbackEvent(fallbackTracker, {
+          reason: runtimeDegradedFallback.reason,
+          workflowState: snapshot.state?.workflowState ?? null,
+          note: runtimeDegradedFallback.note,
+          runDiagnostic: runtimeDegradedDiagnostic,
+        });
+
+        switch (runtimeDegradedFallback.reason) {
+          case "routing_reassign":
+            await sendRoutingFallback(
+              issueId,
+              scenario,
+              snapshot.state?.workflowState ?? "assigned",
+              snapshot.issue?.companyId,
+            );
+            routingFallbackSent = true;
+            break;
+          case "staffing_reassign":
+            await sendStaffingFallback(
+              issueId,
+              scenario,
+              snapshot.state?.workflowState ?? "assigned",
+              snapshot.issue?.companyId,
+            );
+            staffingFallbackSent = true;
+            break;
+          case "engineer_wake":
+            await sendEngineerWakeFallback(issueId, scenario, snapshot);
+            engineerWakeSent = true;
+            break;
+          case "implementation_start":
+            await sendDeterministicImplementationStart(issueId, scenario, snapshot);
+            implementationStartSent = true;
+            break;
+          case "review_submission":
+            await sendDeterministicReviewSubmission(issueId, scenario, snapshot);
+            reviewSubmissionSent = true;
+            break;
+          case "reviewer_approval":
+            await sendDeterministicReviewerApproval(issueId, scenario, snapshot);
+            deterministicReviewSent = true;
+            break;
+          case "qa_approval":
+            await sendDeterministicQaApproval(issueId, scenario, snapshot);
+            deterministicQaSent = true;
+            break;
+          case "close":
+            await sendCloseTask(issueId, scenario, snapshot.state?.workflowState ?? "approved");
+            closeFallbackSent = true;
+            break;
+          default:
+            break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        continue;
       }
 
       if (closeMessage) {

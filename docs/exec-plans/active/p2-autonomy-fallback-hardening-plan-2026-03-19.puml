@@ -22,6 +22,7 @@ package "Fallback Families" {
 
 package "Target State" {
   [fallback counters in E2E summary] as Counters
+  [runtime degraded short-circuit policy] as RuntimePolicy
   [server-side follow-up fixes] as ServerFix
   [canonical repeat stays green] as Green
 }
@@ -38,6 +39,7 @@ F3 --> Counters
 F4 --> Counters
 F5 --> Counters
 
-Counters --> ServerFix
+Counters --> RuntimePolicy
+RuntimePolicy --> ServerFix
 ServerFix --> Green
 @enduml
