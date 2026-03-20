@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { access, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { assertBypassOnlyOnLocalhost } from "./full-delivery-guards.mjs";
 import { findCloseWakeEvidence } from "./close-wake-evidence.mjs";
 import { assertCanonicalScenarioOne } from "./full-delivery-invariants.mjs";
+import {
+  classifyFullDeliveryTimeoutAxis,
+  resolveFullDeliveryRuntimePolicy,
+} from "./full-delivery-runtime-policy.mjs";
 import {
   assertMergeDeployFollowupScenario,
   findCloseFollowupRun,
@@ -21,8 +25,7 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 const PREFERRED_PORT = Number(process.env.PORT ?? "3312");
 let runtimePort = PREFERRED_PORT;
 let runtimeBaseUrl = `http://${HOST}:${runtimePort}`;
-const E2E_TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 8 * 60 * 1000);
-const POLL_INTERVAL_MS = Number(process.env.E2E_POLL_INTERVAL_MS ?? 4000);
+const RUNTIME_POLICY = resolveFullDeliveryRuntimePolicy();
 
 function note(message) {
   process.stdout.write(`${message}\n`);
@@ -96,12 +99,12 @@ async function api(pathname, options = {}) {
 
 async function waitForHealth() {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 60_000) {
+  while (Date.now() - startedAt < RUNTIME_POLICY.healthTimeoutMs) {
     try {
       await api("/health");
       return;
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, RUNTIME_POLICY.healthRetryMs));
     }
   }
   throw new Error(`Timed out waiting for ${runtimeBaseUrl}/health`);
@@ -663,7 +666,7 @@ async function fetchRunLog(runId) {
   return api(`/api/heartbeat-runs/${runId}/log?tailBytes=65536`);
 }
 
-async function waitForCloseRunSnapshot(issueId, initialSnapshot, timeoutMs = 30_000) {
+async function waitForCloseRunSnapshot(issueId, initialSnapshot, timeoutMs = RUNTIME_POLICY.closeFollowupTimeoutMs) {
   const existingCloseRun = findCloseFollowupRun(initialSnapshot);
   if (existingCloseRun?.runId) {
     return initialSnapshot;
@@ -998,7 +1001,7 @@ async function main() {
     const startedAt = Date.now();
     let lastState = null;
 
-    while (Date.now() - startedAt < E2E_TIMEOUT_MS) {
+    while (Date.now() - startedAt < RUNTIME_POLICY.e2eTimeoutMs) {
       if (serverExited) {
         throw new Error(`Server exited early. Inspect log: ${serverLog}`);
       }
@@ -1093,7 +1096,7 @@ async function main() {
         note(`Close run: ${closeRun.runId}`);
         note(`Isolated workspace: ${isolatedWorkspacePath}`);
         note(`Server log: ${serverLog}`);
-        note(`Temp root: ${tempRoot}`);
+        note(`Temp root: ${RUNTIME_POLICY.keepTemp ? tempRoot : `${tempRoot} (removed on exit)`}`);
         note("Full delivery E2E succeeded.");
         return;
       }
@@ -1102,13 +1105,15 @@ async function main() {
         throw new Error(`Protocol state entered terminal failure state: ${snapshot.protocolState.workflowState}`);
       }
 
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(RUNTIME_POLICY.pollIntervalMs);
     }
 
     const timedOutSnapshot = await fetchIssueSnapshot(deliveryIssue.id);
+    const timeoutAxis = classifyFullDeliveryTimeoutAxis(timedOutSnapshot.protocolState?.workflowState ?? null);
     throw new Error(
       [
-        `Full delivery E2E timed out after ${E2E_TIMEOUT_MS}ms.`,
+        `Full delivery E2E timed out after ${RUNTIME_POLICY.e2eTimeoutMs}ms.`,
+        `Timeout axis: ${timeoutAxis}`,
         `Latest state: ${timedOutSnapshot.protocolState?.workflowState ?? "unknown"}`,
         `Messages:`,
         ...timedOutSnapshot.protocolMessages.map((message) => `  - ${summarizeMessage(message)}`),
@@ -1126,7 +1131,10 @@ async function main() {
         serverProcess.kill("SIGKILL");
       }
     }
-    logStream.end();
+    await new Promise((resolve) => logStream.end(resolve));
+    if (!RUNTIME_POLICY.keepTemp) {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   }
 }
 

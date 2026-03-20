@@ -49,6 +49,7 @@ const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
 const RUN_PROTOCOL_IDLE_WATCHDOG_MS = 10_000;
 const RUN_PROTOCOL_DEGRADED_WATCHDOG_MS = 20_000;
+const RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS = 60_000;
 const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
 const RETRYABLE_ADAPTER_FAILURE_LIMIT = 2;
 const DISPATCH_PRIORITY_ESCALATION_STEP_MS = 20 * 60 * 1000;
@@ -87,6 +88,14 @@ class SupersededProtocolFollowupError extends Error {
 
 function appendExcerpt(prev: string, chunk: string) {
   return appendWithCap(prev, chunk, MAX_EXCERPT_BYTES);
+}
+
+export function resolveProtocolIdleWatchdogDelayMs(attempt: number) {
+  const normalizedAttempt = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0;
+  return Math.min(
+    RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS,
+    RUN_PROTOCOL_IDLE_WATCHDOG_MS * (2 ** normalizedAttempt),
+  );
 }
 
 export function mergeRunResultJson(
@@ -1376,6 +1385,7 @@ export function heartbeatService(db: Db) {
   const dispatchWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const dispatchWatchdogAttempts = new Map<string, number>();
   const protocolIdleWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const protocolIdleWatchdogAttempts = new Map<string, number>();
 
   function clearDispatchWatchdog(runId: string) {
     const timer = dispatchWatchdogTimers.get(runId);
@@ -1386,11 +1396,14 @@ export function heartbeatService(db: Db) {
     dispatchWatchdogAttempts.delete(runId);
   }
 
-  function clearProtocolIdleWatchdog(runId: string) {
+  function clearProtocolIdleWatchdog(runId: string, opts?: { resetAttempts?: boolean }) {
     const timer = protocolIdleWatchdogTimers.get(runId);
     if (timer) {
       clearTimeout(timer);
       protocolIdleWatchdogTimers.delete(runId);
+    }
+    if (opts?.resetAttempts !== false) {
+      protocolIdleWatchdogAttempts.delete(runId);
     }
   }
 
@@ -2368,22 +2381,28 @@ export function heartbeatService(db: Db) {
       now: new Date(),
       degradedThresholdMs: RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
     });
+    if (recovered) {
+      protocolIdleWatchdogAttempts.delete(run.id);
+    }
     if (!recovered && runningProcesses.has(run.id)) {
       scheduleProtocolIdleWatchdog(run.id);
     }
   }
 
   function scheduleProtocolIdleWatchdog(runId: string) {
-    clearProtocolIdleWatchdog(runId);
+    clearProtocolIdleWatchdog(runId, { resetAttempts: false });
+    const attempt = protocolIdleWatchdogAttempts.get(runId) ?? 0;
+    const delayMs = resolveProtocolIdleWatchdogDelayMs(attempt);
     const timer = setTimeout(() => {
       runDispatchWatchdogOutsideDbContext(() => {
         void handleProtocolIdleWatchdog(runId).catch((err) => {
           logger.error({ err, runId }, "idle protocol watchdog failed");
         });
       });
-    }, RUN_PROTOCOL_IDLE_WATCHDOG_MS);
+    }, delayMs);
     timer.unref?.();
     protocolIdleWatchdogTimers.set(runId, timer);
+    protocolIdleWatchdogAttempts.set(runId, attempt + 1);
   }
 
   async function recoverIdleProtocolRuns(opts?: { idleThresholdMs?: number }) {

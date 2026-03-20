@@ -1,6 +1,13 @@
 # E2E Scripts
 
+These harnesses are live-model acceptance runs, not fully mocked unit tests. They can exercise real adapter/provider behavior, so CI/runtime timeouts are intentionally configurable through environment variables instead of assuming deterministic model output.
+
 - `full-delivery.mjs`: boots a temporary Squadrail instance, creates a temporary git fixture repo, and verifies the full delivery loop through issue closure.
+  - important env:
+    - `E2E_TIMEOUT_MS`
+    - `E2E_CLOSE_FOLLOWUP_TIMEOUT_MS`
+    - `E2E_HEALTH_TIMEOUT_MS`
+    - `E2E_KEEP_TEMP=1` to preserve the temporary workspace for debugging
 - `cloud-swiftsight-real-org.mjs`: deterministic kernel burn-in entrypoint for the cloud-swiftsight canonical org model. Use this when validating the lower delivery kernel against the full scripted org roster.
 - `cloud-swiftsight-burn-in.mjs`: deterministic kernel burn-in batch runner. It cleans lingering tagged issues, runs the scripted scenario batch, and emits an enriched summary.
 - `cloud-swiftsight-autonomy-org.mjs`: Phase 7 bounded autonomy baseline harness for `intake -> projection preview/apply -> ACK_ASSIGNMENT -> START_IMPLEMENTATION -> ESCALATE_BLOCKER -> ASK_CLARIFICATION -> ANSWER_CLARIFICATION -> review -> QA -> CLOSE_TASK` invariants, with clarification ask/answer/resume driven through the runtime helper contract instead of direct protocol API shortcuts.

@@ -233,6 +233,23 @@ describe("createApp", () => {
     expect(betterAuthHandler).toHaveBeenCalled();
   });
 
+  it("accepts JSON bodies larger than the default parser limit when issue document limits require it", async () => {
+    const betterAuthHandler = vi.fn((req: any, res: any) => {
+      res.status(200).json({ payloadSize: JSON.stringify(req.body).length });
+    });
+    const app = await createApp({} as never, buildOptions({
+      betterAuthHandler,
+      issueDocumentMaxBodyChars: 200_000,
+    }));
+
+    const response = await request(app)
+      .post("/api/auth/login")
+      .send({ body: "x".repeat(150_000) });
+
+    expect(response.status).toBe(200);
+    expect(response.body.payloadSize).toBeGreaterThan(100_000);
+  });
+
   it("falls back to API-only mode when static UI assets are missing", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {

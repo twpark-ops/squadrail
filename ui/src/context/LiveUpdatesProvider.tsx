@@ -12,7 +12,10 @@ import {
   buildRunStatusToast,
   type IssueToastContext,
 } from "./live-update-toast-builders";
-import { resolveIssueProjectIdsFromCache } from "./live-update-issue-cache";
+import {
+  resolveIssueProjectIdsFromCache,
+  shouldInvalidateProjectsListForIssueActivity,
+} from "./live-update-issue-cache";
 import { queryKeys } from "../lib/queryKeys";
 import { issueUrl } from "../lib/utils";
 
@@ -324,7 +327,6 @@ function invalidateActivityQueries(
   if (entityType === "issue") {
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(companyId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.listWithSubtasks(companyId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(companyId) });
     if (entityId) {
       const details = readRecord(payload.details);
       const listIssues = queryClient.getQueryData<Issue[]>(queryKeys.issues.list(companyId));
@@ -335,6 +337,9 @@ function invalidateActivityQueries(
         detailIssue,
         listIssues,
       });
+      if (shouldInvalidateProjectsListForIssueActivity(projectIds)) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(companyId) });
+      }
       const issueRefs = resolveIssueQueryRefs(queryClient, companyId, entityId, details);
       for (const ref of issueRefs) {
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(ref) });

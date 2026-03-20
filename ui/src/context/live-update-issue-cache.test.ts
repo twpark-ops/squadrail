@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Issue } from "@squadrail/shared";
-import { resolveIssueProjectIdsFromCache } from "./live-update-issue-cache";
+import {
+  resolveIssueProjectIdsFromCache,
+  shouldInvalidateProjectsListForIssueActivity,
+} from "./live-update-issue-cache";
 
 function makeIssue(overrides: Partial<Issue> = {}): Issue {
   return {
@@ -81,5 +84,12 @@ describe("resolveIssueProjectIdsFromCache", () => {
     });
 
     expect(projectIds).toEqual(["project-z"]);
+  });
+});
+
+describe("shouldInvalidateProjectsListForIssueActivity", () => {
+  it("only invalidates the project list when the issue activity resolves a concrete project id", () => {
+    expect(shouldInvalidateProjectsListForIssueActivity(["project-a"])).toBe(true);
+    expect(shouldInvalidateProjectsListForIssueActivity([])).toBe(false);
   });
 });

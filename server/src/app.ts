@@ -52,9 +52,13 @@ export async function createApp(
   },
 ) {
   const app = express();
+  const jsonBodyLimitBytes = Math.max(
+    3 * 1024 * 1024,
+    Math.min(16 * 1024 * 1024, Math.max(200_000, opts.issueDocumentMaxBodyChars ?? 200_000) * 4),
+  );
 
   app.use(securityHeaders({ uiMode: opts.uiMode }));
-  app.use(express.json());
+  app.use(express.json({ limit: jsonBodyLimitBytes }));
   app.use(httpLogger);
   const privateHostnameGateEnabled =
     opts.deploymentMode === "authenticated" && opts.deploymentExposure === "private";

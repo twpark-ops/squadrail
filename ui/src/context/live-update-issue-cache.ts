@@ -42,3 +42,7 @@ export function resolveIssueProjectIdsFromCache(input: {
 
   return Array.from(ids);
 }
+
+export function shouldInvalidateProjectsListForIssueActivity(projectIds: string[]) {
+  return projectIds.length > 0;
+}

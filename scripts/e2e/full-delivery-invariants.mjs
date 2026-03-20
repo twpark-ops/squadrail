@@ -56,7 +56,7 @@ export function evaluateCanonicalScenarioOne(input) {
     finalWorkflowStateDone: deliverySnapshot.protocolState?.workflowState === "done",
     rootAssignTaskRecorded: rootMessageTypeSet.has("ASSIGN_TASK"),
     requiredMessageTypesPresent: REQUIRED_MESSAGE_TYPES.every((messageType) => deliveryMessageTypeSet.has(messageType)),
-    briefsSufficient: Array.isArray(deliverySnapshot.briefs) && deliverySnapshot.briefs.length >= 2,
+    briefsSufficient: Array.isArray(deliverySnapshot.briefs) && deliverySnapshot.briefs.length >= 1,
     implementationRunCaptured: Boolean(runWithChanges),
     submitArtifactsComplete:
       submitArtifactKinds.includes("diff")

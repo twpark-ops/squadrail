@@ -18,10 +18,13 @@ for iteration in $(seq 1 "$ITERATIONS"); do
   printf '## Canonical repeat iteration %s/%s\n' "$iteration" "$ITERATIONS"
   printf '########################################\n'
 
+  run_step "scenario cleanup / real-org" node scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs
   run_step "scenario 1 + 5 / full delivery" pnpm e2e:full-delivery
   run_step "scenario 2 / clarification loop" env SWIFTSIGHT_PM_EVAL_SCENARIO=workflow_mismatch_diagnostics SWIFTSIGHT_PM_EVAL_CLEANUP=1 pnpm e2e:cloud-swiftsight-domain-aware-pm-eval
   run_step "scenario 2 guard / no unexpected clarification" env SWIFTSIGHT_PM_EVAL_SCENARIO=siemens_series_name_cloud_routing SWIFTSIGHT_PM_EVAL_CLEANUP=1 pnpm e2e:cloud-swiftsight-domain-aware-pm-eval
+  run_step "scenario cleanup / before recovery" node scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs
   run_step "scenario 3 / change recovery" env SWIFTSIGHT_E2E_SCENARIO=swiftsight-cloud-pm-tl-change-recovery-loop pnpm e2e:cloud-swiftsight-real-org
+  run_step "scenario cleanup / before qa gate" node scripts/e2e/cloud-swiftsight-real-org-cleanup.mjs
   run_step "scenario 4 / QA gate" env SWIFTSIGHT_E2E_SCENARIO=swiftsight-agent-tl-qa-loop pnpm e2e:cloud-swiftsight-real-org
 done
 

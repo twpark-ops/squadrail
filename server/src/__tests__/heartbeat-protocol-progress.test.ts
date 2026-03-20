@@ -9,6 +9,7 @@ import {
   isIdleProtocolWatchdogEligibleRequirement,
   isSupersededProtocolWakeReason,
   readLeaseLastProgressAt,
+  resolveProtocolIdleWatchdogDelayMs,
   shouldEnqueueRetryableAdapterFailure,
   shouldRecoverDegradedProtocolRun,
   shouldEnqueueProtocolRequiredRetry,
@@ -524,5 +525,13 @@ describe("heartbeat protocol progress helpers", () => {
         protocolRecipientRole: "engineer",
       }),
     ).toBe(false);
+  });
+
+  it("backs off repeated protocol idle watchdog polls", () => {
+    expect(resolveProtocolIdleWatchdogDelayMs(0)).toBe(10_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(1)).toBe(20_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(2)).toBe(40_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(3)).toBe(60_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(8)).toBe(60_000);
   });
 });

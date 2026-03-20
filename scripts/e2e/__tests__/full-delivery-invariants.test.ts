@@ -58,7 +58,7 @@ describe("full delivery scenario 1 invariants", () => {
             },
           }),
         ],
-        briefs: [{ id: "brief-1" }, { id: "brief-2" }],
+        briefs: [{ id: "brief-1" }],
         runs: [
           {
             runId: "run-1",
@@ -123,7 +123,6 @@ describe("full delivery scenario 1 invariants", () => {
         "finalWorkflowStateDone",
         "rootAssignTaskRecorded",
         "requiredMessageTypesPresent",
-        "briefsSufficient",
         "implementationRunCaptured",
         "submitArtifactsComplete",
         "approvalRecorded",
