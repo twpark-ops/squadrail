@@ -163,6 +163,14 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `promptMentionsProtocolHelper`
   - `commandNotesMentionProtocolHelper`
   - `transportContractInjected`
+- active run route는 이제 latest `protocol.helper_invocation` run event도 `helperTrace`에 합쳐서 내려준다.
+  - `helperTransportObserved`
+  - `helperTransport`
+  - `helperTransportCommand`
+  - `helperTransportMessageMatched`
+  - `helperTransportRoleMatched`
+- protocol helper CLI는 이제 `X-Squadrail-Protocol-Helper`와 `X-Squadrail-Protocol-Helper-Command`를 함께 보낸다.
+- issue protocol route는 helper-originated agent POST를 run event `protocol.helper_invocation`으로 best-effort 기록한다.
 - real-org harness는 이제 `runtimeDegradedState / runtimeHealth`를 보고 short-circuit fallback policy를 적용한다.
   - 목표: degraded supervisory lane을 더 이상 full timeout까지 기다리지 않고 바로 deterministic handoff로 넘긴다.
   - 범위: `routing_reassign`, `staffing_reassign`, `engineer_wake`, `implementation_start`, `review_submission`, `reviewer_approval`, `qa_approval`, `close`
@@ -250,10 +258,14 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 - 최신 슬라이스에서는 watchdog recovery 체인도 독립 실행으로 분리했다.
   - idle recovery가 예외를 던져도 degraded recovery는 계속 시도한다.
   - 즉 watchdog 내부 예외 하나가 recovery family 전체를 건너뛰게 만들지는 않는다.
+- 최신 슬라이스에서는 helper contract뿐 아니라 **실제 helper transport 도달 여부**도 run 기준으로 남긴다.
+  - 이제 `transportContractInjected = true`인데 `helperTransportObserved = false`인 stalled run을 직접 구분할 수 있다.
+  - 따라서 남은 debt는 "helper를 설명했는데 안 쓴다"와 "helper POST까지 갔는데 그 뒤가 막힌다"를 분리해서 볼 수 있다.
+- 최신 재검증(`CLO-187`)에서는 fallback 직전 stalled run이 모두 `helperTransportObserved = false`였다.
+  - 즉 이번 시점의 남은 debt는 "helper POST가 서버에 도달한 뒤 decision이 막힌다"보다, **current-lane run이 shell-level helper execution까지 가지 못한다**는 쪽에 더 가깝다.
 
 # Next Slice
 
-1. `reviewer_approval`, `qa_approval`, `close`를 `supervisory_invoke_stall` family로 고정 추적한다.
-2. reviewer/QA/closure lane에서 deterministic fallback 직전 active run의 **실제 shell-level helper execution trace**를 더 수집한다.
-3. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 `adapter.invoke`를 빠져나오지 못하는 이유를 adapter/provider 경계까지 좁힌다.
-4. `implementation_engineer` fallback은 별도 slice로 분리한다.
+1. `reviewer_approval`, `qa_approval`, `close`에서 `helperTransportObserved = false`인 stalled run의 공통 패턴을 좁힌다.
+2. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 왜 helper execution까지 못 가는지 adapter/provider 경계까지 좁힌다.
+3. `implementation_engineer` fallback은 별도 slice로 분리한다.

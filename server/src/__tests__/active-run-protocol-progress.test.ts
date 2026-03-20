@@ -130,6 +130,32 @@ describe("summarizeActiveRunProtocolProgress", () => {
       promptMentionsProtocolHelper: true,
       commandNotesMentionProtocolHelper: true,
       transportContractInjected: true,
+      helperTransportObserved: false,
+    });
+  });
+
+  it("captures observed helper transport reaching the protocol route", () => {
+    const summary = summarizeActiveRunHelperTrace({
+      helperInvocationCreatedAt: "2026-03-20T10:00:09.000Z",
+      protocolMessageType: "APPROVE_IMPLEMENTATION",
+      protocolRecipientRole: "reviewer",
+      helperInvocationPayload: {
+        transport: "local_cli",
+        command: "approve-implementation",
+        messageType: "APPROVE_IMPLEMENTATION",
+        senderRole: "reviewer",
+      },
+    });
+
+    expect(summary).toMatchObject({
+      adapterInvokeCaptured: false,
+      helperTransportObserved: true,
+      helperTransport: "local_cli",
+      helperTransportCommand: "approve-implementation",
+      helperTransportMessageType: "APPROVE_IMPLEMENTATION",
+      helperTransportSenderRole: "reviewer",
+      helperTransportMessageMatched: true,
+      helperTransportRoleMatched: true,
     });
   });
 });

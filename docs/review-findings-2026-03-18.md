@@ -94,6 +94,7 @@ git diff --check
 | P2-2 | MEDIUM | degraded classification and recovery threshold used different clocks, so watchdog recovery could trail deterministic fallback by a full cycle | `heartbeat.ts`: unified degraded recovery threshold resolution for supervisory stalls and kept the first two watchdog ticks at `10s` |
 | P2-3 | HIGH | `human_board` close could still be blocked by failure-learning gate even though the policy text required operator review before close | `issue-protocol-policy.ts`: treat `human_board` close as satisfying the operator-review gate for unresolved repeated runtime failures |
 | P2-4 | MEDIUM | idle recovery exception could skip degraded recovery because watchdog chained both branches in a single boolean expression | `heartbeat.ts`: split idle/degraded recovery into independently guarded execution via `runProtocolWatchdogRecoveries()` |
+| P2-7 | MEDIUM | active-run diagnostics only proved helper contract injection, not whether shell-level helper POST actually reached the protocol route | `squadrail-protocol.mjs`, `issues.ts`, `agents.ts`, `active-run-protocol-progress.ts`: helper POSTs now send explicit transport headers, the issue route records `protocol.helper_invocation` run events, and `helperTrace` exposes observed helper transport alongside prompt/env contract injection |
 
 ### Open — Active Reliability Debt
 
@@ -111,3 +112,5 @@ git diff --check
 - S-13 (OpenAI mock adapter) is the single largest remaining E2E reliability gap. Until addressed, canonical repeat validation depends on external API availability.
 - S-14 (shared persistent server) is mitigated but not eliminated. The repeat harness should eventually adopt ephemeral servers for all scenarios, matching the full-delivery pattern.
 - P2 follow-up changed the diagnosis of the remaining QA/close debt. The latest real-org runs show `supervisory_invoke_stall` as the dominant signature, so the remaining work is now "why short supervisory lanes do not emit a decision message" rather than "whether runtime degradation exists at all."
+- The latest helper-tracing slice narrows that further: the next question is whether stalled supervisory runs even reach shell-level helper execution (`helperTransportObserved`) before fallback.
+- The latest real-org run (`CLO-187`) showed `helperTransportObserved = false` across the stalled fallback runs, so the remaining debt is now more clearly "why current-lane runs never reach shell-level helper execution" than "what happens after the helper POST succeeds."

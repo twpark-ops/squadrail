@@ -2035,6 +2035,16 @@ async function captureFallbackRunDiagnostic(issueId) {
         promptMentionsProtocolHelper: helperTrace.promptMentionsProtocolHelper === true,
         commandNotesMentionProtocolHelper: helperTrace.commandNotesMentionProtocolHelper === true,
         transportContractInjected: helperTrace.transportContractInjected === true,
+        helperTransportObserved: helperTrace.helperTransportObserved === true,
+        helperTransport: typeof helperTrace.helperTransport === "string" ? helperTrace.helperTransport : null,
+        helperTransportCommand:
+          typeof helperTrace.helperTransportCommand === "string" ? helperTrace.helperTransportCommand : null,
+        helperTransportMessageType:
+          typeof helperTrace.helperTransportMessageType === "string" ? helperTrace.helperTransportMessageType : null,
+        helperTransportSenderRole:
+          typeof helperTrace.helperTransportSenderRole === "string" ? helperTrace.helperTransportSenderRole : null,
+        helperTransportMessageMatched: helperTrace.helperTransportMessageMatched === true,
+        helperTransportRoleMatched: helperTrace.helperTransportRoleMatched === true,
       }
       : null,
   };

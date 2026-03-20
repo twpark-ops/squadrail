@@ -4564,6 +4564,24 @@ export function heartbeatService(db: Db) {
       };
     },
 
+    recordExternalRunEvent: async (input: {
+      runId: string;
+      eventType: string;
+      message?: string;
+      level?: "info" | "warn" | "error";
+      payload?: Record<string, unknown>;
+    }) => {
+      const run = await getRun(input.runId);
+      if (!run) return false;
+      await appendRunEvent(run, await nextRunEventSeq(run.id), {
+        eventType: input.eventType,
+        level: input.level,
+        message: input.message,
+        payload: input.payload,
+      });
+      return true;
+    },
+
     invoke: async (
       agentId: string,
       source: "timer" | "assignment" | "on_demand" | "automation" = "on_demand",

@@ -43,6 +43,14 @@ export interface ActiveRunProtocolHelperTraceSummary {
   promptMentionsProtocolHelper: boolean;
   commandNotesMentionProtocolHelper: boolean;
   transportContractInjected: boolean;
+  helperTransportObserved: boolean;
+  helperTransportObservedAt: string | null;
+  helperTransport: string | null;
+  helperTransportCommand: string | null;
+  helperTransportMessageType: string | null;
+  helperTransportSenderRole: string | null;
+  helperTransportMessageMatched: boolean;
+  helperTransportRoleMatched: boolean;
 }
 
 interface ObservedProtocolProgressMessage {
@@ -101,16 +109,19 @@ function asStringArray(value: unknown) {
 export function summarizeActiveRunHelperTrace(input: {
   adapterInvokePayload?: unknown;
   adapterInvokeCreatedAt?: Date | string | null;
+  helperInvocationPayload?: unknown;
+  helperInvocationCreatedAt?: Date | string | null;
   protocolMessageType?: string | null;
   protocolRecipientRole?: string | null;
 }): ActiveRunProtocolHelperTraceSummary | null {
   const payload = asRecord(input.adapterInvokePayload);
-  if (!payload) return null;
+  const helperInvocationPayload = asRecord(input.helperInvocationPayload);
+  if (!payload && !helperInvocationPayload) return null;
 
-  const env = asRecord(payload.env) ?? {};
-  const context = asRecord(payload.context) ?? {};
-  const prompt = readNonEmptyString(payload.prompt);
-  const commandNotes = asStringArray(payload.commandNotes);
+  const env = asRecord(payload?.env) ?? {};
+  const context = asRecord(payload?.context) ?? {};
+  const prompt = readNonEmptyString(payload?.prompt);
+  const commandNotes = asStringArray(payload?.commandNotes);
   const helperPathInjected = Boolean(readNonEmptyString(env.SQUADRAIL_PROTOCOL_HELPER_PATH));
   const helperContextInjected =
     readNonEmptyString(context.protocolMessageType) === readNonEmptyString(input.protocolMessageType)
@@ -123,9 +134,19 @@ export function summarizeActiveRunHelperTrace(input: {
     const normalized = note.toLowerCase();
     return normalized.includes("protocol") || normalized.includes("helper");
   });
+  const helperTransport = readNonEmptyString(helperInvocationPayload?.transport);
+  const helperTransportCommand = readNonEmptyString(helperInvocationPayload?.command);
+  const helperTransportMessageType = readNonEmptyString(helperInvocationPayload?.messageType);
+  const helperTransportSenderRole = readNonEmptyString(helperInvocationPayload?.senderRole);
+  const helperTransportObserved = Boolean(
+    helperTransport
+      || helperTransportCommand
+      || helperTransportMessageType
+      || helperTransportSenderRole,
+  );
 
   return {
-    adapterInvokeCaptured: true,
+    adapterInvokeCaptured: Boolean(payload),
     adapterInvokeAt: toIsoString(input.adapterInvokeCreatedAt),
     helperPathInjected,
     helperContextInjected,
@@ -133,6 +154,18 @@ export function summarizeActiveRunHelperTrace(input: {
     commandNotesMentionProtocolHelper,
     transportContractInjected:
       helperPathInjected || helperContextInjected || promptMentionsProtocolHelper || commandNotesMentionProtocolHelper,
+    helperTransportObserved,
+    helperTransportObservedAt: toIsoString(input.helperInvocationCreatedAt),
+    helperTransport,
+    helperTransportCommand,
+    helperTransportMessageType,
+    helperTransportSenderRole,
+    helperTransportMessageMatched:
+      helperTransportObserved
+      && helperTransportMessageType === readNonEmptyString(input.protocolMessageType),
+    helperTransportRoleMatched:
+      helperTransportObserved
+      && helperTransportSenderRole === readNonEmptyString(input.protocolRecipientRole),
   };
 }
 

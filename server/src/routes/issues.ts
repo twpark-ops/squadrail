@@ -122,6 +122,16 @@ export function canBypassAssignPermissionForProtocolMessage(message: {
   );
 }
 
+function readProtocolHelperTransportHeader(req: Request) {
+  const transport = req.header("x-squadrail-protocol-helper")?.trim();
+  if (!transport) return null;
+  const command = req.header("x-squadrail-protocol-helper-command")?.trim() ?? null;
+  return {
+    transport,
+    command,
+  };
+}
+
 const PROTOCOL_RETRIEVAL_MESSAGE_TYPES = new Set<CreateIssueProtocolMessage["messageType"]>([
   "ASSIGN_TASK",
   "REASSIGN_TASK",
@@ -2323,6 +2333,28 @@ export function issueRoutes(
 
     const requestedDispatchMode = req.header("x-squadrail-dispatch-mode")?.toLowerCase();
     const asyncDispatch = actor.actorType === "agent" && requestedDispatchMode === "async";
+    const helperTransport = readProtocolHelperTransportHeader(req);
+
+    if (helperTransport && actor.actorType === "agent" && actor.runId) {
+      void heartbeat.recordExternalRunEvent({
+        runId: actor.runId,
+        eventType: "protocol.helper_invocation",
+        message: `${message.messageType} via protocol helper`,
+        payload: {
+          transport: helperTransport.transport,
+          command: helperTransport.command,
+          issueId: issue.id,
+          messageType: message.messageType,
+          senderRole: message.sender.role,
+          dispatchMode: requestedDispatchMode ?? null,
+        },
+      }).catch((err) => {
+        logger.warn(
+          { err, runId: actor.runId, issueId: issue.id, messageType: message.messageType },
+          "Failed to record protocol helper invocation event",
+        );
+      });
+    }
 
     let dispatch;
     try {

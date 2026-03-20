@@ -21,6 +21,7 @@ const {
   mockIssueCreateLabel,
   mockHeartbeatWakeup,
   mockHeartbeatGetRun,
+  mockHeartbeatRecordExternalRunEvent,
   mockHeartbeatCancelIssueScope,
   mockHeartbeatCancelSupersededIssueFollowups,
   mockAgentGetById,
@@ -79,6 +80,7 @@ const {
   mockIssueCreateLabel: vi.fn(),
   mockHeartbeatWakeup: vi.fn(),
   mockHeartbeatGetRun: vi.fn(),
+  mockHeartbeatRecordExternalRunEvent: vi.fn(),
   mockHeartbeatCancelIssueScope: vi.fn(),
   mockHeartbeatCancelSupersededIssueFollowups: vi.fn(),
   mockAgentGetById: vi.fn(),
@@ -144,6 +146,7 @@ vi.mock("../services/index.js", () => ({
   heartbeatService: () => ({
     wakeup: mockHeartbeatWakeup,
     getRun: mockHeartbeatGetRun,
+    recordExternalRunEvent: mockHeartbeatRecordExternalRunEvent,
     cancelIssueScope: mockHeartbeatCancelIssueScope,
     cancelSupersededIssueFollowups: mockHeartbeatCancelSupersededIssueFollowups,
   }),
@@ -414,6 +417,7 @@ describe("issue routes wakeup handling", () => {
     mockAgentList.mockResolvedValue([]);
     mockProjectList.mockResolvedValue([]);
     mockHeartbeatGetRun.mockResolvedValue(null);
+    mockHeartbeatRecordExternalRunEvent.mockResolvedValue(true);
     mockHeartbeatCancelIssueScope.mockResolvedValue({
       cancelledWakeupCount: 0,
       cancelledRunCount: 0,
@@ -3878,6 +3882,97 @@ describe("issue routes wakeup handling", () => {
         }),
       }),
     );
+    expect(mockHeartbeatRecordExternalRunEvent).not.toHaveBeenCalled();
+  });
+
+  it("records helper transport events for agent protocol helper posts", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-201",
+      title: "Protocol issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
+    mockHeartbeatGetRun.mockResolvedValue({
+      id: "run-1",
+      companyId: "company-1",
+      agentId: "eng-1",
+      invocationSource: "automation",
+      status: "running",
+      startedAt: new Date("2026-03-10T00:00:00.000Z"),
+      finishedAt: null,
+      stdoutExcerpt: "pnpm test:run\npnpm build",
+      stderrExcerpt: null,
+      contextSnapshot: {
+        issueId: "11111111-1111-4111-8111-111111111111",
+      },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: {
+        ...buildAgentActor("eng-1"),
+        runId: "run-1",
+      },
+      headers: {
+        "X-Squadrail-Dispatch-Mode": "async",
+        "X-Squadrail-Protocol-Helper": "local_cli",
+        "X-Squadrail-Protocol-Helper-Command": "submit-for-review",
+      },
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "eng-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatRecordExternalRunEvent).toHaveBeenCalledWith({
+      runId: "run-1",
+      eventType: "protocol.helper_invocation",
+      message: "SUBMIT_FOR_REVIEW via protocol helper",
+      payload: {
+        transport: "local_cli",
+        command: "submit-for-review",
+        issueId: "11111111-1111-4111-8111-111111111111",
+        messageType: "SUBMIT_FOR_REVIEW",
+        senderRole: "engineer",
+        dispatchMode: "async",
+      },
+    });
   });
 
   it("skips run artifact enrichment when the active run belongs to a different issue scope", async () => {

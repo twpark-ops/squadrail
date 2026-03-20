@@ -11,6 +11,11 @@ const COMPANY_ID = process.env.SQUADRAIL_COMPANY_ID;
 const DEFAULT_ISSUE_ID = process.env.SQUADRAIL_TASK_ID ?? null;
 const REQUEST_TIMEOUT_MS = Number(process.env.SQUADRAIL_PROTOCOL_TIMEOUT_MS ?? 180_000);
 const DEFAULT_DISPATCH_MODE = process.env.SQUADRAIL_PROTOCOL_DISPATCH_MODE ?? "async";
+const HELPER_TRANSPORT = "local_cli";
+const HELPER_COMMAND_NAME =
+  typeof process.argv[2] === "string" && process.argv[2].trim().length > 0
+    ? process.argv[2].trim()
+    : null;
 let cachedSelfAgent = null;
 
 const ENGINEER_SENDER_COMMANDS = new Set([
@@ -502,6 +507,8 @@ async function postProtocolMessage(issueId, body, options = {}) {
     omitAuth: options.omitAuth,
     headers: {
       "X-Squadrail-Dispatch-Mode": DEFAULT_DISPATCH_MODE,
+      "X-Squadrail-Protocol-Helper": HELPER_TRANSPORT,
+      ...(HELPER_COMMAND_NAME ? { "X-Squadrail-Protocol-Helper-Command": HELPER_COMMAND_NAME } : {}),
     },
   });
   printJson(result);

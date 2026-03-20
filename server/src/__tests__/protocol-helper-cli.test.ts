@@ -349,6 +349,8 @@ describe("squadrail protocol helper CLI", () => {
           "Needs explicit reviewer loop",
         ],
       });
+      expect(requests[0]?.headers["x-squadrail-protocol-helper"]).toBe("local_cli");
+      expect(requests[0]?.headers["x-squadrail-protocol-helper-command"]).toBe("ack-assignment");
     } finally {
       await closeTestServer(server);
     }

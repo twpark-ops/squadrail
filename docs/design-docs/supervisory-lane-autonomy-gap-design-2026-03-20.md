@@ -103,12 +103,18 @@ P2 남은 debt를 아래 두 층으로 분리한다.
 
 - `active-run` route는 이제 fallback 직전 run의 `protocolProgress`를 내려준다.
 - `active-run` route는 latest `adapter.invoke` payload 기반 `helperTrace`도 내려준다.
+- `active-run` route는 latest `protocol.helper_invocation` run event도 `helperTrace`에 합쳐서 내려준다.
 - latest real-org run(`CLO-185`) 기준:
   - reviewer / QA / close lane은 `actorAttemptedAfterRunStart = false`
   - engineer reassignment lane은 `ACK_ASSIGNMENT`
   - implementation lane은 `START_IMPLEMENTATION`
 - 따라서 현재 남은 gap은 "decision 이후 유실"보다 `supervisory lane이 decision 시도 전 adapter.invoke에 머무는 문제`로 보는 편이 정확하다.
 - 추가로 watchdog recovery chain은 이제 idle/degraded를 독립적으로 시도하므로, idle recovery 예외가 degraded recovery 자체를 막지 않는다.
+- protocol helper CLI는 이제 protocol POST마다 helper transport header를 보낸다.
+- issue route는 이를 `protocol.helper_invocation` run event로 적재한다.
+- 따라서 다음 진단부터는 "helper contract가 prompt/env에 있었는가"와 "실제 helper POST가 서버에 도달했는가"를 분리해서 볼 수 있다.
+- latest real-org run(`CLO-187`) 기준 stalled fallback run은 모두 `helperTransportObserved = false`였다.
+- 따라서 현재 남은 gap은 "helper POST 이후 decision 유실"보다 `adapter.invoke` 이전 단계에서 shell-level helper execution까지 못 가는 문제`로 더 좁혀졌다.
 
 ## Phase B. Current-lane Follow-up Contract
 

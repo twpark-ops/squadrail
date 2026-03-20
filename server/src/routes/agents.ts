@@ -1439,6 +1439,16 @@ export function agentRoutes(db: Db) {
       .orderBy(desc(heartbeatRunEvents.seq))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+    const latestHelperInvocation = await db
+      .select({
+        createdAt: heartbeatRunEvents.createdAt,
+        payload: heartbeatRunEvents.payload,
+      })
+      .from(heartbeatRunEvents)
+      .where(and(eq(heartbeatRunEvents.runId, run.id), eq(heartbeatRunEvents.eventType, "protocol.helper_invocation")))
+      .orderBy(desc(heartbeatRunEvents.seq))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
     const runtimeState = describeProtocolRunRuntimeState({
       runStatus: run.status,
       contextSnapshot: run.contextSnapshot,
@@ -1453,6 +1463,8 @@ export function agentRoutes(db: Db) {
     const helperTrace = summarizeActiveRunHelperTrace({
       adapterInvokePayload: latestAdapterInvoke?.payload ?? null,
       adapterInvokeCreatedAt: latestAdapterInvoke?.createdAt ?? null,
+      helperInvocationPayload: latestHelperInvocation?.payload ?? null,
+      helperInvocationCreatedAt: latestHelperInvocation?.createdAt ?? null,
       protocolMessageType,
       protocolRecipientRole,
     });

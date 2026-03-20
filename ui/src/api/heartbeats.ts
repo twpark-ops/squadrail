@@ -22,6 +22,13 @@ export interface ActiveRunForIssue extends HeartbeatRun {
     promptMentionsProtocolHelper: boolean;
     commandNotesMentionProtocolHelper: boolean;
     transportContractInjected: boolean;
+    helperTransportObserved: boolean;
+    helperTransport: string | null;
+    helperTransportCommand: string | null;
+    helperTransportMessageType: string | null;
+    helperTransportSenderRole: string | null;
+    helperTransportMessageMatched: boolean;
+    helperTransportRoleMatched: boolean;
   } | null;
 }
 
