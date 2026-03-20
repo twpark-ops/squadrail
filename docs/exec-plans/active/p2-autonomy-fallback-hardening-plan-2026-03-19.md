@@ -187,10 +187,20 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `qa_pending` 시점 active run도 QA agent lane으로 바뀌었다.
   - 즉 "이전 lane run이 계속 남아 새 lane을 가린다"는 문제는 일부 줄었다.
   - 다만 total fallback은 여전히 `7`로 유지돼, 남은 reviewer/QA/close fallback은 now-running lane 자체의 follow-up 자율성 부족 쪽으로 더 좁혀졌다.
+- 최신 슬라이스에서는 `short supervisory invoke stall`을 degraded recovery 대상으로 추가했다.
+  - 대상: `review_reviewer`, `qa_gate_reviewer`, `approval_tech_lead`
+  - 조건: short supervisory lane + `adapter.execute_start` 또는 `adapter.invoke` + run age threshold 초과
+  - watchdog cadence는 첫 두 tick을 `10s`로 유지해 짧은 lane recovery를 놓치지 않게 조정했다.
+- 최신 재검증(`CLO-181`)에서는 아래가 확인됐다.
+  - `runtimeDegradedTotal = 0`
+  - `providerRuntimeDebt = false`
+  - 즉 이번 시나리오에서 provider/runtime degraded debt는 더 이상 주된 원인이 아니다.
+  - 다만 total fallback은 여전히 `7`로 유지됐다.
+  - 남은 `reviewer_approval`, `qa_approval`, `close` fallback은 `runtimeHealth = normal` 상태의 current-lane follow-up autonomy 부족으로 보는 편이 더 정확하다.
 
 # Next Slice
 
-1. `providerRuntimeDebtScenarios`를 기준으로 repeat harness 3회 출력에서 어떤 scenario가 계속 debt를 만드는지 추세를 확인한다.
-2. `protocol recovery applied` 이후에도 같은 issue/role에서 재차 stuck되면 adapter/provider-level degrade debt로 `tech-debt-tracker.md`에서 추적한다.
-3. `adapter_retry`가 남더라도 protocol recovery로 자율 수습되는 비율을 separate KPI로 남긴다.
+1. remaining `reviewer_approval`, `qa_approval`, `close`를 provider/runtime 문제가 아니라 `normal-runtime follow-up autonomy debt`로 분리 추적한다.
+2. reviewer/QA/closure lane에서 deterministic fallback 직전 active run의 protocol helper 사용 여부, protocol message attempt, latest event progression을 더 수집한다.
+3. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 정상 runtime에서도 왜 decision message를 남기지 못하는지 server-side follow-up contract를 좁힌다.
 4. `implementation_engineer` fallback은 별도 slice로 분리한다.

@@ -37,10 +37,13 @@ describe("fallback summary helpers", () => {
       runtimeDegradedCounts: {
         adapter_retry: 0,
         claude_stream_incomplete: 0,
+        supervisory_invoke_stall: 0,
         recovered_supervisory_invoke_stall: 0,
       },
       runtimeDegradedTotal: 0,
       runtimeDegradedRate: 0,
+      supervisoryInvokeStallCount: 0,
+      supervisoryInvokeStallRate: 0,
       recoveredSupervisoryInvokeStallCount: 0,
       recoveredSupervisoryInvokeStallRate: 0,
       providerRuntimeDebt: false,
@@ -98,10 +101,13 @@ describe("fallback summary helpers", () => {
       runtimeDegradedCounts: {
         adapter_retry: 1,
         claude_stream_incomplete: 1,
+        supervisory_invoke_stall: 0,
         recovered_supervisory_invoke_stall: 0,
       },
       runtimeDegradedTotal: 2,
       runtimeDegradedRate: 1,
+      supervisoryInvokeStallCount: 0,
+      supervisoryInvokeStallRate: 0,
       recoveredSupervisoryInvokeStallCount: 0,
       recoveredSupervisoryInvokeStallRate: 0,
       providerRuntimeDebt: false,
@@ -122,12 +128,42 @@ describe("fallback summary helpers", () => {
       runtimeDegradedCounts: {
         adapter_retry: 0,
         claude_stream_incomplete: 0,
+        supervisory_invoke_stall: 0,
         recovered_supervisory_invoke_stall: 1,
       },
       runtimeDegradedTotal: 1,
       runtimeDegradedRate: 1,
+      supervisoryInvokeStallCount: 0,
+      supervisoryInvokeStallRate: 0,
       recoveredSupervisoryInvokeStallCount: 1,
       recoveredSupervisoryInvokeStallRate: 1,
+      providerRuntimeDebt: true,
+    });
+  });
+
+  it("treats current supervisory invoke stalls as provider runtime debt", () => {
+    const tracker = createFallbackTracker();
+    recordFallbackEvent(tracker, {
+      reason: "qa_approval",
+      runDiagnostic: {
+        runtimeDegradedState: "supervisory_invoke_stall",
+        runtimeHealth: "degraded",
+      },
+    });
+
+    expect(summarizeFallbackTracker(tracker)).toMatchObject({
+      runtimeDegradedCounts: {
+        adapter_retry: 0,
+        claude_stream_incomplete: 0,
+        supervisory_invoke_stall: 1,
+        recovered_supervisory_invoke_stall: 0,
+      },
+      runtimeDegradedTotal: 1,
+      runtimeDegradedRate: 1,
+      supervisoryInvokeStallCount: 1,
+      supervisoryInvokeStallRate: 1,
+      recoveredSupervisoryInvokeStallCount: 0,
+      recoveredSupervisoryInvokeStallRate: 0,
       providerRuntimeDebt: true,
     });
   });
@@ -159,10 +195,13 @@ describe("fallback summary helpers", () => {
       runtimeDegradedCounts: {
         adapter_retry: 0,
         claude_stream_incomplete: 0,
+        supervisory_invoke_stall: 0,
         recovered_supervisory_invoke_stall: 0,
       },
       runtimeDegradedTotal: 0,
       runtimeDegradedRate: 0,
+      supervisoryInvokeStallCount: 0,
+      supervisoryInvokeStallRate: 0,
       recoveredSupervisoryInvokeStallCount: 0,
       recoveredSupervisoryInvokeStallRate: 0,
       providerRuntimeDebtScenarios: [],
@@ -184,10 +223,13 @@ describe("fallback summary helpers", () => {
           runtimeDegradedCounts: {
             adapter_retry: 0,
             claude_stream_incomplete: 0,
+            supervisory_invoke_stall: 0,
             recovered_supervisory_invoke_stall: 0,
           },
           runtimeDegradedTotal: 0,
           runtimeDegradedRate: 0,
+          supervisoryInvokeStallCount: 0,
+          supervisoryInvokeStallRate: 0,
           recoveredSupervisoryInvokeStallCount: 0,
           recoveredSupervisoryInvokeStallRate: 0,
           providerRuntimeDebt: false,
@@ -210,10 +252,13 @@ describe("fallback summary helpers", () => {
           runtimeDegradedCounts: {
             adapter_retry: 0,
             claude_stream_incomplete: 0,
+            supervisory_invoke_stall: 0,
             recovered_supervisory_invoke_stall: 0,
           },
           runtimeDegradedTotal: 0,
           runtimeDegradedRate: 0,
+          supervisoryInvokeStallCount: 0,
+          supervisoryInvokeStallRate: 0,
           recoveredSupervisoryInvokeStallCount: 0,
           recoveredSupervisoryInvokeStallRate: 0,
           providerRuntimeDebt: false,
@@ -244,6 +289,8 @@ describe("fallback summary helpers", () => {
         {
           scenario: "qa-loop",
           identifier: "CLO-175",
+          supervisoryInvokeStallCount: 0,
+          supervisoryInvokeStallRate: 0,
           recoveredSupervisoryInvokeStallCount: 1,
           recoveredSupervisoryInvokeStallRate: 1,
         },

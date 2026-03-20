@@ -441,6 +441,123 @@ describe("heartbeat protocol progress helpers", () => {
     });
   });
 
+  it("marks current short supervisory lanes that stall in adapter invoke as degraded runtime", () => {
+    const qaRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "APPROVE_IMPLEMENTATION",
+      protocolRecipientRole: "qa",
+    });
+    const now = new Date("2026-03-20T10:01:05Z");
+
+    expect(
+      classifyProtocolRuntimeDegradedState({
+        runStatus: "running",
+        requirement: qaRequirement,
+        wakeReason: "protocol_implementation_approved",
+        protocolRequiredRetryCount: 0,
+        protocolDegradedRecoveryCount: 0,
+        protocolIdleRecovery: false,
+        adapterRetryCount: 0,
+        checkpointJson: {
+          phase: "adapter.invoke",
+          lastProgressAt: "2026-03-20T10:00:59Z",
+        },
+        startedAt: "2026-03-20T10:00:40Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe("supervisory_invoke_stall");
+
+    expect(
+      describeProtocolRunRuntimeState({
+        runStatus: "running",
+        contextSnapshot: {
+          protocolMessageType: "APPROVE_IMPLEMENTATION",
+          protocolRecipientRole: "qa",
+          wakeReason: "protocol_implementation_approved",
+        },
+        checkpointJson: {
+          phase: "adapter.invoke",
+          lastProgressAt: "2026-03-20T10:00:59Z",
+        },
+        startedAt: "2026-03-20T10:00:40Z",
+        now,
+      }),
+    ).toEqual({
+      runtimeDegradedState: "supervisory_invoke_stall",
+      runtimeHealth: "degraded",
+    });
+
+    expect(
+      classifyProtocolRuntimeDegradedState({
+        runStatus: "running",
+        requirement: qaRequirement,
+        wakeReason: "protocol_required_retry",
+        protocolRequiredRetryCount: 1,
+        protocolDegradedRecoveryCount: 0,
+        protocolIdleRecovery: false,
+        adapterRetryCount: 0,
+        checkpointJson: {
+          phase: "adapter.execute_start",
+          lastProgressAt: "2026-03-20T10:00:59Z",
+        },
+        startedAt: "2026-03-20T10:00:50Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe("supervisory_invoke_stall");
+  });
+
+  it("recovers current supervisory invoke stalls with a fresh protocol retry", () => {
+    const qaRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "APPROVE_IMPLEMENTATION",
+      protocolRecipientRole: "qa",
+    });
+    const now = new Date("2026-03-20T10:01:05Z");
+
+    expect(
+      shouldRecoverDegradedProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: qaRequirement,
+        wakeReason: "protocol_implementation_approved",
+        issueStatus: "in_progress",
+        workflowState: "qa_pending",
+        protocolRetryCount: 0,
+        protocolDegradedRecoveryCount: 0,
+        adapterRetryCount: 0,
+        adapterRetryErrorCode: null,
+        checkpointJson: {
+          phase: "adapter.invoke",
+          lastProgressAt: "2026-03-20T10:00:59Z",
+        },
+        startedAt: "2026-03-20T10:00:40Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverDegradedProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: qaRequirement,
+        wakeReason: "protocol_implementation_approved",
+        issueStatus: "in_progress",
+        workflowState: "qa_pending",
+        protocolRetryCount: 0,
+        protocolDegradedRecoveryCount: 1,
+        adapterRetryCount: 0,
+        adapterRetryErrorCode: null,
+        checkpointJson: {
+          phase: "adapter.invoke",
+          lastProgressAt: "2026-03-20T10:00:59Z",
+        },
+        startedAt: "2026-03-20T10:00:40Z",
+        now,
+        degradedThresholdMs: 20_000,
+      }),
+    ).toBe(false);
+  });
+
   it("skips stale protocol follow-up wakes once the issue is terminal", () => {
     expect(isSupersededProtocolWakeReason("issue_ready_for_closure")).toBe(true);
     expect(isSupersededProtocolWakeReason("issue_ready_for_qa_gate")).toBe(true);
@@ -529,9 +646,10 @@ describe("heartbeat protocol progress helpers", () => {
 
   it("backs off repeated protocol idle watchdog polls", () => {
     expect(resolveProtocolIdleWatchdogDelayMs(0)).toBe(10_000);
-    expect(resolveProtocolIdleWatchdogDelayMs(1)).toBe(20_000);
-    expect(resolveProtocolIdleWatchdogDelayMs(2)).toBe(40_000);
-    expect(resolveProtocolIdleWatchdogDelayMs(3)).toBe(60_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(1)).toBe(10_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(2)).toBe(20_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(3)).toBe(40_000);
+    expect(resolveProtocolIdleWatchdogDelayMs(4)).toBe(60_000);
     expect(resolveProtocolIdleWatchdogDelayMs(8)).toBe(60_000);
   });
 });

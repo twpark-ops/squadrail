@@ -49,6 +49,7 @@ const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
 const RUN_PROTOCOL_IDLE_WATCHDOG_MS = 10_000;
 const RUN_PROTOCOL_DEGRADED_WATCHDOG_MS = 20_000;
+const RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS = 10_000;
 const RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS = 60_000;
 const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
 const RETRYABLE_ADAPTER_FAILURE_LIMIT = 2;
@@ -76,6 +77,11 @@ const IDLE_PROTOCOL_WATCHDOG_REQUIREMENT_KEYS = new Set<ProtocolRunRequirement["
   "qa_gate_reviewer",
   "approval_tech_lead",
 ]);
+const SHORT_SUPERVISORY_PROTOCOL_REQUIREMENT_KEYS = new Set<ProtocolRunRequirement["key"]>([
+  "review_reviewer",
+  "qa_gate_reviewer",
+  "approval_tech_lead",
+]);
 
 class SupersededProtocolFollowupError extends Error {
   readonly code = "superseded_followup";
@@ -92,9 +98,10 @@ function appendExcerpt(prev: string, chunk: string) {
 
 export function resolveProtocolIdleWatchdogDelayMs(attempt: number) {
   const normalizedAttempt = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0;
+  if (normalizedAttempt <= 1) return RUN_PROTOCOL_IDLE_WATCHDOG_MS;
   return Math.min(
     RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS,
-    RUN_PROTOCOL_IDLE_WATCHDOG_MS * (2 ** normalizedAttempt),
+    RUN_PROTOCOL_IDLE_WATCHDOG_MS * (2 ** (normalizedAttempt - 1)),
   );
 }
 
@@ -884,6 +891,10 @@ export function isIdleProtocolWatchdogEligibleRequirement(requirement: ProtocolR
   return Boolean(requirement && IDLE_PROTOCOL_WATCHDOG_REQUIREMENT_KEYS.has(requirement.key));
 }
 
+function isShortSupervisoryProtocolRequirement(requirement: ProtocolRunRequirement | null | undefined) {
+  return Boolean(requirement && SHORT_SUPERVISORY_PROTOCOL_REQUIREMENT_KEYS.has(requirement.key));
+}
+
 export function shouldRecoverIdleProtocolRun(input: {
   runStatus: string;
   hasRunningProcess: boolean;
@@ -942,6 +953,58 @@ export function classifyDegradedProtocolRunReason(input: {
   return "adapter_retry_loop" as const;
 }
 
+function classifySupervisoryInvokeStallReason(input: {
+  runStatus: string;
+  requirement: ProtocolRunRequirement | null;
+  checkpointJson?: unknown;
+  startedAt?: Date | string | null;
+  now?: Date;
+  degradedThresholdMs?: number;
+}) {
+  if (input.runStatus !== "running") return null;
+  if (!isShortSupervisoryProtocolRequirement(input.requirement)) return null;
+
+  const checkpoint = parseObject(input.checkpointJson);
+  const checkpointPhase = readNonEmptyString(checkpoint.phase);
+  if (!isProtocolWatchdogCheckpointPhase(checkpointPhase)) return null;
+
+  const startedAtMs = toEpochMillis(input.startedAt) ?? 0;
+  if (startedAtMs <= 0) return null;
+
+  const degradedThresholdMs = Math.min(
+    input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+    RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS,
+  );
+  if ((input.now ?? new Date()).getTime() - startedAtMs < degradedThresholdMs) return null;
+  return "supervisory_invoke_stall" as const;
+}
+
+function resolveDegradedProtocolRecoveryReason(input: {
+  runStatus: string;
+  requirement: ProtocolRunRequirement | null;
+  wakeReason?: string | null;
+  adapterRetryCount: number;
+  adapterRetryErrorCode?: string | null;
+  checkpointJson?: unknown;
+  startedAt?: Date | string | null;
+  now?: Date;
+  degradedThresholdMs?: number;
+}) {
+  return classifyDegradedProtocolRunReason({
+    requirement: input.requirement,
+    wakeReason: input.wakeReason,
+    adapterRetryCount: input.adapterRetryCount,
+    adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
+  }) ?? classifySupervisoryInvokeStallReason({
+    runStatus: input.runStatus,
+    requirement: input.requirement,
+    checkpointJson: input.checkpointJson,
+    startedAt: input.startedAt,
+    now: input.now,
+    degradedThresholdMs: input.degradedThresholdMs,
+  });
+}
+
 export function classifyProtocolRuntimeDegradedState(input: {
   runStatus: string;
   requirement: ProtocolRunRequirement | null;
@@ -956,11 +1019,16 @@ export function classifyProtocolRuntimeDegradedState(input: {
   now?: Date;
   degradedThresholdMs?: number;
 }) {
-  const degradedReason = classifyDegradedProtocolRunReason({
+  const degradedReason = resolveDegradedProtocolRecoveryReason({
+    runStatus: input.runStatus,
     requirement: input.requirement,
     wakeReason: input.wakeReason,
     adapterRetryCount: input.adapterRetryCount,
     adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
+    checkpointJson: input.checkpointJson,
+    startedAt: input.startedAt,
+    now: input.now,
+    degradedThresholdMs: input.degradedThresholdMs,
   });
   if (degradedReason === "claude_stream_incomplete_retry_loop") {
     return degradedReason;
@@ -1052,11 +1120,16 @@ export function shouldRecoverDegradedProtocolRun(input: {
     workflowState: input.workflowState,
   })) return false;
 
-  const degradedReason = classifyDegradedProtocolRunReason({
+  const degradedReason = resolveDegradedProtocolRecoveryReason({
+    runStatus: input.runStatus,
     requirement: input.requirement,
     wakeReason: input.wakeReason,
     adapterRetryCount: input.adapterRetryCount,
     adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
+    checkpointJson: input.checkpointJson,
+    startedAt: input.startedAt,
+    now: input.now,
+    degradedThresholdMs: input.degradedThresholdMs,
   });
   if (!degradedReason) return false;
 
@@ -2270,11 +2343,16 @@ export function heartbeatService(db: Db) {
       return false;
     }
 
-    const degradedReason = classifyDegradedProtocolRunReason({
+    const degradedReason = resolveDegradedProtocolRecoveryReason({
+      runStatus: input.run.status,
       requirement,
       wakeReason: readNonEmptyString(context.wakeReason),
       adapterRetryCount,
       adapterRetryErrorCode,
+      checkpointJson: input.lease?.checkpointJson ?? null,
+      startedAt: input.run.startedAt,
+      now: input.now,
+      degradedThresholdMs: input.degradedThresholdMs,
     });
     if (!degradedReason) return false;
 
@@ -2305,8 +2383,8 @@ export function heartbeatService(db: Db) {
     });
 
     await cancelRunInternal(input.run.id, {
-      message: `Cancelled degraded protocol follow-up after repeated adapter retries (${degradedReason})`,
-      checkpointMessage: "run cancelled after degraded protocol retry loop",
+      message: `Cancelled degraded protocol follow-up after degraded runtime detection (${degradedReason})`,
+      checkpointMessage: "run cancelled after degraded protocol runtime detection",
     });
     return true;
   }

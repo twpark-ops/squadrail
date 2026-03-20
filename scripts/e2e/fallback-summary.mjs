@@ -15,6 +15,7 @@ function createEmptyRuntimeDegradedCounts() {
   return {
     adapter_retry: 0,
     claude_stream_incomplete: 0,
+    supervisory_invoke_stall: 0,
     recovered_supervisory_invoke_stall: 0,
   };
 }
@@ -51,6 +52,9 @@ function inferRuntimeDegradedReason(runDiagnostic) {
   }
   if (runtimeDegradedState === "claude_stream_incomplete_retry_loop") {
     return "claude_stream_incomplete";
+  }
+  if (runtimeDegradedState === "supervisory_invoke_stall") {
+    return "supervisory_invoke_stall";
   }
   if (runtimeDegradedState === "adapter_retry_loop") {
     return "adapter_retry";
@@ -107,6 +111,7 @@ export function summarizeFallbackTracker(tracker) {
 
   const runtimeDegradedTotal = countTotal(runtimeDegradedCounts);
   const recoveredSupervisoryInvokeStallCount = runtimeDegradedCounts.recovered_supervisory_invoke_stall;
+  const supervisoryInvokeStallCount = runtimeDegradedCounts.supervisory_invoke_stall;
 
   return {
     total: events.length,
@@ -115,12 +120,14 @@ export function summarizeFallbackTracker(tracker) {
     runtimeDegradedCounts,
     runtimeDegradedTotal,
     runtimeDegradedRate: safeRate(runtimeDegradedTotal, events.length),
+    supervisoryInvokeStallCount,
+    supervisoryInvokeStallRate: safeRate(supervisoryInvokeStallCount, events.length),
     recoveredSupervisoryInvokeStallCount,
     recoveredSupervisoryInvokeStallRate: safeRate(
       recoveredSupervisoryInvokeStallCount,
       events.length,
     ),
-    providerRuntimeDebt: recoveredSupervisoryInvokeStallCount > 0,
+    providerRuntimeDebt: supervisoryInvokeStallCount + recoveredSupervisoryInvokeStallCount > 0,
     events,
   };
 }
@@ -142,6 +149,8 @@ export function aggregateFallbackSummaries(results) {
       runtimeDegradedCounts: summary.runtimeDegradedCounts,
       runtimeDegradedTotal: summary.runtimeDegradedTotal,
       runtimeDegradedRate: summary.runtimeDegradedRate,
+      supervisoryInvokeStallCount: summary.supervisoryInvokeStallCount,
+      supervisoryInvokeStallRate: summary.supervisoryInvokeStallRate,
       recoveredSupervisoryInvokeStallCount: summary.recoveredSupervisoryInvokeStallCount,
       recoveredSupervisoryInvokeStallRate: summary.recoveredSupervisoryInvokeStallRate,
       providerRuntimeDebt: summary.providerRuntimeDebt,
@@ -159,6 +168,7 @@ export function aggregateFallbackSummaries(results) {
 
   const runtimeDegradedTotal = countTotal(runtimeDegradedCounts);
   const recoveredSupervisoryInvokeStallCount = runtimeDegradedCounts.recovered_supervisory_invoke_stall;
+  const supervisoryInvokeStallCount = runtimeDegradedCounts.supervisory_invoke_stall;
   const total = scenarios.reduce((sum, entry) => sum + entry.total, 0);
 
   return {
@@ -168,6 +178,8 @@ export function aggregateFallbackSummaries(results) {
     runtimeDegradedCounts,
     runtimeDegradedTotal,
     runtimeDegradedRate: safeRate(runtimeDegradedTotal, total),
+    supervisoryInvokeStallCount,
+    supervisoryInvokeStallRate: safeRate(supervisoryInvokeStallCount, total),
     recoveredSupervisoryInvokeStallCount,
     recoveredSupervisoryInvokeStallRate: safeRate(recoveredSupervisoryInvokeStallCount, total),
     providerRuntimeDebtScenarios: scenarios
@@ -175,6 +187,8 @@ export function aggregateFallbackSummaries(results) {
       .map((entry) => ({
         scenario: entry.scenario,
         identifier: entry.identifier,
+        supervisoryInvokeStallCount: entry.supervisoryInvokeStallCount,
+        supervisoryInvokeStallRate: entry.supervisoryInvokeStallRate,
         recoveredSupervisoryInvokeStallCount: entry.recoveredSupervisoryInvokeStallCount,
         recoveredSupervisoryInvokeStallRate: entry.recoveredSupervisoryInvokeStallRate,
       })),
