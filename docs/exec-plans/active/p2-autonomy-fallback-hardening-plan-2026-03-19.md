@@ -114,6 +114,11 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 - fallback summary는 이제 runtime degraded count도 함께 남긴다.
   - `adapter_retry`
   - `claude_stream_incomplete`
+  - `recovered_supervisory_invoke_stall`
+- fallback summary와 aggregate summary는 이제 아래 KPI도 함께 남긴다.
+  - `runtimeDegradedTotal / runtimeDegradedRate`
+  - `recoveredSupervisoryInvokeStallCount / recoveredSupervisoryInvokeStallRate`
+  - `providerRuntimeDebtScenarios`
 - active run route는 이제 `leaseStatus / checkpoint / leaseHeartbeatAt / latestEvent`를 함께 내려 fallback 시점의 active run 상태를 직접 보여준다.
 - active run route는 이제 `runtimeDegradedState / runtimeHealth`도 함께 내려준다.
   - 예: `claude_stream_incomplete_retry_loop`
@@ -168,10 +173,19 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `accepted` 상태에서 `recovered_supervisory_invoke_stall`이 관측되자 `implementation_start` fallback이 즉시 short-circuit 되었다.
   - 결과적으로 `ACK_ASSIGNMENT -> START_IMPLEMENTATION` 구간의 full timeout 대기는 사라졌다.
   - 다만 total fallback은 아직 `7`이고, runtime degraded count는 `recovered_supervisory_invoke_stall = 2`였다.
+  - aggregate summary는 이제 이 시나리오를 `providerRuntimeDebtScenarios`에 올린다.
+  - 즉 repeat harness 출력만으로도 "이 시나리오는 provider/runtime degraded debt가 남아 있다"는 것을 바로 볼 수 있다.
+- 최신 재검증(`CLO-176`)에서는 KPI 출력이 실제로 다음처럼 내려왔다.
+  - `runtimeDegradedTotal = 2`
+  - `runtimeDegradedRate = 0.2857`
+  - `recoveredSupervisoryInvokeStallCount = 1`
+  - `recoveredSupervisoryInvokeStallRate = 0.1429`
+  - `providerRuntimeDebtScenarios = [swiftsight-agent-tl-qa-loop]`
+  - 추가로 `claude_stream_incomplete_retry_loop`가 `engineer_wake` short-circuit로도 표면화됐다.
 
 # Next Slice
 
-1. `recovered_supervisory_invoke_stall` 발생률을 시나리오별 KPI로 남기고, repeat harness에서 추세를 확인한다.
-2. `protocol recovery applied` 이후에도 같은 issue/role에서 재차 stuck되면 adapter/provider-level degrade로 분류해 tech debt로 추적한다.
+1. `providerRuntimeDebtScenarios`를 기준으로 repeat harness 3회 출력에서 어떤 scenario가 계속 debt를 만드는지 추세를 확인한다.
+2. `protocol recovery applied` 이후에도 같은 issue/role에서 재차 stuck되면 adapter/provider-level degrade debt로 `tech-debt-tracker.md`에서 추적한다.
 3. `adapter_retry`가 남더라도 protocol recovery로 자율 수습되는 비율을 separate KPI로 남긴다.
 4. `implementation_engineer` fallback은 별도 slice로 분리한다.

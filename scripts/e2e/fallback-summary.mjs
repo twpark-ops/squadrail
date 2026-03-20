@@ -29,6 +29,15 @@ function createEmptyFamilyCounts() {
   };
 }
 
+function countTotal(values) {
+  return Object.values(values).reduce((sum, count) => sum + count, 0);
+}
+
+function safeRate(numerator, denominator) {
+  if (!Number.isFinite(denominator) || denominator <= 0) return 0;
+  return Number((numerator / denominator).toFixed(4));
+}
+
 export function createFallbackTracker() {
   return { events: [] };
 }
@@ -96,11 +105,22 @@ export function summarizeFallbackTracker(tracker) {
     }
   }
 
+  const runtimeDegradedTotal = countTotal(runtimeDegradedCounts);
+  const recoveredSupervisoryInvokeStallCount = runtimeDegradedCounts.recovered_supervisory_invoke_stall;
+
   return {
     total: events.length,
     familyCounts,
     reasonCounts,
     runtimeDegradedCounts,
+    runtimeDegradedTotal,
+    runtimeDegradedRate: safeRate(runtimeDegradedTotal, events.length),
+    recoveredSupervisoryInvokeStallCount,
+    recoveredSupervisoryInvokeStallRate: safeRate(
+      recoveredSupervisoryInvokeStallCount,
+      events.length,
+    ),
+    providerRuntimeDebt: recoveredSupervisoryInvokeStallCount > 0,
     events,
   };
 }
@@ -120,6 +140,11 @@ export function aggregateFallbackSummaries(results) {
       familyCounts: summary.familyCounts,
       reasonCounts: summary.reasonCounts,
       runtimeDegradedCounts: summary.runtimeDegradedCounts,
+      runtimeDegradedTotal: summary.runtimeDegradedTotal,
+      runtimeDegradedRate: summary.runtimeDegradedRate,
+      recoveredSupervisoryInvokeStallCount: summary.recoveredSupervisoryInvokeStallCount,
+      recoveredSupervisoryInvokeStallRate: summary.recoveredSupervisoryInvokeStallRate,
+      providerRuntimeDebt: summary.providerRuntimeDebt,
     });
     for (const [family, count] of Object.entries(summary.familyCounts)) {
       familyCounts[family] += count;
@@ -132,11 +157,27 @@ export function aggregateFallbackSummaries(results) {
     }
   }
 
+  const runtimeDegradedTotal = countTotal(runtimeDegradedCounts);
+  const recoveredSupervisoryInvokeStallCount = runtimeDegradedCounts.recovered_supervisory_invoke_stall;
+  const total = scenarios.reduce((sum, entry) => sum + entry.total, 0);
+
   return {
-    total: scenarios.reduce((sum, entry) => sum + entry.total, 0),
+    total,
     familyCounts,
     reasonCounts,
     runtimeDegradedCounts,
+    runtimeDegradedTotal,
+    runtimeDegradedRate: safeRate(runtimeDegradedTotal, total),
+    recoveredSupervisoryInvokeStallCount,
+    recoveredSupervisoryInvokeStallRate: safeRate(recoveredSupervisoryInvokeStallCount, total),
+    providerRuntimeDebtScenarios: scenarios
+      .filter((entry) => entry.providerRuntimeDebt)
+      .map((entry) => ({
+        scenario: entry.scenario,
+        identifier: entry.identifier,
+        recoveredSupervisoryInvokeStallCount: entry.recoveredSupervisoryInvokeStallCount,
+        recoveredSupervisoryInvokeStallRate: entry.recoveredSupervisoryInvokeStallRate,
+      })),
     scenarios,
   };
 }

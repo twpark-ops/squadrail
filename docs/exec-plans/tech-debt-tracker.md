@@ -7,6 +7,9 @@
 - `completed/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `completed/five-axis-hardening-plan-2026-03-18.md`
 - `active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
+- Provider/runtime degraded debt
+  - Track scenarios that appear in `providerRuntimeDebtScenarios` from real-org fallback summaries.
+  - Current canonical example: `swiftsight-agent-tl-qa-loop` (`recovered_supervisory_invoke_stall`)
 
 ### Retrieval / Knowledge
 

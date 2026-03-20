@@ -39,6 +39,11 @@ describe("fallback summary helpers", () => {
         claude_stream_incomplete: 0,
         recovered_supervisory_invoke_stall: 0,
       },
+      runtimeDegradedTotal: 0,
+      runtimeDegradedRate: 0,
+      recoveredSupervisoryInvokeStallCount: 0,
+      recoveredSupervisoryInvokeStallRate: 0,
+      providerRuntimeDebt: false,
       events: [
         {
           family: "pm_routing",
@@ -89,10 +94,17 @@ describe("fallback summary helpers", () => {
       },
     });
 
-    expect(summarizeFallbackTracker(tracker).runtimeDegradedCounts).toEqual({
-      adapter_retry: 1,
-      claude_stream_incomplete: 1,
-      recovered_supervisory_invoke_stall: 0,
+    expect(summarizeFallbackTracker(tracker)).toMatchObject({
+      runtimeDegradedCounts: {
+        adapter_retry: 1,
+        claude_stream_incomplete: 1,
+        recovered_supervisory_invoke_stall: 0,
+      },
+      runtimeDegradedTotal: 2,
+      runtimeDegradedRate: 1,
+      recoveredSupervisoryInvokeStallCount: 0,
+      recoveredSupervisoryInvokeStallRate: 0,
+      providerRuntimeDebt: false,
     });
   });
 
@@ -106,10 +118,17 @@ describe("fallback summary helpers", () => {
       },
     });
 
-    expect(summarizeFallbackTracker(tracker).runtimeDegradedCounts).toEqual({
-      adapter_retry: 0,
-      claude_stream_incomplete: 0,
-      recovered_supervisory_invoke_stall: 1,
+    expect(summarizeFallbackTracker(tracker)).toMatchObject({
+      runtimeDegradedCounts: {
+        adapter_retry: 0,
+        claude_stream_incomplete: 0,
+        recovered_supervisory_invoke_stall: 1,
+      },
+      runtimeDegradedTotal: 1,
+      runtimeDegradedRate: 1,
+      recoveredSupervisoryInvokeStallCount: 1,
+      recoveredSupervisoryInvokeStallRate: 1,
+      providerRuntimeDebt: true,
     });
   });
 
@@ -142,6 +161,11 @@ describe("fallback summary helpers", () => {
         claude_stream_incomplete: 0,
         recovered_supervisory_invoke_stall: 0,
       },
+      runtimeDegradedTotal: 0,
+      runtimeDegradedRate: 0,
+      recoveredSupervisoryInvokeStallCount: 0,
+      recoveredSupervisoryInvokeStallRate: 0,
+      providerRuntimeDebtScenarios: [],
       scenarios: [
         {
           scenario: "s1",
@@ -162,6 +186,11 @@ describe("fallback summary helpers", () => {
             claude_stream_incomplete: 0,
             recovered_supervisory_invoke_stall: 0,
           },
+          runtimeDegradedTotal: 0,
+          runtimeDegradedRate: 0,
+          recoveredSupervisoryInvokeStallCount: 0,
+          recoveredSupervisoryInvokeStallRate: 0,
+          providerRuntimeDebt: false,
         },
         {
           scenario: "s2",
@@ -183,6 +212,40 @@ describe("fallback summary helpers", () => {
             claude_stream_incomplete: 0,
             recovered_supervisory_invoke_stall: 0,
           },
+          runtimeDegradedTotal: 0,
+          runtimeDegradedRate: 0,
+          recoveredSupervisoryInvokeStallCount: 0,
+          recoveredSupervisoryInvokeStallRate: 0,
+          providerRuntimeDebt: false,
+        },
+      ],
+    });
+  });
+
+  it("reports provider runtime debt scenarios when recovered supervisory stalls exist", () => {
+    const tracker = createFallbackTracker();
+    recordFallbackEvent(tracker, {
+      reason: "implementation_start",
+      runDiagnostic: {
+        runtimeDegradedState: "recovered_supervisory_invoke_stall",
+        runtimeHealth: "degraded",
+      },
+    });
+
+    expect(aggregateFallbackSummaries([
+      { scenario: "qa-loop", identifier: "CLO-175", fallbackSummary: tracker },
+    ])).toMatchObject({
+      total: 1,
+      runtimeDegradedTotal: 1,
+      runtimeDegradedRate: 1,
+      recoveredSupervisoryInvokeStallCount: 1,
+      recoveredSupervisoryInvokeStallRate: 1,
+      providerRuntimeDebtScenarios: [
+        {
+          scenario: "qa-loop",
+          identifier: "CLO-175",
+          recoveredSupervisoryInvokeStallCount: 1,
+          recoveredSupervisoryInvokeStallRate: 1,
         },
       ],
     });
