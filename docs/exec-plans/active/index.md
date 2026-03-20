@@ -6,4 +6,5 @@
 
 보조 참고:
 
+- `../../design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
 - `../../review-findings-2026-03-18.md`

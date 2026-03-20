@@ -6,6 +6,7 @@
 
 - `exec-plans/active/index.md`
 - `exec-plans/active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
+- `design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md` (supporting design for the active P2 plan)
 
 ## Completed or Superseded
 

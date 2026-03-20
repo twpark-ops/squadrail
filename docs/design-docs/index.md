@@ -20,3 +20,4 @@
 - `product-model-simplification-plan.md`
 - `rag-current-architecture.md`
 - `qa-execution-gate-design.md`
+- `supervisory-lane-autonomy-gap-design-2026-03-20.md`

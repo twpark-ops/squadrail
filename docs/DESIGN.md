@@ -20,6 +20,7 @@
 
 ## Delivery / Execution
 
+- `design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
 - `exec-plans/completed/phase2-delivery-contract-mvp.md`
 - `exec-plans/completed/phase3-real-repo-execution-hardening.md`
 - `exec-plans/completed/phase4-operations-visibility.md`

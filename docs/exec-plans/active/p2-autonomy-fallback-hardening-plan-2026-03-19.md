@@ -15,6 +15,12 @@ mainfont: "Noto Sans"
 canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fallback에 의존하는 구간이 남아 있다.
 이 계획의 목표는 제품 계약을 깨지지 않게 유지하면서도, scripted fallback 없이 자율적으로 닫히는 비율을 올리는 것이다.
 
+# Design References
+
+- `../../design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
+- `../../review-findings-2026-03-18.md`
+- `../tech-debt-tracker.md`
+
 # Scope
 
 ## In
@@ -72,13 +78,33 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 
 # Implementation Plan
 
+## Work Package A — Measurement Lock
+
 1. fallback 발생 지점을 시나리오별로 계수해 summary에 남긴다.
-2. `cloud-swiftsight-real-org.mjs`와 `cloud-swiftsight-domain-aware-pm-eval.mjs`에서 fallback family별 카운터를 추가한다.
+2. `cloud-swiftsight-real-org.mjs`와 `cloud-swiftsight-domain-aware-pm-eval.mjs`에서 fallback family별 카운터를 유지한다.
 3. `scripts/e2e/canonical-repeat` 출력에 iteration별 fallback summary를 포함한다.
-4. 가장 많이 발생하는 fallback부터 server-side 원인을 역추적한다.
-5. 필요한 경우 protocol dispatch, wake enqueue, heartbeat session reset, reviewer/QA follow-up 경로를 server에서 먼저 수정한다.
-6. 수정 후 fallback count expectation을 focused test와 E2E assertion에 반영한다.
-7. 최종적으로 canonical bundle이 green이면서 fallback count가 기준 이하인지 확인한다.
+4. `supervisory_invoke_stall`, `recovered_supervisory_invoke_stall`, `claude_stream_incomplete`를 별도 KPI로 유지한다.
+
+## Work Package B — Runtime Classification
+
+1. short supervisory lane의 `adapter.execute_start` / `adapter.invoke` 정체를 degraded runtime으로 분류한다.
+2. degraded classification과 watchdog recovery threshold를 동일한 clock으로 맞춘다.
+3. `human_board` close와 failure-learning gate를 정책 문구에 맞게 정렬한다.
+
+## Work Package C — Follow-up Autonomy Diagnosis
+
+1. reviewer / QA / close lane에서 fallback 직전 active run의 최신 이벤트 진행을 더 수집한다.
+2. current-lane run이 decision message를 남기지 못한 이유를
+   - provider/runtime degraded
+   - protocol follow-up autonomy gap
+   로 분리한다.
+3. 남은 fallback을 `supervisory_invoke_stall` family로 고정 추적한다.
+
+## Work Package D — Exit Review
+
+1. canonical bundle green을 유지한다.
+2. `swiftsight-agent-tl-qa-loop`에서 남은 fallback이 어느 family에 수렴하는지 repeat 검증으로 확인한다.
+3. 결과를 `review-findings`와 `tech-debt-tracker`에 동기화한다.
 
 # Validation
 
@@ -95,6 +121,7 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 - repeat harness가 fallback family별 count를 출력한다.
 - `close fallback`, `QA fallback`, `reviewer approval fallback` 중 최소 하나는 제거되거나 steady-state zero가 된다.
 - 남은 fallback은 의도와 원인이 문서화되어 `tech-debt-tracker.md`에서 추적된다.
+- `supervisory_invoke_stall`과 `recovered_supervisory_invoke_stall`의 의미가 review 문서와 plan 문서에서 일치한다.
 
 # Notes
 

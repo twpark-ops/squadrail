@@ -1,0 +1,50 @@
+@startuml
+title Supervisory Lane Autonomy Gap Design (2026-03-20)
+
+left to right direction
+skinparam packageStyle rectangle
+
+package "Current Lane" {
+  [Reviewer Lane] as Review
+  [QA Lane] as QA
+  [Close Lane] as Close
+}
+
+package "Observed Runtime States" {
+  [adapter.execute_start] as ExecuteStart
+  [adapter.invoke] as Invoke
+  [Decision Message Missing] as MissingDecision
+}
+
+package "Classification" {
+  [supervisory_invoke_stall] as SupervisoryStall
+  [adapter/provider degraded] as ProviderDebt
+  [follow-up autonomy gap] as FollowupDebt
+}
+
+package "Control Actions" {
+  [protocol_required_retry] as Retry
+  [deterministic fallback] as Fallback
+  [human_board close] as HumanClose
+}
+
+Review --> ExecuteStart
+QA --> ExecuteStart
+Close --> ExecuteStart
+ExecuteStart --> Invoke
+Invoke --> MissingDecision
+
+MissingDecision --> SupervisoryStall
+SupervisoryStall --> ProviderDebt
+SupervisoryStall --> FollowupDebt
+
+ProviderDebt --> Retry
+FollowupDebt --> Fallback
+Close --> HumanClose
+HumanClose --> Fallback
+
+note bottom of HumanClose
+failure-learning gate is satisfied
+only when operator review is explicit
+end note
+@enduml
