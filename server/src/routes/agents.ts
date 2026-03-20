@@ -40,7 +40,10 @@ import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { findServerAdapter, listAdapterModels } from "../adapters/index.js";
 import { redactEventPayload } from "../redaction.js";
 import { describeProtocolRunRuntimeState } from "../services/heartbeat.js";
-import { summarizeActiveRunProtocolProgress } from "../services/active-run-protocol-progress.js";
+import {
+  summarizeActiveRunHelperTrace,
+  summarizeActiveRunProtocolProgress,
+} from "../services/active-run-protocol-progress.js";
 import { runClaudeLogin } from "@squadrail/adapter-claude-local/server";
 import { DEFAULT_CLAUDE_LOCAL_SKIP_PERMISSIONS } from "@squadrail/adapter-claude-local";
 import {
@@ -1426,6 +1429,16 @@ export function agentRoutes(db: Db) {
       .orderBy(desc(heartbeatRunEvents.seq))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+    const latestAdapterInvoke = await db
+      .select({
+        createdAt: heartbeatRunEvents.createdAt,
+        payload: heartbeatRunEvents.payload,
+      })
+      .from(heartbeatRunEvents)
+      .where(and(eq(heartbeatRunEvents.runId, run.id), eq(heartbeatRunEvents.eventType, "adapter.invoke")))
+      .orderBy(desc(heartbeatRunEvents.seq))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
     const runtimeState = describeProtocolRunRuntimeState({
       runStatus: run.status,
       contextSnapshot: run.contextSnapshot,
@@ -1437,6 +1450,12 @@ export function agentRoutes(db: Db) {
     const protocolMessageType = asNonEmptyString(context.protocolMessageType);
     const protocolRecipientRole = asNonEmptyString(context.protocolRecipientRole);
     let protocolProgress = null;
+    const helperTrace = summarizeActiveRunHelperTrace({
+      adapterInvokePayload: latestAdapterInvoke?.payload ?? null,
+      adapterInvokeCreatedAt: latestAdapterInvoke?.createdAt ?? null,
+      protocolMessageType,
+      protocolRecipientRole,
+    });
 
     if (protocolMessageType && protocolRecipientRole) {
       const startedAtValue = run.startedAt ?? run.createdAt ?? null;
@@ -1498,6 +1517,7 @@ export function agentRoutes(db: Db) {
       leaseHeartbeatAt: lease?.heartbeatAt ?? null,
       latestEvent,
       protocolProgress,
+      helperTrace,
       ...runtimeState,
     });
   });

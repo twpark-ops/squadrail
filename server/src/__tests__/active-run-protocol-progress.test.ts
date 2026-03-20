@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { summarizeActiveRunProtocolProgress } from "../services/active-run-protocol-progress.js";
+import {
+  summarizeActiveRunHelperTrace,
+  summarizeActiveRunProtocolProgress,
+} from "../services/active-run-protocol-progress.js";
 
 describe("summarizeActiveRunProtocolProgress", () => {
   it("tracks intermediate-only reviewer progress without marking required progress complete", () => {
@@ -99,6 +102,34 @@ describe("summarizeActiveRunProtocolProgress", () => {
       requiredProgressRecorded: false,
       humanOverrideCount: 1,
       latestHumanOverrideMessageType: "CLOSE_TASK",
+    });
+  });
+
+  it("captures helper contract injection from adapter invoke payload", () => {
+    const summary = summarizeActiveRunHelperTrace({
+      adapterInvokeCreatedAt: "2026-03-20T10:00:01.000Z",
+      protocolMessageType: "SUBMIT_FOR_REVIEW",
+      protocolRecipientRole: "reviewer",
+      adapterInvokePayload: {
+        env: {
+          SQUADRAIL_PROTOCOL_HELPER_PATH: "/repo/scripts/runtime/squadrail-protocol.mjs",
+        },
+        context: {
+          protocolMessageType: "SUBMIT_FOR_REVIEW",
+          protocolRecipientRole: "reviewer",
+        },
+        commandNotes: ["Use the local helper for protocol transitions."],
+        prompt: "Exact helper command form:\nnode scripts/runtime/squadrail-protocol.mjs review-start",
+      },
+    });
+
+    expect(summary).toMatchObject({
+      adapterInvokeCaptured: true,
+      helperPathInjected: true,
+      helperContextInjected: true,
+      promptMentionsProtocolHelper: true,
+      commandNotesMentionProtocolHelper: true,
+      transportContractInjected: true,
     });
   });
 });

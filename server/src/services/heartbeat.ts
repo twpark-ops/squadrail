@@ -1158,6 +1158,28 @@ export function shouldRecoverDegradedProtocolRun(input: {
   return (input.now ?? new Date()).getTime() - startedAtMs >= degradedThresholdMs;
 }
 
+export async function runProtocolWatchdogRecoveries(input: {
+  recoverIdle: () => Promise<boolean>;
+  recoverDegraded: () => Promise<boolean>;
+  onIdleError?: (error: unknown) => Promise<void> | void;
+  onDegradedError?: (error: unknown) => Promise<void> | void;
+}) {
+  let recovered = false;
+  try {
+    recovered = await input.recoverIdle();
+  } catch (error) {
+    await input.onIdleError?.(error);
+  }
+  if (recovered) return true;
+
+  try {
+    return await input.recoverDegraded();
+  } catch (error) {
+    await input.onDegradedError?.(error);
+    return false;
+  }
+}
+
 export function hasRequiredProtocolProgress(input: {
   requirement: ProtocolRunRequirement | null;
   messages: ObservedProtocolProgressMessage[];
@@ -2464,16 +2486,25 @@ export function heartbeatService(db: Db) {
     }
 
     const lease = await getRunLease(run.id);
-    const recovered = await recoverIdleProtocolRunIfNeeded({
-      run,
-      lease,
-      now: new Date(),
-      idleThresholdMs: RUN_PROTOCOL_IDLE_WATCHDOG_MS,
-    }) || await recoverDegradedProtocolRunIfNeeded({
-      run,
-      lease,
-      now: new Date(),
-      degradedThresholdMs: RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+    const recovered = await runProtocolWatchdogRecoveries({
+      recoverIdle: () => recoverIdleProtocolRunIfNeeded({
+        run,
+        lease,
+        now: new Date(),
+        idleThresholdMs: RUN_PROTOCOL_IDLE_WATCHDOG_MS,
+      }),
+      recoverDegraded: () => recoverDegradedProtocolRunIfNeeded({
+        run,
+        lease,
+        now: new Date(),
+        degradedThresholdMs: RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+      }),
+      onIdleError: (err) => {
+        logger.error({ err, runId: run.id }, "idle protocol recovery failed");
+      },
+      onDegradedError: (err) => {
+        logger.error({ err, runId: run.id }, "degraded protocol recovery failed");
+      },
     });
     if (recovered) {
       protocolIdleWatchdogAttempts.delete(run.id);
@@ -2517,16 +2548,25 @@ export function heartbeatService(db: Db) {
 
     for (const run of activeRuns) {
       const lease = leaseByRunId.get(run.id) ?? null;
-      const didRecover = await recoverIdleProtocolRunIfNeeded({
-        run,
-        lease,
-        now,
-        idleThresholdMs,
-      }) || await recoverDegradedProtocolRunIfNeeded({
-        run,
-        lease,
-        now,
-        degradedThresholdMs: RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+      const didRecover = await runProtocolWatchdogRecoveries({
+        recoverIdle: () => recoverIdleProtocolRunIfNeeded({
+          run,
+          lease,
+          now,
+          idleThresholdMs,
+        }),
+        recoverDegraded: () => recoverDegradedProtocolRunIfNeeded({
+          run,
+          lease,
+          now,
+          degradedThresholdMs: RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+        }),
+        onIdleError: (err) => {
+          logger.error({ err, runId: run.id }, "idle protocol recovery failed during scan");
+        },
+        onDegradedError: (err) => {
+          logger.error({ err, runId: run.id }, "degraded protocol recovery failed during scan");
+        },
       });
       if (didRecover) {
         recovered.push(run.id);

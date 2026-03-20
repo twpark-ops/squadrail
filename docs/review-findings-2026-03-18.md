@@ -93,13 +93,14 @@ git diff --check
 | P2-1 | HIGH | short supervisory lanes (`reviewer/QA/close`) could stay in `adapter.invoke` without being surfaced as a distinct failure mode | `heartbeat.ts`: added `supervisory_invoke_stall` detection for `review_reviewer`, `qa_gate_reviewer`, and `approval_tech_lead` lanes, including `adapter.execute_start` / `adapter.invoke` checkpoints |
 | P2-2 | MEDIUM | degraded classification and recovery threshold used different clocks, so watchdog recovery could trail deterministic fallback by a full cycle | `heartbeat.ts`: unified degraded recovery threshold resolution for supervisory stalls and kept the first two watchdog ticks at `10s` |
 | P2-3 | HIGH | `human_board` close could still be blocked by failure-learning gate even though the policy text required operator review before close | `issue-protocol-policy.ts`: treat `human_board` close as satisfying the operator-review gate for unresolved repeated runtime failures |
+| P2-4 | MEDIUM | idle recovery exception could skip degraded recovery because watchdog chained both branches in a single boolean expression | `heartbeat.ts`: split idle/degraded recovery into independently guarded execution via `runProtocolWatchdogRecoveries()` |
 
 ### Open — Active Reliability Debt
 
 | # | Severity | Finding | File | Position |
 |---|:--------:|---------|------|----------|
-| P2-4 | HIGH | `swiftsight-agent-tl-qa-loop` still needs deterministic fallback for `reviewer_approval`, `qa_approval`, and `close` even after supervisory stall detection | `cloud-swiftsight-real-org.mjs`, `heartbeat.ts` | Active P2 item. Now tracked as `supervisory_invoke_stall`, not as generic runtime ambiguity. |
-| P2-5 | MEDIUM | fallback total for the QA loop remains `7` — canonical correctness is preserved, but autonomy is not yet steady-state | `cloud-swiftsight-real-org.mjs` | Active P2 item. The next slice should inspect protocol-helper attempts and adapter/provider boundary signals before fallback. |
+| P2-5 | HIGH | `swiftsight-agent-tl-qa-loop` still needs deterministic fallback for `reviewer_approval`, `qa_approval`, and `close` even after supervisory stall detection | `cloud-swiftsight-real-org.mjs`, `heartbeat.ts` | Active P2 item. Now tracked as `supervisory_invoke_stall`, not as generic runtime ambiguity. |
+| P2-6 | MEDIUM | fallback total for the QA loop remains `7` — canonical correctness is preserved, but autonomy is not yet steady-state | `cloud-swiftsight-real-org.mjs` | Active P2 item. The next slice should inspect actual shell-level helper execution traces and adapter/provider boundary signals before fallback. |
 
 ## Notes
 

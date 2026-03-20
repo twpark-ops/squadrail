@@ -35,6 +35,16 @@ export interface ActiveRunProtocolProgressSummary {
   latestHumanOverrideMessageAt: string | null;
 }
 
+export interface ActiveRunProtocolHelperTraceSummary {
+  adapterInvokeCaptured: boolean;
+  adapterInvokeAt: string | null;
+  helperPathInjected: boolean;
+  helperContextInjected: boolean;
+  promptMentionsProtocolHelper: boolean;
+  commandNotesMentionProtocolHelper: boolean;
+  transportContractInjected: boolean;
+}
+
 interface ObservedProtocolProgressMessage {
   messageType: string;
   createdAt: Date | string | null;
@@ -42,6 +52,10 @@ interface ObservedProtocolProgressMessage {
 
 function readNonEmptyString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function toEpochMillis(value: Date | string | null | undefined) {
@@ -74,6 +88,52 @@ function isIntermediateMessage(
   return requirement.intermediateMessageTypes.includes(
     messageType as ProtocolRunRequirement["intermediateMessageTypes"][number],
   );
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value
+      .map((entry) => readNonEmptyString(entry))
+      .filter((entry): entry is string => Boolean(entry))
+    : [];
+}
+
+export function summarizeActiveRunHelperTrace(input: {
+  adapterInvokePayload?: unknown;
+  adapterInvokeCreatedAt?: Date | string | null;
+  protocolMessageType?: string | null;
+  protocolRecipientRole?: string | null;
+}): ActiveRunProtocolHelperTraceSummary | null {
+  const payload = asRecord(input.adapterInvokePayload);
+  if (!payload) return null;
+
+  const env = asRecord(payload.env) ?? {};
+  const context = asRecord(payload.context) ?? {};
+  const prompt = readNonEmptyString(payload.prompt);
+  const commandNotes = asStringArray(payload.commandNotes);
+  const helperPathInjected = Boolean(readNonEmptyString(env.SQUADRAIL_PROTOCOL_HELPER_PATH));
+  const helperContextInjected =
+    readNonEmptyString(context.protocolMessageType) === readNonEmptyString(input.protocolMessageType)
+    && readNonEmptyString(context.protocolRecipientRole) === readNonEmptyString(input.protocolRecipientRole);
+  const promptMentionsProtocolHelper =
+    Boolean(prompt?.includes("Use the local helper"))
+    || Boolean(prompt?.includes("Exact helper command form"))
+    || Boolean(prompt?.includes("SQUADRAIL_PROTOCOL_HELPER_PATH"));
+  const commandNotesMentionProtocolHelper = commandNotes.some((note) => {
+    const normalized = note.toLowerCase();
+    return normalized.includes("protocol") || normalized.includes("helper");
+  });
+
+  return {
+    adapterInvokeCaptured: true,
+    adapterInvokeAt: toIsoString(input.adapterInvokeCreatedAt),
+    helperPathInjected,
+    helperContextInjected,
+    promptMentionsProtocolHelper,
+    commandNotesMentionProtocolHelper,
+    transportContractInjected:
+      helperPathInjected || helperContextInjected || promptMentionsProtocolHelper || commandNotesMentionProtocolHelper,
+  };
 }
 
 export function summarizeActiveRunProtocolProgress(input: {

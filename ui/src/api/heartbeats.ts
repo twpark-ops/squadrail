@@ -15,6 +15,14 @@ export interface ActiveRunForIssue extends HeartbeatRun {
     intermediateOnly: boolean;
     requiredProgressRecorded: boolean;
   } | null;
+  helperTrace?: {
+    adapterInvokeCaptured: boolean;
+    helperPathInjected: boolean;
+    helperContextInjected: boolean;
+    promptMentionsProtocolHelper: boolean;
+    commandNotesMentionProtocolHelper: boolean;
+    transportContractInjected: boolean;
+  } | null;
 }
 
 export interface LiveRunForIssue {

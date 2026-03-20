@@ -1957,6 +1957,10 @@ async function captureFallbackRunDiagnostic(issueId) {
     activeRun.protocolProgress && typeof activeRun.protocolProgress === "object"
       ? activeRun.protocolProgress
       : null;
+  const helperTrace =
+    activeRun.helperTrace && typeof activeRun.helperTrace === "object"
+      ? activeRun.helperTrace
+      : null;
 
   return {
     runId: activeRun.id,
@@ -2021,6 +2025,16 @@ async function captureFallbackRunDiagnostic(issueId) {
             : null,
         intermediateOnly: protocolProgress.intermediateOnly === true,
         requiredProgressRecorded: protocolProgress.requiredProgressRecorded === true,
+      }
+      : null,
+    helperTrace: helperTrace
+      ? {
+        adapterInvokeCaptured: helperTrace.adapterInvokeCaptured === true,
+        helperPathInjected: helperTrace.helperPathInjected === true,
+        helperContextInjected: helperTrace.helperContextInjected === true,
+        promptMentionsProtocolHelper: helperTrace.promptMentionsProtocolHelper === true,
+        commandNotesMentionProtocolHelper: helperTrace.commandNotesMentionProtocolHelper === true,
+        transportContractInjected: helperTrace.transportContractInjected === true,
       }
       : null,
   };

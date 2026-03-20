@@ -157,6 +157,12 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
 - active run route는 이제 `runtimeDegradedState / runtimeHealth`도 함께 내려준다.
   - 예: `claude_stream_incomplete_retry_loop`
   - 예: `recovered_supervisory_invoke_stall`
+- active run route는 이제 latest `adapter.invoke` payload 기반 `helperTrace`도 내려준다.
+  - `helperPathInjected`
+  - `helperContextInjected`
+  - `promptMentionsProtocolHelper`
+  - `commandNotesMentionProtocolHelper`
+  - `transportContractInjected`
 - real-org harness는 이제 `runtimeDegradedState / runtimeHealth`를 보고 short-circuit fallback policy를 적용한다.
   - 목표: degraded supervisory lane을 더 이상 full timeout까지 기다리지 않고 바로 deterministic handoff로 넘긴다.
   - 범위: `routing_reassign`, `staffing_reassign`, `engineer_wake`, `implementation_start`, `review_submission`, `reviewer_approval`, `qa_approval`, `close`
@@ -241,10 +247,13 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `reviewer_approval`, `qa_approval`, `close` fallback 직전 run은 모두 `actorAttemptedAfterRunStart = false`
   - 같은 시나리오에서 `implementation_start` run은 `ACK_ASSIGNMENT`, `review_submission` run은 `START_IMPLEMENTATION`이 잡혔다
   - 즉 남은 supervisory debt는 "메시지를 보냈는데 decision이 유실된다"보다, **supervisory lane이 helper/decision 시도까지 못 간다**는 설명이 더 정확하다.
+- 최신 슬라이스에서는 watchdog recovery 체인도 독립 실행으로 분리했다.
+  - idle recovery가 예외를 던져도 degraded recovery는 계속 시도한다.
+  - 즉 watchdog 내부 예외 하나가 recovery family 전체를 건너뛰게 만들지는 않는다.
 
 # Next Slice
 
 1. `reviewer_approval`, `qa_approval`, `close`를 `supervisory_invoke_stall` family로 고정 추적한다.
-2. reviewer/QA/closure lane에서 deterministic fallback 직전 active run의 **helper invocation trace**를 더 수집한다.
+2. reviewer/QA/closure lane에서 deterministic fallback 직전 active run의 **실제 shell-level helper execution trace**를 더 수집한다.
 3. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 `adapter.invoke`를 빠져나오지 못하는 이유를 adapter/provider 경계까지 좁힌다.
 4. `implementation_engineer` fallback은 별도 slice로 분리한다.

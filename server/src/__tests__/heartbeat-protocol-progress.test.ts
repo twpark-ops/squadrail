@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveProtocolRunRequirement } from "@squadrail/shared/protocol-run-requirements";
 import {
   buildRequiredProtocolProgressError,
@@ -10,6 +10,7 @@ import {
   isSupersededProtocolWakeReason,
   readLeaseLastProgressAt,
   resolveProtocolIdleWatchdogDelayMs,
+  runProtocolWatchdogRecoveries,
   shouldEnqueueRetryableAdapterFailure,
   shouldRecoverDegradedProtocolRun,
   shouldEnqueueProtocolRequiredRetry,
@@ -671,5 +672,24 @@ describe("heartbeat protocol progress helpers", () => {
     expect(resolveProtocolIdleWatchdogDelayMs(3)).toBe(40_000);
     expect(resolveProtocolIdleWatchdogDelayMs(4)).toBe(60_000);
     expect(resolveProtocolIdleWatchdogDelayMs(8)).toBe(60_000);
+  });
+
+  it("still attempts degraded recovery when idle recovery throws", async () => {
+    const recoverDegraded = vi.fn().mockResolvedValue(true);
+    const onIdleError = vi.fn();
+    const onDegradedError = vi.fn();
+
+    await expect(
+      runProtocolWatchdogRecoveries({
+        recoverIdle: vi.fn().mockRejectedValue(new Error("idle failed")),
+        recoverDegraded,
+        onIdleError,
+        onDegradedError,
+      }),
+    ).resolves.toBe(true);
+
+    expect(onIdleError).toHaveBeenCalledTimes(1);
+    expect(recoverDegraded).toHaveBeenCalledTimes(1);
+    expect(onDegradedError).not.toHaveBeenCalled();
   });
 });
