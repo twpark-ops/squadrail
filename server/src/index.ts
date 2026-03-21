@@ -29,6 +29,7 @@ import {
   issueProtocolTimeoutService,
   knowledgeBackfillService,
   operatingAlertService,
+  protocolDispatchReconciliationService,
   registerLiveEventSink,
 } from "./services/index.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
@@ -489,6 +490,7 @@ registerLiveEventSink((event) => operatingAlerts.dispatchLiveEvent(event));
 if (config.heartbeatSchedulerEnabled) {
   const heartbeat = heartbeatService(db as any);
   const protocolTimeouts = issueProtocolTimeoutService(db as any);
+  const protocolDispatchReconciliation = protocolDispatchReconciliationService(db as any);
 
   // Reap orphaned runs at startup (no threshold -- runningProcesses is empty)
   void heartbeat.reapOrphanedRuns().catch((err) => {
@@ -518,6 +520,17 @@ if (config.heartbeatSchedulerEnabled) {
       .recoverIdleProtocolRuns()
       .catch((err) => {
         logger.error({ err }, "idle protocol watchdog failed");
+      });
+
+    void protocolDispatchReconciliation
+      .reconcilePendingDispatches()
+      .then((result) => {
+        if (result.reconciled > 0) {
+          logger.warn({ ...result }, "protocol dispatch reconciliation requeued pending wakeups");
+        }
+      })
+      .catch((err) => {
+        logger.error({ err }, "protocol dispatch reconciliation sweep failed");
       });
 
     void protocolTimeouts

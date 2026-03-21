@@ -25,6 +25,7 @@ export { companyPortabilityService } from "./company-portability.js";
 export { issueProtocolExecutionService, buildProtocolExecutionDispatchPlan } from "./issue-protocol-execution.js";
 export { issueProtocolService } from "./issue-protocol.js";
 export { issueProtocolTimeoutService } from "./issue-protocol-timeouts.js";
+export { protocolDispatchReconciliationService } from "./protocol-dispatch-reconciliation.js";
 export { issueRetrievalService, deriveRetrievalEventType, deriveBriefScope, buildRetrievalQueryText } from "./issue-retrieval.js";
 export { issueMergeCandidateService } from "./issue-merge-candidates.js";
 export {

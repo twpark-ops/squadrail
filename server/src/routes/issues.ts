@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
-import { agents, enqueueAfterDbCommit, issueProtocolState, projects, runWithoutDbContext, type Db } from "@squadrail/db";
+import { enqueueAfterDbCommit, runWithoutDbContext, type Db } from "@squadrail/db";
 import {
   addIssueCommentSchema,
   createInternalWorkItemSchema,
@@ -46,14 +46,17 @@ import { issueMergeCandidateService } from "../services/issue-merge-candidates.j
 import { summarizeIssueFailureLearning } from "../services/failure-learning.js";
 import { logger } from "../middleware/logger.js";
 import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
-import { loadConfig } from "../config.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import {
   enrichProtocolMessageArtifactsFromRun,
   runMatchesIssueScope,
 } from "../services/protocol-run-artifacts.js";
 import { shouldSkipSupersededProtocolFollowup } from "../services/heartbeat.js";
-import { selectPreferredEngineerAgentId } from "../services/issue-protocol-auto-assist.js";
+import {
+  maybeApplyPreRetrievalSupervisorReroute,
+  resolvePreRetrievalAutoAssistRecipient,
+  shouldDispatchBeforeProtocolRetrieval,
+} from "../services/protocol-dispatch-routing.js";
 import { registerIssueApprovalRoutes } from "./issues/approvals-routes.js";
 import { registerIssueAttachmentRoutes } from "./issues/attachments-routes.js";
 import { registerIssueIntakeRoutes } from "./issues/intake-routes.js";
@@ -197,24 +200,7 @@ export function shouldGenerateProtocolRetrievalContext(
   return PROTOCOL_RETRIEVAL_MESSAGE_TYPES.has(messageType);
 }
 
-export function shouldDispatchBeforeProtocolRetrieval(message: CreateIssueProtocolMessage) {
-  if (loadConfig().deploymentMode !== "local_trusted") return false;
-  if (message.messageType !== "ASSIGN_TASK" && message.messageType !== "REASSIGN_TASK") return false;
-  return message.recipients.some(
-    (recipient) =>
-      recipient.recipientType === "agent"
-      && (recipient.role === "tech_lead" || recipient.role === "pm" || recipient.role === "cto"),
-  );
-}
-
-export function resolvePreRetrievalAutoAssistRecipient(message: CreateIssueProtocolMessage) {
-  if (!shouldDispatchBeforeProtocolRetrieval(message)) return null;
-  return message.recipients.find(
-    (recipient) =>
-      recipient.recipientType === "agent"
-      && (recipient.role === "tech_lead" || recipient.role === "pm" || recipient.role === "cto"),
-  ) ?? null;
-}
+export { shouldDispatchBeforeProtocolRetrieval, resolvePreRetrievalAutoAssistRecipient };
 
 const PM_INTAKE_LABEL_SPECS = [
   { name: "workflow:intake", color: "#2563EB" },
@@ -630,154 +616,6 @@ export function issueRoutes(
 
   async function ensureIssueLabelsByName(companyId: string, specs: ReadonlyArray<{ name: string; color: string }>) {
     return ensureIssueLabelsByNameHelper({ svc, companyId, specs });
-  }
-
-  async function maybeApplyPreRetrievalSupervisorReroute(input: {
-    issue: { id: string; companyId: string; projectId: string | null };
-    protocolMessageId: string;
-    message: CreateIssueProtocolMessage;
-  }): Promise<{
-    rerouteMessage: CreateIssueProtocolMessage;
-    rerouteProtocolMessageId: string;
-    rerouteProtocolMessageSeq: number;
-    actor: {
-      actorType: "agent";
-      actorId: string;
-      agentId: string;
-      runId: null;
-    };
-  } | null> {
-    const supervisoryRecipient = resolvePreRetrievalAutoAssistRecipient(input.message);
-    if (!supervisoryRecipient || supervisoryRecipient.role !== "tech_lead") return null;
-
-    const [project, state, engineerCandidates] = await Promise.all([
-      input.issue.projectId
-        ? db
-          .select({
-            leadAgentId: projects.leadAgentId,
-            name: projects.name,
-          })
-          .from(projects)
-          .where(eq(projects.id, input.issue.projectId))
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
-        : Promise.resolve(null),
-      db
-        .select({
-          reviewerAgentId: issueProtocolState.reviewerAgentId,
-          qaAgentId: issueProtocolState.qaAgentId,
-        })
-        .from(issueProtocolState)
-        .where(and(eq(issueProtocolState.issueId, input.issue.id), eq(issueProtocolState.companyId, input.issue.companyId)))
-        .limit(1)
-        .then((rows) => rows[0] ?? null),
-      db
-        .select({
-          id: agents.id,
-          reportsTo: agents.reportsTo,
-          adapterType: agents.adapterType,
-          metadata: agents.metadata,
-        })
-        .from(agents)
-        .where(and(eq(agents.companyId, input.issue.companyId), eq(agents.role, "engineer"))),
-    ]);
-
-    const preferredEngineerAgentId = selectPreferredEngineerAgentId({
-      candidates: engineerCandidates,
-      managerAgentId: project?.leadAgentId ?? supervisoryRecipient.recipientId,
-      projectKeys: [project?.name],
-      excludeAgentIds: [supervisoryRecipient.recipientId, project?.leadAgentId ?? null],
-    });
-    if (!preferredEngineerAgentId || preferredEngineerAgentId === supervisoryRecipient.recipientId) {
-      return null;
-    }
-
-    const reviewerAgentId =
-      state?.reviewerAgentId && state.reviewerAgentId !== preferredEngineerAgentId
-        ? state.reviewerAgentId
-        : supervisoryRecipient.recipientId;
-    const qaAgentId = state?.qaAgentId ?? null;
-    const recipients: CreateIssueProtocolMessage["recipients"] = [
-      {
-        recipientType: "agent",
-        recipientId: preferredEngineerAgentId,
-        role: "engineer",
-      },
-    ];
-    if (reviewerAgentId && reviewerAgentId !== preferredEngineerAgentId) {
-      recipients.push({
-        recipientType: "agent",
-        recipientId: reviewerAgentId,
-        role: "reviewer",
-      });
-    }
-    if (qaAgentId && qaAgentId !== preferredEngineerAgentId && qaAgentId !== reviewerAgentId) {
-      recipients.push({
-        recipientType: "agent",
-        recipientId: qaAgentId,
-        role: "qa",
-      });
-    }
-
-    const rerouteMessage: CreateIssueProtocolMessage = {
-      messageType: "REASSIGN_TASK",
-      sender: {
-        actorType: "agent",
-        actorId: supervisoryRecipient.recipientId,
-        role: "tech_lead",
-      },
-      recipients,
-      workflowStateBefore: "assigned",
-      workflowStateAfter: "assigned",
-      summary: "Local-trusted deterministic routing reassign",
-      requiresAck: false,
-      payload: {
-        reason: "local_trusted_pre_retrieval_auto_assist",
-        newAssigneeAgentId: preferredEngineerAgentId,
-        ...(reviewerAgentId ? { newReviewerAgentId: reviewerAgentId } : {}),
-        ...(qaAgentId ? { newQaAgentId: qaAgentId } : {}),
-      },
-      artifacts: [],
-    };
-
-    const rerouteResult = await protocolSvc.appendMessage({
-      issueId: input.issue.id,
-      message: rerouteMessage,
-      mirrorToComments: true,
-      authorAgentId: supervisoryRecipient.recipientId,
-      authorUserId: null,
-    });
-
-    await logActivity(db, {
-      companyId: input.issue.companyId,
-      actorType: "system",
-      actorId: "local_protocol_auto_assist",
-      agentId: supervisoryRecipient.recipientId,
-      runId: null,
-      action: "issue.protocol_dispatch.auto_assist_preempted",
-      entityType: "issue",
-      entityId: input.issue.id,
-      details: {
-        protocolMessageId: input.protocolMessageId,
-        messageType: input.message.messageType,
-        rerouteProtocolMessageId: rerouteResult.message.id,
-        recipientAgentId: preferredEngineerAgentId,
-        reviewerAgentId,
-        qaAgentId,
-      },
-    });
-
-    return {
-      rerouteMessage,
-      rerouteProtocolMessageId: rerouteResult.message.id,
-      rerouteProtocolMessageSeq: rerouteResult.message.seq,
-      actor: {
-        actorType: "agent",
-        actorId: supervisoryRecipient.recipientId,
-        agentId: supervisoryRecipient.recipientId,
-        runId: null,
-      },
-    };
   }
 
   async function loadIssueChangeSurface(issue: {
@@ -1508,6 +1346,8 @@ export function issueRoutes(
             },
           });
           const rerouted = await maybeApplyPreRetrievalSupervisorReroute({
+            db,
+            protocolSvc,
             issue: input.issue,
             protocolMessageId: result.message.id,
             message: effectiveMessage,
