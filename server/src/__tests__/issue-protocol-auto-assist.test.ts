@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { resolveProtocolRunRequirement } from "@squadrail/shared";
 import {
   buildDeterministicProtocolAutoAssistSteps,
@@ -29,6 +29,22 @@ function buildIssue(overrides?: Partial<Parameters<typeof buildDeterministicProt
     ...overrides,
   };
 }
+
+const originalDispatchAutoAssistEnv = process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST;
+const originalDegradedAutoAssistEnv = process.env.SQUADRAIL_ENABLE_PROTOCOL_DEGRADED_AUTO_ASSIST;
+
+afterEach(() => {
+  if (originalDispatchAutoAssistEnv === undefined) {
+    delete process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST;
+  } else {
+    process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST = originalDispatchAutoAssistEnv;
+  }
+  if (originalDegradedAutoAssistEnv === undefined) {
+    delete process.env.SQUADRAIL_ENABLE_PROTOCOL_DEGRADED_AUTO_ASSIST;
+  } else {
+    process.env.SQUADRAIL_ENABLE_PROTOCOL_DEGRADED_AUTO_ASSIST = originalDegradedAutoAssistEnv;
+  }
+});
 
 describe("buildDeterministicProtocolAutoAssistSteps", () => {
   it("routes supervisor lanes to a deterministic reassign target", () => {
@@ -233,7 +249,20 @@ describe("buildDeterministicProtocolAutoAssistSteps", () => {
 });
 
 describe("shouldAutoAssistProtocolDispatch", () => {
+  it("stays disabled by default even in local-trusted mode", () => {
+    delete process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST;
+    expect(shouldAutoAssistProtocolDispatch({
+      deploymentMode: "local_trusted",
+      dispatchMode: "default",
+      contextSnapshot: {
+        protocolMessageType: "SUBMIT_FOR_REVIEW",
+        protocolRecipientRole: "reviewer",
+      },
+    })).toBe(false);
+  });
+
   it("enables local-trusted active protocol lanes", () => {
+    process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST = "1";
     expect(shouldAutoAssistProtocolDispatch({
       deploymentMode: "local_trusted",
       dispatchMode: "default",
@@ -245,6 +274,7 @@ describe("shouldAutoAssistProtocolDispatch", () => {
   });
 
   it("skips reviewer watch lanes even in local-trusted mode", () => {
+    process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST = "1";
     expect(shouldAutoAssistProtocolDispatch({
       deploymentMode: "local_trusted",
       dispatchMode: "reviewer_watch",
@@ -256,6 +286,7 @@ describe("shouldAutoAssistProtocolDispatch", () => {
   });
 
   it("skips lead supervisor watch lanes even in local-trusted mode", () => {
+    process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST = "1";
     expect(shouldAutoAssistProtocolDispatch({
       deploymentMode: "local_trusted",
       dispatchMode: "lead_supervisor",
@@ -267,6 +298,7 @@ describe("shouldAutoAssistProtocolDispatch", () => {
   });
 
   it("accepts direct protocol fields even when context snapshot is sparse", () => {
+    process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST = "1";
     expect(shouldAutoAssistProtocolDispatch({
       deploymentMode: "local_trusted",
       dispatchMode: "default",

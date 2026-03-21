@@ -172,6 +172,14 @@ function isLocalTrustedDeployment() {
   return loadConfig().deploymentMode === "local_trusted";
 }
 
+function isProtocolDispatchAutoAssistEnabled() {
+  return process.env.SQUADRAIL_ENABLE_PROTOCOL_DISPATCH_AUTO_ASSIST === "1";
+}
+
+function isProtocolDegradedAutoAssistEnabled() {
+  return process.env.SQUADRAIL_ENABLE_PROTOCOL_DEGRADED_AUTO_ASSIST === "1";
+}
+
 export function shouldAutoAssistProtocolDispatch(input: {
   deploymentMode?: string | null;
   contextSnapshot?: Record<string, unknown> | null;
@@ -179,6 +187,7 @@ export function shouldAutoAssistProtocolDispatch(input: {
   protocolMessageType?: string | null;
   protocolRecipientRole?: string | null;
 }) {
+  if (!isProtocolDispatchAutoAssistEnabled()) return false;
   const deploymentMode = readNonEmptyString(input.deploymentMode) ?? loadConfig().deploymentMode;
   if (deploymentMode !== "local_trusted") return false;
 
@@ -1079,6 +1088,9 @@ export function issueProtocolAutoAssistService(db: Db) {
       contextSnapshot: Record<string, unknown>;
       dispatchMessage?: ProtocolAutoAssistDispatcher;
     }) => {
+      if (!isProtocolDegradedAutoAssistEnabled()) {
+        return false;
+      }
       return executeAutoAssist({
         runId: input.runId,
         issueId: input.issueId,

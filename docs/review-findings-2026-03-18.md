@@ -98,6 +98,7 @@ git diff --check
 | P2-8 | MEDIUM | reviewer / QA / close follow-up wakes could still inherit stale adapter sessions | `issue-protocol-execution.ts`, `claude-local execute.ts`, `heartbeat.ts`: short supervisory follow-ups now propagate `forceFreshAdapterSession` end-to-end, and `claude_local` explicitly skips `--resume` when the wake requests a fresh session |
 | P2-9 | HIGH | `swiftsight-agent-tl-qa-loop` needed deterministic fallback for `reviewer_approval`, `qa_approval`, and `close` | `issues.ts`, `issue-protocol-auto-assist.ts`, `issue-protocol-execution.ts`, `cloud-swiftsight-real-org.mjs`: TL pre-retrieval reroute became server-native, reroute retrieval hints/briefs are attached, and the latest real-org run `CLO-218` completed with `fallback total = 0` |
 | P2-10 | MEDIUM | fallback total for the QA loop remained `7`, so autonomy was not yet steady-state | `cloud-swiftsight-real-org.mjs`: latest real-org verification `CLO-218` settled at `fallback total = 0`, `providerRuntimeDebt = false`, `supervisoryInvokeStallCount = 0` |
+| P2-11 | HIGH | real-org validation could still pass through deterministic assist paths even after P2 unless they were manually avoided | `issue-protocol-auto-assist.ts`, `cloud-swiftsight-real-org.mjs`: deterministic protocol auto-assist and degraded auto-assist are now opt-in only via explicit env flags, and the default validation path leaves deterministic fallback disabled |
 
 ### Open — Infrastructure Reliability Debt
 
@@ -116,4 +117,6 @@ git diff --check
 - S-14 (shared persistent server) is mitigated but not eliminated. The repeat harness should eventually adopt ephemeral servers for all scenarios, matching the full-delivery pattern.
 - P2 follow-up debt is now closed. The latest real-org run (`CLO-218`) completed with server-native TL reroute, isolated implementation binding, two protocol briefs, and `fallback total = 0`.
 - Direct engineer validation also closed on a real repo issue. The latest `swiftsight-cloud-claude-build-info` run (`CLO-230`) completed with `fallback total = 0`, focused observability tests passed, and the produced patch replaced the hard-coded `service.version` with build-info-backed resolution plus deterministic fallback coverage.
+- Strict validation now runs with deterministic fallback disabled by default. Re-verified real issues `CLO-232` (`swiftsight-cloud-claude-build-info`) and `CLO-233` (`swiftsight-agent-codex-safe-join`) both completed with `fallback total = 0`.
+- `CLO-233` also confirmed that a second repo / agent combination (`codex_local` engineer + `claude_local` reviewer) can close without dispatch auto-assist or scripted review/close fallback.
 - The remaining reliability risks are infrastructure-oriented: live-model nondeterminism and shared persistent-server validation.

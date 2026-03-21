@@ -47,6 +47,8 @@ const REVIEWER_APPROVAL_FALLBACK_AFTER_MS = Number(
 const QA_APPROVAL_FALLBACK_AFTER_MS = Number(
   process.env.SWIFTSIGHT_E2E_QA_APPROVAL_FALLBACK_AFTER_MS ?? 30_000,
 );
+const DETERMINISTIC_FALLBACKS_ENABLED =
+  process.env.SWIFTSIGHT_E2E_ALLOW_DETERMINISTIC_FALLBACKS === "1";
 const SCENARIO_FILTER = process.env.SWIFTSIGHT_E2E_SCENARIO?.trim() ?? "";
 const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
 const PRE_CLEANUP_ENABLED = process.env.SWIFTSIGHT_E2E_PRE_CLEANUP !== "0";
@@ -2626,11 +2628,13 @@ async function waitForCompletion(issueId, scenario, options = {}) {
             },
           );
       const closeFallbackEligible =
-        scenario.closeAction
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && scenario.closeAction
         && snapshot.state?.workflowState === "approved"
         && approvalMessage;
       const humanDecisionFallbackEligible =
-        scenario.closeAction
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && scenario.closeAction
         && snapshot.state?.workflowState === "awaiting_human_decision"
         && humanDecisionMessage;
       const latestReassign = latestMessage(snapshot.messages, "REASSIGN_TASK");
@@ -2638,7 +2642,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       const latestAck = latestMessage(snapshot.messages, "ACK_ASSIGNMENT");
       const latestProgress = latestMessage(snapshot.messages, "REPORT_PROGRESS");
       const initialImplementationStartEligible =
-        snapshot.state?.workflowState === "accepted"
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && snapshot.state?.workflowState === "accepted"
         && Boolean(latestAck)
         && (
           !latestImplementationStart
@@ -2647,7 +2652,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         && !latestProgress
         && !reviewSubmitMessage;
       const routingFallbackEligible =
-        scenario.routingFallback
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && scenario.routingFallback
         && snapshot.state?.workflowState === "assigned"
         && !latestReassign
         && !latestAck
@@ -2667,7 +2673,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         );
 
       const staffingFallbackEligible =
-        scenario.staffingFallback
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && scenario.staffingFallback
         && snapshot.state?.workflowState === "assigned"
         && !snapshot.state?.primaryEngineerAgentId
         && Boolean(latestReassign)
@@ -2675,7 +2682,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         && !latestProgress
         && !latestImplementationStart;
       const reviewSubmissionFallbackEligible =
-        scenario.deterministicReviewSubmission
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && scenario.deterministicReviewSubmission
         && snapshot.state?.workflowState === "implementing"
         && Boolean(latestImplementationStart || latestProgress)
         && !reviewSubmitMessage;
@@ -2739,7 +2747,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       }
 
       const engineerWakeEligible =
-        scenario.staffingFallback
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && scenario.staffingFallback
         && snapshot.state?.workflowState === "assigned"
         && Boolean(snapshot.state?.primaryEngineerAgentId)
         && Boolean(latestReassign)
@@ -2850,7 +2859,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       }
 
       const deterministicReviewEligible =
-        Boolean(scenario.changeRecoveryInvariant)
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && Boolean(scenario.changeRecoveryInvariant)
         && Boolean(postRecoverySubmitMessage)
         && !postRecoveryReviewerApproval
         && ["submitted_for_review", "under_review"].includes(snapshot.state?.workflowState ?? "");
@@ -2887,7 +2897,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       }
 
       const genericDeterministicReviewEligible =
-        Boolean(scenario.qaGateInvariant)
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && Boolean(scenario.qaGateInvariant)
         && !scenario.changeRecoveryInvariant
         && Boolean(reviewSubmitMessage)
         && !reviewerApprovalMessage
@@ -2925,7 +2936,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       }
 
       const deterministicQaEligible =
-        Boolean(scenario.changeRecoveryInvariant)
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && Boolean(scenario.changeRecoveryInvariant)
         && Boolean(postRecoveryReviewerApproval)
         && !postRecoveryQaApproval
         && ["qa_pending", "under_qa_review"].includes(snapshot.state?.workflowState ?? "");
@@ -2962,7 +2974,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       }
 
       const genericQaDeterministicEligible =
-        Boolean(scenario.qaGateInvariant)
+        DETERMINISTIC_FALLBACKS_ENABLED
+        && Boolean(scenario.qaGateInvariant)
         && !scenario.changeRecoveryInvariant
         && Boolean(reviewerApprovalMessage)
         && !qaDecisionAfterReviewerApproval
@@ -3193,7 +3206,8 @@ async function waitForCompletion(issueId, scenario, options = {}) {
     const closeMessage = latestMessage(snapshot.messages, "CLOSE_TASK");
     const approvalMessage = latestMessage(snapshot.messages, "APPROVE_IMPLEMENTATION");
     const closeFallbackEligible =
-      scenario.closeAction
+      DETERMINISTIC_FALLBACKS_ENABLED
+      && scenario.closeAction
       && snapshot.state?.workflowState === "approved"
       && approvalMessage
       && !closeMessage;
