@@ -17,3 +17,4 @@
 - `full-org-loop-e2e-plan.md`
 - `p3-runtime-review-hardening-plan-2026-03-20.md`
 - `p0-protocol-dispatch-reconciliation-plan-2026-03-22.md`
+- `p1-protocol-dispatch-outbox-plan-2026-03-22.md`

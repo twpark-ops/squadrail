@@ -309,6 +309,13 @@
       "when": 1773673200000,
       "tag": "0044_issue_document_rls_and_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1773763200000,
+      "tag": "0045_protocol_dispatch_outbox",
+      "breakpoints": true
     }
   ]
 }

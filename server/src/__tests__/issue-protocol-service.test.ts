@@ -1,5 +1,6 @@
 import {
   issueComments,
+  issueProtocolDispatchOutbox,
   issueProtocolMessages,
   issueProtocolRecipients,
   issueProtocolState,
@@ -57,10 +58,12 @@ function createIssueProtocolDbMock(input: {
   function nextMutationResult(queue: Array<unknown[] | Error>) {
     const next = queue.shift();
     if (next instanceof Error) throw next;
-    return {
+    const result = {
       returning: async () => next ?? [],
       then: <T>(resolve: (value: undefined) => T | PromiseLike<T>) => Promise.resolve(undefined).then(resolve),
+      onConflictDoNothing: () => result,
     };
+    return result;
   }
 
   const db = {
@@ -577,6 +580,15 @@ describe("issue protocol service", () => {
       table: issueProtocolMessages,
       value: expect.objectContaining({
         ackedAt: expect.any(Date),
+      }),
+    });
+    expect(insertValues).toContainEqual({
+      table: issueProtocolDispatchOutbox,
+      value: expect.objectContaining({
+        companyId: "company-1",
+        issueId: "issue-clarify",
+        protocolMessageId: "message-4",
+        status: "pending",
       }),
     });
   });

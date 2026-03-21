@@ -24,6 +24,7 @@ export { issueProtocolThreads } from "./issue_protocol_threads.js";
 export { issueProtocolMessages } from "./issue_protocol_messages.js";
 export { issueProtocolRecipients } from "./issue_protocol_recipients.js";
 export { issueProtocolArtifacts } from "./issue_protocol_artifacts.js";
+export { issueProtocolDispatchOutbox } from "./issue_protocol_dispatch_outbox.js";
 export { issueReviewCycles } from "./issue_review_cycles.js";
 export { issueProtocolViolations } from "./issue_protocol_violations.js";
 export { issueProtocolState } from "./issue_protocol_state.js";

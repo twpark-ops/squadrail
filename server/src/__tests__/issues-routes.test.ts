@@ -40,6 +40,9 @@ const {
   mockProtocolCreateViolation,
   mockProtocolReopenForRecovery,
   mockProtocolDispatchMessage,
+  mockProtocolDispatchOutboxMarkDispatched,
+  mockProtocolDispatchOutboxMarkNoAction,
+  mockProtocolDispatchOutboxMarkPendingRetryNow,
   mockIssueRetrievalHandleProtocolMessage,
   mockOrgMemoryBackfillCompany,
   mockOrgMemoryIngestIssueSnapshot,
@@ -100,6 +103,9 @@ const {
   mockProtocolCreateViolation: vi.fn(),
   mockProtocolReopenForRecovery: vi.fn(),
   mockProtocolDispatchMessage: vi.fn(),
+  mockProtocolDispatchOutboxMarkDispatched: vi.fn(),
+  mockProtocolDispatchOutboxMarkNoAction: vi.fn(),
+  mockProtocolDispatchOutboxMarkPendingRetryNow: vi.fn(),
   mockIssueRetrievalHandleProtocolMessage: vi.fn(),
   mockOrgMemoryBackfillCompany: vi.fn(),
   mockOrgMemoryIngestIssueSnapshot: vi.fn(),
@@ -163,6 +169,13 @@ vi.mock("../services/index.js", () => ({
   issueProtocolExecutionService: () => ({
     onIssueCommentCreated: vi.fn(),
     dispatchMessage: mockProtocolDispatchMessage,
+  }),
+  protocolDispatchOutboxService: () => ({
+    listDuePending: vi.fn(),
+    markDispatched: mockProtocolDispatchOutboxMarkDispatched,
+    markNoAction: mockProtocolDispatchOutboxMarkNoAction,
+    markFailed: vi.fn(),
+    markPendingRetryNow: mockProtocolDispatchOutboxMarkPendingRetryNow,
   }),
   issueRetrievalService: () => ({
     buildBrief: vi.fn(),
@@ -540,6 +553,9 @@ describe("issue routes wakeup handling", () => {
       violationCode: "payload_schema_mismatch",
     });
     mockProtocolDispatchMessage.mockResolvedValue(undefined);
+    mockProtocolDispatchOutboxMarkDispatched.mockResolvedValue(undefined);
+    mockProtocolDispatchOutboxMarkNoAction.mockResolvedValue(undefined);
+    mockProtocolDispatchOutboxMarkPendingRetryNow.mockResolvedValue(undefined);
     mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({ recipientHints: [] });
     mockIssueListLabels.mockResolvedValue([]);
     mockIssueCreateLabel.mockImplementation(async (_companyId: string, input: { name: string; color: string }) => ({
@@ -2794,6 +2810,170 @@ describe("issue routes wakeup handling", () => {
         }),
       }),
     );
+  });
+
+  it("marks the protocol dispatch outbox as dispatched after synchronous handoff delivery", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-201",
+      title: "Protocol issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: {
+        id: "protocol-message-1",
+        seq: 12,
+      },
+      state: { workflowState: "submitted_for_review" },
+      mirroredComment: null,
+    });
+    mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({
+      recipientHints: [
+        {
+          recipientId: "rev-1",
+          recipientRole: "reviewer",
+          briefId: "brief-1",
+          briefScope: "reviewer",
+          briefContentMarkdown: "# reviewer brief",
+        },
+      ],
+    });
+    mockProtocolDispatchMessage.mockResolvedValue({
+      queued: 1,
+      notifyOnly: 0,
+      skipped: 0,
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "rev-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockProtocolDispatchOutboxMarkDispatched).toHaveBeenCalledWith({
+      protocolMessageId: "protocol-message-1",
+      dispatchResult: {
+        path: "dispatch_after_retrieval",
+        queuedBy: "route_dispatch",
+        recipientHintCount: 1,
+      },
+    });
+    expect(mockProtocolDispatchOutboxMarkPendingRetryNow).not.toHaveBeenCalled();
+  });
+
+  it("marks the protocol dispatch outbox for immediate retry when synchronous handoff delivery fails", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-201",
+      title: "Protocol issue",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "eng-1",
+      companyId: "company-1",
+      role: "engineer",
+      title: "Engineer",
+      permissions: {},
+    });
+    mockProtocolGetState.mockResolvedValue({
+      reviewerAgentId: "rev-1",
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: {
+        id: "protocol-message-1",
+        seq: 12,
+      },
+      state: { workflowState: "submitted_for_review" },
+      mirroredComment: null,
+    });
+    mockIssueRetrievalHandleProtocolMessage.mockResolvedValue({
+      recipientHints: [],
+    });
+    mockProtocolDispatchMessage.mockRejectedValue(new Error("dispatch down"));
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: buildAgentActor("eng-1"),
+      body: {
+        messageType: "SUBMIT_FOR_REVIEW",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          { recipientType: "agent", recipientId: "rev-1", role: "reviewer" },
+        ],
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "submitted_for_review",
+        summary: "Submit for review",
+        payload: {
+          implementationSummary: "Done",
+          evidence: ["pnpm build"],
+          diffSummary: "Updated protocol path",
+          changedFiles: ["server/src/routes/issues.ts"],
+          testResults: ["pnpm test:run"],
+          reviewChecklist: ["Protocol artifacts attached"],
+          residualRisks: ["Monitor first rollout"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockProtocolDispatchOutboxMarkPendingRetryNow).toHaveBeenCalledWith({
+      protocolMessageId: "protocol-message-1",
+      error: "dispatch down",
+      dispatchResult: {
+        path: "dispatch_after_retrieval",
+        failedAtRoute: true,
+      },
+    });
+    expect(mockProtocolDispatchOutboxMarkDispatched).not.toHaveBeenCalled();
   });
 
   it("ingests organizational memory after high-signal protocol messages", async () => {

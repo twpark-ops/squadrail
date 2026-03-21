@@ -24,6 +24,7 @@ import {
   heartbeatService,
   issueApprovalService,
   issueProtocolExecutionService,
+  protocolDispatchOutboxService,
   issueRetrievalService,
   issueProtocolService,
   organizationalMemoryService,
@@ -596,6 +597,7 @@ export function issueRoutes(
   const goalsSvc = goalService(db);
   const issueApprovalsSvc = issueApprovalService(db);
   const protocolExecution = issueProtocolExecutionService(db);
+  const protocolDispatchOutbox = protocolDispatchOutboxService(db);
   const issueRetrieval = issueRetrievalService(db);
   const protocolSvc = issueProtocolService(db);
   const organizationalMemory = organizationalMemoryService(db);
@@ -1328,6 +1330,7 @@ export function issueRoutes(
       };
 
       const dispatchBeforeRetrieval = shouldDispatchBeforeProtocolRetrieval(effectiveMessage);
+      let activeProtocolMessageId = result.message.id;
 
       try {
         if (dispatchBeforeRetrieval) {
@@ -1353,6 +1356,14 @@ export function issueRoutes(
             message: effectiveMessage,
           });
           if (rerouted) {
+            await protocolDispatchOutbox.markNoAction({
+              protocolMessageId: result.message.id,
+              dispatchResult: {
+                reason: "rerouted_before_retrieval",
+                rerouteProtocolMessageId: rerouted.rerouteProtocolMessageId,
+              },
+            });
+            activeProtocolMessageId = rerouted.rerouteProtocolMessageId;
             const rerouteRecipientHints = await buildRecipientHints(
               rerouted.rerouteMessage,
               {
@@ -1378,6 +1389,13 @@ export function issueRoutes(
                 "Deferred protocol retrieval context generation failed after pre-retrieval supervisor reroute",
               );
             });
+            await protocolDispatchOutbox.markDispatched({
+              protocolMessageId: rerouted.rerouteProtocolMessageId,
+              dispatchResult: {
+                path: "pre_retrieval_reroute",
+                queuedBy: "route_dispatch",
+              },
+            });
             return [] as string[];
           }
           await protocolExecution.dispatchMessage({
@@ -1398,6 +1416,13 @@ export function issueRoutes(
               "Deferred protocol retrieval context generation failed after dispatch",
             );
           });
+          await protocolDispatchOutbox.markDispatched({
+            protocolMessageId: result.message.id,
+            dispatchResult: {
+              path: "dispatch_before_retrieval",
+              queuedBy: "route_dispatch",
+            },
+          });
           return [] as string[];
         }
 
@@ -1410,9 +1435,25 @@ export function issueRoutes(
           recipientHints,
           actor: input.actor,
         });
+        await protocolDispatchOutbox.markDispatched({
+          protocolMessageId: result.message.id,
+          dispatchResult: {
+            path: "dispatch_after_retrieval",
+            queuedBy: "route_dispatch",
+            recipientHintCount: recipientHints.length,
+          },
+        });
         return [] as string[];
       } catch (err) {
         logger.error({ err, issueId: input.issue.id }, "Protocol dispatch failed - agents may not be notified");
+        await protocolDispatchOutbox.markPendingRetryNow({
+          protocolMessageId: activeProtocolMessageId,
+          error: err instanceof Error ? err.message : String(err),
+          dispatchResult: {
+            path: dispatchBeforeRetrieval ? "dispatch_before_retrieval" : "dispatch_after_retrieval",
+            failedAtRoute: true,
+          },
+        });
         return ["Wakeup dispatch failed - agents may not be notified"];
       }
     };

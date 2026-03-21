@@ -34,6 +34,10 @@ import {
 } from "./merge-candidate-gates.js";
 import { summarizeIssueFailureLearning } from "./failure-learning.js";
 import {
+  enqueueProtocolDispatchOutboxTx,
+  shouldPersistProtocolDispatchOutbox,
+} from "./protocol-dispatch-outbox.js";
+import {
   sealProtocolMessageIntegrity,
   verifyProtocolMessageIntegrity,
 } from "../protocol-integrity.js";
@@ -1157,6 +1161,14 @@ export function issueProtocolService(db: Db) {
         const issuePatch = applyProjectedIssueStatus(coarseIssueStatus);
         issuePatch.assigneeAgentId = nextStateValues.primaryEngineerAgentId ?? nextStateValues.techLeadAgentId ?? null;
         await tx.update(issues).set(issuePatch).where(eq(issues.id, issue.id));
+
+        if (shouldPersistProtocolDispatchOutbox(effectiveMessage.messageType)) {
+          await enqueueProtocolDispatchOutboxTx(tx as Pick<Db, "insert">, {
+            companyId: issue.companyId,
+            issueId: issue.id,
+            protocolMessageId: sealedMessage.id,
+          });
+        }
 
         if (input.mirrorToComments !== false) {
           await tx.insert(issueComments).values({

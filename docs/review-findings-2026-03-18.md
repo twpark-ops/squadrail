@@ -106,7 +106,7 @@ git diff --check
 |---|:--------:|---------|------|----------|
 | S-13 | HIGH | live-model E2E still depends on external provider availability and response variability | `scripts/e2e/full-delivery.mjs`, `scripts/e2e/cloud-swiftsight-*.mjs` | Mock/stub adapter mode is still backlog. |
 | S-14 | HIGH | canonical repeat validation still shares a persistent server across scenarios | `scripts/e2e/run-canonical-repeat-validation.sh` | Cleanup is improved, but per-scenario ephemeral server isolation is still backlog. |
-| S-15 | MEDIUM | protocol message commit and follow-up dispatch were not durable across process crash | `server/src/routes/issues.ts`, `server/src/index.ts` | Short-term reconciliation sweep shipped in `docs/exec-plans/completed/p0-protocol-dispatch-reconciliation-plan-2026-03-22.md`. Transactional outbox remains backlog. |
+| S-15 | RESOLVED | protocol message commit and follow-up dispatch were not durable across process crash | `server/src/routes/issues.ts`, `server/src/services/issue-protocol.ts`, `server/src/services/protocol-dispatch-reconciliation.ts` | Reconciliation sweep shipped first, then transactional outbox shipped in `docs/exec-plans/completed/p1-protocol-dispatch-outbox-plan-2026-03-22.md`. Remaining debt is advanced worker claim/observability polish, not durability gap. |
 
 ## Notes
 
