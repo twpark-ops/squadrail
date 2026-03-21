@@ -16,6 +16,7 @@ import {
   resolveIssueProjectIdsFromCache,
   shouldInvalidateProjectsListForIssueActivity,
 } from "./live-update-issue-cache";
+import { createLiveUpdateInvalidationBatcher } from "./live-update-invalidation-batcher";
 import { queryKeys } from "../lib/queryKeys";
 import { issueUrl } from "../lib/utils";
 
@@ -292,41 +293,42 @@ function buildAgentStatusToast(
 }
 
 function invalidateHeartbeatQueries(
-  queryClient: ReturnType<typeof useQueryClient>,
+  invalidateQuery: (queryKey: readonly unknown[]) => void,
   companyId: string,
   payload: Record<string, unknown>,
 ) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.liveRuns(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboardProtocolQueue(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.costs(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(companyId) });
+  invalidateQuery(queryKeys.liveRuns(companyId));
+  invalidateQuery(queryKeys.heartbeats(companyId));
+  invalidateQuery(queryKeys.agents.list(companyId));
+  invalidateQuery(queryKeys.dashboard(companyId));
+  invalidateQuery(queryKeys.dashboardProtocolQueue(companyId));
+  invalidateQuery(queryKeys.costs(companyId));
+  invalidateQuery(queryKeys.sidebarBadges(companyId));
 
   const agentId = readString(payload.agentId);
   if (agentId) {
-    queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agentId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(companyId, agentId) });
+    invalidateQuery(queryKeys.agents.detail(agentId));
+    invalidateQuery(queryKeys.heartbeats(companyId, agentId));
   }
 }
 
 function invalidateActivityQueries(
   queryClient: ReturnType<typeof useQueryClient>,
+  invalidateQuery: (queryKey: readonly unknown[]) => void,
   companyId: string,
   payload: Record<string, unknown>,
 ) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.activity(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.dashboardProtocolQueue(companyId) });
-  queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(companyId) });
+  invalidateQuery(queryKeys.activity(companyId));
+  invalidateQuery(queryKeys.dashboard(companyId));
+  invalidateQuery(queryKeys.dashboardProtocolQueue(companyId));
+  invalidateQuery(queryKeys.sidebarBadges(companyId));
 
   const entityType = readString(payload.entityType);
   const entityId = readString(payload.entityId);
 
   if (entityType === "issue") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(companyId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.issues.listWithSubtasks(companyId) });
+    invalidateQuery(queryKeys.issues.list(companyId));
+    invalidateQuery(queryKeys.issues.listWithSubtasks(companyId));
     if (entityId) {
       const details = readRecord(payload.details);
       const listIssues = queryClient.getQueryData<Issue[]>(queryKeys.issues.list(companyId));
@@ -338,72 +340,72 @@ function invalidateActivityQueries(
         listIssues,
       });
       if (shouldInvalidateProjectsListForIssueActivity(projectIds)) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(companyId) });
+        invalidateQuery(queryKeys.projects.list(companyId));
       }
       const issueRefs = resolveIssueQueryRefs(queryClient, companyId, entityId, details);
       for (const ref of issueRefs) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolState(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolMessages(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolBriefs(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolReviewCycles(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.protocolViolations(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.activity(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.runs(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.approvals(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.attachments(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.changeSurface(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.deliverables(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.liveRuns(ref) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.activeRun(ref) });
+        invalidateQuery(queryKeys.issues.detail(ref));
+        invalidateQuery(queryKeys.issues.protocolState(ref));
+        invalidateQuery(queryKeys.issues.protocolMessages(ref));
+        invalidateQuery(queryKeys.issues.protocolBriefs(ref));
+        invalidateQuery(queryKeys.issues.protocolReviewCycles(ref));
+        invalidateQuery(queryKeys.issues.protocolViolations(ref));
+        invalidateQuery(queryKeys.issues.comments(ref));
+        invalidateQuery(queryKeys.issues.activity(ref));
+        invalidateQuery(queryKeys.issues.runs(ref));
+        invalidateQuery(queryKeys.issues.approvals(ref));
+        invalidateQuery(queryKeys.issues.attachments(ref));
+        invalidateQuery(queryKeys.issues.changeSurface(ref));
+        invalidateQuery(queryKeys.issues.deliverables(ref));
+        invalidateQuery(queryKeys.issues.documents(ref));
+        invalidateQuery(queryKeys.issues.liveRuns(ref));
+        invalidateQuery(queryKeys.issues.activeRun(ref));
       }
       for (const projectId of projectIds) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.issues.listByProject(companyId, projectId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectId) });
+        invalidateQuery(queryKeys.issues.listByProject(companyId, projectId));
+        invalidateQuery(queryKeys.projects.detail(projectId));
       }
     }
     return;
   }
 
   if (entityType === "agent") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(companyId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.org(companyId) });
+    invalidateQuery(queryKeys.agents.list(companyId));
+    invalidateQuery(queryKeys.org(companyId));
     if (entityId) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(entityId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(companyId, entityId) });
+      invalidateQuery(queryKeys.agents.detail(entityId));
+      invalidateQuery(queryKeys.heartbeats(companyId, entityId));
     }
     return;
   }
 
   if (entityType === "project") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(companyId) });
-    if (entityId) queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(entityId) });
+    invalidateQuery(queryKeys.projects.list(companyId));
+    if (entityId) invalidateQuery(queryKeys.projects.detail(entityId));
     return;
   }
 
   if (entityType === "goal") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.goals.list(companyId) });
-    if (entityId) queryClient.invalidateQueries({ queryKey: queryKeys.goals.detail(entityId) });
+    invalidateQuery(queryKeys.goals.list(companyId));
+    if (entityId) invalidateQuery(queryKeys.goals.detail(entityId));
     return;
   }
 
   if (entityType === "approval") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.approvals.list(companyId) });
+    invalidateQuery(queryKeys.approvals.list(companyId));
     return;
   }
 
   if (entityType === "cost_event") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.costs(companyId) });
+    invalidateQuery(queryKeys.costs(companyId));
     return;
   }
 
   if (entityType === "company") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    invalidateQuery(queryKeys.companies.all);
     if (entityId) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.companies.setupProgress(entityId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.companies.rolePacks(entityId) });
+      invalidateQuery(queryKeys.companies.setupProgress(entityId));
+      invalidateQuery(queryKeys.companies.rolePacks(entityId));
     }
   }
 }
@@ -447,6 +449,7 @@ function handleLiveEvent(
   queryClient: QueryClient,
   expectedCompanyId: string,
   event: LiveEvent,
+  invalidateQuery: (queryKey: readonly unknown[]) => void,
   pushToast: (toast: ToastInput) => string | null,
   gate: ToastGate,
 ) {
@@ -459,7 +462,7 @@ function handleLiveEvent(
   }
 
   if (event.type === "heartbeat.run.queued" || event.type === "heartbeat.run.status") {
-    invalidateHeartbeatQueries(queryClient, expectedCompanyId, payload);
+    invalidateHeartbeatQueries(invalidateQuery, expectedCompanyId, payload);
     if (event.type === "heartbeat.run.status") {
       const toast = buildRunStatusToast(payload, nameOf);
       if (toast) gatedPushToast(gate, pushToast, "run-status", toast);
@@ -472,19 +475,19 @@ function handleLiveEvent(
   }
 
   if (event.type === "agent.status") {
-    queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(expectedCompanyId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(expectedCompanyId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.dashboardProtocolQueue(expectedCompanyId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.org(expectedCompanyId) });
+    invalidateQuery(queryKeys.agents.list(expectedCompanyId));
+    invalidateQuery(queryKeys.dashboard(expectedCompanyId));
+    invalidateQuery(queryKeys.dashboardProtocolQueue(expectedCompanyId));
+    invalidateQuery(queryKeys.org(expectedCompanyId));
     const agentId = readString(payload.agentId);
-    if (agentId) queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agentId) });
+    if (agentId) invalidateQuery(queryKeys.agents.detail(agentId));
     const toast = buildAgentStatusToast(payload, nameOf, queryClient, expectedCompanyId);
     if (toast) gatedPushToast(gate, pushToast, "agent-status", toast);
     return;
   }
 
   if (event.type === "activity.logged") {
-    invalidateActivityQueries(queryClient, expectedCompanyId, payload);
+    invalidateActivityQueries(queryClient, invalidateQuery, expectedCompanyId, payload);
     const action = readString(payload.action);
     const toast = buildActivityToast(queryClient, expectedCompanyId, payload);
     if (toast) gatedPushToast(gate, pushToast, `activity:${action ?? "unknown"}`, toast);
@@ -496,6 +499,13 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
   const gateRef = useRef<ToastGate>({ cooldownHits: new Map(), suppressUntil: 0 });
+  const invalidationBatcherRef = useRef(createLiveUpdateInvalidationBatcher({ queryClient }));
+
+  useEffect(() => {
+    invalidationBatcherRef.current.dispose();
+    invalidationBatcherRef.current = createLiveUpdateInvalidationBatcher({ queryClient });
+    return () => invalidationBatcherRef.current.dispose();
+  }, [queryClient, selectedCompanyId]);
 
   useEffect(() => {
     if (!selectedCompanyId) return;
@@ -541,7 +551,14 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
         try {
           const parsed = JSON.parse(raw) as LiveEvent;
-          handleLiveEvent(queryClient, selectedCompanyId, parsed, pushToast, gateRef.current);
+          handleLiveEvent(
+            queryClient,
+            selectedCompanyId,
+            parsed,
+            (queryKey) => invalidationBatcherRef.current.invalidate(queryKey),
+            pushToast,
+            gateRef.current,
+          );
         } catch {
           // Ignore non-JSON payloads.
         }
@@ -562,6 +579,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
     return () => {
       closed = true;
       clearReconnect();
+      invalidationBatcherRef.current.flush();
       if (socket) {
         socket.onopen = null;
         socket.onmessage = null;

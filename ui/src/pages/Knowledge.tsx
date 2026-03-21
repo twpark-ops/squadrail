@@ -192,7 +192,7 @@ export function Knowledge() {
       void qualityQuery.refetch();
       if (variables.issueId) {
         void queryClient.invalidateQueries({
-          queryKey: ["issue", variables.issueId],
+          queryKey: queryKeys.issues.detail(variables.issueId),
         });
       }
       pushToast({

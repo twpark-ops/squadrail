@@ -295,6 +295,20 @@
       "when": 1773420000000,
       "tag": "0041_team_blueprint_library",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1773506400000,
+      "tag": "0043_issue_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1773673200000,
+      "tag": "0044_issue_document_rls_and_revisions",
+      "breakpoints": true
     }
   ]
 }

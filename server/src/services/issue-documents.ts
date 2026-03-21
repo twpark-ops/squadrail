@@ -165,6 +165,7 @@ export function createIssueDocumentService(db: Db) {
 
           // Create revision snapshot of the NEW body
           await tx.insert(issueDocumentRevisions).values({
+            companyId: input.companyId,
             documentId: existing.id,
             revisionNumber: nextRevision,
             title,
@@ -212,6 +213,7 @@ export function createIssueDocumentService(db: Db) {
 
         // Create the initial revision snapshot
         await tx.insert(issueDocumentRevisions).values({
+          companyId: input.companyId,
           documentId: created.id,
           revisionNumber: 1,
           title,

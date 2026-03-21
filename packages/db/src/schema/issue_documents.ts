@@ -60,6 +60,9 @@ export const issueDocumentRevisions = pgTable(
   "issue_document_revisions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
     documentId: uuid("document_id")
       .notNull()
       .references(() => issueDocuments.id, { onDelete: "cascade" }),
@@ -75,6 +78,9 @@ export const issueDocumentRevisions = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    companyIdx: index("issue_document_revisions_company_idx").on(
+      table.companyId,
+    ),
     documentIdx: index("issue_document_revisions_document_idx").on(
       table.documentId,
     ),
