@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { issueProtocolState, issues, type Db } from "@squadrail/db";
 import type { CreateIssueProtocolMessage } from "@squadrail/shared";
 import { canDispatchProtocolToAdapter } from "../adapters/index.js";
+import { logger } from "../middleware/logger.js";
 import { logActivity } from "./activity-log.js";
 import { agentService } from "./agents.js";
 import { heartbeatService } from "./heartbeat.js";
@@ -21,6 +22,7 @@ import {
   readIssueDependencyGraphMetadata,
   resolveIssueDependencyGraphMetadata,
 } from "./issue-dependency-graph.js";
+import { issueProtocolAutoAssistService } from "./issue-protocol-auto-assist.js";
 
 type ProtocolWakeSource = "assignment" | "automation";
 type ProtocolDispatchKind = "wakeup" | "notify_only" | "skip_sender" | "skip_unsupported_adapter";
@@ -64,6 +66,10 @@ export interface ProtocolExecutionDispatchPlanItem {
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function readNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 function protocolWakeHints(payload: Record<string, unknown>) {
@@ -379,6 +385,14 @@ export function buildProtocolExecutionDispatchPlan(input: {
       recipient.role === "reviewer" &&
       input.message.messageType === "SUBMIT_FOR_REVIEW" &&
       input.message.workflowStateAfter === "submitted_for_review";
+    // Assignment and staffing wakes are short protocol-only lanes. Start them
+    // in a fresh adapter session so stale analysis context does not block the
+    // first helper action.
+    const shortAssignmentLane =
+      recipient.recipientType === "agent" &&
+      (recipient.role === "tech_lead" || recipient.role === "engineer") &&
+      (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
+      input.message.workflowStateAfter === "assigned";
     const qaGateDirectRecipient =
       recipient.recipientType === "agent" &&
       recipient.role === "qa" &&
@@ -436,7 +450,10 @@ export function buildProtocolExecutionDispatchPlan(input: {
         || qaGateDirectRecipient
         || approvalCloseDirectRecipient,
       forceFreshAdapterSession:
-        reviewerDirectFollowup || qaGateDirectRecipient || approvalCloseDirectRecipient,
+        shortAssignmentLane
+        || reviewerDirectFollowup
+        || qaGateDirectRecipient
+        || approvalCloseDirectRecipient,
     });
 
     if (recipient.recipientType !== "agent") {
@@ -588,8 +605,9 @@ export function buildProtocolExecutionDispatchPlan(input: {
 export function issueProtocolExecutionService(db: Db) {
   const heartbeat = heartbeatService(db);
   const agents = agentService(db);
+  const protocolAutoAssist = issueProtocolAutoAssistService(db);
 
-  return {
+  const service = {
     dispatchMessage: async (input: {
       issueId: string;
       companyId: string;
@@ -764,6 +782,36 @@ export function issueProtocolExecutionService(db: Db) {
           continue;
         }
 
+        const autoAssisted = await protocolAutoAssist.assistDispatch({
+          issueId: input.issueId,
+          companyId: input.companyId,
+          agentId: recipientAgent.id,
+          dispatchReason: item.reason,
+          dispatchMode: readNonEmptyString(item.contextSnapshot.protocolDispatchMode),
+          protocolMessageType: input.message.messageType,
+          protocolRecipientRole: item.recipientRole,
+          contextSnapshot: item.contextSnapshot,
+          dispatchMessage: async (dispatchInput) => {
+            await service.dispatchMessage(dispatchInput);
+          },
+        }).catch((err) => {
+          logger.warn(
+            {
+              err,
+              issueId: input.issueId,
+              protocolMessageId: input.protocolMessageId,
+              protocolMessageType: input.message.messageType,
+              recipientAgentId: recipientAgent.id,
+            },
+            "failed to apply local-trusted dispatch auto-assist",
+          );
+          return false;
+        });
+        if (autoAssisted) {
+          queued += 1;
+          continue;
+        }
+
         if (!canDispatchProtocolToAdapter(recipientAgent.adapterType)) {
           skipped += 1;
           await logActivity(db, {
@@ -804,4 +852,5 @@ export function issueProtocolExecutionService(db: Db) {
       };
     },
   };
+  return service;
 }

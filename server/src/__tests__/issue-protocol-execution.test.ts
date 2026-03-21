@@ -44,6 +44,59 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       source: "assignment",
       reason: "issue_assigned",
       recipientId: "eng-1",
+      contextSnapshot: {
+        forceFreshAdapterSession: true,
+      },
+      payload: {
+        forceFreshAdapterSession: true,
+      },
+    });
+  });
+
+  it("starts tech lead assignment lanes in a fresh adapter session", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-assign-tl",
+      protocolMessageId: "msg-assign-tl",
+      senderAgentId: null,
+      message: {
+        messageType: "ASSIGN_TASK",
+        sender: {
+          actorType: "user",
+          actorId: "board-1",
+          role: "human_board",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-1",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "backlog",
+        workflowStateAfter: "assigned",
+        summary: "assign tl lane",
+        payload: {
+          goal: "goal",
+          acceptanceCriteria: ["a"],
+          definitionOfDone: ["d"],
+          priority: "high",
+          assigneeAgentId: "eng-1",
+          reviewerAgentId: "lead-1",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      reason: "issue_assigned",
+      recipientRole: "tech_lead",
+      contextSnapshot: {
+        forceFreshAdapterSession: true,
+      },
+      payload: {
+        forceFreshAdapterSession: true,
+      },
     });
   });
 

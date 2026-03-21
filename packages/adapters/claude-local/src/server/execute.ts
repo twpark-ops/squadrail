@@ -86,6 +86,47 @@ interface ClaudeRuntimeConfig {
   extraArgs: string[];
 }
 
+function isProtocolOnlyWake(input: {
+  protocolMessageType?: string | null;
+  protocolRecipientRole?: string | null;
+}) {
+  const messageType = typeof input.protocolMessageType === "string"
+    ? input.protocolMessageType.trim()
+    : "";
+  const recipientRole = typeof input.protocolRecipientRole === "string"
+    ? input.protocolRecipientRole.trim()
+    : "";
+  if (!messageType || !recipientRole) return false;
+
+  return (
+    ((messageType === "ASSIGN_TASK" || messageType === "REASSIGN_TASK")
+      && ["engineer", "tech_lead", "pm", "cto"].includes(recipientRole))
+    || (messageType === "REQUEST_CHANGES" && recipientRole === "engineer")
+    || (messageType === "SUBMIT_FOR_REVIEW" && recipientRole === "reviewer")
+    || (messageType === "APPROVE_IMPLEMENTATION" && (recipientRole === "qa" || recipientRole === "tech_lead"))
+  );
+}
+
+function buildProtocolOnlyPrompt(input: {
+  issueId?: string | null;
+  wakeReason?: string | null;
+  protocolMessageType?: string | null;
+  protocolRecipientRole?: string | null;
+}) {
+  const lines = [
+    "Protocol-only wake.",
+    "Execute the first concrete Squadrail helper command from the runtime note immediately.",
+    "Do not inspect repository files, search the codebase, or write analysis before the first helper command succeeds.",
+    "If the runtime note lists a second immediate helper command for the same lane, run it in the same session after the first command succeeds.",
+    "After the required protocol progress is recorded, stop unless the runtime note explicitly requires another protocol action in this lane.",
+  ];
+  if (input.issueId) lines.push(`issueId=${input.issueId}`);
+  if (input.wakeReason) lines.push(`wakeReason=${input.wakeReason}`);
+  if (input.protocolMessageType) lines.push(`protocolMessageType=${input.protocolMessageType}`);
+  if (input.protocolRecipientRole) lines.push(`protocolRecipientRole=${input.protocolRecipientRole}`);
+  return `${lines.join("\n")}\n`;
+}
+
 function buildLoginResult(input: {
   proc: RunProcessResult;
   loginUrl: string | null;
@@ -287,6 +328,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     config.promptTemplate,
     "You are agent {{agent.id}} ({{agent.name}}). Continue your Squadrail work.",
   );
+  const protocolOnlyWake = isProtocolOnlyWake({
+    protocolMessageType: asString(context.protocolMessageType, ""),
+    protocolRecipientRole: asString(context.protocolRecipientRole, ""),
+  });
   const model = asString(config.model, "");
   const effort = asString(config.effort, "");
   const chrome = asBoolean(config.chrome, false);
@@ -294,11 +339,16 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const dangerouslySkipPermissions = asBoolean(config.dangerouslySkipPermissions, false);
   const instructionsFilePath = asString(config.instructionsFilePath, "").trim();
   const instructionsFileDir = instructionsFilePath ? `${path.dirname(instructionsFilePath)}/` : "";
-  const commandNotes = instructionsFilePath
-    ? [
-        `Injected agent instructions via --append-system-prompt-file ${instructionsFilePath} (with path directive appended)`,
-      ]
-    : [];
+  const commandNotes = [
+    ...(instructionsFilePath && !protocolOnlyWake
+      ? [`Injected agent instructions via --append-system-prompt-file ${instructionsFilePath} (with path directive appended)`]
+      : []),
+    ...(protocolOnlyWake
+      ? [
+          "Protocol-only wake: execute the first Squadrail helper command from the runtime note before any repository inspection.",
+        ]
+      : []),
+  ];
 
   const runtimeConfig = await buildClaudeRuntimeConfig({
     runId,
@@ -320,16 +370,27 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   } = runtimeConfig;
   const billingType = resolveClaudeBillingType(env);
   const skillsDir = await buildSkillsDir();
+  const squadrailRuntimeNote = renderSquadrailRuntimeNote({ env, context });
 
   // When instructionsFilePath is configured, create a combined temp file that
   // includes both the file content and the path directive, so we only need
   // --append-system-prompt-file (Claude CLI forbids using both flags together).
   let effectiveInstructionsFilePath = instructionsFilePath;
-  if (instructionsFilePath) {
-    const instructionsContent = await fs.readFile(instructionsFilePath, "utf-8");
-    const pathDirective = `\nThe above agent instructions were loaded from ${instructionsFilePath}. Resolve any relative file references from ${instructionsFileDir}.`;
+  if ((instructionsFilePath && !protocolOnlyWake) || squadrailRuntimeNote.trim().length > 0) {
+    const sections: string[] = [];
+    if (squadrailRuntimeNote.trim().length > 0) {
+      sections.push(
+        "Run-specific Squadrail workflow instructions:",
+        squadrailRuntimeNote.trimEnd(),
+      );
+    }
+    if (instructionsFilePath && !protocolOnlyWake) {
+      const instructionsContent = await fs.readFile(instructionsFilePath, "utf-8");
+      const pathDirective = `The above agent instructions were loaded from ${instructionsFilePath}. Resolve any relative file references from ${instructionsFileDir}.`;
+      sections.push(instructionsContent.trimEnd(), pathDirective);
+    }
     const combinedPath = path.join(skillsDir, "agent-instructions.md");
-    await fs.writeFile(combinedPath, instructionsContent + pathDirective, "utf-8");
+    await fs.writeFile(combinedPath, `${sections.join("\n\n")}\n`, "utf-8");
     effectiveInstructionsFilePath = combinedPath;
   }
 
@@ -353,16 +414,22 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       "[squadrail] Forcing a fresh Claude session for this wake.\n",
     );
   }
-  const prompt = renderTemplate(promptTemplate, {
-    agentId: agent.id,
-    companyId: agent.companyId,
-    runId,
-    company: { id: agent.companyId },
-    agent,
-    run: { id: runId, source: "on_demand" },
-    context,
-  });
-  const squadrailRuntimeNote = renderSquadrailRuntimeNote({ env, context });
+  const prompt = protocolOnlyWake
+    ? buildProtocolOnlyPrompt({
+      issueId: asString(context.issueId, ""),
+      wakeReason: asString(context.wakeReason, ""),
+      protocolMessageType: asString(context.protocolMessageType, ""),
+      protocolRecipientRole: asString(context.protocolRecipientRole, ""),
+    })
+    : renderTemplate(promptTemplate, {
+      agentId: agent.id,
+      companyId: agent.companyId,
+      runId,
+      company: { id: agent.companyId },
+      agent,
+      run: { id: runId, source: "on_demand" },
+      context,
+    });
   const promptWithRuntimeNote = `${squadrailRuntimeNote}${prompt}`;
 
   const buildClaudeArgs = (resumeSessionId: string | null) => {

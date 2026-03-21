@@ -1,8 +1,8 @@
 ---
 title: "P2 Autonomy Fallback Hardening Plan"
 owner: "taewoong"
-status: "active"
-last-reviewed: "2026-03-20"
+status: "completed"
+last-reviewed: "2026-03-21"
 author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-19"
 lang: "ko"
@@ -14,6 +14,12 @@ mainfont: "Noto Sans"
 
 canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fallback에 의존하는 구간이 남아 있다.
 이 계획의 목표는 제품 계약을 깨지지 않게 유지하면서도, scripted fallback 없이 자율적으로 닫히는 비율을 올리는 것이다.
+
+# Outcome
+
+- `2026-03-21` real-org 재검증 `CLO-218`에서 `swiftsight-agent-tl-qa-loop`가 `fallback total = 0`으로 완료됐다.
+- TL pre-retrieval reroute, supervisory fresh-session follow-up, helper transport tracing, isolated implementation binding이 모두 실제 시나리오에서 확인됐다.
+- P2는 더 이상 active plan이 아니라 completed hardening plan으로 관리한다.
 
 # Design References
 
@@ -182,13 +188,17 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - `claude_stream_incomplete`는 `adapterRetryCount >= 1`부터 degraded로 본다.
   - degraded recovery는 `protocolRequiredRetryCount`와 별도 1회 budget(`protocolDegradedRecoveryCount`)를 쓴다.
   - 현재는 `implementation_engineer`는 제외한다.
-- `swiftsight-agent-tl-qa-loop`는 현재 기준 `total=7` fallback으로 측정된다.
-  - `pm_routing: 1`
-  - `staffing_and_wake: 2`
-  - `review_handoff: 2`
-  - `qa_gate: 1`
-  - `closure: 1`
-- role pack refresh, runtime note 강화, protocol retry contract 보강까지 반영했지만 reviewer/QA/closure fallback은 아직 steady-state zero가 아니다.
+- 최신 real-org 재검증(`CLO-218`)에서는 `swiftsight-agent-tl-qa-loop`가 `total=0` fallback으로 완료됐다.
+  - `pm_routing: 0`
+  - `staffing_and_wake: 0`
+  - `review_handoff: 0`
+  - `qa_gate: 0`
+  - `closure: 0`
+- runtime degraded summary도 steady-state zero로 수렴했다.
+  - `runtimeDegradedTotal = 0`
+  - `providerRuntimeDebt = false`
+  - `supervisoryInvokeStallCount = 0`
+- role pack refresh, runtime note 강화, protocol retry contract, helper transport trace, fresh supervisory session propagation이 모두 실제 zero-fallback run으로 검증됐다.
 
 # Findings
 
@@ -265,11 +275,15 @@ canonical stabilization은 끝났지만, real-org E2E는 아직 deterministic fa
   - 즉 이번 시점의 남은 debt는 "helper POST가 서버에 도달한 뒤 decision이 막힌다"보다, **current-lane run이 shell-level helper execution까지 가지 못한다**는 쪽에 더 가깝다.
 - 최신 재검증(`CLO-191`)에서는 reviewer / QA / close lane에 `forceFreshAdapterSession = true`가 실제로 전파됐다.
   - 즉 `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` follow-up이 stale adapter session을 재사용하는 문제는 닫혔다.
-  - 하지만 같은 run들에서 여전히 `helperTransportObserved = false`였고, fallback total도 `7`로 유지됐다.
-  - 따라서 남은 debt는 session reuse가 아니라, **fresh session에서도 Claude supervisory lane이 shell-level helper execution까지 못 가는 provider/runtime boundary**로 더 좁혀졌다.
+- 최종 재검증(`CLO-218`)에서는 아래가 함께 확인됐다.
+  - TL pre-retrieval reroute가 server-native로 기록됐다.
+  - protocol reroute brief가 두 개 생성됐다.
+  - implementation binding artifact가 isolated worktree cwd를 가리켰다.
+  - reviewer / QA / close lane이 deterministic fallback 없이 `START_REVIEW -> APPROVE_IMPLEMENTATION -> CLOSE_TASK`를 끝까지 기록했다.
+  - fallback summary는 `total = 0`, `providerRuntimeDebt = false`, `helperTransportObserved` 관련 open debt 없음으로 종료됐다.
 
-# Next Slice
+# Completed State
 
-1. `reviewer_approval`, `qa_approval`, `close`에서 `forceFreshAdapterSession = true`인데도 `helperTransportObserved = false`인 stalled run의 공통 패턴을 좁힌다.
-2. `protocol_review_requested`, `protocol_implementation_approved`, `issue_ready_for_closure` wake 이후 current-lane run이 왜 helper execution까지 못 가는지 adapter/provider 경계까지 좁힌다.
-3. `implementation_engineer` fallback은 별도 slice로 분리한다.
+1. TL staffing / engineer wake / reviewer approval / QA gate / close fallback이 모두 `zero`로 수렴했다.
+2. supervisory lane helper contract, transport trace, fresh-session propagation이 실제 real-org run으로 검증됐다.
+3. 이 계획의 남은 항목은 없다. 별도 reliability backlog는 E2E infrastructure debt로 `review-findings`와 `tech-debt-tracker`에서 관리한다.

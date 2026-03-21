@@ -1791,12 +1791,37 @@ async function closeTaskCommand(options) {
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
   const senderRole = await resolveSenderRole(options, "close-task");
-  const closureSummary = requireAliasedOption(options, ["closure-summary", "closureSummary"]);
-  const summary = readAliasedOption(options, ["summary"], closureSummary);
-  const verificationSummary = requireAliasedOption(options, ["verification-summary", "verificationSummary"]);
-  const rollbackPlan = requireAliasedOption(options, ["rollback-plan", "rollbackPlan"]);
-  const finalArtifacts = parseList(requireAliasedOption(options, ["final-artifacts", "finalArtifacts"]));
-  const remainingRisks = parseList(readAliasedOption(options, ["remaining-risks", "remainingRisks"], ""));
+  const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const closureSummary = readAliasedOption(
+    options,
+    ["closure-summary", "closureSummary"],
+    payloadPatch.closureSummary ?? null,
+  );
+  if (!closureSummary) fail("Missing required option: --closure-summary");
+  const summary = readAliasedOption(options, ["summary"], payloadPatch.summary ?? closureSummary);
+  const verificationSummary = readAliasedOption(
+    options,
+    ["verification-summary", "verificationSummary"],
+    payloadPatch.verificationSummary ?? null,
+  );
+  if (!verificationSummary) fail("Missing required option: --verification-summary");
+  const rollbackPlan = readAliasedOption(
+    options,
+    ["rollback-plan", "rollbackPlan"],
+    payloadPatch.rollbackPlan ?? null,
+  );
+  if (!rollbackPlan) fail("Missing required option: --rollback-plan");
+  const finalArtifacts = parseListOptionOrPayload(
+    options,
+    ["final-artifacts", "finalArtifacts"],
+    payloadPatch.finalArtifacts,
+    { required: true, requiredLabel: "final-artifacts" },
+  );
+  const remainingRisks = parseListOptionOrPayload(
+    options,
+    ["remaining-risks", "remainingRisks"],
+    payloadPatch.remainingRisks,
+  );
   const state = await getIssueState(issueId);
 
   const body = {
@@ -1813,16 +1838,53 @@ async function closeTaskCommand(options) {
     requiresAck: false,
     payload: {
       closeReason: normalizeCloseReason(
-        readAliasedOption(options, ["close-reason", "closeReason"], "completed"),
+        readAliasedOption(
+          options,
+          ["close-reason", "closeReason"],
+          payloadPatch.closeReason ?? "completed",
+        ),
       ),
-      mergeStatus: readAliasedOption(options, ["merge-status", "mergeStatus"], "pending_external_merge"),
+      mergeStatus: readAliasedOption(
+        options,
+        ["merge-status", "mergeStatus"],
+        payloadPatch.mergeStatus ?? "pending_external_merge",
+      ),
       closureSummary,
       verificationSummary,
       rollbackPlan,
       finalArtifacts,
       remainingRisks,
-      ...(normalizeFinalTestStatus(readAliasedOption(options, ["final-test-status", "finalTestStatus"]))
-        ? { finalTestStatus: normalizeFinalTestStatus(readAliasedOption(options, ["final-test-status", "finalTestStatus"])) }
+      ...(normalizeFinalTestStatus(
+        readAliasedOption(
+          options,
+          ["final-test-status", "finalTestStatus"],
+          payloadPatch.finalTestStatus ?? null,
+        ),
+      )
+        ? {
+            finalTestStatus: normalizeFinalTestStatus(
+              readAliasedOption(
+                options,
+                ["final-test-status", "finalTestStatus"],
+                payloadPatch.finalTestStatus ?? null,
+              ),
+            ),
+          }
+        : {}),
+      ...(typeof payloadPatch === "object" && payloadPatch !== null
+        ? Object.fromEntries(
+            Object.entries(payloadPatch).filter(([key]) => ![
+              "summary",
+              "closureSummary",
+              "verificationSummary",
+              "rollbackPlan",
+              "finalArtifacts",
+              "remainingRisks",
+              "closeReason",
+              "mergeStatus",
+              "finalTestStatus",
+            ].includes(key)),
+          )
         : {}),
     },
     artifacts: [],

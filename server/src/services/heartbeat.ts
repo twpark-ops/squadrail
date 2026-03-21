@@ -39,6 +39,7 @@ import {
   loadInternalWorkItemSupervisorContext,
 } from "./internal-work-item-supervision.js";
 import { logActivity } from "./activity-log.js";
+import { issueProtocolAutoAssistService } from "./issue-protocol-auto-assist.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
@@ -1497,6 +1498,7 @@ export function parseHeartbeatPolicyConfig(runtimeConfig: unknown) {
 export function heartbeatService(db: Db) {
   const runLogStore = getRunLogStore();
   const secretsSvc = secretService(db);
+  const protocolAutoAssist = issueProtocolAutoAssistService(db);
   const dispatchWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const dispatchWatchdogAttempts = new Map<string, number>();
   const protocolIdleWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -2397,6 +2399,33 @@ export function heartbeatService(db: Db) {
       degradedThresholdMs: input.degradedThresholdMs,
     });
     if (!degradedReason) return false;
+
+    const autoAssisted = await protocolAutoAssist.assistDegradedRun({
+      runId: input.run.id,
+      issueId,
+      companyId: input.run.companyId,
+      agentId: input.run.agentId,
+      degradedReason,
+      contextSnapshot: context,
+    }).catch((err) => {
+      logger.warn(
+        {
+          err,
+          runId: input.run.id,
+          issueId,
+          degradedReason,
+        },
+        "local-trusted deterministic protocol auto-assist failed",
+      );
+      return false;
+    });
+    if (autoAssisted) {
+      await cancelRunInternal(input.run.id, {
+        message: `Cancelled degraded protocol run after deterministic local-trusted auto-assist (${degradedReason})`,
+        checkpointMessage: "run cancelled after deterministic local-trusted protocol auto-assist",
+      });
+      return true;
+    }
 
     await enqueueWakeup(input.run.agentId, {
       source: "automation",

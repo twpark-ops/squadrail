@@ -1,7 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { enqueueAfterDbCommit, runWithoutDbContext, type Db } from "@squadrail/db";
+import { and, eq } from "drizzle-orm";
+import { agents, enqueueAfterDbCommit, issueProtocolState, projects, runWithoutDbContext, type Db } from "@squadrail/db";
 import {
   addIssueCommentSchema,
   createInternalWorkItemSchema,
@@ -45,12 +46,14 @@ import { issueMergeCandidateService } from "../services/issue-merge-candidates.j
 import { summarizeIssueFailureLearning } from "../services/failure-learning.js";
 import { logger } from "../middleware/logger.js";
 import { conflict, forbidden, HttpError, notFound, unauthorized, unprocessable } from "../errors.js";
+import { loadConfig } from "../config.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import {
   enrichProtocolMessageArtifactsFromRun,
   runMatchesIssueScope,
 } from "../services/protocol-run-artifacts.js";
 import { shouldSkipSupersededProtocolFollowup } from "../services/heartbeat.js";
+import { selectPreferredEngineerAgentId } from "../services/issue-protocol-auto-assist.js";
 import { registerIssueApprovalRoutes } from "./issues/approvals-routes.js";
 import { registerIssueAttachmentRoutes } from "./issues/attachments-routes.js";
 import { registerIssueIntakeRoutes } from "./issues/intake-routes.js";
@@ -192,6 +195,25 @@ export function shouldGenerateProtocolRetrievalContext(
   messageType: CreateIssueProtocolMessage["messageType"],
 ) {
   return PROTOCOL_RETRIEVAL_MESSAGE_TYPES.has(messageType);
+}
+
+export function shouldDispatchBeforeProtocolRetrieval(message: CreateIssueProtocolMessage) {
+  if (loadConfig().deploymentMode !== "local_trusted") return false;
+  if (message.messageType !== "ASSIGN_TASK" && message.messageType !== "REASSIGN_TASK") return false;
+  return message.recipients.some(
+    (recipient) =>
+      recipient.recipientType === "agent"
+      && (recipient.role === "tech_lead" || recipient.role === "pm" || recipient.role === "cto"),
+  );
+}
+
+export function resolvePreRetrievalAutoAssistRecipient(message: CreateIssueProtocolMessage) {
+  if (!shouldDispatchBeforeProtocolRetrieval(message)) return null;
+  return message.recipients.find(
+    (recipient) =>
+      recipient.recipientType === "agent"
+      && (recipient.role === "tech_lead" || recipient.role === "pm" || recipient.role === "cto"),
+  ) ?? null;
 }
 
 const PM_INTAKE_LABEL_SPECS = [
@@ -608,6 +630,154 @@ export function issueRoutes(
 
   async function ensureIssueLabelsByName(companyId: string, specs: ReadonlyArray<{ name: string; color: string }>) {
     return ensureIssueLabelsByNameHelper({ svc, companyId, specs });
+  }
+
+  async function maybeApplyPreRetrievalSupervisorReroute(input: {
+    issue: { id: string; companyId: string; projectId: string | null };
+    protocolMessageId: string;
+    message: CreateIssueProtocolMessage;
+  }): Promise<{
+    rerouteMessage: CreateIssueProtocolMessage;
+    rerouteProtocolMessageId: string;
+    rerouteProtocolMessageSeq: number;
+    actor: {
+      actorType: "agent";
+      actorId: string;
+      agentId: string;
+      runId: null;
+    };
+  } | null> {
+    const supervisoryRecipient = resolvePreRetrievalAutoAssistRecipient(input.message);
+    if (!supervisoryRecipient || supervisoryRecipient.role !== "tech_lead") return null;
+
+    const [project, state, engineerCandidates] = await Promise.all([
+      input.issue.projectId
+        ? db
+          .select({
+            leadAgentId: projects.leadAgentId,
+            name: projects.name,
+          })
+          .from(projects)
+          .where(eq(projects.id, input.issue.projectId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
+      db
+        .select({
+          reviewerAgentId: issueProtocolState.reviewerAgentId,
+          qaAgentId: issueProtocolState.qaAgentId,
+        })
+        .from(issueProtocolState)
+        .where(and(eq(issueProtocolState.issueId, input.issue.id), eq(issueProtocolState.companyId, input.issue.companyId)))
+        .limit(1)
+        .then((rows) => rows[0] ?? null),
+      db
+        .select({
+          id: agents.id,
+          reportsTo: agents.reportsTo,
+          adapterType: agents.adapterType,
+          metadata: agents.metadata,
+        })
+        .from(agents)
+        .where(and(eq(agents.companyId, input.issue.companyId), eq(agents.role, "engineer"))),
+    ]);
+
+    const preferredEngineerAgentId = selectPreferredEngineerAgentId({
+      candidates: engineerCandidates,
+      managerAgentId: project?.leadAgentId ?? supervisoryRecipient.recipientId,
+      projectKeys: [project?.name],
+      excludeAgentIds: [supervisoryRecipient.recipientId, project?.leadAgentId ?? null],
+    });
+    if (!preferredEngineerAgentId || preferredEngineerAgentId === supervisoryRecipient.recipientId) {
+      return null;
+    }
+
+    const reviewerAgentId =
+      state?.reviewerAgentId && state.reviewerAgentId !== preferredEngineerAgentId
+        ? state.reviewerAgentId
+        : supervisoryRecipient.recipientId;
+    const qaAgentId = state?.qaAgentId ?? null;
+    const recipients: CreateIssueProtocolMessage["recipients"] = [
+      {
+        recipientType: "agent",
+        recipientId: preferredEngineerAgentId,
+        role: "engineer",
+      },
+    ];
+    if (reviewerAgentId && reviewerAgentId !== preferredEngineerAgentId) {
+      recipients.push({
+        recipientType: "agent",
+        recipientId: reviewerAgentId,
+        role: "reviewer",
+      });
+    }
+    if (qaAgentId && qaAgentId !== preferredEngineerAgentId && qaAgentId !== reviewerAgentId) {
+      recipients.push({
+        recipientType: "agent",
+        recipientId: qaAgentId,
+        role: "qa",
+      });
+    }
+
+    const rerouteMessage: CreateIssueProtocolMessage = {
+      messageType: "REASSIGN_TASK",
+      sender: {
+        actorType: "agent",
+        actorId: supervisoryRecipient.recipientId,
+        role: "tech_lead",
+      },
+      recipients,
+      workflowStateBefore: "assigned",
+      workflowStateAfter: "assigned",
+      summary: "Local-trusted deterministic routing reassign",
+      requiresAck: false,
+      payload: {
+        reason: "local_trusted_pre_retrieval_auto_assist",
+        newAssigneeAgentId: preferredEngineerAgentId,
+        ...(reviewerAgentId ? { newReviewerAgentId: reviewerAgentId } : {}),
+        ...(qaAgentId ? { newQaAgentId: qaAgentId } : {}),
+      },
+      artifacts: [],
+    };
+
+    const rerouteResult = await protocolSvc.appendMessage({
+      issueId: input.issue.id,
+      message: rerouteMessage,
+      mirrorToComments: true,
+      authorAgentId: supervisoryRecipient.recipientId,
+      authorUserId: null,
+    });
+
+    await logActivity(db, {
+      companyId: input.issue.companyId,
+      actorType: "system",
+      actorId: "local_protocol_auto_assist",
+      agentId: supervisoryRecipient.recipientId,
+      runId: null,
+      action: "issue.protocol_dispatch.auto_assist_preempted",
+      entityType: "issue",
+      entityId: input.issue.id,
+      details: {
+        protocolMessageId: input.protocolMessageId,
+        messageType: input.message.messageType,
+        rerouteProtocolMessageId: rerouteResult.message.id,
+        recipientAgentId: preferredEngineerAgentId,
+        reviewerAgentId,
+        qaAgentId,
+      },
+    });
+
+    return {
+      rerouteMessage,
+      rerouteProtocolMessageId: rerouteResult.message.id,
+      rerouteProtocolMessageSeq: rerouteResult.message.seq,
+      actor: {
+        actorType: "agent",
+        actorId: supervisoryRecipient.recipientId,
+        agentId: supervisoryRecipient.recipientId,
+        runId: null,
+      },
+    };
   }
 
   async function loadIssueChangeSurface(issue: {
@@ -1235,14 +1405,33 @@ export function issueRoutes(
     }
 
     const runDispatch = async () => {
-      let recipientHints: Array<{
+      const buildRecipientHints = async (
+        dispatchMessage: CreateIssueProtocolMessage = effectiveMessage,
+        persistedMessage: { id: string; seq: number } = result.message,
+      ): Promise<Array<{
         recipientId: string;
         recipientRole: string;
         retrievalRunId: string;
         briefId: string;
         briefScope: string;
-      }> = [];
-      if (shouldGenerateProtocolRetrievalContext(effectiveMessage.messageType)) {
+      }>> => {
+        let recipientHints: Array<{
+          recipientId: string;
+          recipientRole: string;
+          retrievalRunId: string;
+          briefId: string;
+          briefScope: string;
+        }> = [];
+        if (!shouldGenerateProtocolRetrievalContext(dispatchMessage.messageType)) {
+          logger.debug(
+            {
+              issueId: input.issue.id,
+              messageType: dispatchMessage.messageType,
+            },
+            "Skipping protocol retrieval context for non-handoff message",
+          );
+          return recipientHints;
+        }
         try {
           const mentionedProjects = input.issue.mentionedProjects ?? await (async () => {
             const mentionedProjectIds = await svc.findMentionedProjectIds(input.issue.id);
@@ -1265,9 +1454,9 @@ export function issueRoutes(
                 name: project.name,
               })),
             },
-            triggeringMessageId: result.message.id,
-            triggeringMessageSeq: result.message.seq,
-            message: effectiveMessage,
+            triggeringMessageId: persistedMessage.id,
+            triggeringMessageSeq: persistedMessage.seq,
+            message: dispatchMessage,
             actor: {
               actorType: input.actor.actorType,
               actorId: input.actor.actorId,
@@ -1279,7 +1468,7 @@ export function issueRoutes(
             logger.info(
               {
                 issueId: input.issue.id,
-                messageType: effectiveMessage.messageType,
+                messageType: dispatchMessage.messageType,
                 retrievalRunCount: retrieval.retrievalRuns.length,
                 retrievalRunIds: retrieval.retrievalRuns.map((run) => run.retrievalRunId),
               },
@@ -1288,26 +1477,91 @@ export function issueRoutes(
           }
         } catch (err) {
           logger.error(
-            {
-              err,
-              issueId: input.issue.id,
-              messageType: effectiveMessage.messageType,
-              errorMessage: err instanceof Error ? err.message : String(err),
-            },
-            "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
+              {
+                err,
+                issueId: input.issue.id,
+                messageType: dispatchMessage.messageType,
+                errorMessage: err instanceof Error ? err.message : String(err),
+              },
+              "CRITICAL: Failed to build protocol retrieval context - brief generation failed",
           );
         }
-      } else {
-        logger.debug(
-          {
-            issueId: input.issue.id,
-            messageType: effectiveMessage.messageType,
-          },
-          "Skipping protocol retrieval context for non-handoff message",
-        );
-      }
+        return recipientHints;
+      };
+
+      const dispatchBeforeRetrieval = shouldDispatchBeforeProtocolRetrieval(effectiveMessage);
 
       try {
+        if (dispatchBeforeRetrieval) {
+          await logActivity(db, {
+            companyId: input.issue.companyId,
+            actorType: input.actor.actorType,
+            actorId: input.actor.actorId,
+            agentId: input.actor.agentId,
+            runId: input.actor.runId,
+            action: "issue.protocol_dispatch.dispatched_before_retrieval",
+            entityType: "issue",
+            entityId: input.issue.id,
+            details: {
+              protocolMessageId: result.message.id,
+              messageType: effectiveMessage.messageType,
+            },
+          });
+          const rerouted = await maybeApplyPreRetrievalSupervisorReroute({
+            issue: input.issue,
+            protocolMessageId: result.message.id,
+            message: effectiveMessage,
+          });
+          if (rerouted) {
+            const rerouteRecipientHints = await buildRecipientHints(
+              rerouted.rerouteMessage,
+              {
+                id: rerouted.rerouteProtocolMessageId,
+                seq: rerouted.rerouteProtocolMessageSeq,
+              },
+            );
+            await protocolExecution.dispatchMessage({
+              issueId: input.issue.id,
+              companyId: input.issue.companyId,
+              protocolMessageId: rerouted.rerouteProtocolMessageId,
+              message: rerouted.rerouteMessage,
+              recipientHints: rerouteRecipientHints,
+              actor: rerouted.actor,
+            });
+            void buildRecipientHints().catch((err) => {
+              logger.error(
+                {
+                  err,
+                  issueId: input.issue.id,
+                  messageType: effectiveMessage.messageType,
+                },
+                "Deferred protocol retrieval context generation failed after pre-retrieval supervisor reroute",
+              );
+            });
+            return [] as string[];
+          }
+          await protocolExecution.dispatchMessage({
+            issueId: input.issue.id,
+            companyId: input.issue.companyId,
+            protocolMessageId: result.message.id,
+            message: effectiveMessage,
+            recipientHints: [],
+            actor: input.actor,
+          });
+          void buildRecipientHints().catch((err) => {
+            logger.error(
+              {
+                err,
+                issueId: input.issue.id,
+                messageType: effectiveMessage.messageType,
+              },
+              "Deferred protocol retrieval context generation failed after dispatch",
+            );
+          });
+          return [] as string[];
+        }
+
+        const recipientHints = await buildRecipientHints();
         await protocolExecution.dispatchMessage({
           issueId: input.issue.id,
           companyId: input.issue.companyId,

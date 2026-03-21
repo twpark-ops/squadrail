@@ -5,8 +5,7 @@
 ## Active
 
 - `exec-plans/active/index.md`
-- `exec-plans/active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
-- `design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md` (supporting design for the active P2 plan)
+- No active execution plan at the moment.
 
 ## Completed or Superseded
 
@@ -15,6 +14,8 @@
 - `exec-plans/completed/phase-0-security-baseline-design-2026-03-18.md`
 - `exec-plans/completed/five-axis-hardening-plan-2026-03-18.md`
 - `exec-plans/completed/p1-retrieval-stabilization-plan.md`
+- `exec-plans/completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
+- `design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md` (supporting design for the completed P2 plan)
 
 ## Debt / Follow-up
 

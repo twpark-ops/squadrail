@@ -1,8 +1,8 @@
 ---
 title: "Supervisory Lane Autonomy Gap Design"
 owner: "taewoong"
-status: "active"
-last-reviewed: "2026-03-20"
+status: "completed"
+last-reviewed: "2026-03-21"
 author: "Taewoong Park (park.taewoong@airsmed.com)"
 date: "2026-03-20"
 lang: "ko"
@@ -11,6 +11,9 @@ mainfont: "Noto Sans"
 ---
 
 # Context
+
+이 설계 문서는 P2 autonomy fallback hardening의 분석 기준으로 사용됐고, 최종 real-org 검증 `CLO-218`에서 `fallback total = 0`으로 종료됐다.
+아래 내용은 해결 과정에서 사용한 진단 프레임과 설계 근거를 보존한다.
 
 canonical stabilization은 끝났지만, real-org 시나리오 `swiftsight-agent-tl-qa-loop`는 여전히 deterministic fallback `7`개를 사용한다.
 
@@ -160,7 +163,7 @@ P2 남은 debt를 아래 두 층으로 분리한다.
 
 ## Documentation
 
-- active plan: `../exec-plans/active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
+- completed plan: `../exec-plans/completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
 - debt tracker: `../exec-plans/tech-debt-tracker.md`
 - review findings: `../review-findings-2026-03-18.md`
 

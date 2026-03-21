@@ -5,14 +5,25 @@ import path from "node:path";
 import { execute } from "@squadrail/adapter-claude-local/server";
 
 async function writeFakeClaudeCommand(commandPath: string): Promise<void> {
-  const script = `#!/usr/bin/env node
+const script = `#!/usr/bin/env node
 const fs = require("node:fs");
 
 const capturePath = process.env.SQUADRAIL_TEST_CAPTURE_PATH;
+const argv = process.argv.slice(2);
+const systemPromptFileIndex = argv.indexOf("--append-system-prompt-file");
+const systemPromptFilePath =
+  systemPromptFileIndex >= 0 && argv[systemPromptFileIndex + 1]
+    ? argv[systemPromptFileIndex + 1]
+    : null;
 const payload = {
-  argv: process.argv.slice(2),
+  argv,
   cwd: process.cwd(),
   prompt: fs.readFileSync(0, "utf8"),
+  systemPromptFilePath,
+  systemPromptFileContent:
+    systemPromptFilePath && fs.existsSync(systemPromptFilePath)
+      ? fs.readFileSync(systemPromptFilePath, "utf8")
+      : null,
   squadrailEnvKeys: Object.keys(process.env)
     .filter((key) => key.startsWith("SQUADRAIL_"))
     .sort(),
@@ -57,6 +68,8 @@ type CapturePayload = {
   argv: string[];
   cwd: string;
   prompt: string;
+  systemPromptFilePath: string | null;
+  systemPromptFileContent: string | null;
   squadrailEnvKeys: string[];
   squadrailApiKey: string | null;
 };
@@ -168,6 +181,8 @@ describe("claude execute", () => {
       expect(capture.prompt).toContain("Task brief (auto-generated from Squadrail knowledge):");
       expect(capture.prompt).toContain("# reviewer brief");
       expect(capture.prompt).toContain("symbol=applyRetryPolicy");
+      expect(capture.systemPromptFileContent).toContain("Run-specific Squadrail workflow instructions:");
+      expect(capture.systemPromptFileContent).toContain("protocolMessageType: TIMEOUT_ESCALATION");
       expect(invocationPrompt).toContain("protocolRecipientRole: tech_lead");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -232,13 +247,82 @@ describe("claude execute", () => {
       expect(result.exitCode).toBe(0);
 
       const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
-      expect(capture.prompt).toContain("Mandatory protocol gate:");
-      expect(capture.prompt).toContain("REQUIRED WORKFLOW GATE: this wake expects routing, clarification, or escalation.");
-      expect(capture.prompt).toContain("You are explicitly allowed to route this issue with `REASSIGN_TASK`.");
-      expect(capture.prompt).toContain("Do not handcraft Python/curl/urllib/fetch POSTs for protocol messages in this run.");
-      expect(capture.prompt).toContain("Minimal REASSIGN_TASK example");
-      expect(capture.prompt).toContain("Exact helper command form:");
-      expect(capture.prompt).toContain("Required payload keys: reason, newAssigneeAgentId, newReviewerAgentId");
+      expect(capture.prompt).toContain("Protocol-only wake.");
+      expect(capture.prompt).not.toContain("Clarify and route the task.");
+      expect(capture.prompt).toContain("IMMEDIATE PROTOCOL ACTION:");
+      expect(capture.prompt).toContain("Run this first:");
+      expect(capture.prompt).toContain("SHORT PROTOCOL LANE:");
+      expect(capture.prompt).toContain("Route with `REASSIGN_TASK` when the execution owner is clear.");
+      expect(capture.prompt).toContain("Structured wake context:");
+      expect(capture.systemPromptFileContent).toContain("IMMEDIATE PROTOCOL ACTION:");
+      expect(capture.systemPromptFileContent).toContain('reassign-task --issue "issue-supervisor" --payload');
+      expect(capture.systemPromptFileContent).not.toContain("Clarify and route the task.");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("omits static instructions files for protocol-only wakes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-claude-protocol-only-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "claude");
+    const capturePath = path.join(root, "capture.json");
+    const instructionsPath = path.join(root, "agent-instructions.md");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeClaudeCommand(commandPath);
+    await fs.writeFile(instructionsPath, "STATIC SUPERVISOR INSTRUCTIONS SHOULD NOT BE INCLUDED", "utf8");
+
+    try {
+      const result = await execute({
+        runId: "run-protocol-only",
+        agent: {
+          id: "agent-reviewer",
+          companyId: "company-1",
+          name: "Claude Reviewer",
+          adapterType: "claude_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          instructionsFilePath: instructionsPath,
+          promptTemplate: "Review the current Squadrail task.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-reviewer",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "review",
+          },
+          issueId: "issue-protocol-only",
+          wakeReason: "protocol_review_requested",
+          protocolMessageType: "SUBMIT_FOR_REVIEW",
+          protocolWorkflowStateBefore: "submitted_for_review",
+          protocolWorkflowStateAfter: "under_review",
+          protocolRecipientRole: "reviewer",
+        },
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.prompt).toContain("Protocol-only wake.");
+      expect(capture.systemPromptFileContent).toContain("Run-specific Squadrail workflow instructions:");
+      expect(capture.systemPromptFileContent).not.toContain("STATIC SUPERVISOR INSTRUCTIONS SHOULD NOT BE INCLUDED");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

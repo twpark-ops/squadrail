@@ -6,20 +6,11 @@
 
 - `completed/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `completed/five-axis-hardening-plan-2026-03-18.md`
-- `active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
+- `completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
 - `../design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
-- Provider/runtime degraded debt
-  - Track scenarios that appear in `providerRuntimeDebtScenarios` from real-org fallback summaries.
-  - Track both `supervisory_invoke_stall` and `recovered_supervisory_invoke_stall`.
-  - Current canonical example: `swiftsight-agent-tl-qa-loop`
-    - `CLO-183`: `supervisory_invoke_stall`
-    - earlier runs: `recovered_supervisory_invoke_stall`
- - Follow-up autonomy debt
-  - Remaining deterministic fallback reasons:
-    - `reviewer_approval`
-    - `qa_approval`
-    - `close`
-  - Current question: why short supervisory lanes fail to emit a decision message before fallback.
+- E2E infrastructure debt
+  - Live-model nondeterminism remains outside the completed P2 scope.
+  - Shared persistent-server repeat validation remains a harness concern until ephemeral-per-scenario mode is added.
 
 ### Retrieval / Knowledge
 

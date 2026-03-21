@@ -18,8 +18,10 @@ describe("renderSquadrailRuntimeNote", () => {
       },
     });
 
-    expect(output).toContain("Do not create, edit, or delete any source files");
-    expect(output).toContain("QA-start-only runs are incomplete and will be retried.");
+    expect(output).toContain("IMMEDIATE PROTOCOL ACTION:");
+    expect(output).toContain("SHORT PROTOCOL LANE:");
+    expect(output).toContain("QA must execute the acceptance check before deciding. Do not edit source files in this lane.");
+    expect(output).toContain('start-review --issue "issue-1" --payload');
   });
 
   it("includes engineer single-flow guidance for assignment_engineer", () => {
@@ -37,8 +39,12 @@ describe("renderSquadrailRuntimeNote", () => {
       },
     });
 
+    expect(output).toContain("IMMEDIATE PROTOCOL ACTION:");
     expect(output).toContain("workspaceUsageOverride");
     expect(output).toContain("ACK-only runs are incomplete and will be retried.");
+    expect(output).toContain('ack-assignment --issue "issue-2" --payload');
+    expect(output).toContain('start-implementation --issue "issue-2" --payload');
+    expect(output).toContain("If the previous command succeeds and the issue remains in the same lane, run this next in the same run:");
   });
 
   it("includes implementation scope guidance for implementation_engineer", () => {
@@ -69,7 +75,69 @@ describe("renderSquadrailRuntimeNote", () => {
       },
     });
 
-    expect(output).toContain("Do not idle in `approved`.");
+    expect(output).toContain("IMMEDIATE PROTOCOL ACTION:");
+    expect(output).toContain("SHORT PROTOCOL LANE:");
+    expect(output).toContain("Approval is incomplete until `CLOSE_TASK` or `REQUEST_HUMAN_DECISION` is recorded.");
+    expect(output).toContain('close-task --issue "issue-4" --payload');
+  });
+
+  it("includes concrete reviewer helper commands for short supervisory review lanes", () => {
+    const output = renderSquadrailRuntimeNote({
+      env: { SQUADRAIL_TASK_ID: "issue-5" },
+      context: {
+        issueId: "issue-5",
+        protocolMessageType: "SUBMIT_FOR_REVIEW",
+        protocolRecipientRole: "reviewer",
+        protocolWorkflowStateBefore: "submitted_for_review",
+        protocolWorkflowStateAfter: "under_review",
+        taskBrief: {
+          contentMarkdown: [
+            "# reviewer brief",
+            "",
+            "## Retrieval Query",
+            "```text",
+            "very long retrieval query that should be omitted in short supervisory lanes",
+            "```",
+            "",
+            "## Retrieved Evidence",
+            "- omitted in condensed rendering",
+          ].join("\n"),
+        },
+      },
+    });
+
+    expect(output).toContain("IMMEDIATE PROTOCOL ACTION:");
+    expect(output).toContain("SHORT PROTOCOL LANE:");
+    expect(output).toContain("After `START_REVIEW`, conclude the lane with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+    expect(output).toContain("Structured wake context:");
+    expect(output).not.toContain("very long retrieval query that should be omitted in short supervisory lanes");
+    expect(output).toContain('start-review --issue "issue-5" --payload');
+  });
+
+  it("includes concrete staffing helper commands for assignment supervisor lanes", () => {
+    const output = renderSquadrailRuntimeNote({
+      env: { SQUADRAIL_TASK_ID: "issue-6" },
+      context: {
+        issueId: "issue-6",
+        protocolMessageType: "ASSIGN_TASK",
+        protocolRecipientRole: "tech_lead",
+        protocolWorkflowStateBefore: "backlog",
+        protocolWorkflowStateAfter: "assigned",
+        protocolSummary: "Route the task to the project engineer and keep the reviewer attached.",
+        protocolPayload: {
+          assigneeAgentId: "agent-eng-1",
+          reviewerAgentId: "agent-rev-1",
+          qaAgentId: "agent-qa-1",
+        },
+      },
+    });
+
+    expect(output).toContain("IMMEDIATE PROTOCOL ACTION:");
+    expect(output).toContain("SHORT PROTOCOL LANE:");
+    expect(output).toContain("Route with `REASSIGN_TASK` when the execution owner is clear.");
+    expect(output).toContain('reassign-task --issue "issue-6" --payload');
+    expect(output).toContain('"newAssigneeAgentId":"agent-eng-1"');
+    expect(output).toContain('"newReviewerAgentId":"agent-rev-1"');
   });
 });
 

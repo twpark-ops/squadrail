@@ -88,13 +88,14 @@ The current system baseline is no longer just a prototype UI. The core delivery 
 - **Batch A shipped** — issue documents, deliverables, and overview-level current delivery visibility
 - **Canonical stabilization completed** — the core delivery loop now passes `full delivery`, `clarification`, `changes requested recovery`, `QA gate`, and `merge/deploy follow-up`
 - **Repeat validation locked** — the canonical bundle passes `ITERATIONS=3 pnpm e2e:canonical-repeat`
-- **Current active engineering focus** — autonomy fallback hardening and real-org self-routing quality
+- **P2 autonomy hardening completed** — `swiftsight-agent-tl-qa-loop` now completes with `fallback total = 0`
+- **Current reliability backlog** — live-model E2E nondeterminism and persistent-server repeat validation
 
 See:
 
 - [docs/PLANS.md](docs/PLANS.md)
 - [docs/RELIABILITY.md](docs/RELIABILITY.md)
-- [docs/exec-plans/active/p2-autonomy-fallback-hardening-plan-2026-03-19.md](docs/exec-plans/active/p2-autonomy-fallback-hardening-plan-2026-03-19.md)
+- [docs/exec-plans/completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md](docs/exec-plans/completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md)
 - [docs/exec-plans/completed/p1-retrieval-stabilization-plan.md](docs/exec-plans/completed/p1-retrieval-stabilization-plan.md)
 
 <br/>

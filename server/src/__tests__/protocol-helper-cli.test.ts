@@ -1281,6 +1281,106 @@ describe("squadrail protocol helper CLI", () => {
     }
   });
 
+  it("accepts payload-only close-task requests used by live tech leads", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "approved", currentReviewCycle: 1 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "tech_lead", title: "Tech Lead" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "close-task",
+          "--issue",
+          "issue-123",
+          "--payload",
+          JSON.stringify({
+            closureSummary: "Closed through payload-only automation",
+            verificationSummary: "Verified in isolated workspace",
+            rollbackPlan: "Revert merge candidate",
+            finalArtifacts: ["diff", "test_run"],
+            finalTestStatus: "all green",
+            mergeStatus: "pending_external_merge",
+            closeReason: "completed",
+            remainingRisks: ["Needs maintainer merge"],
+          }),
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      const payload = requests[0]?.body as Record<string, unknown>;
+      expect(payload.summary).toBe("Closed through payload-only automation");
+      expect(payload.workflowStateAfter).toBe("done");
+      expect(payload.payload).toMatchObject({
+        closeReason: "completed",
+        mergeStatus: "pending_external_merge",
+        closureSummary: "Closed through payload-only automation",
+        verificationSummary: "Verified in isolated workspace",
+        rollbackPlan: "Revert merge candidate",
+        finalTestStatus: "passed",
+        remainingRisks: ["Needs maintainer merge"],
+        finalArtifacts: ["diff", "test_run"],
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("accepts payload-only start-review requests used by live reviewers", async () => {
     const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
     const server = http.createServer((req, res) => {

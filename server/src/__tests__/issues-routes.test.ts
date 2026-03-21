@@ -256,7 +256,11 @@ vi.mock("../services/failure-learning.js", () => ({
   summarizeIssueFailureLearning: mockSummarizeIssueFailureLearning,
 }));
 
-import { issueRoutes } from "../routes/issues.js";
+import {
+  issueRoutes,
+  resolvePreRetrievalAutoAssistRecipient,
+  shouldDispatchBeforeProtocolRetrieval,
+} from "../routes/issues.js";
 
 type BoardActor = {
   type: "board";
@@ -382,6 +386,77 @@ async function invokeRoute(input: {
     };
   }
 }
+
+describe("shouldDispatchBeforeProtocolRetrieval", () => {
+  it("dispatches local-trusted supervisory assignment lanes before retrieval", () => {
+    expect(shouldDispatchBeforeProtocolRetrieval({
+      messageType: "ASSIGN_TASK",
+      sender: {
+        actorType: "user",
+        actorId: "board-1",
+        role: "human_board",
+      },
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "lead-1",
+          role: "tech_lead",
+        },
+      ],
+      workflowStateBefore: "backlog",
+      workflowStateAfter: "assigned",
+      summary: "assign supervisor lane",
+      payload: {
+        goal: "goal",
+        acceptanceCriteria: ["a"],
+        definitionOfDone: ["d"],
+        priority: "high",
+        assigneeAgentId: "lead-1",
+      },
+      artifacts: [],
+    })).toBe(true);
+  });
+});
+
+describe("resolvePreRetrievalAutoAssistRecipient", () => {
+  it("returns the primary supervisory agent for local-trusted pre-retrieval dispatch", () => {
+    expect(resolvePreRetrievalAutoAssistRecipient({
+      messageType: "ASSIGN_TASK",
+      sender: {
+        actorType: "user",
+        actorId: "board-1",
+        role: "human_board",
+      },
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "lead-1",
+          role: "tech_lead",
+        },
+        {
+          recipientType: "agent",
+          recipientId: "reviewer-1",
+          role: "reviewer",
+        },
+      ],
+      workflowStateBefore: "backlog",
+      workflowStateAfter: "assigned",
+      summary: "assign supervisor lane",
+      payload: {
+        goal: "goal",
+        acceptanceCriteria: ["a"],
+        definitionOfDone: ["d"],
+        priority: "high",
+        assigneeAgentId: "lead-1",
+      },
+      artifacts: [],
+    })).toEqual({
+      recipientType: "agent",
+      recipientId: "lead-1",
+      role: "tech_lead",
+    });
+  });
+});
 
 describe("issue routes wakeup handling", () => {
   beforeEach(() => {

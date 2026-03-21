@@ -56,6 +56,10 @@ function escapeForDoubleQuotedBash(value: string) {
     .replace(/`/g, "\\`");
 }
 
+function escapeForSingleQuotedBash(value: string) {
+  return value.replace(/'/g, `'\"'\"'`);
+}
+
 function getProtocolHelperVarRef() {
   return `$${SQUADRAIL_PROTOCOL_HELPER_ENV_VAR}`;
 }
@@ -114,6 +118,22 @@ export async function resolveProtocolHelperPath(explicitPath?: string | null): P
 
 export function formatProtocolHelperCommand(command: string) {
   return `node "${getProtocolHelperVarRef()}" ${command} --issue "$SQUADRAIL_TASK_ID" ...`;
+}
+
+function formatConcreteProtocolHelperCommand(input: {
+  command: string;
+  issueId?: string | null;
+  payload?: Record<string, unknown> | null;
+}) {
+  const issueRef = input.issueId && input.issueId.trim().length > 0
+    ? input.issueId.trim()
+    : "$SQUADRAIL_TASK_ID";
+  const base = `node "${getProtocolHelperVarRef()}" ${input.command} --issue "${escapeForDoubleQuotedBash(issueRef)}"`;
+  if (!input.payload || Object.keys(input.payload).length === 0) {
+    return base;
+  }
+  const payloadJson = JSON.stringify(input.payload);
+  return `${base} --payload '${escapeForSingleQuotedBash(payloadJson)}'`;
 }
 
 function buildPythonProtocolGuardScript(defaultHelperPath: string) {
@@ -336,6 +356,14 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function isShortProtocolLaneKey(key: ProtocolRunRequirement["key"] | null | undefined) {
+  return key === "assignment_supervisor"
+    || key === "reassignment_supervisor"
+    || key === "review_reviewer"
+    || key === "qa_gate_reviewer"
+    || key === "approval_tech_lead";
+}
+
 export function buildProtocolHelperSnippet(messageType: string) {
   const commandByMessageType: Record<string, string> = {
     REASSIGN_TASK: "reassign-task",
@@ -353,6 +381,154 @@ export function buildProtocolHelperSnippet(messageType: string) {
   const command = commandByMessageType[messageType];
   if (!command) return null;
   return formatProtocolHelperCommand(command);
+}
+
+function buildConcreteProtocolHelperSnippet(input: {
+  requirement: ProtocolRunRequirement;
+  issueId?: string | null;
+  body: Record<string, unknown>;
+  protocolPayload?: Record<string, unknown>;
+  protocolSummary?: string | null;
+}) {
+  const messageType = nonEmptyString(input.body.messageType);
+  const payload = { ...parseObject(input.body.payload) };
+  const bodySummary = nonEmptyString(input.body.summary);
+  if (!payload.summary && bodySummary) {
+    payload.summary = bodySummary;
+  }
+  if (!messageType) return null;
+
+  switch (input.requirement.key) {
+    case "assignment_supervisor":
+    case "reassignment_supervisor":
+      if (messageType === "REASSIGN_TASK") {
+        payload.newAssigneeAgentId =
+          nonEmptyString(input.protocolPayload?.assigneeAgentId)
+          ?? nonEmptyString(input.protocolPayload?.newAssigneeAgentId)
+          ?? nonEmptyString(payload.newAssigneeAgentId)
+          ?? payload.newAssigneeAgentId;
+        payload.newReviewerAgentId =
+          nonEmptyString(input.protocolPayload?.reviewerAgentId)
+          ?? nonEmptyString(input.protocolPayload?.newReviewerAgentId)
+          ?? nonEmptyString(payload.newReviewerAgentId)
+          ?? payload.newReviewerAgentId;
+        payload.newQaAgentId =
+          nonEmptyString(input.protocolPayload?.qaAgentId)
+          ?? nonEmptyString(input.protocolPayload?.newQaAgentId)
+          ?? nonEmptyString(payload.newQaAgentId)
+          ?? payload.newQaAgentId;
+        if (!payload.reason && input.protocolSummary) {
+          payload.reason = input.protocolSummary;
+        }
+        return formatConcreteProtocolHelperCommand({
+          command: "reassign-task",
+          issueId: input.issueId,
+          payload,
+        });
+      }
+      return null;
+    case "assignment_engineer":
+    case "reassignment_engineer":
+      if (messageType === "ACK_ASSIGNMENT") {
+        return formatConcreteProtocolHelperCommand({
+          command: "ack-assignment",
+          issueId: input.issueId,
+          payload,
+        });
+      }
+      if (messageType === "START_IMPLEMENTATION") {
+        return formatConcreteProtocolHelperCommand({
+          command: "start-implementation",
+          issueId: input.issueId,
+          payload,
+        });
+      }
+      return null;
+    case "change_request_engineer":
+      if (messageType === "ACK_CHANGE_REQUEST") {
+        payload.changeRequestIds =
+          Array.isArray(input.protocolPayload?.changeRequestIds)
+            ? input.protocolPayload.changeRequestIds
+            : payload.changeRequestIds;
+        return formatConcreteProtocolHelperCommand({
+          command: "ack-change-request",
+          issueId: input.issueId,
+          payload,
+        });
+      }
+      return null;
+    case "review_reviewer":
+    case "qa_gate_reviewer":
+      if (messageType === "START_REVIEW") {
+        return formatConcreteProtocolHelperCommand({
+          command: "start-review",
+          issueId: input.issueId,
+          payload,
+        });
+      }
+      if (messageType === "APPROVE_IMPLEMENTATION") {
+        return formatConcreteProtocolHelperCommand({
+          command: "approve-implementation",
+          issueId: input.issueId,
+          payload,
+        });
+      }
+      return null;
+    case "approval_tech_lead":
+      if (messageType === "CLOSE_TASK") {
+        return formatConcreteProtocolHelperCommand({
+          command: "close-task",
+          issueId: input.issueId,
+          payload,
+        });
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+function buildImmediateProtocolCommandSequence(input: {
+  requirement: ProtocolRunRequirement;
+  issueId?: string | null;
+  protocolPayload?: Record<string, unknown>;
+  protocolSummary?: string | null;
+}) {
+  const commands = buildProtocolExampleBodies(input.requirement)
+    .map((example) => {
+      const snippet = buildConcreteProtocolHelperSnippet({
+        requirement: input.requirement,
+        issueId: input.issueId,
+        body: example.body,
+        protocolPayload: input.protocolPayload,
+        protocolSummary: input.protocolSummary,
+      });
+      const messageType = nonEmptyString(example.body.messageType);
+      if (!snippet || !messageType) return null;
+      return {
+        label: example.label,
+        messageType,
+        snippet,
+      };
+    })
+    .filter((entry): entry is { label: string; messageType: string; snippet: string } => Boolean(entry));
+
+  switch (input.requirement.key) {
+    case "assignment_engineer":
+    case "reassignment_engineer":
+      return commands.filter((entry) =>
+        entry.messageType === "ACK_ASSIGNMENT" || entry.messageType === "START_IMPLEMENTATION",
+      );
+    case "assignment_supervisor":
+    case "reassignment_supervisor":
+    case "change_request_engineer":
+    case "review_reviewer":
+    case "qa_gate_reviewer":
+    case "approval_tech_lead":
+      return commands.slice(0, 1);
+    default:
+      return [];
+  }
 }
 
 function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
@@ -606,6 +782,57 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
           },
         },
       ];
+    case "qa_gate_reviewer":
+      return [
+        {
+          label: "Minimal QA START_REVIEW example",
+          body: {
+            messageType: "START_REVIEW",
+            sender,
+            recipients,
+            workflowStateBefore: "qa_pending",
+            workflowStateAfter: "under_qa_review",
+            summary: "Started QA execution review against the submitted implementation.",
+            payload: {
+              reviewFocus: [
+                "Execute the acceptance criteria command",
+                "Confirm the output matches the expected QA signal",
+              ],
+              blockingReview: false,
+            },
+            artifacts: [],
+          },
+        },
+        {
+          label: "Minimal QA APPROVE_IMPLEMENTATION example",
+          body: {
+            messageType: "APPROVE_IMPLEMENTATION",
+            sender,
+            recipients,
+            workflowStateBefore: "under_qa_review",
+            workflowStateAfter: "approved",
+            summary: "QA execution evidence satisfies the acceptance bar.",
+            payload: {
+              approvalSummary: "Ran the acceptance check and the observed output matches the expected QA result.",
+              approvalMode: "agent_review",
+              approvalChecklist: [
+                "Primary acceptance command completed successfully.",
+                "Observed output matches the expected runtime behavior.",
+              ],
+              verifiedEvidence: [
+                "Acceptance command exited successfully.",
+              ],
+              residualRisks: [
+                "Operational merge ownership remains external to the QA lane.",
+              ],
+              executionLog: "Run the documented acceptance command and capture the observed output.",
+              outputVerified: "Observed output matches the expected QA success signal.",
+              sanityCommand: "./scripts/qa-smoke.sh",
+            },
+            artifacts: [],
+          },
+        },
+      ];
     case "approval_tech_lead":
       return [
         {
@@ -723,6 +950,7 @@ export function renderSquadrailRuntimeNote(input: {
       || protocolRequirement.key === "reassignment_supervisor"
     ) {
       lines.splice(3, 0, "- You are explicitly allowed to route this issue with `REASSIGN_TASK`.");
+      lines.splice(4, 0, "- Your first shell action in this lane should be the concrete helper command shown below.");
       lines.splice(4, 0, "- Do not inspect repository files, search the codebase, or draft implementation notes before the first routing action is recorded.");
       lines.push("- Prefer `REASSIGN_TASK` when the correct execution owner and reviewer are already named in the issue, brief, or assignment payload.");
       lines.push("- Use the local helper command shown in the issue description when available; it is safer than ad-hoc API calls.");
@@ -734,6 +962,7 @@ export function renderSquadrailRuntimeNote(input: {
       || protocolRequirement.key === "reassignment_engineer"
     ) {
       lines.splice(3, 0, "- Do not start file reads, design notes, or implementation planning before the first protocol action is sent.");
+      lines.push("- Your first shell action in this lane should be the concrete helper command shown below.");
       lines.push("- If you accept and can continue immediately, follow `ACK_ASSIGNMENT` with `START_IMPLEMENTATION` in the same run.");
       lines.push("- Do not stop after `ACK_ASSIGNMENT` while the issue is still in `assigned` or `accepted`. ACK-only runs are incomplete and will be retried.");
       lines.push("- After `START_IMPLEMENTATION`, the server coalesces workspace context automatically via `workspaceUsageOverride`. Continue implementing in this run without waiting for a separate wake.");
@@ -755,12 +984,14 @@ export function renderSquadrailRuntimeNote(input: {
     }
 
     if (protocolRequirement.key === "change_request_engineer") {
+      lines.push("- Your first shell action in this lane should be the concrete helper command shown below.");
       lines.push("- Read the full change request details from `protocolPayload.changeRequests[]`, `protocolPayload.reviewSummary`, and `protocolPayload.requiredEvidence[]` before touching code.");
       lines.push("- Treat each requested file target and required evidence item as mandatory scope for the follow-up patch.");
       lines.push("- If you complete the requested fixes in this run, finish with `SUBMIT_FOR_REVIEW` instead of plain text.");
     }
 
     if (protocolRequirement.key === "review_reviewer") {
+      lines.push("- Your first shell action in this lane should be the concrete helper command shown below.");
       lines.push("- Start review with `START_REVIEW`, then conclude with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
       lines.push("- Do not stop after `START_REVIEW` while the issue remains in `submitted_for_review` or `under_review`. Review-start-only runs are incomplete and will be retried.");
       lines.push("- Review artifacts first. The shared review workspace may still reflect base HEAD and can differ from the isolated implementation workspace.");
@@ -772,6 +1003,7 @@ export function renderSquadrailRuntimeNote(input: {
     }
 
     if (protocolRequirement.key === "qa_gate_reviewer") {
+      lines.push("- Your first shell action in this lane should be the concrete helper command shown below.");
       lines.push("- You are the QA execution gate reviewer. Your role is to EXECUTE the built software, not just read code or diffs.");
       lines.push("- **Do not create, edit, or delete any source files.** You have implementation workspace access for running commands only. Code changes are the engineer's responsibility.");
       lines.push("- Do not stop after `START_REVIEW` while the issue remains in `qa_pending` or `under_qa_review`. QA-start-only runs are incomplete and will be retried.");
@@ -784,6 +1016,7 @@ export function renderSquadrailRuntimeNote(input: {
     }
 
     if (protocolRequirement.key === "approval_tech_lead") {
+      lines.push("- Your first shell action in this lane should be the concrete helper command shown below.");
       lines.push("- Approval wakes are not complete until a closing decision is recorded in protocol.");
       lines.push("- Do not idle in `approved`. Record `CLOSE_TASK` or `REQUEST_HUMAN_DECISION` in the same run.");
       lines.push("- For `CLOSE_TASK.payload.mergeStatus`, use exactly one of: `merged`, `merge_not_required`, `pending_external_merge`.");
@@ -801,6 +1034,15 @@ export function renderSquadrailRuntimeNote(input: {
     return lines;
   })();
   const protocolExamples = protocolRequirement ? buildProtocolExampleBodies(protocolRequirement) : [];
+  const immediateProtocolCommands = protocolRequirement
+    ? buildImmediateProtocolCommandSequence({
+      requirement: protocolRequirement,
+      issueId,
+      protocolPayload,
+      protocolSummary,
+    })
+    : [];
+  const shortProtocolLane = isShortProtocolLaneKey(protocolRequirement?.key ?? null);
 
   if (
     runtimeKeys.length === 0
@@ -826,7 +1068,111 @@ export function renderSquadrailRuntimeNote(input: {
     return "";
   }
 
+  if (shortProtocolLane) {
+    const shortLines = ["Squadrail runtime note:"];
+    if (immediateProtocolCommands.length > 0) {
+      shortLines.push("IMMEDIATE PROTOCOL ACTION:");
+      shortLines.push("- Run the first helper command below before any repository inspection or analysis.");
+      immediateProtocolCommands.forEach((command, index) => {
+        shortLines.push(index === 0 ? "- Run this first:" : "- If the lane still requires progress after the previous command, run this next:");
+        shortLines.push("```bash");
+        shortLines.push(command.snippet);
+        shortLines.push("```");
+        shortLines.push(`- Expected protocol message: ${command.messageType}`);
+      });
+      shortLines.push("- Use only the local helper command path shown above. Do not handcraft HTTP or plain-text status updates.");
+      shortLines.push("");
+    }
+
+    shortLines.push("SHORT PROTOCOL LANE:");
+    shortLines.push("- Treat this wake as protocol-first. Repository inspection is secondary and should not happen before the first helper command succeeds.");
+    shortLines.push("- If the helper fails for a supported transition, report a blocker and stop instead of retrying with ad-hoc HTTP.");
+    if (protocolRequirement?.key === "assignment_supervisor" || protocolRequirement?.key === "reassignment_supervisor") {
+      shortLines.push("- Route with `REASSIGN_TASK` when the execution owner is clear. Use `ASK_CLARIFICATION` or `ESCALATE_BLOCKER` only when ownership is genuinely unclear.");
+    }
+    if (protocolRequirement?.key === "review_reviewer") {
+      shortLines.push("- After `START_REVIEW`, conclude the lane with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+    }
+    if (protocolRequirement?.key === "qa_gate_reviewer") {
+      shortLines.push("- QA must execute the acceptance check before deciding. Do not edit source files in this lane.");
+    }
+    if (protocolRequirement?.key === "approval_tech_lead") {
+      shortLines.push("- Approval is incomplete until `CLOSE_TASK` or `REQUEST_HUMAN_DECISION` is recorded.");
+    }
+    shortLines.push("");
+
+    const shortStructuredLines: string[] = [];
+    if (issueId) shortStructuredLines.push(`- issueId: ${issueId}`);
+    if (wakeReason) shortStructuredLines.push(`- wakeReason: ${wakeReason}`);
+    if (protocolMessageType) shortStructuredLines.push(`- protocolMessageType: ${protocolMessageType}`);
+    if (workflowBefore || workflowAfter) {
+      shortStructuredLines.push(`- protocolWorkflow: ${workflowBefore ?? "unknown"} -> ${workflowAfter ?? "unknown"}`);
+    }
+    if (protocolRecipientRole) shortStructuredLines.push(`- protocolRecipientRole: ${protocolRecipientRole}`);
+    if (protocolSummary) shortStructuredLines.push(`- protocolSummary: ${protocolSummary}`);
+    if (shortStructuredLines.length > 0) {
+      shortLines.push("Structured wake context:");
+      shortLines.push(...shortStructuredLines);
+      shortLines.push("");
+    }
+
+    if (protocolRequirement?.key === "review_reviewer" && Object.keys(reviewSubmission).length > 0) {
+      shortLines.push("Review submission context:");
+      if (reviewSubmissionImplementationSummary) {
+        shortLines.push(`- implementationSummary: ${reviewSubmissionImplementationSummary}`);
+      }
+      if (reviewSubmissionDiffSummary) {
+        shortLines.push(`- diffSummary: ${reviewSubmissionDiffSummary}`);
+      }
+      if (reviewSubmissionChangedFiles.length > 0) {
+        shortLines.push(`- changedFiles: ${reviewSubmissionChangedFiles.slice(0, 5).join(", ")}`);
+      }
+      if (reviewSubmissionWorkspaceCwd) {
+        shortLines.push(`- implementationWorkspace: ${reviewSubmissionWorkspaceCwd}`);
+      }
+      shortLines.push("");
+    }
+
+    if (taskBriefEvidence.length > 0) {
+      shortLines.push("Task brief evidence summary:");
+      for (const evidence of taskBriefEvidence.slice(0, 3)) {
+        const rank = typeof evidence.rank === "number" ? `#${evidence.rank}` : "#?";
+        const sourceType = nonEmptyString(evidence.sourceType) ?? "unknown";
+        const pathValue = nonEmptyString(evidence.path);
+        const titleValue = nonEmptyString(evidence.title);
+        const symbolName = nonEmptyString(evidence.symbolName);
+        const parts = [rank, sourceType];
+        if (pathValue) parts.push(pathValue);
+        else if (titleValue) parts.push(titleValue);
+        if (symbolName) parts.push(`symbol=${symbolName}`);
+        shortLines.push(`- ${parts.join(" | ")}`);
+      }
+      shortLines.push("");
+    }
+
+    shortLines.push("Record the required protocol progress in this lane before ending the run.");
+    shortLines.push("", "");
+    return shortLines.join("\n");
+  }
+
   const lines = ["Squadrail runtime note:"];
+  if (immediateProtocolCommands.length > 0) {
+    lines.push("IMMEDIATE PROTOCOL ACTION:");
+    lines.push("- Before any analysis, repository inspection, or planning, run the exact shell command(s) below.");
+    immediateProtocolCommands.forEach((command, index) => {
+      if (index === 0) {
+        lines.push("- Run this first:");
+      } else {
+        lines.push("- If the previous command succeeds and the issue remains in the same lane, run this next in the same run:");
+      }
+      lines.push("```bash");
+      lines.push(command.snippet);
+      lines.push("```");
+      lines.push(`- Expected protocol message: ${command.messageType}`);
+    });
+    lines.push("- Do not replace these commands with ad-hoc HTTP, Python, or plain-text status updates.");
+    lines.push("");
+  }
   if (runtimeKeys.length > 0) {
     lines.push(`Available Squadrail-compatible environment variables: ${runtimeKeys.join(", ")}`);
   }
@@ -854,25 +1200,47 @@ export function renderSquadrailRuntimeNote(input: {
     structuredLines.push(`- protocolPayloadKeys: ${protocolPayloadKeys.join(", ")}`);
   }
   if (requiredActionLines.length > 0) {
+    const requirementForExamples = protocolRequirement;
+    if (!requirementForExamples) {
+      throw new Error("Invariant violation: requiredActionLines require a protocol requirement.");
+    }
     lines.push("Mandatory protocol gate:");
     lines.push(...requiredActionLines);
     lines.push("");
-    lines.push(`Use \`${formatProtocolHelperCommand("<command>")}\` for protocol transport.`);
-    lines.push("Use the exact helper command forms below; substitute values only and do not handcraft ad-hoc HTTP.");
-    for (const example of protocolExamples) {
-      const helperSnippet = buildProtocolHelperSnippet(asString(example.body.messageType, ""));
-      const payload = parseObject(example.body.payload);
-      const payloadKeys = Object.keys(payload);
-      lines.push("");
-      lines.push(`${example.label}:`);
-      if (helperSnippet) {
-        lines.push("Exact helper command form:");
-        lines.push("```bash");
-        lines.push(helperSnippet);
-        lines.push("```");
-      }
-      if (payloadKeys.length > 0) {
-        lines.push(`Required payload keys: ${payloadKeys.join(", ")}`);
+    if (shortProtocolLane) {
+      lines.push("- This is a short protocol lane. Use the immediate helper command block above instead of reviewing additional helper examples.");
+      lines.push(`- Protocol transport helper path: ${formatProtocolHelperCommand("<command>")}`);
+    } else {
+      lines.push(`Use \`${formatProtocolHelperCommand("<command>")}\` for protocol transport.`);
+      lines.push("Use the exact helper command forms below; substitute values only and do not handcraft ad-hoc HTTP.");
+      for (const example of protocolExamples) {
+        const helperSnippet = buildProtocolHelperSnippet(asString(example.body.messageType, ""));
+        const concreteHelperSnippet = buildConcreteProtocolHelperSnippet({
+          requirement: requirementForExamples,
+          issueId,
+          body: example.body,
+          protocolPayload,
+          protocolSummary,
+        });
+        const payload = parseObject(example.body.payload);
+        const payloadKeys = Object.keys(payload);
+        lines.push("");
+        lines.push(`${example.label}:`);
+        if (concreteHelperSnippet) {
+          lines.push("Run this exact command first:");
+          lines.push("```bash");
+          lines.push(concreteHelperSnippet);
+          lines.push("```");
+        }
+        if (helperSnippet) {
+          lines.push("Exact helper command form:");
+          lines.push("```bash");
+          lines.push(helperSnippet);
+          lines.push("```");
+        }
+        if (payloadKeys.length > 0) {
+          lines.push(`Required payload keys: ${payloadKeys.join(", ")}`);
+        }
       }
     }
     lines.push("");
@@ -944,25 +1312,25 @@ export function renderSquadrailRuntimeNote(input: {
     }
     if (reviewSubmissionChecklist.length > 0) {
       lines.push("- reviewChecklist:");
-      for (const entry of reviewSubmissionChecklist.slice(0, 8)) {
+      for (const entry of reviewSubmissionChecklist.slice(0, shortProtocolLane ? 4 : 8)) {
         lines.push(`  - ${entry}`);
       }
     }
     if (reviewSubmissionEvidence.length > 0) {
       lines.push("- implementationEvidence:");
-      for (const entry of reviewSubmissionEvidence.slice(0, 8)) {
+      for (const entry of reviewSubmissionEvidence.slice(0, shortProtocolLane ? 4 : 8)) {
         lines.push(`  - ${entry}`);
       }
     }
     if (reviewSubmissionTestResults.length > 0) {
       lines.push("- submittedTestResults:");
-      for (const entry of reviewSubmissionTestResults.slice(0, 8)) {
+      for (const entry of reviewSubmissionTestResults.slice(0, shortProtocolLane ? 4 : 8)) {
         lines.push(`  - ${entry}`);
       }
     }
     if (reviewSubmissionVerificationArtifacts.length > 0) {
       lines.push("- verificationArtifacts:");
-      for (const artifact of reviewSubmissionVerificationArtifacts.slice(0, 6)) {
+      for (const artifact of reviewSubmissionVerificationArtifacts.slice(0, shortProtocolLane ? 3 : 6)) {
         const kind = nonEmptyString(artifact.kind) ?? "artifact";
         const label = nonEmptyString(artifact.label);
         const observedStatus = nonEmptyString(artifact.observedStatus) ?? nonEmptyString(artifact.confidence);
@@ -974,7 +1342,7 @@ export function renderSquadrailRuntimeNote(input: {
     }
     if (reviewSubmissionResidualRisks.length > 0) {
       lines.push("- submittedResidualRisks:");
-      for (const entry of reviewSubmissionResidualRisks.slice(0, 6)) {
+      for (const entry of reviewSubmissionResidualRisks.slice(0, shortProtocolLane ? 3 : 6)) {
         lines.push(`  - ${entry}`);
       }
     }
@@ -982,14 +1350,19 @@ export function renderSquadrailRuntimeNote(input: {
 
   if (taskBriefContent) {
     lines.push("");
-    lines.push("Task brief (auto-generated from Squadrail knowledge):");
-    lines.push(taskBriefContent);
+    if (shortProtocolLane) {
+      lines.push("Task brief content omitted in this short protocol lane.");
+      lines.push("Use the evidence summary below together with the immediate helper command block above.");
+    } else {
+      lines.push("Task brief (auto-generated from Squadrail knowledge):");
+      lines.push(taskBriefContent);
+    }
   }
 
   if (taskBriefEvidence.length > 0) {
     lines.push("");
     lines.push("Task brief evidence summary:");
-    for (const evidence of taskBriefEvidence.slice(0, 6)) {
+    for (const evidence of taskBriefEvidence.slice(0, shortProtocolLane ? 4 : 6)) {
       const rank = typeof evidence.rank === "number" ? `#${evidence.rank}` : "#?";
       const sourceType = nonEmptyString(evidence.sourceType) ?? "unknown";
       const pathValue = nonEmptyString(evidence.path);

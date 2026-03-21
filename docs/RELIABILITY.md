@@ -11,7 +11,7 @@
 
 ## Retrieval / Runtime Stability
 
-- `exec-plans/active/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
+- `exec-plans/completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
 - `design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
 - `exec-plans/completed/p1-retrieval-stabilization-plan.md`
 - `exec-plans/completed/five-axis-hardening-plan-2026-03-18.md`

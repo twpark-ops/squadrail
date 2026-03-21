@@ -96,13 +96,15 @@ git diff --check
 | P2-4 | MEDIUM | idle recovery exception could skip degraded recovery because watchdog chained both branches in a single boolean expression | `heartbeat.ts`: split idle/degraded recovery into independently guarded execution via `runProtocolWatchdogRecoveries()` |
 | P2-7 | MEDIUM | active-run diagnostics only proved helper contract injection, not whether shell-level helper POST actually reached the protocol route | `squadrail-protocol.mjs`, `issues.ts`, `agents.ts`, `active-run-protocol-progress.ts`: helper POSTs now send explicit transport headers, the issue route records `protocol.helper_invocation` run events, and `helperTrace` exposes observed helper transport alongside prompt/env contract injection |
 | P2-8 | MEDIUM | reviewer / QA / close follow-up wakes could still inherit stale adapter sessions | `issue-protocol-execution.ts`, `claude-local execute.ts`, `heartbeat.ts`: short supervisory follow-ups now propagate `forceFreshAdapterSession` end-to-end, and `claude_local` explicitly skips `--resume` when the wake requests a fresh session |
+| P2-9 | HIGH | `swiftsight-agent-tl-qa-loop` needed deterministic fallback for `reviewer_approval`, `qa_approval`, and `close` | `issues.ts`, `issue-protocol-auto-assist.ts`, `issue-protocol-execution.ts`, `cloud-swiftsight-real-org.mjs`: TL pre-retrieval reroute became server-native, reroute retrieval hints/briefs are attached, and the latest real-org run `CLO-218` completed with `fallback total = 0` |
+| P2-10 | MEDIUM | fallback total for the QA loop remained `7`, so autonomy was not yet steady-state | `cloud-swiftsight-real-org.mjs`: latest real-org verification `CLO-218` settled at `fallback total = 0`, `providerRuntimeDebt = false`, `supervisoryInvokeStallCount = 0` |
 
-### Open — Active Reliability Debt
+### Open — Infrastructure Reliability Debt
 
 | # | Severity | Finding | File | Position |
 |---|:--------:|---------|------|----------|
-| P2-5 | HIGH | `swiftsight-agent-tl-qa-loop` still needs deterministic fallback for `reviewer_approval`, `qa_approval`, and `close` even after supervisory stall detection | `cloud-swiftsight-real-org.mjs`, `heartbeat.ts` | Active P2 item. Now tracked as `supervisory_invoke_stall`, not as generic runtime ambiguity. |
-| P2-6 | MEDIUM | fallback total for the QA loop remains `7` — canonical correctness is preserved, but autonomy is not yet steady-state | `cloud-swiftsight-real-org.mjs` | Active P2 item. The next slice should inspect actual shell-level helper execution traces and adapter/provider boundary signals before fallback. |
+| S-13 | HIGH | live-model E2E still depends on external provider availability and response variability | `scripts/e2e/full-delivery.mjs`, `scripts/e2e/cloud-swiftsight-*.mjs` | Mock/stub adapter mode is still backlog. |
+| S-14 | HIGH | canonical repeat validation still shares a persistent server across scenarios | `scripts/e2e/run-canonical-repeat-validation.sh` | Cleanup is improved, but per-scenario ephemeral server isolation is still backlog. |
 
 ## Notes
 
@@ -112,7 +114,5 @@ git diff --check
 - Retrieval-axis stabilization is not isolated from canonical stabilization. It must be executed together with `docs/exec-plans/completed/p1-retrieval-stabilization-plan.md`.
 - S-13 (OpenAI mock adapter) is the single largest remaining E2E reliability gap. Until addressed, canonical repeat validation depends on external API availability.
 - S-14 (shared persistent server) is mitigated but not eliminated. The repeat harness should eventually adopt ephemeral servers for all scenarios, matching the full-delivery pattern.
-- P2 follow-up changed the diagnosis of the remaining QA/close debt. The latest real-org runs show `supervisory_invoke_stall` as the dominant signature, so the remaining work is now "why short supervisory lanes do not emit a decision message" rather than "whether runtime degradation exists at all."
-- The latest helper-tracing slice narrows that further: the next question is whether stalled supervisory runs even reach shell-level helper execution (`helperTransportObserved`) before fallback.
-- The latest real-org run (`CLO-187`) showed `helperTransportObserved = false` across the stalled fallback runs, so the remaining debt is now more clearly "why current-lane runs never reach shell-level helper execution" than "what happens after the helper POST succeeds."
-- The latest real-org run (`CLO-191`) confirmed that reviewer / QA / close lanes now carry `forceFreshAdapterSession = true`, but they still stall with `helperTransportObserved = false`. That shifts the remaining P2 debt from "stale session reuse" to "fresh supervisory Claude runs never reaching shell-level helper execution."
+- P2 follow-up debt is now closed. The latest real-org run (`CLO-218`) completed with server-native TL reroute, isolated implementation binding, two protocol briefs, and `fallback total = 0`.
+- The remaining reliability risks are infrastructure-oriented: live-model nondeterminism and shared persistent-server validation.

@@ -24,6 +24,7 @@ import {
   recordFallbackEvent,
   summarizeFallbackTracker,
 } from "./fallback-summary.mjs";
+import { shouldDelayFallbackForFreshRun } from "./active-run-fallback-grace.mjs";
 import { assertQaGateInvariant } from "./qa-gate-invariants.mjs";
 import { resolveRuntimeDegradedFallbackPolicy } from "./runtime-degraded-fallback-policy.mjs";
 
@@ -36,6 +37,9 @@ const POLL_INTERVAL_MS = Number(process.env.SWIFTSIGHT_E2E_POLL_INTERVAL_MS ?? 5
 const CLOSE_FALLBACK_AFTER_MS = Number(process.env.SWIFTSIGHT_E2E_CLOSE_FALLBACK_AFTER_MS ?? 20_000);
 const ACTIVE_RUN_TIMEOUT_GRACE_MS = Number(
   process.env.SWIFTSIGHT_E2E_ACTIVE_RUN_TIMEOUT_GRACE_MS ?? 12 * 60 * 1000,
+);
+const ACTIVE_RUN_MIN_FALLBACK_AGE_MS = Number(
+  process.env.SWIFTSIGHT_E2E_ACTIVE_RUN_MIN_FALLBACK_AGE_MS ?? 12_000,
 );
 const SCENARIO_FILTER = process.env.SWIFTSIGHT_E2E_SCENARIO?.trim() ?? "";
 const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
@@ -568,7 +572,6 @@ function buildScenarioDefinitions(context) {
           label: "tl-reassign",
           messageType: "REASSIGN_TASK",
           senderIds: [agent("swiftsight-agent-tl").id, E2E_ACTOR_ID],
-          summaryIncludes: "Route SafeJoin fix to swiftsight-agent-codex-engineer",
         },
         { label: "qa-review-start", messageType: "START_REVIEW", senderId: agent("swiftsight-qa-engineer").id },
         {
@@ -1967,6 +1970,10 @@ async function captureFallbackRunDiagnostic(issueId) {
     status: activeRun.status ?? null,
     agentId: activeRun.agentId ?? null,
     agentName: activeRun.agentName ?? null,
+    startedAt:
+      typeof activeRun.startedAt === "string" && activeRun.startedAt.length > 0
+        ? activeRun.startedAt
+        : null,
     leaseStatus: activeRun.leaseStatus ?? null,
     leaseHeartbeatAt: activeRun.leaseHeartbeatAt ?? null,
     runtimeDegradedState:
@@ -2048,6 +2055,24 @@ async function captureFallbackRunDiagnostic(issueId) {
       }
       : null,
   };
+}
+
+async function shouldDelayFallbackForFreshActiveRun(issueId, scenarioKey, fallbackReason) {
+  const runDiagnostic = await captureFallbackRunDiagnostic(issueId);
+  const nowMs = Date.now();
+  if (!shouldDelayFallbackForFreshRun({
+    startedAt: runDiagnostic?.startedAt ?? null,
+    now: nowMs,
+    minAgeMs: ACTIVE_RUN_MIN_FALLBACK_AGE_MS,
+  })) {
+    return false;
+  }
+  const startedAtMs = Date.parse(runDiagnostic.startedAt);
+  const ageMs = nowMs - startedAtMs;
+  note(
+    `[${scenarioKey}] delaying ${fallbackReason} fallback; active run ${runDiagnostic?.runId ?? "unknown"} age ${ageMs}ms is below ${ACTIVE_RUN_MIN_FALLBACK_AGE_MS}ms grace`,
+  );
+  return true;
 }
 
 async function recordFallbackWithDiagnostic(tracker, issueId, input) {
@@ -2737,6 +2762,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           !deterministicReviewSent
           && Date.now() - deterministicReviewObservedAt >= CLOSE_FALLBACK_AFTER_MS
         ) {
+          if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "reviewer_approval")) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            continue;
+          }
           note(
             `[${scenario.key}] recovery resubmission stalled in ${snapshot.state?.workflowState}; sending deterministic reviewer approval fallback`,
           );
@@ -2767,6 +2796,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           !deterministicReviewSent
           && Date.now() - deterministicReviewObservedAt >= CLOSE_FALLBACK_AFTER_MS
         ) {
+          if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "reviewer_approval")) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            continue;
+          }
           note(
             `[${scenario.key}] review stage stalled in ${snapshot.state?.workflowState}; sending deterministic reviewer approval fallback`,
           );
@@ -2796,6 +2829,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           !deterministicQaSent
           && Date.now() - deterministicQaObservedAt >= CLOSE_FALLBACK_AFTER_MS
         ) {
+          if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "qa_approval")) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            continue;
+          }
           note(
             `[${scenario.key}] QA gate stalled in ${snapshot.state?.workflowState}; sending deterministic QA approval fallback`,
           );
@@ -2826,6 +2863,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
           !deterministicQaSent
           && Date.now() - deterministicQaObservedAt >= CLOSE_FALLBACK_AFTER_MS
         ) {
+          if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "qa_approval")) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            continue;
+          }
           note(
             `[${scenario.key}] QA gate stalled in ${snapshot.state?.workflowState}; sending deterministic QA approval fallback`,
           );
@@ -2942,6 +2983,10 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         if (approvalObservedAt == null) {
           approvalObservedAt = Date.parse(approvalMessage.createdAt) || Date.now();
         } else if (!closeFallbackSent && Date.now() - approvalObservedAt >= CLOSE_FALLBACK_AFTER_MS) {
+          if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "close")) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            continue;
+          }
           note(
             `[${scenario.key}] ${snapshot.state.workflowState} persisted after approval without CLOSE_TASK, sending fallback close`,
           );
