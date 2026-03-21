@@ -15,6 +15,7 @@
 - `design-docs/rag-current-architecture.md`
 - `design-docs/agents-runtime.md`
 - `design-docs/qa-execution-gate-design.md`
+- `design-docs/protocol-dispatch-reliability-design-2026-03-22.md`
 - `design-docs/product-model-simplification-plan.md`
 - `design-docs/current-state-review-2026-03-13.md`
 

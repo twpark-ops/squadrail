@@ -1,0 +1,32 @@
+@startuml
+title Protocol Dispatch Reliability
+
+actor Board
+participant "Issues Route" as Route
+database "Protocol State\n+ Messages" as State
+participant "Dispatch\nExecution" as Dispatch
+participant "Heartbeat /\nReconciliation Sweep" as Sweep
+participant "Agent Wakeup" as Wake
+
+Board -> Route : create protocol message
+Route -> State : appendMessage() tx commit
+Route -> Dispatch : dispatchMessage()
+
+alt dispatch succeeds
+  Dispatch -> Wake : enqueue wakeup
+else process crashes or dispatch fails
+  Route --> Board : response may already be returned
+  Sweep -> State : scan recent dispatch-required messages
+  Sweep -> Dispatch : replay dispatch intent
+  Dispatch -> Wake : enqueue wakeup
+end
+
+note right of Sweep
+Short-term recommendation:
+reconciliation sweep
+
+Mid-term recommendation:
+transactional outbox
+end note
+
+@enduml
