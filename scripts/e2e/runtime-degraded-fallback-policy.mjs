@@ -12,8 +12,22 @@ function buildShortCircuitNote(reason, runtimeDegradedState) {
   return `runtime degraded state ${stateLabel} short-circuited deterministic ${reason} fallback`;
 }
 
+function hasRecordedProtocolProgress(runDiagnostic) {
+  if (!runDiagnostic || typeof runDiagnostic !== "object") return false;
+  const protocolProgress =
+    typeof runDiagnostic.protocolProgress === "object" && runDiagnostic.protocolProgress !== null
+      ? runDiagnostic.protocolProgress
+      : null;
+  const helperTrace =
+    typeof runDiagnostic.helperTrace === "object" && runDiagnostic.helperTrace !== null
+      ? runDiagnostic.helperTrace
+      : null;
+  return protocolProgress?.actorAttemptedAfterRunStart === true || helperTrace?.helperTransportObserved === true;
+}
+
 export function resolveRuntimeDegradedFallbackPolicy(input) {
   if (!isRuntimeDegraded(input?.runDiagnostic)) return null;
+  if (hasRecordedProtocolProgress(input?.runDiagnostic)) return null;
 
   const runtimeDegradedState =
     typeof input.runDiagnostic.runtimeDegradedState === "string"

@@ -178,6 +178,10 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   const hasExplicitApiKey =
     typeof envConfig.SQUADRAIL_API_KEY === "string" && envConfig.SQUADRAIL_API_KEY.trim().length > 0;
   const env: Record<string, string> = { ...buildSquadrailEnv(agent) };
+  const deploymentMode = asString(config.deploymentMode, "").trim();
+  if (deploymentMode.length > 0) {
+    env.SQUADRAIL_DEPLOYMENT_MODE = deploymentMode;
+  }
   env.SQUADRAIL_RUN_ID = runId;
 
   const wakeTaskId =
@@ -328,10 +332,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     config.promptTemplate,
     "You are agent {{agent.id}} ({{agent.name}}). Continue your Squadrail work.",
   );
-  const protocolOnlyWake = isProtocolOnlyWake({
-    protocolMessageType: asString(context.protocolMessageType, ""),
-    protocolRecipientRole: asString(context.protocolRecipientRole, ""),
-  });
   const model = asString(config.model, "");
   const effort = asString(config.effort, "");
   const chrome = asBoolean(config.chrome, false);
@@ -339,16 +339,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const dangerouslySkipPermissions = asBoolean(config.dangerouslySkipPermissions, false);
   const instructionsFilePath = asString(config.instructionsFilePath, "").trim();
   const instructionsFileDir = instructionsFilePath ? `${path.dirname(instructionsFilePath)}/` : "";
-  const commandNotes = [
-    ...(instructionsFilePath && !protocolOnlyWake
-      ? [`Injected agent instructions via --append-system-prompt-file ${instructionsFilePath} (with path directive appended)`]
-      : []),
-    ...(protocolOnlyWake
-      ? [
-          "Protocol-only wake: execute the first Squadrail helper command from the runtime note before any repository inspection.",
-        ]
-      : []),
-  ];
 
   const runtimeConfig = await buildClaudeRuntimeConfig({
     runId,
@@ -368,6 +358,44 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     graceSec,
     extraArgs,
   } = runtimeConfig;
+  const executeWorkspaceContext = parseObject(context.squadrailWorkspace);
+  const executeWorkspaceSource = asString(executeWorkspaceContext.source, "");
+  const executeWorkspaceUsage = asString(executeWorkspaceContext.workspaceUsage, "");
+  const deploymentMode = asString(
+    config.deploymentMode,
+    env.SQUADRAIL_DEPLOYMENT_MODE ?? process.env.SQUADRAIL_DEPLOYMENT_MODE ?? "",
+  ).trim();
+  const workspaceExecutionPolicy = parseObject(executeWorkspaceContext.executionPolicy);
+  const trustedWritableImplementationWake =
+    deploymentMode === "local_trusted"
+    && executeWorkspaceUsage === "implementation"
+    && asBoolean(
+      workspaceExecutionPolicy.writable,
+      executeWorkspaceSource === "project_isolated",
+    );
+  const protocolOnlyWake =
+    deploymentMode === "local_trusted"
+    && isProtocolOnlyWake({
+      protocolMessageType: asString(context.protocolMessageType, ""),
+      protocolRecipientRole: asString(context.protocolRecipientRole, ""),
+    });
+  const effectiveDangerouslySkipPermissions =
+    dangerouslySkipPermissions || protocolOnlyWake || trustedWritableImplementationWake;
+  const commandNotes = [
+    ...(instructionsFilePath && !protocolOnlyWake
+      ? [`Injected agent instructions via --append-system-prompt-file ${instructionsFilePath} (with path directive appended)`]
+      : []),
+    ...(protocolOnlyWake
+      ? [
+          "Protocol-only wake: execute the first Squadrail helper command from the runtime note before any repository inspection.",
+        ]
+      : []),
+    ...(trustedWritableImplementationWake
+      ? [
+          "Trusted isolated implementation workspace: Claude permissions prompts are bypassed for direct file edits in local execution.",
+        ]
+      : []),
+  ];
   const billingType = resolveClaudeBillingType(env);
   const skillsDir = await buildSkillsDir();
   const squadrailRuntimeNote = renderSquadrailRuntimeNote({ env, context });
@@ -435,7 +463,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const buildClaudeArgs = (resumeSessionId: string | null) => {
     const args = ["--print", "-", "--output-format", "stream-json", "--verbose"];
     if (resumeSessionId) args.push("--resume", resumeSessionId);
-    if (dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
+    if (effectiveDangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
     if (chrome) args.push("--chrome");
     if (model) args.push("--model", model);
     if (effort) args.push("--effort", effort);

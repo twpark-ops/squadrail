@@ -40,6 +40,7 @@ import {
 } from "./internal-work-item-supervision.js";
 import { logActivity } from "./activity-log.js";
 import { issueProtocolAutoAssistService } from "./issue-protocol-auto-assist.js";
+import { loadConfig } from "../config.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
@@ -3140,6 +3141,10 @@ export function heartbeatService(db: Db) {
         agent.companyId,
         mergedConfig,
       );
+      const runtimeConfigWithDeployment = {
+        ...resolvedConfig,
+        deploymentMode: loadConfig().deploymentMode,
+      };
       await appendCheckpoint("preflight.adapter_config_ready", "adapter runtime config resolved", {
         adapterType: agent.adapterType,
       });
@@ -3204,7 +3209,7 @@ export function heartbeatService(db: Db) {
         runId: run.id,
         agent,
         runtime: runtimeForAdapter,
-        config: resolvedConfig,
+        config: runtimeConfigWithDeployment,
         context,
         onLog,
         onMeta: onAdapterMeta,

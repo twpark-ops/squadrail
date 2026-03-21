@@ -115,4 +115,5 @@ git diff --check
 - S-13 (OpenAI mock adapter) is the single largest remaining E2E reliability gap. Until addressed, canonical repeat validation depends on external API availability.
 - S-14 (shared persistent server) is mitigated but not eliminated. The repeat harness should eventually adopt ephemeral servers for all scenarios, matching the full-delivery pattern.
 - P2 follow-up debt is now closed. The latest real-org run (`CLO-218`) completed with server-native TL reroute, isolated implementation binding, two protocol briefs, and `fallback total = 0`.
+- Direct engineer validation also closed on a real repo issue. The latest `swiftsight-cloud-claude-build-info` run (`CLO-229`) completed with `fallback total = 0`, focused observability tests passed, and the produced patch replaced the hard-coded `service.version` with build-info-backed resolution plus deterministic fallback coverage.
 - The remaining reliability risks are infrastructure-oriented: live-model nondeterminism and shared persistent-server validation.

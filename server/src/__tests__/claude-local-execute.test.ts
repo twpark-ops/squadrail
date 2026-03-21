@@ -216,6 +216,7 @@ describe("claude execute", () => {
         config: {
           command: commandPath,
           cwd: root,
+          deploymentMode: "local_trusted",
           env: {
             SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
           },
@@ -248,6 +249,7 @@ describe("claude execute", () => {
 
       const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
       expect(capture.prompt).toContain("Protocol-only wake.");
+      expect(capture.argv).toContain("--dangerously-skip-permissions");
       expect(capture.prompt).not.toContain("Clarify and route the task.");
       expect(capture.prompt).toContain("IMMEDIATE PROTOCOL ACTION:");
       expect(capture.prompt).toContain("Run this first:");
@@ -291,6 +293,7 @@ describe("claude execute", () => {
         config: {
           command: commandPath,
           cwd: root,
+          deploymentMode: "local_trusted",
           env: {
             SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
           },
@@ -321,8 +324,147 @@ describe("claude execute", () => {
 
       const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
       expect(capture.prompt).toContain("Protocol-only wake.");
+      expect(capture.argv).toContain("--dangerously-skip-permissions");
       expect(capture.systemPromptFileContent).toContain("Run-specific Squadrail workflow instructions:");
       expect(capture.systemPromptFileContent).not.toContain("STATIC SUPERVISOR INSTRUCTIONS SHOULD NOT BE INCLUDED");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bypasses permissions for trusted isolated implementation wakes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-claude-implementation-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "claude");
+    const capturePath = path.join(root, "capture.json");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeClaudeCommand(commandPath);
+
+    try {
+      const result = await execute({
+        runId: "run-implementation",
+        agent: {
+          id: "agent-engineer",
+          companyId: "company-1",
+          name: "Claude Engineer",
+          adapterType: "claude_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          deploymentMode: "local_trusted",
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Implement the assigned change.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_isolated",
+            workspaceId: "workspace-implementation",
+            repoUrl: "https://github.com/acme/swiftsight-cloud",
+            repoRef: "main",
+            workspaceUsage: "implementation",
+            executionPolicy: {
+              writable: true,
+            },
+          },
+          issueId: "issue-implementation",
+          wakeReason: "protocol_implementation_started",
+          protocolMessageType: "START_IMPLEMENTATION",
+          protocolWorkflowStateBefore: "accepted",
+          protocolWorkflowStateAfter: "implementing",
+          protocolRecipientRole: "engineer",
+        },
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.prompt).toContain("Implement the assigned change.");
+      expect(capture.prompt).not.toContain("Protocol-only wake.");
+      expect(capture.prompt).toContain("Implementation workspace discipline:");
+      expect(capture.prompt).toContain('get-brief --issue "$SQUADRAIL_TASK_ID"');
+      expect(capture.prompt).toContain("Do not use curl, wget, or ad-hoc HTTP to fetch Squadrail issue or brief data.");
+      expect(capture.argv).toContain("--dangerously-skip-permissions");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the normal prompt path for authenticated deployments", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "squadrail-claude-authenticated-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "claude");
+    const capturePath = path.join(root, "capture.json");
+    const instructionsPath = path.join(root, "agent-instructions.md");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeClaudeCommand(commandPath);
+    await fs.writeFile(instructionsPath, "STATIC REVIEWER INSTRUCTIONS", "utf8");
+
+    try {
+      const result = await execute({
+        runId: "run-authenticated",
+        agent: {
+          id: "agent-reviewer",
+          companyId: "company-1",
+          name: "Claude Reviewer",
+          adapterType: "claude_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: root,
+          deploymentMode: "authenticated",
+          env: {
+            SQUADRAIL_TEST_CAPTURE_PATH: capturePath,
+          },
+          instructionsFilePath: instructionsPath,
+          promptTemplate: "Review the current Squadrail task.",
+        },
+        context: {
+          squadrailWorkspace: {
+            cwd: workspace,
+            source: "project_shared",
+            workspaceId: "workspace-reviewer",
+            repoUrl: "https://github.com/acme/swiftsight",
+            repoRef: "main",
+            workspaceUsage: "review",
+          },
+          issueId: "issue-authenticated",
+          wakeReason: "protocol_review_requested",
+          protocolMessageType: "SUBMIT_FOR_REVIEW",
+          protocolWorkflowStateBefore: "submitted_for_review",
+          protocolWorkflowStateAfter: "under_review",
+          protocolRecipientRole: "reviewer",
+        },
+        onLog: async () => {},
+        onMeta: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.prompt).toContain("Review the current Squadrail task.");
+      expect(capture.prompt).not.toContain("Protocol-only wake.");
+      expect(capture.argv).not.toContain("--dangerously-skip-permissions");
+      expect(capture.systemPromptFileContent).toContain("STATIC REVIEWER INSTRUCTIONS");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

@@ -343,6 +343,9 @@ export function buildSquadrailEnv(agent: { id: string; companyId: string }): Rec
     SQUADRAIL_AGENT_ID: agent.id,
     SQUADRAIL_COMPANY_ID: agent.companyId,
   };
+  if (typeof process.env.SQUADRAIL_DEPLOYMENT_MODE === "string" && process.env.SQUADRAIL_DEPLOYMENT_MODE.trim().length > 0) {
+    vars.SQUADRAIL_DEPLOYMENT_MODE = process.env.SQUADRAIL_DEPLOYMENT_MODE.trim();
+  }
   const runtimeHost = resolveHostForUrl(
     process.env.SQUADRAIL_LISTEN_HOST ?? process.env.HOST ?? "localhost",
   );
@@ -1255,6 +1258,16 @@ export function renderSquadrailRuntimeNote(input: {
     lines.push(`- Current workspaceUsage is \`${workspaceUsage}\`, so this run is not the final implementation workspace.`);
     lines.push("- You may acknowledge assignment and start implementation in protocol, but do not modify repository files in this workspace.");
     lines.push("- The server will coalesce workspace context on your next wake. If `workspaceUsageOverride` is provided, you will land in the correct implementation workspace automatically.");
+    lines.push("");
+  }
+
+  if (workspaceUsage === "implementation") {
+    lines.push("Implementation workspace discipline:");
+    lines.push("- Start with the target files named in the task brief or evidence summary. Do not spend the run rediscovering task scope through extra API exploration.");
+    lines.push("- The task brief content below is the canonical brief for this run.");
+    lines.push(`- If you absolutely must refresh the brief, use \`node "${getProtocolHelperVarRef()}" get-brief --issue "$SQUADRAIL_TASK_ID"\`.`);
+    lines.push("- Do not use curl, wget, or ad-hoc HTTP to fetch Squadrail issue or brief data.");
+    lines.push("- Move from file read -> focused patch -> focused test before any additional environment inspection.");
     lines.push("");
   }
 

@@ -47,6 +47,24 @@ describe("resolveRuntimeDegradedFallbackPolicy", () => {
     });
   });
 
+  it("does not short-circuit when the degraded run already recorded helper progress", () => {
+    expect(
+      resolveRuntimeDegradedFallbackPolicy({
+        runDiagnostic: {
+          runtimeHealth: "degraded",
+          runtimeDegradedState: "supervisory_invoke_stall",
+          protocolProgress: {
+            actorAttemptedAfterRunStart: true,
+          },
+          helperTrace: {
+            helperTransportObserved: true,
+          },
+        },
+        reviewerApprovalFallbackReady: true,
+      }),
+    ).toBeNull();
+  });
+
   it("maps assigned-state degraded runs to engineer wake before staffing reroute", () => {
     expect(
       resolveRuntimeDegradedFallbackPolicy({

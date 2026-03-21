@@ -41,6 +41,12 @@ const ACTIVE_RUN_TIMEOUT_GRACE_MS = Number(
 const ACTIVE_RUN_MIN_FALLBACK_AGE_MS = Number(
   process.env.SWIFTSIGHT_E2E_ACTIVE_RUN_MIN_FALLBACK_AGE_MS ?? 12_000,
 );
+const REVIEWER_APPROVAL_FALLBACK_AFTER_MS = Number(
+  process.env.SWIFTSIGHT_E2E_REVIEWER_APPROVAL_FALLBACK_AFTER_MS ?? 30_000,
+);
+const QA_APPROVAL_FALLBACK_AFTER_MS = Number(
+  process.env.SWIFTSIGHT_E2E_QA_APPROVAL_FALLBACK_AFTER_MS ?? 30_000,
+);
 const SCENARIO_FILTER = process.env.SWIFTSIGHT_E2E_SCENARIO?.trim() ?? "";
 const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
 const PRE_CLEANUP_ENABLED = process.env.SWIFTSIGHT_E2E_PRE_CLEANUP !== "0";
@@ -519,7 +525,7 @@ function buildScenarioDefinitions(context) {
         ],
       },
       deterministicReviewSubmission: {
-        afterMs: 20_000,
+        afterMs: 30_000,
         reviewerId: agent("swiftsight-agent-tl").id,
         summary: "Submit SafeJoin fix for TL code review",
         implementationSummary:
@@ -557,7 +563,7 @@ function buildScenarioDefinitions(context) {
         reason: "Project TL staffing the focused SafeJoin fix",
       },
       staffingFallback: {
-        afterMs: 15_000,
+        afterMs: 30_000,
         senderId: agent("swiftsight-agent-tl").id,
         senderRole: "tech_lead",
         assigneeId: agent("swiftsight-agent-codex-engineer").id,
@@ -621,6 +627,8 @@ function buildScenarioDefinitions(context) {
         remainingRisks: ["Merge remains external to this E2E harness."],
         mergeStatus: "pending_external_merge",
       },
+      reviewerApprovalFallbackAfterMs: 30_000,
+      qaApprovalFallbackAfterMs: 30_000,
     },
     {
       key: "swiftsight-cloud-claude-build-info",
@@ -664,6 +672,27 @@ function buildScenarioDefinitions(context) {
           "No unrelated lint or repo-wide validation is required for handoff",
           "SUBMIT_FOR_REVIEW includes changed files, diff summary, test evidence, and residual risks",
         ],
+      },
+      closeAction: {
+        senderId: agent("swiftsight-cloud-tl").id,
+        senderRole: "tech_lead",
+        summary: "Close observability build-info fix after focused review approval",
+        closureSummary:
+          "service.version now resolves from build metadata with deterministic fallback and focused observability evidence passed review.",
+        verificationSummary:
+          "Focused observability test evidence and review approval were recorded in protocol.",
+        rollbackPlan:
+          "Revert the observability version-resolution helper and focused regression tests if build metadata behavior regresses.",
+        finalArtifacts: [
+          "diff artifact attached",
+          "test_run artifact attached",
+          "approval recorded in protocol",
+        ],
+        remainingRisks: [
+          "Build stamping may still be absent in local builds, so deterministic fallback remains expected.",
+          "Merge remains external to this E2E harness.",
+        ],
+        mergeStatus: "pending_external_merge",
       },
     },
     {
@@ -709,6 +738,26 @@ function buildScenarioDefinitions(context) {
           "No unrelated lint or repo-wide validation is required for handoff",
           "Review handoff cites the SafeJoin regression coverage and path-safety reasoning",
         ],
+      },
+      closeAction: {
+        senderId: agent("swiftsight-agent-tl").id,
+        senderRole: "tech_lead",
+        summary: "Close SafeJoin focused fix after review approval",
+        closureSummary:
+          "SafeJoin now preserves nested safe segments while keeping traversal and absolute-path sanitization protections inside the base directory.",
+        verificationSummary:
+          "Focused storage package test evidence and review approval were recorded in protocol.",
+        rollbackPlan:
+          "Revert the SafeJoin normalization helper and focused regression tests if nested-path handling regresses.",
+        finalArtifacts: [
+          "diff artifact attached",
+          "test_run artifact attached",
+          "approval recorded in protocol",
+        ],
+        remainingRisks: [
+          "Merge remains external to this E2E harness.",
+        ],
+        mergeStatus: "pending_external_merge",
       },
     },
     {
@@ -2124,6 +2173,12 @@ function parseMessageSeq(message) {
   return Number.isFinite(message?.seq) ? Number(message.seq) : null;
 }
 
+function parseMessageCreatedAt(message) {
+  const createdAt = typeof message?.createdAt === "string" ? message.createdAt : "";
+  const parsed = Date.parse(createdAt);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function latestMessage(messages, type) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.messageType === type) return messages[index];
@@ -2497,10 +2552,12 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       const reviewSubmitMessage = latestMessage(snapshot.messages, "SUBMIT_FOR_REVIEW");
       const changeRequestSeq = parseMessageSeq(changeRequestMessage);
       const changeRequestAckSeq = parseMessageSeq(changeRequestAckMessage);
+      const reviewSubmitSeq = parseMessageSeq(reviewSubmitMessage);
       const postRecoverySubmitMessage =
         changeRequestAckSeq == null
           ? null
           : latestMessageAfter(snapshot.messages, "SUBMIT_FOR_REVIEW", changeRequestAckSeq);
+      const postRecoverySubmitSeq = parseMessageSeq(postRecoverySubmitMessage);
       const postRecoveryReviewerApproval =
         changeRequestSeq == null
           ? null
@@ -2520,6 +2577,43 @@ async function waitForCompletion(issueId, scenario, options = {}) {
             (message) => message?.senderRole === "qa",
           );
       const reviewerApprovalSeq = parseMessageSeq(reviewerApprovalMessage);
+      const latestReviewerStartAfterSubmit =
+        reviewSubmitSeq == null
+          ? null
+          : latestMessageAfter(
+            snapshot.messages,
+            "START_REVIEW",
+            reviewSubmitSeq,
+            (message) => messageSenderRole(message) === "reviewer",
+          );
+      const postRecoveryReviewerStart =
+        postRecoverySubmitSeq == null
+          ? null
+          : latestMessageAfter(
+            snapshot.messages,
+            "START_REVIEW",
+            postRecoverySubmitSeq,
+            (message) => messageSenderRole(message) === "reviewer",
+          );
+      const postRecoveryReviewerApprovalSeq = parseMessageSeq(postRecoveryReviewerApproval);
+      const latestQaStartAfterReviewerApproval =
+        reviewerApprovalSeq == null
+          ? null
+          : latestMessageAfter(
+            snapshot.messages,
+            "START_REVIEW",
+            reviewerApprovalSeq,
+            (message) => messageSenderRole(message) === "qa",
+          );
+      const postRecoveryQaStart =
+        postRecoveryReviewerApprovalSeq == null
+          ? null
+          : latestMessageAfter(
+            snapshot.messages,
+            "START_REVIEW",
+            postRecoveryReviewerApprovalSeq,
+            (message) => messageSenderRole(message) === "qa",
+          );
       const qaDecisionAfterReviewerApproval =
         reviewerApprovalSeq == null
           ? null
@@ -2699,8 +2793,14 @@ async function waitForCompletion(issueId, scenario, options = {}) {
       }
 
       if (reviewSubmissionFallbackEligible) {
+        const reviewSubmissionAnchorAt = Math.max(
+          parseMessageCreatedAt(latestImplementationStart) ?? 0,
+          parseMessageCreatedAt(latestProgress) ?? 0,
+        );
         if (reviewSubmissionObservedAt == null) {
-          reviewSubmissionObservedAt = Date.now();
+          reviewSubmissionObservedAt = reviewSubmissionAnchorAt || Date.now();
+        } else if (reviewSubmissionAnchorAt > reviewSubmissionObservedAt) {
+          reviewSubmissionObservedAt = reviewSubmissionAnchorAt;
         } else if (
           !reviewSubmissionSent
           && Date.now() - reviewSubmissionObservedAt
@@ -2756,11 +2856,15 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         && ["submitted_for_review", "under_review"].includes(snapshot.state?.workflowState ?? "");
 
       if (deterministicReviewEligible) {
+        const reviewDecisionAnchorAt = parseMessageCreatedAt(postRecoveryReviewerStart);
         if (deterministicReviewObservedAt == null) {
-          deterministicReviewObservedAt = Date.now();
+          deterministicReviewObservedAt = reviewDecisionAnchorAt ?? Date.now();
+        } else if (reviewDecisionAnchorAt != null && reviewDecisionAnchorAt > deterministicReviewObservedAt) {
+          deterministicReviewObservedAt = reviewDecisionAnchorAt;
         } else if (
           !deterministicReviewSent
-          && Date.now() - deterministicReviewObservedAt >= CLOSE_FALLBACK_AFTER_MS
+          && Date.now() - deterministicReviewObservedAt
+            >= (scenario.reviewerApprovalFallbackAfterMs ?? REVIEWER_APPROVAL_FALLBACK_AFTER_MS)
         ) {
           if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "reviewer_approval")) {
             await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2790,11 +2894,15 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         && ["submitted_for_review", "under_review"].includes(snapshot.state?.workflowState ?? "");
 
       if (genericDeterministicReviewEligible) {
+        const reviewDecisionAnchorAt = parseMessageCreatedAt(latestReviewerStartAfterSubmit);
         if (deterministicReviewObservedAt == null) {
-          deterministicReviewObservedAt = Date.now();
+          deterministicReviewObservedAt = reviewDecisionAnchorAt ?? Date.now();
+        } else if (reviewDecisionAnchorAt != null && reviewDecisionAnchorAt > deterministicReviewObservedAt) {
+          deterministicReviewObservedAt = reviewDecisionAnchorAt;
         } else if (
           !deterministicReviewSent
-          && Date.now() - deterministicReviewObservedAt >= CLOSE_FALLBACK_AFTER_MS
+          && Date.now() - deterministicReviewObservedAt
+            >= (scenario.reviewerApprovalFallbackAfterMs ?? REVIEWER_APPROVAL_FALLBACK_AFTER_MS)
         ) {
           if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "reviewer_approval")) {
             await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2823,11 +2931,15 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         && ["qa_pending", "under_qa_review"].includes(snapshot.state?.workflowState ?? "");
 
       if (deterministicQaEligible) {
+        const qaDecisionAnchorAt = parseMessageCreatedAt(postRecoveryQaStart);
         if (deterministicQaObservedAt == null) {
-          deterministicQaObservedAt = Date.now();
+          deterministicQaObservedAt = qaDecisionAnchorAt ?? Date.now();
+        } else if (qaDecisionAnchorAt != null && qaDecisionAnchorAt > deterministicQaObservedAt) {
+          deterministicQaObservedAt = qaDecisionAnchorAt;
         } else if (
           !deterministicQaSent
-          && Date.now() - deterministicQaObservedAt >= CLOSE_FALLBACK_AFTER_MS
+          && Date.now() - deterministicQaObservedAt
+            >= (scenario.qaApprovalFallbackAfterMs ?? QA_APPROVAL_FALLBACK_AFTER_MS)
         ) {
           if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "qa_approval")) {
             await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -2857,11 +2969,15 @@ async function waitForCompletion(issueId, scenario, options = {}) {
         && ["qa_pending", "under_qa_review"].includes(snapshot.state?.workflowState ?? "");
 
       if (genericQaDeterministicEligible) {
+        const qaDecisionAnchorAt = parseMessageCreatedAt(latestQaStartAfterReviewerApproval);
         if (deterministicQaObservedAt == null) {
-          deterministicQaObservedAt = Date.now();
+          deterministicQaObservedAt = qaDecisionAnchorAt ?? Date.now();
+        } else if (qaDecisionAnchorAt != null && qaDecisionAnchorAt > deterministicQaObservedAt) {
+          deterministicQaObservedAt = qaDecisionAnchorAt;
         } else if (
           !deterministicQaSent
-          && Date.now() - deterministicQaObservedAt >= CLOSE_FALLBACK_AFTER_MS
+          && Date.now() - deterministicQaObservedAt
+            >= (scenario.qaApprovalFallbackAfterMs ?? QA_APPROVAL_FALLBACK_AFTER_MS)
         ) {
           if (await shouldDelayFallbackForFreshActiveRun(issueId, scenario.key, "qa_approval")) {
             await new Promise((resolve) => setTimeout(resolve, 1_000));
