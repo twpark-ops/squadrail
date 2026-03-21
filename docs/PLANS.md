@@ -5,7 +5,7 @@
 ## Active
 
 - `exec-plans/active/index.md`
-- No active execution plan at the moment.
+- `exec-plans/active/p3-project-qa-contract-execution-plan-2026-03-21.md`
 
 ## Completed or Superseded
 

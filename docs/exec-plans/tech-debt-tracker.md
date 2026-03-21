@@ -7,6 +7,7 @@
 - `completed/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `completed/five-axis-hardening-plan-2026-03-18.md`
 - `completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
+- `active/p3-project-qa-contract-execution-plan-2026-03-21.md`
 - `../design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
 - E2E infrastructure debt
   - Live-model nondeterminism remains outside the completed P2 scope.

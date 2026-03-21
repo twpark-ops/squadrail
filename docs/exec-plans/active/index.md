@@ -1,6 +1,6 @@
 # Active Execution Plans
 
-현재 운영 중인 핵심 계획은 없다.
+- `p3-project-qa-contract-execution-plan-2026-03-21.md`
 
 보조 참고:
 
