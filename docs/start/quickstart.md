@@ -46,12 +46,33 @@ http://127.0.0.1:3100
 
 Inside the web UI:
 
-1. Create the first company
-2. Choose the primary engine: Claude Code or Codex
-3. Seed the default role packs or the SwiftSight delivery preset
-4. Connect a project workspace
-5. Import workspace knowledge
-6. Create the first issue and start it with `ASSIGN_TASK`
+1. Click `Add company` if the onboarding flow did not open automatically
+2. Complete `Tell us about your setup`
+3. Complete `Create the operating company`
+4. Complete `Select the starting team blueprint`
+5. Complete `Connect the primary execution workspace`
+6. Click `Test now` on the adapter environment check
+7. Complete `Launch the first quick request`
+8. Click `Create Quick Request`
+
+The first-run UI path is intentionally opinionated:
+
+- do not hand-create the first squad member-by-member
+- do not start with `Advanced issue`
+- start from blueprint + primary workspace + `Quick request`
+
+After the quick request is submitted:
+
+- Squadrail routes you to the onboarding issue in `Work`
+- `Inbox` becomes the place to answer clarification
+- `Overview > Current delivery` becomes the fastest high-level progress view
+- `Resume Setup` stays visible until the company clears:
+  - team blueprint applied
+  - workspace connected
+  - knowledge seeded
+  - first quick request submitted
+  - PM structuring complete
+  - first delivery closed
 
 ## 6. Doctor And Runtime Hardening
 
