@@ -67,8 +67,16 @@ last-reviewed: "2026-03-23"
   - `rag-readiness`가 follow-up / replay issue에서 `APPROVE_IMPLEMENTATION + CLOSE_TASK` citation coverage를 실제 pass/fail gate로 본다.
   - focused tests:
     - `rag-readiness-utils.test.ts`
+- state-aware supervisory follow-up shipped
+  - reviewer `APPROVE_IMPLEMENTATION` helper 기본값이 QA gate 존재 시 `qa_pending`으로 정렬된다.
+  - `review_reviewer` / `qa_gate_reviewer` short lane은 이미 `under_review` / `under_qa_review` 상태면 `START_REVIEW`를 반복하지 않고 decision helper부터 제안한다.
+  - QA short lane은 reviewer-approved verification command를 runtime note와 helper payload에 직접 주입한다.
+  - focused tests:
+    - `protocol-helper-cli.test.ts`
+    - `squadrail-runtime-note.test.ts`
   - live rerun note:
-    - local `rag-readiness` 재실행은 real-org reviewer lane stall 때문에 장시간 pending으로 남아 추가 stabilization이 필요하다.
+    - `CLO-236` local rerun에서 reviewer approval은 `qa_pending`으로 정상 승격됐고, QA `START_REVIEW` payload가 reviewer-approved verification command를 직접 사용했다.
+    - 최종 `rag-readiness` artifact refresh는 새 rerun에서 계속 진행 중이며, 남은 일은 full live proof summary 재생성과 artifact 문서 갱신이다.
 
 # Implementation Plan
 

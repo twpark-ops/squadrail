@@ -1868,6 +1868,85 @@ describe("squadrail protocol helper CLI", () => {
     }
   });
 
+  it("defaults reviewer approval to qa_pending when a QA gate is assigned", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: Record<string, unknown> }> = [];
+    const server = http.createServer((req, res) => {
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          workflowState: "under_review",
+          assigneeAgentId: "eng-1",
+          reviewerAgentId: "agent-123",
+          qaAgentId: "qa-1",
+        }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "approve-implementation",
+          "--issue",
+          "issue-123",
+          "--sender-role",
+          "reviewer",
+          "--payload",
+          JSON.stringify({
+            approvalSummary: "Reviewer approval should hand off to QA when QA is assigned.",
+            approvalChecklist: ["Focused review completed"],
+            verifiedEvidence: ["go test ./internal/storage -count=1"],
+            residualRisks: ["QA must still execute final verification"],
+          }),
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain("\"ok\": true");
+      expect(requests).toHaveLength(1);
+      const payload = requests[0]?.body as Record<string, unknown>;
+      expect(payload.workflowStateAfter).toBe("qa_pending");
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("only auto-attaches git artifacts on submit-for-review", async () => {
     const requests: Array<Record<string, unknown>> = [];
     const server = http.createServer((req, res) => {

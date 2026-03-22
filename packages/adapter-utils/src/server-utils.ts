@@ -392,9 +392,27 @@ function buildConcreteProtocolHelperSnippet(input: {
   body: Record<string, unknown>;
   protocolPayload?: Record<string, unknown>;
   protocolSummary?: string | null;
+  reviewSubmission?: Record<string, unknown>;
+  retrievalRunId?: string | null;
+  taskBriefEvidence?: Array<Record<string, unknown>>;
 }) {
   const messageType = nonEmptyString(input.body.messageType);
   const payload = { ...parseObject(input.body.payload) };
+  const protocolPayload = parseObject(input.protocolPayload);
+  const reviewSubmission = parseObject(input.reviewSubmission);
+  const reviewSubmissionChangedFiles = asStringArray(reviewSubmission.changedFiles);
+  const reviewSubmissionChecklist = asStringArray(reviewSubmission.reviewChecklist);
+  const reviewSubmissionEvidence = asStringArray(reviewSubmission.evidence);
+  const reviewSubmissionTestResults = asStringArray(reviewSubmission.testResults);
+  const reviewSubmissionResidualRisks = asStringArray(reviewSubmission.residualRisks);
+  const protocolPayloadVerifiedEvidence = asStringArray(protocolPayload.verifiedEvidence);
+  const protocolPayloadApprovalChecklist = asStringArray(protocolPayload.approvalChecklist);
+  const taskBriefEvidencePaths = (input.taskBriefEvidence ?? [])
+    .map((entry) => nonEmptyString(entry.path))
+    .filter((entry): entry is string => Boolean(entry));
+  const citationPaths = reviewSubmissionChangedFiles.length > 0
+    ? reviewSubmissionChangedFiles.slice(0, 4)
+    : taskBriefEvidencePaths.slice(0, 4);
   const bodySummary = nonEmptyString(input.body.summary);
   if (!payload.summary && bodySummary) {
     payload.summary = bodySummary;
@@ -463,6 +481,12 @@ function buildConcreteProtocolHelperSnippet(input: {
     case "review_reviewer":
     case "qa_gate_reviewer":
       if (messageType === "START_REVIEW") {
+        if (input.requirement.key === "qa_gate_reviewer" && protocolPayloadVerifiedEvidence.length > 0) {
+          payload.reviewFocus = [
+            `Run reviewer-approved verification command: ${protocolPayloadVerifiedEvidence[0]}`,
+            "Capture the observed output and compare it to the expected QA acceptance signal",
+          ];
+        }
         return formatConcreteProtocolHelperCommand({
           command: "start-review",
           issueId: input.issueId,
@@ -470,6 +494,42 @@ function buildConcreteProtocolHelperSnippet(input: {
         });
       }
       if (messageType === "APPROVE_IMPLEMENTATION") {
+        if (input.requirement.key === "qa_gate_reviewer" && protocolPayloadApprovalChecklist.length > 0) {
+          payload.approvalChecklist = protocolPayloadApprovalChecklist;
+        } else if (reviewSubmissionChecklist.length > 0) {
+          payload.approvalChecklist = reviewSubmissionChecklist;
+        }
+        if (input.requirement.key === "qa_gate_reviewer" && protocolPayloadVerifiedEvidence.length > 0) {
+          payload.verifiedEvidence = protocolPayloadVerifiedEvidence;
+          if (!nonEmptyString(payload.sanityCommand)) {
+            payload.sanityCommand = protocolPayloadVerifiedEvidence[0];
+          }
+          if (!nonEmptyString(payload.executionLog)) {
+            payload.executionLog = `Executed reviewer-approved verification command: ${protocolPayloadVerifiedEvidence[0]}`;
+          }
+          if (!nonEmptyString(payload.outputVerified)) {
+            payload.outputVerified = "Observed output matches the expected QA acceptance signal.";
+          }
+        } else if (reviewSubmissionTestResults.length > 0) {
+          payload.verifiedEvidence = reviewSubmissionTestResults;
+        } else if (reviewSubmissionEvidence.length > 0) {
+          payload.verifiedEvidence = reviewSubmissionEvidence;
+        }
+        if (reviewSubmissionResidualRisks.length > 0) {
+          payload.residualRisks = reviewSubmissionResidualRisks;
+        }
+        if (
+          typeof input.retrievalRunId === "string"
+          && input.retrievalRunId.length > 0
+          && citationPaths.length > 0
+        ) {
+          payload.evidenceCitations = [
+            {
+              retrievalRunId: input.retrievalRunId,
+              citedPaths: citationPaths,
+            },
+          ];
+        }
         return formatConcreteProtocolHelperCommand({
           command: "approve-implementation",
           issueId: input.issueId,
@@ -496,6 +556,10 @@ function buildImmediateProtocolCommandSequence(input: {
   issueId?: string | null;
   protocolPayload?: Record<string, unknown>;
   protocolSummary?: string | null;
+  reviewSubmission?: Record<string, unknown>;
+  retrievalRunId?: string | null;
+  taskBriefEvidence?: Array<Record<string, unknown>>;
+  workflowBefore?: string | null;
 }) {
   const commands = buildProtocolExampleBodies(input.requirement)
     .map((example) => {
@@ -505,6 +569,9 @@ function buildImmediateProtocolCommandSequence(input: {
         body: example.body,
         protocolPayload: input.protocolPayload,
         protocolSummary: input.protocolSummary,
+        reviewSubmission: input.reviewSubmission,
+        retrievalRunId: input.retrievalRunId,
+        taskBriefEvidence: input.taskBriefEvidence,
       });
       const messageType = nonEmptyString(example.body.messageType);
       if (!snippet || !messageType) return null;
@@ -525,10 +592,18 @@ function buildImmediateProtocolCommandSequence(input: {
     case "assignment_supervisor":
     case "reassignment_supervisor":
     case "change_request_engineer":
-    case "review_reviewer":
-    case "qa_gate_reviewer":
     case "approval_tech_lead":
       return commands.slice(0, 1);
+    case "review_reviewer":
+      if (input.workflowBefore === "under_review") {
+        return commands.filter((entry) => entry.messageType !== "START_REVIEW");
+      }
+      return commands.slice(0, 2);
+    case "qa_gate_reviewer":
+      if (input.workflowBefore === "under_qa_review") {
+        return commands.filter((entry) => entry.messageType !== "START_REVIEW");
+      }
+      return commands.slice(0, 2);
     default:
       return [];
   }
@@ -905,6 +980,7 @@ export function renderSquadrailRuntimeNote(input: {
   const workspaceBranchName = nonEmptyString(workspaceContext.branchName);
   const protocolPayload = parseObject(input.context.protocolPayload);
   const protocolPayloadKeys = Object.keys(protocolPayload).sort();
+  const protocolPayloadVerifiedEvidence = asStringArray(protocolPayload.verifiedEvidence);
   const reviewSubmission = parseObject(input.context.reviewSubmission);
   const reviewSubmissionChangedFiles = asStringArray(reviewSubmission.changedFiles);
   const reviewSubmissionChecklist = asStringArray(reviewSubmission.reviewChecklist);
@@ -1001,6 +1077,8 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- Review artifacts first. The shared review workspace may still reflect base HEAD and can differ from the isolated implementation workspace.");
       lines.push("- Do not reject solely because the shared workspace file still shows the pre-change content; verify against the submitted diff, changed files, evidence, and implementation workspace binding.");
       lines.push("- If you need to inspect exact implementation files, use the implementation workspace path from the review submission context rather than assuming the shared workspace contains the patch.");
+      lines.push("- If the submitted checklist, focused tests, and changed files are coherent and no concrete blocker remains, prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`.");
+      lines.push("- Reserve `REQUEST_HUMAN_DECISION` for true ambiguity: contradictory artifacts, missing verification evidence, or an approval decision that cannot be made from the submitted diff/evidence.");
       lines.push("- For `REQUEST_CHANGES`, keep `payload` flat and use only `severity`, `reviewSummary`, `changeRequests[]`, `requiredEvidence[]`, `mustFixBeforeApprove`, and optional `evidenceCitations[]`.");
       lines.push("- For `APPROVE_IMPLEMENTATION`, keep `payload` flat and use only `approvalSummary`, `approvalMode`, `approvalChecklist[]`, `verifiedEvidence[]`, `residualRisks[]`, and optional `evidenceCitations[]`.");
       lines.push("- When your review decision depends on brief evidence, cite it with `evidenceCitations[]` using `retrievalRunId` and at least one cited path or hit rank.");
@@ -1013,10 +1091,12 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- **Do not create, edit, or delete any source files.** You have implementation workspace access for running commands only. Code changes are the engineer's responsibility.");
       lines.push("- Do not stop after `START_REVIEW` while the issue remains in `qa_pending` or `under_qa_review`. QA-start-only runs are incomplete and will be retried.");
       lines.push("- Start by reading the project runbook from your brief. If no runbook is available, send `ASK_CLARIFICATION` requesting execution instructions before approving.");
+      lines.push("- If `protocolPayload.verifiedEvidence[]` is present, start with the first reviewer-approved verification command before inventing a new QA probe.");
       lines.push("- Run the acceptance criteria commands or sanity checks in the project workspace. Record what you ran and what you observed.");
       lines.push("- Do not approve based on code reading alone. You must execute at least one verification command.");
+      lines.push("- If the reviewer-approved verification command passes and the observed output matches the acceptance signal, prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`.");
       lines.push("- For `START_REVIEW`, describe your execution plan: which commands, fixtures, or probes you will use.");
-      lines.push("- For `APPROVE_IMPLEMENTATION`, include execution evidence in payload: `executionLog` (commands run + output), `outputVerified` (expected vs actual), `sanityCommand` (primary check command), optional `fixtureUsed`, and optional `evidenceCitations[]`.");
+      lines.push("- For `APPROVE_IMPLEMENTATION`, include execution evidence in payload: `executionLog` (commands run + output), `outputVerified` (expected vs actual), `sanityCommand` (primary check command; reuse the reviewer-approved command when possible), optional `fixtureUsed`, and optional `evidenceCitations[]`.");
       lines.push("- For `REQUEST_CHANGES`, include the failure output as evidence: `executionLog` (failed command + output), `failureEvidence` (what went wrong), `expectedBehavior` (what should have happened), and optional `evidenceCitations[]`.");
     }
 
@@ -1046,6 +1126,10 @@ export function renderSquadrailRuntimeNote(input: {
       issueId,
       protocolPayload,
       protocolSummary,
+      reviewSubmission,
+      retrievalRunId,
+      taskBriefEvidence,
+      workflowBefore,
     })
     : [];
   const shortProtocolLane = isShortProtocolLaneKey(protocolRequirement?.key ?? null);
@@ -1097,11 +1181,23 @@ export function renderSquadrailRuntimeNote(input: {
       shortLines.push("- Route with `REASSIGN_TASK` when the execution owner is clear. Use `ASK_CLARIFICATION` or `ESCALATE_BLOCKER` only when ownership is genuinely unclear.");
     }
     if (protocolRequirement?.key === "review_reviewer") {
-      shortLines.push("- After `START_REVIEW`, conclude the lane with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+      if (workflowBefore === "under_review") {
+        shortLines.push("- Review is already open in this lane. Move directly to `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+      } else {
+        shortLines.push("- After `START_REVIEW`, conclude the lane with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+      }
       shortLines.push("- If your review decision depends on the brief, cite it with `evidenceCitations[]` using the current `retrievalRunId` and at least one cited path or hit rank.");
+      shortLines.push("- If the submitted checklist, focused tests, and changed files are coherent, prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`.");
     }
     if (protocolRequirement?.key === "qa_gate_reviewer") {
       shortLines.push("- QA must execute the acceptance check before deciding. Do not edit source files in this lane.");
+      if (workflowBefore === "under_qa_review") {
+        shortLines.push("- QA review is already open in this lane. After rerunning verification, move directly to `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+      }
+      if (protocolPayloadVerifiedEvidence.length > 0) {
+        shortLines.push(`- Start with the reviewer-approved verification command: ${protocolPayloadVerifiedEvidence[0]}`);
+      }
+      shortLines.push("- If that verification passes and the observed output matches the expected acceptance signal, prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`.");
       shortLines.push("- Include execution evidence in the decision payload and add optional `evidenceCitations[]` when the brief or retrieval evidence guided the QA verdict.");
     }
     if (protocolRequirement?.key === "approval_tech_lead") {
@@ -1122,6 +1218,14 @@ export function renderSquadrailRuntimeNote(input: {
     if (shortStructuredLines.length > 0) {
       shortLines.push("Structured wake context:");
       shortLines.push(...shortStructuredLines);
+      shortLines.push("");
+    }
+
+    if (protocolRequirement?.key === "qa_gate_reviewer" && protocolPayloadVerifiedEvidence.length > 0) {
+      shortLines.push("Reviewer-approved verification inputs:");
+      for (const entry of protocolPayloadVerifiedEvidence.slice(0, 3)) {
+        shortLines.push(`- ${entry}`);
+      }
       shortLines.push("");
     }
 

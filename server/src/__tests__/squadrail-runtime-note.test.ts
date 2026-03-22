@@ -15,13 +15,24 @@ describe("renderSquadrailRuntimeNote", () => {
         protocolRecipientRole: "qa",
         protocolWorkflowStateBefore: "under_qa_review",
         protocolWorkflowStateAfter: "approved",
+        protocolPayload: {
+          verifiedEvidence: [
+            "go test ./internal/storage -count=1",
+          ],
+        },
       },
     });
 
     expect(output).toContain("IMMEDIATE PROTOCOL ACTION:");
     expect(output).toContain("SHORT PROTOCOL LANE:");
     expect(output).toContain("QA must execute the acceptance check before deciding. Do not edit source files in this lane.");
-    expect(output).toContain('start-review --issue "issue-1" --payload');
+    expect(output).toContain('approve-implementation --issue "issue-1" --payload');
+    expect(output).not.toContain('start-review --issue "issue-1" --payload');
+    expect(output).toContain("QA review is already open in this lane.");
+    expect(output).toContain("Start with the reviewer-approved verification command: go test ./internal/storage -count=1");
+    expect(output).toContain("Reviewer-approved verification inputs:");
+    expect(output).toContain("prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`");
+    expect(output).toContain("go test ./internal/storage -count=1");
     expect(output).toContain("optional `evidenceCitations[]`");
   });
 
@@ -111,10 +122,12 @@ describe("renderSquadrailRuntimeNote", () => {
     expect(output).toContain("IMMEDIATE PROTOCOL ACTION:");
     expect(output).toContain("SHORT PROTOCOL LANE:");
     expect(output).toContain("After `START_REVIEW`, conclude the lane with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+    expect(output).toContain('approve-implementation --issue "issue-5" --payload');
     expect(output).toContain("Structured wake context:");
     expect(output).not.toContain("very long retrieval query that should be omitted in short supervisory lanes");
     expect(output).toContain('start-review --issue "issue-5" --payload');
     expect(output).toContain("cite it with `evidenceCitations[]`");
+    expect(output).toContain("prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`");
   });
 
   it("includes concrete staffing helper commands for assignment supervisor lanes", () => {

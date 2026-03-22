@@ -1733,6 +1733,13 @@ async function approveImplementationCommand(options) {
     payloadPatch.sanityCommand ?? null,
   );
   const state = await getIssueState(issueId);
+  const defaultWorkflowAfter =
+    senderRole === "reviewer"
+      && state.workflowState === "under_review"
+      && typeof state.qaAgentId === "string"
+      && state.qaAgentId.trim().length > 0
+      ? "qa_pending"
+      : "approved";
 
   const body = {
     messageType: "APPROVE_IMPLEMENTATION",
@@ -1743,7 +1750,7 @@ async function approveImplementationCommand(options) {
     },
     recipients: [buildSelfRecipient(senderRole)],
     workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
-    workflowStateAfter: readOption(options, "workflow-after", "approved"),
+    workflowStateAfter: readOption(options, "workflow-after", defaultWorkflowAfter),
     summary,
     requiresAck: false,
     payload: {
