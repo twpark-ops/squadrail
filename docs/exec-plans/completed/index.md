@@ -18,3 +18,4 @@
 - `p3-runtime-review-hardening-plan-2026-03-20.md`
 - `p0-protocol-dispatch-reconciliation-plan-2026-03-22.md`
 - `p1-protocol-dispatch-outbox-plan-2026-03-22.md`
+- `p0-issue-detail-polling-split-plan-2026-03-22.md`

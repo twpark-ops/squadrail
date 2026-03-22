@@ -12,6 +12,7 @@
 - `exec-plans/completed/index.md`
 - `exec-plans/completed/p0-protocol-dispatch-reconciliation-plan-2026-03-22.md`
 - `exec-plans/completed/p1-protocol-dispatch-outbox-plan-2026-03-22.md`
+- `exec-plans/completed/p0-issue-detail-polling-split-plan-2026-03-22.md`
 - `exec-plans/completed/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `exec-plans/completed/phase-0-security-baseline-design-2026-03-18.md`
 - `exec-plans/completed/five-axis-hardening-plan-2026-03-18.md`

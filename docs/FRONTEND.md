@@ -6,6 +6,7 @@ UI와 운영 표면 관련 문서의 상위 진입점이다.
 
 - `product-specs/ui-rebuild-spec-v1.md`
 - `product-specs/ui-visual-rebuild-spec-v1.md`
+- `exec-plans/completed/p0-issue-detail-polling-split-plan-2026-03-22.md`
 - `exec-plans/completed/ui-agent-presence-run-detail-plan-2026.md`
 - `exec-plans/completed/ui-only-execution-plan-2026.md`
 - `exec-plans/completed/ui-only-followup-plan-2026.md`

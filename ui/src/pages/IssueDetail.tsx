@@ -20,6 +20,10 @@ import { usePanel } from "../context/PanelContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { useProjectOrder } from "../hooks/useProjectOrder";
+import {
+  buildIssueDetailPollingState,
+  resolveIssueDetailLiveRefetchInterval,
+} from "../lib/issue-detail-polling";
 import { relativeTime, cn, formatTokens } from "../lib/utils";
 import { InlineEditor } from "../components/InlineEditor";
 import { CommentThread } from "../components/CommentThread";
@@ -1310,15 +1314,18 @@ export function IssueDetail() {
   const documentsTabActive = detailTab === "documents";
   const activityTabActive = detailTab === "activity";
   const deliverablesTabActive = detailTab === "deliverables";
-  const protocolPollingActive =
-    detailTab === "brief"
-    || detailTab === "protocol"
-    || detailTab === "delivery"
-    || issueSection === "Changes";
-  const linkedRunsPollingActive =
-    detailTab === "protocol"
-    || detailTab === "delivery"
-    || issueSection === "Changes";
+  const pollingState = buildIssueDetailPollingState({
+    detailTab: detailTab as
+      | "brief"
+      | "protocol"
+      | "comments"
+      | "subissues"
+      | "documents"
+      | "activity"
+      | "delivery"
+      | "deliverables",
+    issueSection: issueSection as "Work" | "Changes",
+  });
 
   const { data: comments } = useQuery({
     queryKey: queryKeys.issues.comments(issueId!),
@@ -1330,14 +1337,14 @@ export function IssueDetail() {
     queryKey: queryKeys.issues.protocolState(issueId!),
     queryFn: () => issuesApi.getProtocolState(issueId!),
     enabled: !!issueId,
-    refetchInterval: protocolPollingActive ? 5000 : false,
+    refetchInterval: pollingState.protocolState ? 5000 : false,
   });
 
   const { data: protocolMessages = [] } = useQuery({
     queryKey: queryKeys.issues.protocolMessages(issueId!),
     queryFn: () => issuesApi.listProtocolMessages(issueId!),
     enabled: !!issueId,
-    refetchInterval: protocolPollingActive ? 5000 : false,
+    refetchInterval: pollingState.protocolMessages ? 5000 : false,
   });
 
   const { data: protocolBriefs = [] } = useQuery({
@@ -1347,28 +1354,28 @@ export function IssueDetail() {
       return Array.isArray(result) ? result : [result];
     },
     enabled: !!issueId,
-    refetchInterval: protocolPollingActive ? 5000 : false,
+    refetchInterval: pollingState.protocolBriefs ? 5000 : false,
   });
 
   const { data: reviewCycles = [] } = useQuery({
     queryKey: queryKeys.issues.protocolReviewCycles(issueId!),
     queryFn: () => issuesApi.listProtocolReviewCycles(issueId!),
     enabled: !!issueId,
-    refetchInterval: protocolPollingActive ? 5000 : false,
+    refetchInterval: pollingState.reviewCycles ? 5000 : false,
   });
 
   const { data: protocolViolations = [] } = useQuery({
     queryKey: queryKeys.issues.protocolViolations(issueId!),
     queryFn: () => issuesApi.listProtocolViolations(issueId!),
     enabled: !!issueId,
-    refetchInterval: protocolPollingActive ? 5000 : false,
+    refetchInterval: pollingState.protocolViolations ? 5000 : false,
   });
 
   const { data: changeSurface } = useQuery({
     queryKey: queryKeys.issues.changeSurface(issueId!),
     queryFn: () => issuesApi.getChangeSurface(issueId!),
     enabled: !!issueId && issueSection === "Changes",
-    refetchInterval: issueSection === "Changes" ? 5000 : false,
+    refetchInterval: pollingState.changeSurface ? 5000 : false,
   });
 
   const { data: activity } = useQuery({
@@ -1381,7 +1388,7 @@ export function IssueDetail() {
     queryKey: queryKeys.issues.runs(issueId!),
     queryFn: () => activityApi.runsForIssue(issueId!),
     enabled: !!issueId,
-    refetchInterval: linkedRunsPollingActive ? 5000 : false,
+    refetchInterval: pollingState.linkedRuns ? 5000 : false,
   });
 
   const { data: linkedApprovals } = useQuery({
@@ -1413,9 +1420,11 @@ export function IssueDetail() {
     queryFn: () => heartbeatsApi.liveRunsForIssue(issueId!),
     enabled: !!issueId,
     refetchInterval: (query) =>
-      linkedRunsPollingActive || ((query.state.data as Array<unknown> | undefined)?.length ?? 0) > 0
-        ? 3000
-        : false,
+      resolveIssueDetailLiveRefetchInterval({
+        pollingActive: pollingState.linkedRuns,
+        hasData: ((query.state.data as Array<unknown> | undefined)?.length ?? 0) > 0,
+        intervalMs: 3000,
+      }),
   });
 
   const { data: activeRun } = useQuery({
@@ -1423,9 +1432,11 @@ export function IssueDetail() {
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId!),
     enabled: !!issueId,
     refetchInterval: (query) =>
-      linkedRunsPollingActive || Boolean(query.state.data)
-        ? 3000
-        : false,
+      resolveIssueDetailLiveRefetchInterval({
+        pollingActive: pollingState.linkedRuns,
+        hasData: Boolean(query.state.data),
+        intervalMs: 3000,
+      }),
   });
 
   const hasLiveRuns = (liveRuns ?? []).length > 0 || !!activeRun;
