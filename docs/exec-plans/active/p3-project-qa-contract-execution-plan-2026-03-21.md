@@ -1,7 +1,7 @@
 ---
 title: "P3 Project QA Contract Execution Plan"
 owner: "taewoong"
-status: "active"
+status: "hold"
 last-reviewed: "2026-03-21"
 ---
 

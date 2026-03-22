@@ -210,6 +210,19 @@ export interface IssueChangeSurfaceFeedbackSummary {
   feedbackTypeCounts: Record<string, number>;
 }
 
+export interface IssueChangeSurfaceCitationSummary {
+  messageCount: number;
+  citationCount: number;
+  messageTypeCounts: Record<string, number>;
+  retrievalRunIds: string[];
+  briefIds: string[];
+  citedPaths: string[];
+  citedSourceTypes: string[];
+  citedSummaryKinds: string[];
+  latestMessageType: string | null;
+  latestMessageAt: Date | null;
+}
+
 export interface IssueChangeSurfaceClarificationTrace {
   pendingCount: number;
   latestPendingQuestion: string | null;
@@ -379,6 +392,7 @@ export interface IssueChangeSurface {
   retrievalContext: {
     latestRuns: IssueChangeSurfaceRetrievalRun[];
     feedbackSummary: IssueChangeSurfaceFeedbackSummary;
+    citationSummary: IssueChangeSurfaceCitationSummary;
   };
   mergeCandidate: IssueMergeCandidate | null;
 }

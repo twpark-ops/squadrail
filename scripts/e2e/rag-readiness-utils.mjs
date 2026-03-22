@@ -139,3 +139,99 @@ export function summarizeKnowledgeQualityGate(summary) {
     matchingRoleCount: perRole.filter((entry) => typeof entry?.role === "string").length,
   };
 }
+
+function readStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((entry) => typeof entry === "string" && entry.length > 0))];
+}
+
+export function summarizeProtocolCitationCoverage(messages) {
+  const citationMessages = (Array.isArray(messages) ? messages : [])
+    .map((message) => {
+      const payload = asRecord(message?.payload);
+      const citations = Array.isArray(payload.evidenceCitations)
+        ? payload.evidenceCitations.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+        : [];
+      return { message, citations };
+    })
+    .filter((entry) => entry.citations.length > 0)
+    .sort((left, right) => new Date(right.message?.createdAt ?? 0).getTime() - new Date(left.message?.createdAt ?? 0).getTime());
+
+  const messageTypeCounts = {};
+  const retrievalRunIds = new Set();
+  const briefIds = new Set();
+  const citedPaths = new Set();
+  const citedSourceTypes = new Set();
+  const citedSummaryKinds = new Set();
+  let citationCount = 0;
+
+  for (const entry of citationMessages) {
+    const messageType = typeof entry.message?.messageType === "string" ? entry.message.messageType : "UNKNOWN";
+    messageTypeCounts[messageType] = (messageTypeCounts[messageType] ?? 0) + 1;
+    for (const citation of entry.citations) {
+      citationCount += 1;
+      if (typeof citation.retrievalRunId === "string" && citation.retrievalRunId.length > 0) {
+        retrievalRunIds.add(citation.retrievalRunId);
+      }
+      if (typeof citation.briefId === "string" && citation.briefId.length > 0) {
+        briefIds.add(citation.briefId);
+      }
+      for (const citedPath of readStringArray(citation.citedPaths)) citedPaths.add(citedPath);
+      for (const citedSourceType of readStringArray(citation.citedSourceTypes)) citedSourceTypes.add(citedSourceType);
+      for (const citedSummaryKind of readStringArray(citation.citedSummaryKinds)) citedSummaryKinds.add(citedSummaryKind);
+    }
+  }
+
+  return {
+    messageCount: citationMessages.length,
+    citationCount,
+    messageTypeCounts,
+    retrievalRunIds: [...retrievalRunIds],
+    briefIds: [...briefIds],
+    citedPaths: [...citedPaths],
+    citedSourceTypes: [...citedSourceTypes],
+    citedSummaryKinds: [...citedSummaryKinds],
+    latestMessageType: typeof citationMessages[0]?.message?.messageType === "string" ? citationMessages[0].message.messageType : null,
+    latestMessageAt: citationMessages[0]?.message?.createdAt ? new Date(citationMessages[0].message.createdAt) : null,
+  };
+}
+
+export function summarizeCitationCoverageGate(coverage, options = {}) {
+  const record = asRecord(coverage);
+  const requiredMessageTypes = readStringArray(options.requiredMessageTypes);
+  const requiredSourceTypes = readStringArray(options.requiredSourceTypes);
+  const messageTypeCounts =
+    record.messageTypeCounts && typeof record.messageTypeCounts === "object" && !Array.isArray(record.messageTypeCounts)
+      ? record.messageTypeCounts
+      : {};
+  const failures = [];
+
+  if ((record.messageCount ?? 0) <= 0) failures.push("citation_message_missing");
+  if ((record.citationCount ?? 0) <= 0) failures.push("citation_entry_missing");
+  if (readStringArray(record.retrievalRunIds).length <= 0) failures.push("citation_retrieval_run_missing");
+  if (readStringArray(record.citedPaths).length <= 0) failures.push("citation_path_missing");
+  if (readStringArray(record.citedSourceTypes).length <= 0) failures.push("citation_source_type_missing");
+
+  for (const messageType of requiredMessageTypes) {
+    if ((messageTypeCounts[messageType] ?? 0) <= 0) {
+      failures.push(`citation_message_type_missing:${messageType}`);
+    }
+  }
+
+  if (
+    requiredSourceTypes.length > 0
+    && !requiredSourceTypes.some((sourceType) => readStringArray(record.citedSourceTypes).includes(sourceType))
+  ) {
+    failures.push(`citation_required_source_types_missing:${requiredSourceTypes.join(",")}`);
+  }
+
+  return {
+    status: failures.length === 0 ? "pass" : "fail",
+    failures,
+    messageCount: typeof record.messageCount === "number" ? record.messageCount : 0,
+    citationCount: typeof record.citationCount === "number" ? record.citationCount : 0,
+    retrievalRunCount: readStringArray(record.retrievalRunIds).length,
+    citedPathCount: readStringArray(record.citedPaths).length,
+    citedSourceTypeCount: readStringArray(record.citedSourceTypes).length,
+  };
+}

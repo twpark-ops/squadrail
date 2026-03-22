@@ -15,6 +15,7 @@ These harnesses are live-model acceptance runs, not fully mocked unit tests. The
 - `cloud-swiftsight-rag-readiness.mjs`: readiness gate for knowledge sync / retrieval quality before higher-level PM/domain evaluation.
 - `cloud-swiftsight-domain-aware-pm-eval.mjs`: single-scenario domain-aware PM harness. It creates a PM intake issue, previews PM projection, scores preview correctness, then applies the same preview draft into a bounded delivery loop and scores delivery completion. `cloud-swiftsight` is the current validation fixture, not a product-specific scoring shortcut.
 - `cloud-swiftsight-domain-aware-pm-burn-in.mjs`: runs the domain-aware PM scenarios sequentially and emits preview/delivery/overall score summaries. The target is generic project-selection behavior driven by knowledge tags and boundary metadata.
+- `cloud-swiftsight-domain-aware-proof-only.mjs`: domain-aware summary proof runner. It executes the summary proof in domain-only mode and emits the same structured artifact without attaching rag-readiness.
 - `cloud-swiftsight-summary-layer-proof.mjs`: prepares the summary fixture through the public workspace-import API, runs the current domain-aware PM matrix with cleanup enabled, verifies that no new visible proof issues or active runs remain, and optionally attaches the current rag-readiness gate summary.
 
 ## Execution Split
@@ -44,8 +45,10 @@ These harnesses are live-model acceptance runs, not fully mocked unit tests. The
   - primary command: `pnpm e2e:cloud-swiftsight-domain-aware-pm-burn-in`
 - `summary-layer proof`
   - purpose: compare the frozen baseline artifact against the current summary-enabled PM matrix and emit a structured diff report
+  - split: `domain-only proof runner` plus optional `rag-readiness` attachment
   - note: this is the Phase 4/5 proof runner. By default it refreshes summary documents through the public workspace-import API before running the matrix.
   - primary command: `pnpm e2e:cloud-swiftsight-summary-layer-proof`
+  - domain proof runner: `pnpm e2e:cloud-swiftsight-domain-aware-proof-only`
   - domain-only command: `pnpm e2e:cloud-swiftsight-summary-layer-proof:domain-only`
   - full command: `pnpm e2e:cloud-swiftsight-summary-layer-proof:full`
   - important env:

@@ -12,6 +12,7 @@
 ## Retrieval / Runtime Stability
 
 - `exec-plans/active/p4-rag-meaning-layer-live-proof-followup-plan-2026-03-23.md`
+- `exec-plans/active/p3-project-qa-contract-execution-plan-2026-03-21.md` (`hold`)
 - `exec-plans/completed/p0-protocol-dispatch-reconciliation-plan-2026-03-22.md`
 - `exec-plans/completed/p1-protocol-dispatch-outbox-plan-2026-03-22.md`
 - `exec-plans/completed/p1-runtime-surface-maintenance-plan-2026-03-22.md`
@@ -21,7 +22,6 @@
 - `exec-plans/completed/p5-runtime-surface-maintenance-plan-2026-03-22.md`
 - `exec-plans/completed/p6-runtime-surface-maintenance-plan-2026-03-22.md`
 - `exec-plans/completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
-- `exec-plans/active/p3-project-qa-contract-execution-plan-2026-03-21.md`
 - `design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
 - `design-docs/protocol-dispatch-reliability-design-2026-03-22.md`
 - `design-docs/runtime-surface-maintenance-design-2026-03-22.md`

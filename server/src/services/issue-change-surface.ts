@@ -97,6 +97,54 @@ function readStringArray(value: unknown) {
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
 }
 
+function buildCitationSummary(messages: ProtocolMessageLike[]): IssueChangeSurface["retrievalContext"]["citationSummary"] {
+  const citationMessages = messages
+    .map((message) => {
+      const payload = asRecord(message.payload);
+      const citations = Array.isArray(payload.evidenceCitations)
+        ? payload.evidenceCitations.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
+        : [];
+      return { message, citations };
+    })
+    .filter((entry) => entry.citations.length > 0)
+    .sort((left, right) => normalizeDate(right.message.createdAt).getTime() - normalizeDate(left.message.createdAt).getTime());
+
+  const messageTypeCounts: Record<string, number> = {};
+  const retrievalRunIds = new Set<string>();
+  const briefIds = new Set<string>();
+  const citedPaths = new Set<string>();
+  const citedSourceTypes = new Set<string>();
+  const citedSummaryKinds = new Set<string>();
+  let citationCount = 0;
+
+  for (const entry of citationMessages) {
+    messageTypeCounts[entry.message.messageType] = (messageTypeCounts[entry.message.messageType] ?? 0) + 1;
+    for (const citation of entry.citations) {
+      citationCount += 1;
+      const retrievalRunId = readString(citation.retrievalRunId);
+      if (retrievalRunId) retrievalRunIds.add(retrievalRunId);
+      const briefId = readString(citation.briefId);
+      if (briefId) briefIds.add(briefId);
+      for (const citedPath of readStringArray(citation.citedPaths)) citedPaths.add(citedPath);
+      for (const sourceType of readStringArray(citation.citedSourceTypes)) citedSourceTypes.add(sourceType);
+      for (const summaryKind of readStringArray(citation.citedSummaryKinds)) citedSummaryKinds.add(summaryKind);
+    }
+  }
+
+  return {
+    messageCount: citationMessages.length,
+    citationCount,
+    messageTypeCounts,
+    retrievalRunIds: [...retrievalRunIds],
+    briefIds: [...briefIds],
+    citedPaths: [...citedPaths],
+    citedSourceTypes: [...citedSourceTypes],
+    citedSummaryKinds: [...citedSummaryKinds],
+    latestMessageType: citationMessages[0]?.message.messageType ?? null,
+    latestMessageAt: citationMessages[0] ? normalizeDate(citationMessages[0].message.createdAt) : null,
+  };
+}
+
 function buildMergeCandidateTemplateTrace(payload: Record<string, unknown>) {
   const id = readString(payload.boardTemplateId);
   const label = readString(payload.boardTemplateLabel);
@@ -411,6 +459,7 @@ export function buildIssueChangeSurface(input: {
     lastFeedbackAt: null,
     feedbackTypeCounts: {},
   };
+  const citationSummary = buildCitationSummary(scopedMessages);
   const clarificationTrace = buildClarificationTrace(input.messages);
 
   let mergeCandidate: IssueChangeSurface["mergeCandidate"] = null;
@@ -502,6 +551,7 @@ export function buildIssueChangeSurface(input: {
         lastFeedbackAt: feedbackSummary.lastFeedbackAt ? normalizeDate(feedbackSummary.lastFeedbackAt) : null,
         feedbackTypeCounts: feedbackSummary.feedbackTypeCounts,
       },
+      citationSummary,
     },
     mergeCandidate,
   };

@@ -130,6 +130,80 @@ describe("issue change surface", () => {
     expect(surface.retrievalContext.latestRuns[0]?.retrievalRunId).toBe("run-reviewer");
     expect(surface.retrievalContext.latestRuns[0]?.candidateCacheHit).toBe(true);
     expect(surface.retrievalContext.feedbackSummary.pinnedPathCount).toBe(2);
+    expect(surface.retrievalContext.citationSummary.messageCount).toBe(0);
+  });
+
+  it("summarizes retrieval evidence citations from protocol payloads", () => {
+    const surface = buildIssueChangeSurface({
+      issue: {
+        id: "issue-cite-1",
+        identifier: "CLO-CITE-1",
+        title: "Citation summary",
+        status: "done",
+      },
+      messages: [
+        {
+          id: "msg-review",
+          messageType: "APPROVE_IMPLEMENTATION",
+          summary: "Approved with citations",
+          createdAt: "2026-03-22T10:00:00Z",
+          payload: {
+            approvalSummary: "Looks good",
+            evidenceCitations: [
+              {
+                retrievalRunId: "run-1",
+                briefId: "brief-1",
+                citedPaths: ["src/retrieval.ts"],
+                citedSourceTypes: ["code", "code_summary"],
+                citedSummaryKinds: ["module"],
+              },
+            ],
+          },
+          artifacts: [],
+        },
+        {
+          id: "msg-close",
+          messageType: "CLOSE_TASK",
+          summary: "Closed with citations",
+          createdAt: "2026-03-22T10:05:00Z",
+          payload: {
+            closeReason: "completed",
+            closureSummary: "Done",
+            verificationSummary: "Verified",
+            rollbackPlan: "Revert",
+            finalArtifacts: ["release note"],
+            finalTestStatus: "passed",
+            mergeStatus: "merged",
+            evidenceCitations: [
+              {
+                retrievalRunId: "run-2",
+                briefId: "brief-2",
+                citedPaths: ["docs/release.md"],
+                citedSourceTypes: ["review"],
+                citedSummaryKinds: ["file"],
+              },
+            ],
+          },
+          artifacts: [],
+        },
+      ],
+    });
+
+    expect(surface.retrievalContext.citationSummary).toEqual({
+      messageCount: 2,
+      citationCount: 2,
+      messageTypeCounts: {
+        CLOSE_TASK: 1,
+        APPROVE_IMPLEMENTATION: 1,
+      },
+      retrievalRunIds: ["run-2", "run-1"],
+      briefIds: ["brief-2", "brief-1"],
+      citedPaths: ["docs/release.md", "src/retrieval.ts"],
+      citedSourceTypes: ["review", "code", "code_summary"],
+      citedSummaryKinds: ["file", "module"],
+      latestMessageType: "CLOSE_TASK",
+      latestMessageAt: new Date("2026-03-22T10:05:00Z"),
+    });
   });
 
   it("uses persisted merge candidate state when operator already resolved it", () => {

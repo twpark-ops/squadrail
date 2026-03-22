@@ -40,6 +40,7 @@
     "e2e:cloud-swiftsight-rag-readiness": "node scripts/e2e/cloud-swiftsight-rag-readiness.mjs",
     "e2e:cloud-swiftsight-domain-aware-pm-eval": "node scripts/e2e/cloud-swiftsight-domain-aware-pm-eval.mjs",
     "e2e:cloud-swiftsight-domain-aware-pm-burn-in": "node scripts/e2e/cloud-swiftsight-domain-aware-pm-burn-in.mjs",
+    "e2e:cloud-swiftsight-domain-aware-proof-only": "node scripts/e2e/cloud-swiftsight-domain-aware-proof-only.mjs",
     "e2e:cloud-swiftsight-summary-layer-proof": "node scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs",
     "e2e:cloud-swiftsight-summary-layer-proof:domain-only": "SWIFTSIGHT_SUMMARY_PROOF_INCLUDE_RAG_READINESS=0 node scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs",
     "e2e:cloud-swiftsight-summary-layer-proof:full": "node scripts/e2e/cloud-swiftsight-summary-layer-proof.mjs",

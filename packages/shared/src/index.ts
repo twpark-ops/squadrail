@@ -231,6 +231,7 @@ export type {
   IssueChangeSurfaceArtifact,
   IssueChangeSurfaceRetrievalRun,
   IssueChangeSurfaceFeedbackSummary,
+  IssueChangeSurfaceCitationSummary,
   IssueChangeSurfaceClarificationTrace,
   IssueMergeCandidateCheck,
   IssueMergeCandidateCheckSummary,

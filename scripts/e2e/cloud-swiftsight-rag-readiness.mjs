@@ -10,6 +10,8 @@ import {
   extractJsonTail,
   findLatestBriefByScope,
   isKnowledgeSetupReady,
+  summarizeCitationCoverageGate,
+  summarizeProtocolCitationCoverage,
   summarizeKnowledgeQualityGate,
   summarizeBriefQuality,
 } from "./rag-readiness-utils.mjs";
@@ -199,6 +201,10 @@ async function fetchBriefs(issueId) {
   return api(`/api/issues/${issueId}/protocol/briefs`);
 }
 
+async function fetchProtocolMessages(issueId) {
+  return api(`/api/issues/${issueId}/protocol/messages`);
+}
+
 async function fetchKnowledgeQuality(companyId) {
   return api(`/api/knowledge/quality?companyId=${companyId}&days=14&limit=2000`);
 }
@@ -249,12 +255,16 @@ async function runScenarioOnce(input) {
 }
 
 async function inspectScenarioIssue(issueId, reviewScope) {
-  const briefs = await fetchBriefs(issueId);
+  const [briefs, messages] = await Promise.all([
+    fetchBriefs(issueId),
+    fetchProtocolMessages(issueId),
+  ]);
   const latestReviewBrief = findLatestBriefByScope(briefs, reviewScope);
   assert(latestReviewBrief, `Missing ${reviewScope} brief for issue ${issueId}`);
   return {
     latestReviewBrief,
     reviewQuality: summarizeBriefQuality(latestReviewBrief),
+    citationCoverage: summarizeProtocolCitationCoverage(messages),
   };
 }
 
@@ -280,6 +290,7 @@ async function main() {
   note(`seed issue=${seedRun.identifier} (${seedRun.issueId})`);
   const seedInspect = await inspectScenarioIssue(seedRun.issueId, scenarioConfig.reviewScope);
   note(`seed review quality=${JSON.stringify(seedInspect.reviewQuality)}`);
+  note(`seed citation coverage=${JSON.stringify(seedInspect.citationCoverage)}`);
   assert(
     seedInspect.reviewQuality.reviewHitCount > 0 || seedInspect.reviewQuality.codeHitCount > 0,
     "Seed reviewer brief still lacks concrete review/code evidence",
@@ -303,7 +314,13 @@ async function main() {
   });
   note(`follow-up issue=${followUpRun.identifier} (${followUpRun.issueId})`);
   const followInspect = await inspectScenarioIssue(followUpRun.issueId, scenarioConfig.reviewScope);
+  const followCitationGate = summarizeCitationCoverageGate(followInspect.citationCoverage, {
+    requiredMessageTypes: ["APPROVE_IMPLEMENTATION", "CLOSE_TASK"],
+    requiredSourceTypes: ["code", "review", "test_report", "code_summary", "symbol_summary"],
+  });
   note(`follow-up review quality=${JSON.stringify(followInspect.reviewQuality)}`);
+  note(`follow-up citation coverage=${JSON.stringify(followInspect.citationCoverage)}`);
+  note(`follow-up citation gate=${JSON.stringify(followCitationGate)}`);
 
   assert(followInspect.reviewQuality.graphHitCount > 0, "Follow-up reviewer brief did not produce graph hits");
   assert(
@@ -333,6 +350,10 @@ async function main() {
     followInspect.reviewQuality.multiHopGraphHitCount > 0,
     `Follow-up reviewer brief did not surface multi-hop graph evidence: ${JSON.stringify(followInspect.reviewQuality.graphHopDepthCounts)}`,
   );
+  assert(
+    followCitationGate.status === "pass",
+    `Follow-up citation coverage gate failed: ${JSON.stringify(followCitationGate)}`,
+  );
   if (Array.isArray(scenarioConfig.expectedRelatedPaths) && scenarioConfig.expectedRelatedPaths.length > 0) {
     assert(
       followInspect.reviewQuality.hitPaths.some((hitPath) => scenarioConfig.expectedRelatedPaths.includes(hitPath)),
@@ -347,7 +368,13 @@ async function main() {
   });
   note(`replay issue=${replayRun.identifier} (${replayRun.issueId})`);
   const replayInspect = await inspectScenarioIssue(replayRun.issueId, scenarioConfig.reviewScope);
+  const replayCitationGate = summarizeCitationCoverageGate(replayInspect.citationCoverage, {
+    requiredMessageTypes: ["APPROVE_IMPLEMENTATION", "CLOSE_TASK"],
+    requiredSourceTypes: ["code", "review", "test_report", "code_summary", "symbol_summary"],
+  });
   note(`replay review quality=${JSON.stringify(replayInspect.reviewQuality)}`);
+  note(`replay citation coverage=${JSON.stringify(replayInspect.citationCoverage)}`);
+  note(`replay citation gate=${JSON.stringify(replayCitationGate)}`);
 
   assert(replayInspect.reviewQuality.exactPathSatisfied, "Replay reviewer brief lost exact path evidence");
   assert(
@@ -355,6 +382,10 @@ async function main() {
       || replayInspect.reviewQuality.topHitSourceType === "test_report"
       || replayInspect.reviewQuality.topHitSourceType === "review",
     `Replay reviewer brief top hit is still not direct evidence: ${replayInspect.reviewQuality.topHitSourceType}/${replayInspect.reviewQuality.topHitArtifactKind}`,
+  );
+  assert(
+    replayCitationGate.status === "pass",
+    `Replay citation coverage gate failed: ${JSON.stringify(replayCitationGate)}`,
   );
 
   const quality = await fetchKnowledgeQuality(company.id);
@@ -409,16 +440,21 @@ async function main() {
       issueId: seedRun.issueId,
       identifier: seedRun.identifier,
       reviewQuality: seedInspect.reviewQuality,
+      citationCoverage: seedInspect.citationCoverage,
     },
     followUp: {
       issueId: followUpRun.issueId,
       identifier: followUpRun.identifier,
       reviewQuality: followInspect.reviewQuality,
+      citationCoverage: followInspect.citationCoverage,
+      citationGate: followCitationGate,
     },
     replay: {
       issueId: replayRun.issueId,
       identifier: replayRun.identifier,
       reviewQuality: replayInspect.reviewQuality,
+      citationCoverage: replayInspect.citationCoverage,
+      citationGate: replayCitationGate,
     },
     quality: {
       candidateCacheHitRate: quality.candidateCacheHitRate,

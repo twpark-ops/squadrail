@@ -52,6 +52,23 @@ last-reviewed: "2026-03-23"
     - `squadrail-runtime-note.test.ts`
     - `retrieval-query.test.ts`
     - heavy `issue-retrieval.test.ts`
+- citation read surface shipped
+  - `issue-change-surface` retrieval context가 protocol payload citation summary를 노출한다.
+  - `IssueDetail` retrieval panel이 cited message/path/latest decision을 보여준다.
+  - focused tests:
+    - `issue-change-surface.test.ts`
+    - targeted heavy `issues-routes.test.ts`
+- proof axis split started
+  - `cloud-swiftsight-domain-aware-proof-only.mjs`를 추가해 domain-aware proof를 `rag-readiness`와 분리된 명령으로 실행할 수 있게 했다.
+  - `cloud-swiftsight-rag-readiness.mjs`는 protocol citation coverage를 summary artifact로 남긴다.
+  - focused tests:
+    - `rag-readiness-utils.test.ts`
+- live citation gate wiring shipped
+  - `rag-readiness`가 follow-up / replay issue에서 `APPROVE_IMPLEMENTATION + CLOSE_TASK` citation coverage를 실제 pass/fail gate로 본다.
+  - focused tests:
+    - `rag-readiness-utils.test.ts`
+  - live rerun note:
+    - local `rag-readiness` 재실행은 real-org reviewer lane stall 때문에 장시간 pending으로 남아 추가 stabilization이 필요하다.
 
 # Implementation Plan
 

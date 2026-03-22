@@ -1693,6 +1693,8 @@ export function IssueDetail() {
   const latestRetrievalRuns = changeSurface?.retrievalContext.latestRuns ?? [];
   const retrievalFeedbackSummary =
     changeSurface?.retrievalContext.feedbackSummary ?? null;
+  const retrievalCitationSummary =
+    changeSurface?.retrievalContext.citationSummary ?? null;
 
   const issueCostSummary = useMemo(() => {
     let input = 0;
@@ -2439,7 +2441,43 @@ export function IssueDetail() {
                         : "No feedback yet"}
                     </div>
                   </div>
+                  <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      Citation messages
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-foreground">
+                      {retrievalCitationSummary?.messageCount ?? 0}
+                    </div>
+                  </div>
+                  <div className="rounded-[1rem] border border-border bg-card px-3 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      Cited paths
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-foreground">
+                      {retrievalCitationSummary?.citedPaths.length ?? 0}
+                    </div>
+                  </div>
                 </div>
+                {retrievalCitationSummary && retrievalCitationSummary.messageCount > 0 && (
+                  <div className="mt-4 rounded-[1rem] border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
+                    <div className="font-medium text-foreground">
+                      Latest citation decision
+                    </div>
+                    <div className="mt-1">
+                      {retrievalCitationSummary.latestMessageType
+                        ? formatProtocolValue(retrievalCitationSummary.latestMessageType)
+                        : "Unknown"}
+                      {retrievalCitationSummary.latestMessageAt
+                        ? ` · ${relativeTime(retrievalCitationSummary.latestMessageAt)}`
+                        : ""}
+                    </div>
+                    {retrievalCitationSummary.citedPaths.length > 0 && (
+                      <div className="mt-2 font-mono text-xs text-foreground/80">
+                        {retrievalCitationSummary.citedPaths.slice(0, 3).join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </section>

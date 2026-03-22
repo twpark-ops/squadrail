@@ -3261,6 +3261,18 @@ describe("issue routes wakeup handling", () => {
             operator_pin: 1,
           },
         },
+        citationSummary: {
+          messageCount: 0,
+          citationCount: 0,
+          messageTypeCounts: {},
+          retrievalRunIds: [],
+          briefIds: [],
+          citedPaths: [],
+          citedSourceTypes: [],
+          citedSummaryKinds: [],
+          latestMessageType: null,
+          latestMessageAt: null,
+        },
       },
       mergeCandidate: {
         state: "pending",
