@@ -10,17 +10,18 @@ Open this file first, then read:
 
 One-line startup rule:
 
-- open this handoff first, then continue with `RAG natural-language summary Phase 5 live proof + cleanup hardening`
+- open this handoff first, then continue with `docs/exec-plans/active/p4-rag-meaning-layer-live-proof-followup-plan-2026-03-23.md`
   - Phase 6 `onboarding/company settings reframe + swiftsight canonical absorption follow-through`는 이미 닫혔다.
   - coverage threshold work is done; backend coverage hardening remains a maintenance track.
   - the immediate product track is now `quick request -> clarification -> blueprint -> bulk provisioning`.
   - Phase 7에서 `projection preview/helper`, live bounded autonomy harness, clarification resume invariant, review/QA/close loop, autonomy matrix variant까지 올라왔다.
   - Batch B1 portability, Batch B2 import/export, Batch B3 parameter editing, helper discovery registry 일반화, saved blueprint library lifecycle hardening 1/2차, governance publish/diff 1차까지 닫혔다.
-  - RAG meaning layer는 Phase 0~4를 닫았고, 다음 immediate next는 `Phase 5 live proof 완주 + hidden child issue follow-up run cleanup bug hardening`이다.
+  - RAG meaning layer는 baseline/current proof 축을 대부분 닫았고, 다음 immediate next는 `active p4 follow-up plan` 기준으로 `hidden child issue cleanup + proof runner 분리 + PM projection 보강`이다.
+  - retrieval evidence provenance baseline은 이미 들어갔다. 이제 남은 RAG follow-up은 `citation read surface + live proof + PM projection uplift` 쪽이다.
 
 ## Current Status
 
-- `RAG natural-language code summary`: Phase 0~4 completed, Phase 5 in progress
+- `RAG natural-language code summary`: follow-up active
   - Phase 0 baseline freeze 완료
   - Phase 1 summary source contract 완료
   - Phase 2 importer/backfill generation 완료
@@ -35,8 +36,9 @@ One-line startup rule:
     - hidden child issue cleanup 뒤 queued/running follow-up run이 다시 붙는 버그가 남아 있다
   - immediate next:
     1. hidden child issue follow-up run root cause 추적
-    2. `domain-aware proof only`와 `rag-readiness`를 분리해 Phase 5 live proof 완주
+    2. `domain-aware proof only`와 `rag-readiness`를 분리해 proof axis를 독립화
     3. summary hit를 PM project candidate scoring/projection 쪽에 더 직접 연결
+    4. citation presence를 read surface와 live proof gate로 승격
 
 - `P0 productization pivot`: Phase 1/2/3 shipped, Phase 4 preview/diff shipped
   - lower delivery kernel은 이미 제품 수준으로 닫혔다.

@@ -5,6 +5,7 @@
 ## Active
 
 - `exec-plans/active/index.md`
+- `exec-plans/active/p4-rag-meaning-layer-live-proof-followup-plan-2026-03-23.md`
 - `exec-plans/active/p3-project-qa-contract-execution-plan-2026-03-21.md`
 
 ## Completed or Superseded

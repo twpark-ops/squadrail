@@ -19,6 +19,7 @@
 
 - `product-model-simplification-plan.md`
 - `rag-current-architecture.md`
+- `rag-agent-evidence-provenance-design-2026-03-23.md`
 - `qa-execution-gate-design.md`
 - `protocol-dispatch-reliability-design-2026-03-22.md`
 - `runtime-surface-maintenance-design-2026-03-22.md`

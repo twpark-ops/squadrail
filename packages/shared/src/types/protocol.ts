@@ -27,6 +27,10 @@ import type {
   IssueProtocolViolationStatus,
   IssueProtocolWorkflowState,
 } from "../constants.js";
+import type {
+  KnowledgeSourceType,
+  KnowledgeSummaryKind,
+} from "../knowledge-source-types.js";
 
 export interface IssueProtocolActor {
   actorType: IssueProtocolActorType;
@@ -97,6 +101,16 @@ export interface IssueProtocolPlanStep {
   dependsOn?: string[];
 }
 
+export interface IssueProtocolEvidenceCitation {
+  retrievalRunId: string;
+  briefId?: string | null;
+  citedHitRanks?: number[];
+  citedPaths?: string[];
+  citedSourceTypes?: KnowledgeSourceType[];
+  citedSummaryKinds?: KnowledgeSummaryKind[];
+  citationReason?: string | null;
+}
+
 export interface IssueProtocolProposePlanPayload extends IssueProtocolRelatedIssueRefs {
   planSummary: string;
   steps: IssueProtocolPlanStep[];
@@ -116,6 +130,7 @@ export interface IssueProtocolProgressPayload extends IssueProtocolRelatedIssueR
   risks: string[];
   changedFiles?: string[];
   testSummary?: string | null;
+  evidenceCitations?: IssueProtocolEvidenceCitation[];
 }
 
 export interface IssueProtocolEscalateBlockerPayload extends IssueProtocolRelatedIssueRefs {
@@ -133,6 +148,7 @@ export interface IssueProtocolSubmitForReviewPayload extends IssueProtocolRelate
   testResults: string[];
   residualRisks: string[];
   diffSummary: string;
+  evidenceCitations?: IssueProtocolEvidenceCitation[];
 }
 
 export interface IssueProtocolStartReviewPayload {
@@ -154,6 +170,7 @@ export interface IssueProtocolRequestChangesPayload extends IssueProtocolRelated
   severity: IssueProtocolReviewSeverity;
   mustFixBeforeApprove: boolean;
   requiredEvidence: string[];
+  evidenceCitations?: IssueProtocolEvidenceCitation[];
 }
 
 export interface IssueProtocolAckChangeRequestPayload {
@@ -176,6 +193,7 @@ export interface IssueProtocolApproveImplementationPayload extends IssueProtocol
   verifiedEvidence: string[];
   residualRisks: string[];
   followUpActions?: string[];
+  evidenceCitations?: IssueProtocolEvidenceCitation[];
 }
 
 export interface IssueProtocolCloseTaskPayload extends IssueProtocolRelatedIssueRefs, IssueProtocolBoardTemplateTrace {
@@ -188,6 +206,7 @@ export interface IssueProtocolCloseTaskPayload extends IssueProtocolRelatedIssue
   mergeStatus: IssueProtocolMergeStatus;
   followUpIssueIds?: string[];
   remainingRisks?: string[];
+  evidenceCitations?: IssueProtocolEvidenceCitation[];
 }
 
 export interface IssueProtocolReassignTaskPayload extends IssueProtocolBoardTemplateTrace {

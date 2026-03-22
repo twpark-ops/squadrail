@@ -62,6 +62,13 @@ function readStringArray(value: unknown) {
   );
 }
 
+function readPositiveIntArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value.filter((entry): entry is number => Number.isInteger(entry) && entry > 0),
+  ));
+}
+
 const RETRIEVAL_LEXICAL_STOPWORDS = new Set([
   "agent",
   "agents",
@@ -227,12 +234,61 @@ function extractIdentifierHints(values: string[]) {
   return uniqueNonEmpty(identifiers);
 }
 
+type EvidenceCitationSignals = {
+  retrievalRunId: string;
+  briefId: string | null;
+  citedHitRanks: number[];
+  citedPaths: string[];
+  citedSourceTypes: string[];
+  citedSummaryKinds: string[];
+  citationReason: string | null;
+};
+
+function readEvidenceCitations(payload: Record<string, unknown>): EvidenceCitationSignals[] {
+  const raw = payload.evidenceCitations;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const candidate = entry as Record<string, unknown>;
+    const retrievalRunId = typeof candidate.retrievalRunId === "string"
+      ? candidate.retrievalRunId.trim()
+      : "";
+    if (retrievalRunId.length === 0) return [];
+    const briefId = typeof candidate.briefId === "string" && candidate.briefId.trim().length > 0
+      ? candidate.briefId.trim()
+      : null;
+    const citationReason = typeof candidate.citationReason === "string" && candidate.citationReason.trim().length > 0
+      ? candidate.citationReason.trim()
+      : null;
+    return [{
+      retrievalRunId,
+      briefId,
+      citedHitRanks: readPositiveIntArray(candidate.citedHitRanks),
+      citedPaths: readStringArray(candidate.citedPaths).map(normalizeHintPath),
+      citedSourceTypes: readStringArray(candidate.citedSourceTypes),
+      citedSummaryKinds: readStringArray(candidate.citedSummaryKinds),
+      citationReason,
+    }];
+  });
+}
+
+function buildEvidenceCitationTerms(citations: EvidenceCitationSignals[]) {
+  return uniqueNonEmpty(citations.flatMap((citation) => [
+    ...citation.citedPaths,
+    ...citation.citedSourceTypes,
+    ...citation.citedSummaryKinds.map((kind) => `${kind} summary`),
+    ...(citation.citationReason ? [citation.citationReason] : []),
+  ]));
+}
+
 function extractPayloadTerms(message: CreateIssueProtocolMessage) {
   const payload = message.payload as Record<string, unknown>;
+  const citationTerms = buildEvidenceCitationTerms(readEvidenceCitations(payload));
+  const withCitationTerms = (terms: string[]) => uniqueNonEmpty([...terms, ...citationTerms]);
 
   switch (message.messageType) {
     case "ASSIGN_TASK":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.goal ?? ""),
         ...readStringArray(payload.relatedIssueIdentifiers),
         ...readStringArray(payload.acceptanceCriteria),
@@ -240,29 +296,29 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
         ...readStringArray(payload.requiredKnowledgeTags),
       ]);
     case "ACK_ASSIGNMENT":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.understoodScope ?? ""),
         ...readStringArray(payload.initialRisks),
       ]);
     case "ASK_CLARIFICATION":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.question ?? ""),
         ...readStringArray(payload.proposedAssumptions),
       ]);
     case "ANSWER_CLARIFICATION":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.answer ?? ""),
         String(payload.nextStep ?? ""),
       ]);
     case "PROPOSE_PLAN":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.planSummary ?? ""),
         ...readStringArray(payload.relatedIssueIdentifiers),
         ...(((payload.steps as Array<Record<string, unknown>> | undefined) ?? []).map((step) => String(step.title ?? ""))),
         ...readStringArray(payload.risks),
       ]);
     case "REPORT_PROGRESS":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         ...readStringArray(payload.completedItems),
         ...readStringArray(payload.nextSteps),
         ...readStringArray(payload.changedFiles),
@@ -270,14 +326,14 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
         String(payload.testSummary ?? ""),
       ]);
     case "ESCALATE_BLOCKER":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.blockerCode ?? ""),
         String(payload.blockingReason ?? ""),
         String(payload.requestedAction ?? ""),
         ...readStringArray(payload.relatedIssueIdentifiers),
       ]);
     case "SUBMIT_FOR_REVIEW":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.implementationSummary ?? ""),
         ...readStringArray(payload.reviewChecklist),
         ...readStringArray(payload.changedFiles),
@@ -287,9 +343,9 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
         String(payload.diffSummary ?? ""),
       ]);
     case "START_REVIEW":
-      return uniqueNonEmpty(readStringArray(payload.reviewFocus));
+      return withCitationTerms(readStringArray(payload.reviewFocus));
     case "REQUEST_CHANGES":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.reviewSummary ?? ""),
         ...readStringArray(payload.relatedIssueIdentifiers),
         ...readStringArray(payload.requiredEvidence),
@@ -301,7 +357,7 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
         ])),
       ]);
     case "APPROVE_IMPLEMENTATION":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.approvalSummary ?? ""),
         ...readStringArray(payload.approvalChecklist),
         ...readStringArray(payload.verifiedEvidence),
@@ -310,7 +366,7 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
         ...readStringArray(payload.relatedIssueIdentifiers),
       ]);
     case "CLOSE_TASK":
-      return uniqueNonEmpty([
+      return withCitationTerms([
         String(payload.closeReason ?? ""),
         String(payload.closureSummary ?? ""),
         String(payload.verificationSummary ?? ""),
@@ -320,7 +376,7 @@ function extractPayloadTerms(message: CreateIssueProtocolMessage) {
         ...readStringArray(payload.relatedIssueIdentifiers),
       ]);
     default:
-      return [];
+      return citationTerms;
   }
 }
 
@@ -456,6 +512,24 @@ export function deriveDynamicRetrievalSignals(input: {
   baselineSourceTypes?: string[];
 }) {
   const payload = input.message.payload as Record<string, unknown>;
+  const evidenceCitations = readEvidenceCitations(payload);
+  const citedPaths = uniqueNonEmpty(
+    evidenceCitations.flatMap((citation) => citation.citedPaths),
+  ).map(normalizeHintPath);
+  const citedSourceTypes = uniqueNonEmpty(
+    evidenceCitations.flatMap((citation) => citation.citedSourceTypes),
+  );
+  const citedSummaryKinds = uniqueNonEmpty(
+    evidenceCitations.flatMap((citation) => citation.citedSummaryKinds),
+  );
+  const citationReasons = uniqueNonEmpty(
+    evidenceCitations.flatMap((citation) => citation.citationReason ? [citation.citationReason] : []),
+  );
+  const citationSemanticTerms = uniqueNonEmpty([
+    ...citedSourceTypes,
+    ...citedSummaryKinds.map((kind) => `${kind} summary`),
+    ...citationReasons,
+  ]);
   const relatedIssueRefs = readRelatedIssueRefs(payload);
   const preferredSourceTypesByRole: Record<string, string[]> = {
     engineer: [...KNOWLEDGE_CODE_REUSE_SOURCE_TYPES, "review", "adr", "runbook", "issue"],
@@ -488,6 +562,8 @@ export function deriveDynamicRetrievalSignals(input: {
     ...readStringArray(payload.remainingRisks),
     ...readStringArray(payload.followUpActions),
     ...readStringArray(payload.changedFiles),
+    ...citedPaths,
+    ...citationReasons,
     ...(((payload.changeRequests as Array<Record<string, unknown>> | undefined) ?? []).flatMap((request) => [
       typeof request.title === "string" ? request.title : null,
       typeof request.reason === "string" ? request.reason : null,
@@ -502,6 +578,7 @@ export function deriveDynamicRetrievalSignals(input: {
       readStringArray(request.affectedFiles)
     ))),
     ...readStringArray(payload.relatedArtifacts),
+    ...citedPaths,
     ...textDerivedPaths,
   ]).map(normalizeHintPath);
   const fileNames = uniqueNonEmpty(exactPaths.map((entry) => path.posix.basename(entry)));
@@ -512,6 +589,7 @@ export function deriveDynamicRetrievalSignals(input: {
     ...readStringArray(payload.requiredEvidence),
     ...readStringArray(payload.approvalChecklist),
     ...readStringArray(payload.verifiedEvidence),
+    ...citationSemanticTerms,
   ]);
   const knowledgeTags = uniqueNonEmpty([
     ...rawKnowledgeTags,
@@ -528,6 +606,7 @@ export function deriveDynamicRetrievalSignals(input: {
     String(payload.approvalSummary ?? ""),
     String(payload.closureSummary ?? ""),
     String(payload.verificationSummary ?? ""),
+    ...citationSemanticTerms,
   ]);
   const currentIssueIdentifier = input.issue.identifier ? normalizeIssueIdentifier(input.issue.identifier) : null;
   const relatedIssueIdentifiers = uniqueNonEmpty([
@@ -566,6 +645,7 @@ export function deriveDynamicRetrievalSignals(input: {
       ? ["prd", "issue", ...KNOWLEDGE_PM_CANONICAL_SOURCE_TYPES]
       : []),
     ...(String(payload.blockerCode ?? "").includes("architecture") ? ["adr", "runbook"] : []),
+    ...citedSourceTypes,
     ...baselineSourceTypes,
   ]);
 
@@ -583,6 +663,7 @@ export function deriveDynamicRetrievalSignals(input: {
       ...identifierHints,
       ...exactPaths,
       ...fileNames,
+      ...citationSemanticTerms,
     ]),
     ...buildLexicalRetrievalTerms([
       input.issue.title ?? "",

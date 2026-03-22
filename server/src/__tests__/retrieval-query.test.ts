@@ -305,4 +305,68 @@ describe("retrieval query helpers", () => {
 
     expect(signals.relatedIssueIds).toEqual(["issue-a", "issue-b", "issue-c", "issue-d"]);
   });
+
+  it("promotes evidence citation paths and source hints into retrieval signals", () => {
+    const message = buildMessage({
+      messageType: "APPROVE_IMPLEMENTATION",
+      sender: {
+        actorType: "agent",
+        actorId: "reviewer-1",
+        role: "reviewer",
+      },
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "lead-1",
+          role: "tech_lead",
+        },
+      ],
+      workflowStateBefore: "under_review",
+      workflowStateAfter: "approved",
+      summary: "Approve implementation using retrieved module summary and code evidence",
+      payload: {
+        approvalSummary: "Verified against the retrieved module summary and code paths.",
+        approvalMode: "agent_review",
+        approvalChecklist: ["Acceptance criteria covered"],
+        verifiedEvidence: ["Reviewed diff", "Reviewed regression test"],
+        residualRisks: ["No unresolved blocker"],
+        followUpActions: ["Monitor release dashboard"],
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000555",
+            briefId: "00000000-0000-0000-0000-000000000556",
+            citedHitRanks: [1],
+            citedPaths: ["server/src/services/retrieval/query.ts"],
+            citedSourceTypes: ["code", "code_summary"],
+            citedSummaryKinds: ["module"],
+            citationReason: "The module summary identified the relevant retrieval path.",
+          },
+        ],
+      },
+      artifacts: [],
+    });
+
+    const signals = deriveDynamicRetrievalSignals({
+      message,
+      issue: {
+        projectId: "project-1",
+        title: "Approve retrieval follow-up",
+        description: "Close the review after verifying retrieval query behavior.",
+        mentionedProjects: [{ id: "project-2", name: "retrieval-core" }],
+      },
+      recipientRole: "tech_lead",
+      eventType: "on_approval",
+    });
+
+    expect(signals.exactPaths).toContain("server/src/services/retrieval/query.ts");
+    expect(signals.preferredSourceTypes).toEqual(expect.arrayContaining(["code", "code_summary"]));
+    expect(signals.knowledgeTags).toContain("module summary");
+    expect(signals.lexicalTerms).toEqual(expect.arrayContaining([
+      "server src services retrieval query ts",
+      "code summary",
+      "module",
+      "retrieval",
+      "path",
+    ]));
+  });
 });

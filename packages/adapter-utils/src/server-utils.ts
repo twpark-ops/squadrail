@@ -980,7 +980,8 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- If a non-required command fails after the acceptance criteria are already satisfied, do not widen scope chasing it; hand off with the exact required evidence.");
       lines.push("- For `SUBMIT_FOR_REVIEW`, use `workflowStateAfter: \"submitted_for_review\"` exactly.");
       lines.push("- `SUBMIT_FOR_REVIEW.recipients` must include the assigned reviewer agent with role `reviewer`. Reuse the reviewer from the assignment payload or current protocol state.");
-      lines.push("- `SUBMIT_FOR_REVIEW.payload` must stay flat. Use only: `implementationSummary`, `evidence[]`, `diffSummary`, `changedFiles[]`, `testResults[]`, `reviewChecklist[]`, `residualRisks[]`.");
+      lines.push("- `SUBMIT_FOR_REVIEW.payload` must stay flat. Use only: `implementationSummary`, `evidence[]`, `diffSummary`, `changedFiles[]`, `testResults[]`, `reviewChecklist[]`, `residualRisks[]`, and optional `evidenceCitations[]`.");
+      lines.push("- When the brief or retrieval evidence drove your handoff, include `evidenceCitations[]` with the current `retrievalRunId` plus cited path or hit rank.");
       lines.push("- `changedFiles` must be a string array of file paths. Do not send objects inside `changedFiles`.");
       lines.push("- Do not invent nested objects such as `testEvidence`, structured `diffSummary`, `acceptanceCriteriaMet`, or custom residual-risk objects.");
       lines.push("- Prefer leaving `artifacts` empty unless you have a real `diff` or `commit` artifact URI. Squadrail auto-captures `run`, `test_run`, and `build_run` context.");
@@ -1000,8 +1001,9 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- Review artifacts first. The shared review workspace may still reflect base HEAD and can differ from the isolated implementation workspace.");
       lines.push("- Do not reject solely because the shared workspace file still shows the pre-change content; verify against the submitted diff, changed files, evidence, and implementation workspace binding.");
       lines.push("- If you need to inspect exact implementation files, use the implementation workspace path from the review submission context rather than assuming the shared workspace contains the patch.");
-      lines.push("- For `REQUEST_CHANGES`, keep `payload` flat and use only `severity`, `reviewSummary`, `changeRequests[]`, `requiredEvidence[]`, and `mustFixBeforeApprove`.");
-      lines.push("- For `APPROVE_IMPLEMENTATION`, keep `payload` flat and use only `approvalSummary`, `approvalMode`, `approvalChecklist[]`, `verifiedEvidence[]`, and `residualRisks[]`.");
+      lines.push("- For `REQUEST_CHANGES`, keep `payload` flat and use only `severity`, `reviewSummary`, `changeRequests[]`, `requiredEvidence[]`, `mustFixBeforeApprove`, and optional `evidenceCitations[]`.");
+      lines.push("- For `APPROVE_IMPLEMENTATION`, keep `payload` flat and use only `approvalSummary`, `approvalMode`, `approvalChecklist[]`, `verifiedEvidence[]`, `residualRisks[]`, and optional `evidenceCitations[]`.");
+      lines.push("- When your review decision depends on brief evidence, cite it with `evidenceCitations[]` using `retrievalRunId` and at least one cited path or hit rank.");
       lines.push("- Valid `approvalMode` values are exactly: `agent_review`, `tech_lead_review`, or `human_override`.");
     }
 
@@ -1014,8 +1016,8 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- Run the acceptance criteria commands or sanity checks in the project workspace. Record what you ran and what you observed.");
       lines.push("- Do not approve based on code reading alone. You must execute at least one verification command.");
       lines.push("- For `START_REVIEW`, describe your execution plan: which commands, fixtures, or probes you will use.");
-      lines.push("- For `APPROVE_IMPLEMENTATION`, include execution evidence in payload: `executionLog` (commands run + output), `outputVerified` (expected vs actual), `sanityCommand` (primary check command), and optionally `fixtureUsed`.");
-      lines.push("- For `REQUEST_CHANGES`, include the failure output as evidence: `executionLog` (failed command + output), `failureEvidence` (what went wrong), and `expectedBehavior` (what should have happened).");
+      lines.push("- For `APPROVE_IMPLEMENTATION`, include execution evidence in payload: `executionLog` (commands run + output), `outputVerified` (expected vs actual), `sanityCommand` (primary check command), optional `fixtureUsed`, and optional `evidenceCitations[]`.");
+      lines.push("- For `REQUEST_CHANGES`, include the failure output as evidence: `executionLog` (failed command + output), `failureEvidence` (what went wrong), `expectedBehavior` (what should have happened), and optional `evidenceCitations[]`.");
     }
 
     if (protocolRequirement.key === "approval_tech_lead") {
@@ -1025,6 +1027,7 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- For `CLOSE_TASK.payload.mergeStatus`, use exactly one of: `merged`, `merge_not_required`, `pending_external_merge`.");
       lines.push("- Never invent aliases such as `merge_pending`, `merge_required`, or free-form merge labels.");
       lines.push("- If code is approved but merge has not happened yet, use `pending_external_merge` and explain the external merge owner in `remainingRisks[]`.");
+      lines.push("- If closure is based on retrieval-backed evidence or review briefs, include `evidenceCitations[]` with the cited retrieval run and paths.");
     }
 
     if (protocolRequiredRetryCount > 0) {
@@ -1095,12 +1098,15 @@ export function renderSquadrailRuntimeNote(input: {
     }
     if (protocolRequirement?.key === "review_reviewer") {
       shortLines.push("- After `START_REVIEW`, conclude the lane with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
+      shortLines.push("- If your review decision depends on the brief, cite it with `evidenceCitations[]` using the current `retrievalRunId` and at least one cited path or hit rank.");
     }
     if (protocolRequirement?.key === "qa_gate_reviewer") {
       shortLines.push("- QA must execute the acceptance check before deciding. Do not edit source files in this lane.");
+      shortLines.push("- Include execution evidence in the decision payload and add optional `evidenceCitations[]` when the brief or retrieval evidence guided the QA verdict.");
     }
     if (protocolRequirement?.key === "approval_tech_lead") {
       shortLines.push("- Approval is incomplete until `CLOSE_TASK` or `REQUEST_HUMAN_DECISION` is recorded.");
+      shortLines.push("- If closure depends on retrieval-backed evidence or review briefs, include `evidenceCitations[]` with the cited retrieval run and paths.");
     }
     shortLines.push("");
 

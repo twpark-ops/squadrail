@@ -19,6 +19,7 @@
 
 ### Retrieval / Knowledge
 
+- `active/p4-rag-meaning-layer-live-proof-followup-plan-2026-03-23.md`
 - `completed/p1-retrieval-stabilization-plan.md`
 - `../design-docs/retrieval-god-file-refactor-debt.md`
 

@@ -28,6 +28,10 @@ import {
   ISSUE_PROTOCOL_WORKFLOW_STATES,
   WORKFLOW_TEMPLATE_SCOPES,
 } from "../constants.js";
+import {
+  knowledgeSourceTypeSchema,
+  knowledgeSummaryKindSchema,
+} from "../knowledge-source-types.js";
 
 const uuidSchema = z.string().uuid();
 const optionalUuidSchema = uuidSchema.nullable().optional();
@@ -119,6 +123,29 @@ export const issueProtocolPlanStepSchema = z.object({
   dependsOn: stringArraySchema.optional(),
 }).strict();
 
+export const issueProtocolEvidenceCitationSchema = z.object({
+  retrievalRunId: uuidSchema,
+  briefId: optionalUuidSchema,
+  citedHitRanks: z.array(z.number().int().positive()).min(1).optional(),
+  citedPaths: nonEmptyStringArraySchema.min(1).optional(),
+  citedSourceTypes: z.array(knowledgeSourceTypeSchema).min(1).optional(),
+  citedSummaryKinds: z.array(knowledgeSummaryKindSchema).min(1).optional(),
+  citationReason: z.string().trim().min(1).nullable().optional(),
+}).strict().superRefine((citation, ctx) => {
+  if (
+    (citation.citedHitRanks?.length ?? 0) === 0
+    && (citation.citedPaths?.length ?? 0) === 0
+    && (citation.citedSourceTypes?.length ?? 0) === 0
+    && (citation.citedSummaryKinds?.length ?? 0) === 0
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Evidence citations must include at least one cited hit, path, source type, or summary kind",
+      path: ["citedPaths"],
+    });
+  }
+});
+
 export const issueProtocolProposePlanPayloadSchema = z.object({
   planSummary: z.string().min(1),
   steps: z.array(issueProtocolPlanStepSchema).min(1),
@@ -139,6 +166,7 @@ export const issueProtocolProgressPayloadSchema = z.object({
   risks: stringArraySchema,
   changedFiles: stringArraySchema.optional(),
   testSummary: z.string().nullable().optional(),
+  evidenceCitations: z.array(issueProtocolEvidenceCitationSchema).min(1).optional(),
   ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
@@ -158,6 +186,7 @@ export const issueProtocolSubmitForReviewPayloadSchema = z.object({
   testResults: nonEmptyStringArraySchema.min(1),
   residualRisks: nonEmptyStringArraySchema.min(1),
   diffSummary: z.string().trim().min(1),
+  evidenceCitations: z.array(issueProtocolEvidenceCitationSchema).min(1).optional(),
   ...issueProtocolRelatedIssueRefShape,
 }).strict();
 
@@ -180,6 +209,7 @@ export const issueProtocolRequestChangesPayloadSchema = z.object({
   severity: z.enum(ISSUE_PROTOCOL_REVIEW_SEVERITIES),
   mustFixBeforeApprove: z.boolean(),
   requiredEvidence: nonEmptyStringArraySchema.min(1),
+  evidenceCitations: z.array(issueProtocolEvidenceCitationSchema).min(1).optional(),
   executionLog: z.string().trim().min(1).optional(),
   failureEvidence: z.string().trim().min(1).optional(),
   ...issueProtocolRelatedIssueRefShape,
@@ -206,6 +236,7 @@ export const issueProtocolApproveImplementationPayloadSchema = z.object({
   verifiedEvidence: nonEmptyStringArraySchema.min(1),
   residualRisks: nonEmptyStringArraySchema.min(1),
   followUpActions: nonEmptyStringArraySchema.optional(),
+  evidenceCitations: z.array(issueProtocolEvidenceCitationSchema).min(1).optional(),
   executionLog: z.string().trim().min(1).optional(),
   outputVerified: z.string().trim().min(1).optional(),
   sanityCommand: z.string().trim().min(1).optional(),
@@ -223,6 +254,7 @@ export const issueProtocolCloseTaskPayloadSchema = z.object({
   mergeStatus: z.enum(ISSUE_PROTOCOL_MERGE_STATUSES),
   followUpIssueIds: z.array(uuidSchema).optional(),
   remainingRisks: nonEmptyStringArraySchema.optional(),
+  evidenceCitations: z.array(issueProtocolEvidenceCitationSchema).min(1).optional(),
   ...issueProtocolRelatedIssueRefShape,
   ...issueProtocolBoardTemplateTraceShape,
 }).strict();

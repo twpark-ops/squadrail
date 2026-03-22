@@ -1,0 +1,51 @@
+@startuml
+title RAG Agent Evidence Provenance
+
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam monochrome true
+
+package "Retrieval" {
+  rectangle "retrieval_runs" as Runs
+  rectangle "retrieval_run_hits" as Hits
+  rectangle "issue_task_briefs" as Briefs
+}
+
+package "Agent Runtime" {
+  rectangle "Wake Prompt\nretrievalRunId\nbrief content\nevidence summary" as Prompt
+  rectangle "Agent Action\nreview / qa / close" as Action
+}
+
+package "Protocol" {
+  rectangle "protocol payload\n+ evidence citation" as Payload
+  rectangle "review / approval artifacts" as Artifacts
+}
+
+package "Read Model" {
+  rectangle "citation coverage\npath match\nsummary usage" as Metrics
+}
+
+Runs --> Hits
+Runs --> Briefs
+Briefs --> Prompt
+Hits --> Prompt
+Prompt --> Action
+Action --> Payload
+Payload --> Artifacts
+Payload --> Metrics
+Runs --> Metrics
+Hits --> Metrics
+Briefs --> Metrics
+
+note right of Payload
+  Proposed citation fields:
+  - retrievalRunId
+  - briefId
+  - citedHitRanks
+  - citedPaths
+  - citedSourceTypes
+  - citedSummaryKinds
+  - citationReason
+end note
+
+@enduml

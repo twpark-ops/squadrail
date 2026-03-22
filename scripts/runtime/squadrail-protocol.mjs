@@ -177,6 +177,8 @@ const COMMAND_HELP = {
     "  --risks \"item1||item2\"",
     "  --changed-files \"path1||path2\"",
     "  --test-summary <text>",
+    "  --evidence-citations <json-array>",
+    "  --citation-run-id <uuid> --cited-paths \"path1||path2\" [--cited-hit-ranks \"1||2\"]",
     "  --payload <json>                                  progressPercent, completedItems, nextSteps, risks, changedFiles, testSummary, summary",
   ].join("\n"),
   "submit-for-review": [
@@ -189,7 +191,9 @@ const COMMAND_HELP = {
     "  --test-results \"cmd1||cmd2\"",
     "  --review-checklist \"item1||item2\"",
     "  --residual-risks \"item1||item2\"",
-    "  --payload <json>                                  reviewerId, implementationSummary, evidence, diffSummary, changedFiles, testResults, reviewChecklist, residualRisks, summary",
+    "  --evidence-citations <json-array>",
+    "  --citation-run-id <uuid> --cited-paths \"path1||path2\" [--cited-hit-ranks \"1||2\"]",
+    "  --payload <json>                                  reviewerId, implementationSummary, evidence, diffSummary, changedFiles, testResults, reviewChecklist, residualRisks, evidenceCitations, summary",
   ].join("\n"),
   "ack-change-request": [
     "Usage: squadrail-protocol.mjs ack-change-request --issue <issueId> [--sender-role <role>] --summary <text> --change-request-ids \"id1||id2\" --planned-fix-order \"step1||step2\" [--payload <json>]",
@@ -208,7 +212,9 @@ const COMMAND_HELP = {
     "Supported options:",
     "  --severity <high|medium|low>",
     "  --must-fix-before-approve <true|false>",
-    "  --payload <json>                                  reviewSummary, requiredEvidence, changeRequests, severity",
+    "  --evidence-citations <json-array>",
+    "  --citation-run-id <uuid> --cited-paths \"path1||path2\" [--cited-hit-ranks \"1||2\"]",
+    "  --payload <json>                                  reviewSummary, requiredEvidence, changeRequests, severity, evidenceCitations",
   ].join("\n"),
   "request-human-decision": [
     "Usage: squadrail-protocol.mjs request-human-decision --issue <issueId> [--sender-role <role>] --summary <text> --decision-type <type> --decision-question <text> --options \"opt1||opt2\" [options]",
@@ -226,7 +232,9 @@ const COMMAND_HELP = {
     "  --execution-log <text>",
     "  --output-verified <text>",
     "  --sanity-command <text>",
-    "  --payload <json>                                  approvalSummary, approvalChecklist, verifiedEvidence, residualRisks",
+    "  --evidence-citations <json-array>",
+    "  --citation-run-id <uuid> --cited-paths \"path1||path2\" [--cited-hit-ranks \"1||2\"]",
+    "  --payload <json>                                  approvalSummary, approvalChecklist, verifiedEvidence, residualRisks, evidenceCitations",
   ].join("\n"),
   "close-task": [
     "Usage: squadrail-protocol.mjs close-task --issue <issueId> [--sender-role <role>] --summary <text> --closure-summary <text> --verification-summary <text> --rollback-plan <text> --final-artifacts \"item1||item2\" [options]",
@@ -235,6 +243,8 @@ const COMMAND_HELP = {
     "  --close-reason <completed|superseded|cancelled_by_decision|moved_to_followup>",
     "  --final-test-status <passed|passed_with_known_risk|not_applicable>",
     "                      verbose legacy values are normalized automatically",
+    "  --evidence-citations <json-array>",
+    "  --citation-run-id <uuid> --cited-paths \"path1||path2\" [--cited-hit-ranks \"1||2\"]",
   ].join("\n"),
   "reassign-task": [
     "Usage: squadrail-protocol.mjs reassign-task --issue <issueId> --sender-role <role> --assignee-id <agentId> --reviewer-id <agentId> --reason <text> [options]",
@@ -462,6 +472,120 @@ function parseListOptionOrPayload(options, names, payloadValue, { required = fal
     fail(`Missing required option: --${requiredLabel}`);
   }
   return parsed;
+}
+
+function parsePositiveIntList(value) {
+  const rawValues = Array.isArray(value)
+    ? parseListLike(value)
+    : typeof value === "string"
+      ? value
+        .split(/(?:\|\||,)/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+      : [];
+  return rawValues
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isInteger(entry) && entry > 0);
+}
+
+function normalizeEvidenceCitation(input, index = 0) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    fail(`Evidence citation #${index + 1} must be a JSON object.`);
+  }
+
+  const record = input;
+  const retrievalRunId =
+    typeof record.retrievalRunId === "string" && record.retrievalRunId.trim().length > 0
+      ? record.retrievalRunId.trim()
+      : null;
+  if (!retrievalRunId) {
+    fail(`Evidence citation #${index + 1} is missing retrievalRunId.`);
+  }
+
+  const briefId =
+    typeof record.briefId === "string" && record.briefId.trim().length > 0
+      ? record.briefId.trim()
+      : null;
+  const citedHitRanks = Array.isArray(record.citedHitRanks)
+    ? record.citedHitRanks
+      .map((entry) => Number(entry))
+      .filter((entry) => Number.isInteger(entry) && entry > 0)
+    : [];
+  const citedPaths = parseListLike(record.citedPaths);
+  const citedSourceTypes = parseListLike(record.citedSourceTypes);
+  const citedSummaryKinds = parseListLike(record.citedSummaryKinds);
+  const citationReason =
+    typeof record.citationReason === "string" && record.citationReason.trim().length > 0
+      ? record.citationReason.trim()
+      : null;
+
+  if (
+    citedHitRanks.length === 0
+    && citedPaths.length === 0
+    && citedSourceTypes.length === 0
+    && citedSummaryKinds.length === 0
+  ) {
+    fail(
+      `Evidence citation #${index + 1} must include at least one of citedHitRanks, citedPaths, citedSourceTypes, or citedSummaryKinds.`,
+    );
+  }
+
+  return {
+    retrievalRunId,
+    ...(briefId ? { briefId } : {}),
+    ...(citedHitRanks.length > 0 ? { citedHitRanks } : {}),
+    ...(citedPaths.length > 0 ? { citedPaths } : {}),
+    ...(citedSourceTypes.length > 0 ? { citedSourceTypes } : {}),
+    ...(citedSummaryKinds.length > 0 ? { citedSummaryKinds } : {}),
+    ...(citationReason ? { citationReason } : {}),
+  };
+}
+
+function parseEvidenceCitationsOptionOrPayload(options, payloadValue) {
+  const optionValue = readAliasedOption(options, ["evidence-citations", "evidenceCitations"]);
+  if (optionValue) {
+    let parsed;
+    try {
+      parsed = JSON.parse(optionValue);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      fail(`Invalid JSON for --evidence-citations: ${message}`);
+    }
+
+    const records = Array.isArray(parsed) ? parsed : [parsed];
+    if (records.length === 0) fail("--evidence-citations must include at least one citation.");
+    return records.map((entry, index) => normalizeEvidenceCitation(entry, index));
+  }
+
+  const citationRunId = readAliasedOption(options, ["citation-run-id", "citationRunId"]);
+  const briefId = readAliasedOption(options, ["citation-brief-id", "citationBriefId"]);
+  const citedHitRanks = parsePositiveIntList(
+    readAliasedOption(options, ["cited-hit-ranks", "citedHitRanks"]),
+  );
+  const citedPaths = parseList(readAliasedOption(options, ["cited-paths", "citedPaths"], ""));
+  const citedSourceTypes = parseList(
+    readAliasedOption(options, ["cited-source-types", "citedSourceTypes"], ""),
+  );
+  const citedSummaryKinds = parseList(
+    readAliasedOption(options, ["cited-summary-kinds", "citedSummaryKinds"], ""),
+  );
+  const citationReason = readAliasedOption(options, ["citation-reason", "citationReason"]);
+
+  if (citationRunId) {
+    return [normalizeEvidenceCitation({
+      retrievalRunId: citationRunId,
+      briefId,
+      citedHitRanks,
+      citedPaths,
+      citedSourceTypes,
+      citedSummaryKinds,
+      citationReason,
+    })];
+  }
+
+  const payloadRecords = Array.isArray(payloadValue) ? payloadValue : [];
+  if (payloadRecords.length === 0) return [];
+  return payloadRecords.map((entry, index) => normalizeEvidenceCitation(entry, index));
 }
 
 async function api(pathname, input = {}) {
@@ -1289,6 +1413,7 @@ async function reportProgressCommand(options) {
     ["changed-files", "changedFiles"],
     payloadPatch.changedFiles,
   );
+  const evidenceCitations = parseEvidenceCitationsOptionOrPayload(options, payloadPatch.evidenceCitations);
   const testSummary = readAliasedOption(
     options,
     ["test-summary", "testSummary"],
@@ -1319,6 +1444,7 @@ async function reportProgressCommand(options) {
       risks,
       changedFiles,
       testSummary: testSummary ?? null,
+      ...(evidenceCitations.length > 0 ? { evidenceCitations } : {}),
     },
     artifacts: [],
   };
@@ -1383,6 +1509,7 @@ async function submitForReviewCommand(options) {
     payloadPatch.residualRisks,
     { required: true, requiredLabel: "residual-risks" },
   );
+  const evidenceCitations = parseEvidenceCitationsOptionOrPayload(options, payloadPatch.evidenceCitations);
   const executionLog = readAliasedOption(
     options,
     ["execution-log", "executionLog"],
@@ -1426,6 +1553,7 @@ async function submitForReviewCommand(options) {
       testResults,
       reviewChecklist,
       residualRisks,
+      ...(evidenceCitations.length > 0 ? { evidenceCitations } : {}),
     },
     artifacts: tryInferSubmitForReviewArtifacts(changedFiles),
   };
@@ -1588,6 +1716,7 @@ async function approveImplementationCommand(options) {
     payloadPatch.residualRisks,
     { required: true, requiredLabel: "residual-risks" },
   );
+  const evidenceCitations = parseEvidenceCitationsOptionOrPayload(options, payloadPatch.evidenceCitations);
   const executionLog = readAliasedOption(
     options,
     ["execution-log", "executionLog"],
@@ -1629,6 +1758,7 @@ async function approveImplementationCommand(options) {
       approvalChecklist,
       verifiedEvidence,
       residualRisks,
+      ...(evidenceCitations.length > 0 ? { evidenceCitations } : {}),
       ...(executionLog ? { executionLog } : {}),
       ...(outputVerified ? { outputVerified } : {}),
       ...(sanityCommand ? { sanityCommand } : {}),
@@ -1669,6 +1799,7 @@ async function requestChangesCommand(options) {
     : Array.isArray(payloadPatch.changeRequests)
       ? payloadPatch.changeRequests
       : [];
+  const evidenceCitations = parseEvidenceCitationsOptionOrPayload(options, payloadPatch.evidenceCitations);
   const state = await getIssueState(issueId);
 
   if (requiredEvidence.length === 0) {
@@ -1708,6 +1839,7 @@ async function requestChangesCommand(options) {
         true,
       ),
       requiredEvidence,
+      ...(evidenceCitations.length > 0 ? { evidenceCitations } : {}),
     },
     artifacts: [],
   };
@@ -1822,6 +1954,7 @@ async function closeTaskCommand(options) {
     ["remaining-risks", "remainingRisks"],
     payloadPatch.remainingRisks,
   );
+  const evidenceCitations = parseEvidenceCitationsOptionOrPayload(options, payloadPatch.evidenceCitations);
   const state = await getIssueState(issueId);
 
   const body = {
@@ -1854,6 +1987,7 @@ async function closeTaskCommand(options) {
       rollbackPlan,
       finalArtifacts,
       remainingRisks,
+      ...(evidenceCitations.length > 0 ? { evidenceCitations } : {}),
       ...(normalizeFinalTestStatus(
         readAliasedOption(
           options,
@@ -1880,6 +2014,7 @@ async function closeTaskCommand(options) {
               "rollbackPlan",
               "finalArtifacts",
               "remainingRisks",
+              "evidenceCitations",
               "closeReason",
               "mergeStatus",
               "finalTestStatus",

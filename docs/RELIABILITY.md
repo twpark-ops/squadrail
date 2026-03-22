@@ -11,6 +11,7 @@
 
 ## Retrieval / Runtime Stability
 
+- `exec-plans/active/p4-rag-meaning-layer-live-proof-followup-plan-2026-03-23.md`
 - `exec-plans/completed/p0-protocol-dispatch-reconciliation-plan-2026-03-22.md`
 - `exec-plans/completed/p1-protocol-dispatch-outbox-plan-2026-03-22.md`
 - `exec-plans/completed/p1-runtime-surface-maintenance-plan-2026-03-22.md`

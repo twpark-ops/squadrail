@@ -235,6 +235,7 @@ export type {
   IssueProtocolAskClarificationPayload,
   IssueProtocolAnswerClarificationPayload,
   IssueProtocolPlanStep,
+  IssueProtocolEvidenceCitation,
   IssueProtocolProposePlanPayload,
   IssueProtocolStartImplementationPayload,
   IssueProtocolProgressPayload,

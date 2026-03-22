@@ -22,6 +22,7 @@ describe("renderSquadrailRuntimeNote", () => {
     expect(output).toContain("SHORT PROTOCOL LANE:");
     expect(output).toContain("QA must execute the acceptance check before deciding. Do not edit source files in this lane.");
     expect(output).toContain('start-review --issue "issue-1" --payload');
+    expect(output).toContain("optional `evidenceCitations[]`");
   });
 
   it("includes engineer single-flow guidance for assignment_engineer", () => {
@@ -79,6 +80,7 @@ describe("renderSquadrailRuntimeNote", () => {
     expect(output).toContain("SHORT PROTOCOL LANE:");
     expect(output).toContain("Approval is incomplete until `CLOSE_TASK` or `REQUEST_HUMAN_DECISION` is recorded.");
     expect(output).toContain('close-task --issue "issue-4" --payload');
+    expect(output).toContain("include `evidenceCitations[]`");
   });
 
   it("includes concrete reviewer helper commands for short supervisory review lanes", () => {
@@ -112,6 +114,7 @@ describe("renderSquadrailRuntimeNote", () => {
     expect(output).toContain("Structured wake context:");
     expect(output).not.toContain("very long retrieval query that should be omitted in short supervisory lanes");
     expect(output).toContain('start-review --issue "issue-5" --payload');
+    expect(output).toContain("cite it with `evidenceCitations[]`");
   });
 
   it("includes concrete staffing helper commands for assignment supervisor lanes", () => {

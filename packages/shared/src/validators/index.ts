@@ -248,6 +248,7 @@ export {
   issueProtocolAckAssignmentPayloadSchema,
   issueProtocolAskClarificationPayloadSchema,
   issueProtocolPlanStepSchema,
+  issueProtocolEvidenceCitationSchema,
   issueProtocolProposePlanPayloadSchema,
   issueProtocolStartImplementationPayloadSchema,
   issueProtocolProgressPayloadSchema,

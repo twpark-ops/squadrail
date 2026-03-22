@@ -13,6 +13,7 @@
 ## Platform Design
 
 - `design-docs/rag-current-architecture.md`
+- `design-docs/rag-agent-evidence-provenance-design-2026-03-23.md`
 - `design-docs/agents-runtime.md`
 - `design-docs/qa-execution-gate-design.md`
 - `design-docs/protocol-dispatch-reliability-design-2026-03-22.md`

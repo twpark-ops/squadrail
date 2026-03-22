@@ -1963,6 +1963,20 @@ describe("squadrail protocol helper CLI", () => {
           "Checklist A||Checklist B",
           "--residual-risks",
           "Risk A",
+          "--citation-run-id",
+          "00000000-0000-0000-0000-000000000777",
+          "--citation-brief-id",
+          "00000000-0000-0000-0000-000000000778",
+          "--cited-hit-ranks",
+          "1,2",
+          "--cited-paths",
+          "README.md||docs/review.md",
+          "--cited-source-types",
+          "code||review",
+          "--cited-summary-kinds",
+          "file",
+          "--citation-reason",
+          "Review handoff follows the retrieved README and review note.",
         ],
         {
           cwd: repoDir,
@@ -1989,6 +2003,19 @@ describe("squadrail protocol helper CLI", () => {
           }),
         }),
       ]);
+      expect(requests[1]?.payload).toMatchObject({
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000777",
+            briefId: "00000000-0000-0000-0000-000000000778",
+            citedHitRanks: [1, 2],
+            citedPaths: ["README.md", "docs/review.md"],
+            citedSourceTypes: ["code", "review"],
+            citedSummaryKinds: ["file"],
+            citationReason: "Review handoff follows the retrieved README and review note.",
+          },
+        ],
+      });
     } finally {
       await closeTestServer(server);
     }

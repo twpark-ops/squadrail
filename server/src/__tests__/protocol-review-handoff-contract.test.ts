@@ -63,6 +63,17 @@ describe("protocol review handoff contract", () => {
         testResults: ["pnpm vitest app"],
         residualRisks: ["No known residual risk."],
         diffSummary: "Updated app flow and tests.",
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000111",
+            briefId: "00000000-0000-0000-0000-000000000222",
+            citedHitRanks: [1],
+            citedPaths: ["src/app.ts"],
+            citedSourceTypes: ["code"],
+            citedSummaryKinds: ["file"],
+            citationReason: "Implementation followed the top retrieved code path.",
+          },
+        ],
       },
       artifacts: [
         {
@@ -73,6 +84,45 @@ describe("protocol review handoff contract", () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it("rejects evidence citations that do not cite a hit, path, source type, or summary kind", () => {
+    const parsed = createIssueProtocolMessageSchema.safeParse({
+      messageType: "SUBMIT_FOR_REVIEW",
+      sender: {
+        actorType: "agent",
+        actorId: "eng-1",
+        role: "engineer",
+      },
+      recipients: [
+        {
+          recipientType: "agent",
+          recipientId: "rev-1",
+          role: "reviewer",
+        },
+      ],
+      workflowStateBefore: "implementing",
+      workflowStateAfter: "submitted_for_review",
+      summary: "submit review package",
+      payload: {
+        implementationSummary: "done",
+        evidence: ["tests passed"],
+        reviewChecklist: ["review checklist item"],
+        changedFiles: ["src/app.ts"],
+        testResults: ["pnpm vitest app"],
+        residualRisks: ["No known residual risk."],
+        diffSummary: "Updated app flow and tests.",
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000111",
+            citationReason: "This should fail because nothing concrete was cited.",
+          },
+        ],
+      },
+      artifacts: [],
+    });
+
+    expect(parsed.success).toBe(false);
   });
 
   it("rejects REQUEST_CHANGES payloads missing reviewSummary and requiredEvidence", () => {
@@ -134,6 +184,15 @@ describe("protocol review handoff contract", () => {
         verifiedEvidence: ["Reviewed test run", "Reviewed diff"],
         residualRisks: ["No known residual risk."],
         followUpActions: ["Monitor rollout metrics"],
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000333",
+            citedHitRanks: [1, 2],
+            citedPaths: ["src/app.ts", "src/app.test.ts"],
+            citedSourceTypes: ["code", "test_report"],
+            citationReason: "Review approval relied on retrieved code and test evidence.",
+          },
+        ],
       },
       artifacts: [],
     });
@@ -164,6 +223,15 @@ describe("protocol review handoff contract", () => {
         finalTestStatus: "passed",
         mergeStatus: "merged",
         remainingRisks: ["No unresolved delivery blocker remains."],
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000444",
+            citedPaths: ["docs/release/checklist.md"],
+            citedSourceTypes: ["protocol_message"],
+            citedSummaryKinds: ["file"],
+            citationReason: "Closure used the retrieved release checklist evidence.",
+          },
+        ],
       },
       artifacts: [
         {
