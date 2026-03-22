@@ -9,6 +9,7 @@ package "Server" {
   [heartbeat.ts] --> [Wake utils]
   [heartbeat.ts] --> [Protocol watchdog utils]
   [heartbeat.ts] --> [State store]
+  [heartbeat.ts] --> [Dispatch lifecycle]
 }
 
 package "UI" {
