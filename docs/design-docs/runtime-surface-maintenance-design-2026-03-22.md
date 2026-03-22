@@ -14,7 +14,7 @@
 4. [dashboard.ts](/home/taewoong/company-project/squadall/server/src/services/dashboard.ts)는 일부 feed를 넓게 읽고 뒤에서 slice해, limit가 있어도 broad-load가 남는다.
 
 이번 설계는 correctness를 바꾸지 않고, 유지보수성과 요청량을 동시에 낮추는 연속 배치다.
-현재는 first slice 구현 뒤, second slice로 `heartbeat` helper split 2차와 dashboard feed pagination metadata까지 반영된 상태다.
+현재는 first slice 구현 뒤, second slice로 `heartbeat` helper split 2차와 dashboard feed pagination metadata까지 반영됐고, third slice로 `heartbeat-state-store`와 실제 UI pagination까지 연결된 상태다.
 
 ## 목표
 
@@ -23,6 +23,7 @@
 3. dashboard feed가 `limit`보다 과도하게 많은 row를 읽지 않도록 overscan-based 제한을 둔다.
 4. `heartbeat.ts`에서 pure helper와 priority/session/watchdog/wake 유틸을 단계적으로 분리해 god-service 분해의 기반을 만든다.
 5. dashboard `teamSupervision` / `recoveryQueue`에 `offset/hasMore` 계약을 추가해 다음 UI pagination 도입을 준비한다.
+6. `Team` / `Runs` 화면에서 실제 paginated feed를 소비해, broad list를 요약 화면과 운영 화면으로 분리한다.
 
 ## 비목표
 
@@ -81,6 +82,7 @@
 - `heartbeat-dispatch-priority.ts`
 - `heartbeat-wake-utils.ts`
 - `heartbeat-protocol-watchdog.ts`
+- `heartbeat-state-store.ts`
 
 분리 대상:
 
@@ -89,6 +91,7 @@
 - dispatch priority 계산 helpers
 - wake payload / coalescing helpers
 - protocol idle/degraded watchdog policy helpers
+- run/lease/session state access helpers
 
 ### issues list
 
@@ -102,6 +105,7 @@
 - `recoveryQueue` source query에 overscan limit 적용
 - second slice에서는 두 feed 모두 `limit/offset/hasMore/nextOffset`를 반환한다
 - sourceLimit은 `offset + limit` 기준으로 계산해 뒷페이지도 과소조회하지 않도록 한다
+- third slice에서는 `Team` supervision tab과 `Runs` recovery tab이 `load more`로 실제 다음 페이지를 가져온다
 
 ### frontend
 
@@ -114,6 +118,7 @@
 2. `IssueDetail` hook 반환값이 지나치게 크면 다른 형태의 복잡성이 생길 수 있다.
 3. `heartbeat` helper split 시 import cycle을 조심해야 한다.
 4. overscan 기반 pagination은 sourceLimit 밖에 있는 row를 아직 읽지 않기 때문에, 극단적 skew가 있으면 `hasMore`가 optimistic하지 않을 수 있다.
+5. infinite pagination은 refetch 시 페이지 경계가 움직일 수 있어, item key de-dupe가 필요하다.
 
 ## 검증
 
@@ -128,3 +133,5 @@
 1. first slice에서 `IssueDetail` query orchestration, issue summary batching, dashboard overscan cap, `heartbeat-runtime-utils.ts` / `heartbeat-dispatch-priority.ts` 분리를 완료했다.
 2. second slice에서 `heartbeat-wake-utils.ts`, `heartbeat-protocol-watchdog.ts`를 추가해 wake/watchdog helper를 분리했다.
 3. dashboard `teamSupervision` / `recoveryQueue`는 pagination metadata를 반환하고, route/UI API는 `offset=0` 기본값으로 backward compatible 하게 열었다.
+4. third slice에서 `heartbeat-state-store.ts`를 추가해 DB access/lifecycle cluster를 service 본문 밖으로 옮겼다.
+5. `Team` / `Runs`는 paginated feed를 실제로 소비하고, helper 기반으로 page flattening + load-more를 지원한다.

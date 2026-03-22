@@ -1,12 +1,17 @@
 import { useEffect } from "react";
 import { Link, useSearchParams } from "@/lib/router";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Bot, Clock3, LifeBuoy, ShieldAlert } from "lucide-react";
 import { dashboardApi } from "../api/dashboard";
 import { heartbeatsApi } from "../api/heartbeats";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
+import {
+  firstPaginatedFeedSummary,
+  flattenPaginatedFeedItems,
+  lastPaginatedFeedMeta,
+} from "../lib/dashboard-feed-pagination";
 import { cn, relativeTime } from "../lib/utils";
 import { workIssuePath } from "../lib/appRoutes";
 import { getRunPhaseMeta } from "../lib/run-presence";
@@ -14,6 +19,8 @@ import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+
+const RECOVERY_PAGE_SIZE = 12;
 
 export function Runs() {
   const { selectedCompanyId } = useCompany();
@@ -45,9 +52,11 @@ export function Runs() {
     enabled: !!selectedCompanyId,
   });
 
-  const recoveryQuery = useQuery({
-    queryKey: queryKeys.dashboardRecoveryQueue(selectedCompanyId!, 12),
-    queryFn: () => dashboardApi.recoveryQueue(selectedCompanyId!, 12),
+  const recoveryQuery = useInfiniteQuery({
+    queryKey: queryKeys.dashboardRecoveryQueuePages(selectedCompanyId!, RECOVERY_PAGE_SIZE),
+    queryFn: ({ pageParam }) => dashboardApi.recoveryQueue(selectedCompanyId!, RECOVERY_PAGE_SIZE, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? (lastPage.nextOffset ?? undefined) : undefined),
     enabled: !!selectedCompanyId,
     refetchInterval: 15000,
   });
@@ -62,8 +71,13 @@ export function Runs() {
 
   const liveRuns = liveRunsQuery.data ?? [];
   const recentRuns = recentRunsQuery.data ?? [];
-  const recoveryItems = recoveryQuery.data?.items ?? [];
-  const recoverySummary = recoveryQuery.data?.summary;
+  const recoveryPages = recoveryQuery.data?.pages;
+  const recoveryItems = flattenPaginatedFeedItems(
+    recoveryPages,
+    (item) => `${item.issueId}:${item.recoveryType}:${item.code ?? "unknown"}`,
+  );
+  const recoverySummary = firstPaginatedFeedSummary(recoveryPages);
+  const recoveryPageMeta = lastPaginatedFeedMeta(recoveryPages);
   const failureCount = recentRuns.filter((run) => ["failed", "timed_out"].includes(run.status)).length;
   const groupedRecovery = Object.entries(
     recoveryItems.reduce<Record<string, typeof recoveryItems>>((acc, item) => {
@@ -212,7 +226,7 @@ export function Runs() {
                       </span>
                     </div>
                     <div className="mt-4 space-y-3">
-                      {items.slice(0, 3).map((item) => (
+                      {items.map((item) => (
                       <div key={`${item.issueId}-${item.code ?? "runtime"}`} className="rounded-[1rem] border border-border bg-card px-4 py-4">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <AlertTriangle className="h-3.5 w-3.5" />
@@ -252,6 +266,23 @@ export function Runs() {
                 ))
               )}
             </div>
+            {recoveryPageMeta?.hasMore ? (
+              <div className="border-t border-border px-5 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {recoveryItems.length} of {recoverySummary?.totalCases ?? recoveryItems.length} recovery cases.
+                  </p>
+                  <button
+                    type="button"
+                    className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void recoveryQuery.fetchNextPage()}
+                    disabled={recoveryQuery.isFetchingNextPage}
+                  >
+                    {recoveryQuery.isFetchingNextPage ? "Loading more..." : "Load more recovery"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </section>
         </TabsContent>
 

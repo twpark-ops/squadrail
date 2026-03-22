@@ -21,3 +21,4 @@
 - `p0-issue-detail-polling-split-plan-2026-03-22.md`
 - `p1-runtime-surface-maintenance-plan-2026-03-22.md`
 - `p2-runtime-surface-maintenance-plan-2026-03-22.md`
+- `p3-runtime-surface-maintenance-plan-2026-03-22.md`

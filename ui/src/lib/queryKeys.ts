@@ -92,10 +92,14 @@ export const queryKeys = {
     ["dashboard", companyId, "protocol-queue", limit ?? 20] as const,
   dashboardAgentPerformance: (companyId: string, limit?: number) =>
     ["dashboard", companyId, "agent-performance", limit ?? 20] as const,
-  dashboardTeamSupervision: (companyId: string, limit?: number) =>
-    ["dashboard", companyId, "team-supervision", limit ?? 20] as const,
-  dashboardRecoveryQueue: (companyId: string, limit?: number) =>
-    ["dashboard", companyId, "recovery-queue", limit ?? 20] as const,
+  dashboardTeamSupervision: (companyId: string, limit?: number, offset?: number) =>
+    ["dashboard", companyId, "team-supervision", limit ?? 20, offset ?? 0] as const,
+  dashboardTeamSupervisionPages: (companyId: string, limit?: number) =>
+    ["dashboard", companyId, "team-supervision-pages", limit ?? 20] as const,
+  dashboardRecoveryQueue: (companyId: string, limit?: number, offset?: number) =>
+    ["dashboard", companyId, "recovery-queue", limit ?? 20, offset ?? 0] as const,
+  dashboardRecoveryQueuePages: (companyId: string, limit?: number) =>
+    ["dashboard", companyId, "recovery-queue-pages", limit ?? 20] as const,
   sidebarBadges: (companyId: string) => ["sidebar-badges", companyId] as const,
   activity: (companyId: string) => ["activity", companyId] as const,
   costs: (companyId: string, from?: string, to?: string) =>

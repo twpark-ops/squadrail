@@ -8,12 +8,15 @@ package "Server" {
   [heartbeat.ts] --> [Dispatch priority utils]
   [heartbeat.ts] --> [Wake utils]
   [heartbeat.ts] --> [Protocol watchdog utils]
+  [heartbeat.ts] --> [State store]
 }
 
 package "UI" {
   [IssueDetail.tsx] --> [useIssueDetailQueries]
   [useIssueDetailQueries] --> [Polling policy helper]
   [dashboardApi] --> [Paginated dashboard feeds]
+  [Team.tsx] --> [Paginated dashboard feeds]
+  [Runs.tsx] --> [Paginated dashboard feeds]
 }
 
 note right of [IssuesService batch summaries]

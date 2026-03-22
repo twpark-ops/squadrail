@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link } from "@/lib/router";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { DashboardAgentPerformanceItem } from "@squadrail/shared";
 import {
   Bot,
@@ -18,6 +18,11 @@ import { PageTabBar } from "../components/PageTabBar";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
+import {
+  firstPaginatedFeedSummary,
+  flattenPaginatedFeedItems,
+  lastPaginatedFeedMeta,
+} from "../lib/dashboard-feed-pagination";
 import { cn, relativeTime } from "../lib/utils";
 import { EmptyState } from "../components/EmptyState";
 import { ParentIssueSupervisionCard } from "../components/ParentIssueSupervisionCard";
@@ -286,6 +291,8 @@ function AgentPerformanceCard({
   );
 }
 
+const TEAM_SUPERVISION_PAGE_SIZE = 18;
+
 export function Team() {
   const { selectedCompanyId, selectedCompany } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -318,9 +325,11 @@ export function Team() {
     queryFn: () => dashboardApi.agentPerformance(selectedCompanyId!, 18),
     enabled: !!selectedCompanyId,
   });
-  const teamSupervisionQuery = useQuery({
-    queryKey: queryKeys.dashboardTeamSupervision(selectedCompanyId!, 18),
-    queryFn: () => dashboardApi.teamSupervision(selectedCompanyId!, 18),
+  const teamSupervisionQuery = useInfiniteQuery({
+    queryKey: queryKeys.dashboardTeamSupervisionPages(selectedCompanyId!, TEAM_SUPERVISION_PAGE_SIZE),
+    queryFn: ({ pageParam }) => dashboardApi.teamSupervision(selectedCompanyId!, TEAM_SUPERVISION_PAGE_SIZE, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? (lastPage.nextOffset ?? undefined) : undefined),
     enabled: !!selectedCompanyId,
     refetchInterval: 10_000,
   });
@@ -481,8 +490,13 @@ export function Team() {
 
         <TabsContent value="supervision" className="space-y-6">
           {(() => {
-            const supervisionItems = teamSupervisionQuery.data?.items ?? [];
-            const supervisionSummary = teamSupervisionQuery.data?.summary;
+            const supervisionPages = teamSupervisionQuery.data?.pages;
+            const supervisionItems = flattenPaginatedFeedItems(
+              supervisionPages,
+              (item) => item.workItemIssueId,
+            );
+            const supervisionSummary = firstPaginatedFeedSummary(supervisionPages);
+            const supervisionPageMeta = lastPaginatedFeedMeta(supervisionPages);
 
             // Group items by rootIssueId
             const grouped = new Map<string, typeof supervisionItems>();
@@ -527,6 +541,9 @@ export function Team() {
                     <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium text-muted-foreground">
                       {supervisionSummary.total} total
                     </span>
+                    <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium text-muted-foreground">
+                      {supervisionItems.length} visible
+                    </span>
                   </div>
                 )}
                 <div className="grid gap-4 xl:grid-cols-2">
@@ -544,6 +561,18 @@ export function Team() {
                     );
                   })}
                 </div>
+                {supervisionPageMeta?.hasMore ? (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => void teamSupervisionQuery.fetchNextPage()}
+                      disabled={teamSupervisionQuery.isFetchingNextPage}
+                    >
+                      {teamSupervisionQuery.isFetchingNextPage ? "Loading more..." : "Load more supervision"}
+                    </button>
+                  </div>
+                ) : null}
               </>
             );
           })()}
