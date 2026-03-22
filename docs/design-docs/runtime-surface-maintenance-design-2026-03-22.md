@@ -14,7 +14,7 @@
 4. [dashboard.ts](/home/taewoong/company-project/squadall/server/src/services/dashboard.ts)는 일부 feed를 넓게 읽고 뒤에서 slice해, limit가 있어도 broad-load가 남는다.
 
 이번 설계는 correctness를 바꾸지 않고, 유지보수성과 요청량을 동시에 낮추는 연속 배치다.
-현재는 first slice 구현 뒤, second slice로 `heartbeat` helper split 2차와 dashboard feed pagination metadata까지 반영됐고, third slice로 `heartbeat-state-store`와 실제 UI pagination까지 연결됐다. fourth slice에서는 dispatch/lifecycle orchestration도 별도 factory module로 분리했다.
+현재는 first slice 구현 뒤, second slice로 `heartbeat` helper split 2차와 dashboard feed pagination metadata까지 반영됐고, third slice로 `heartbeat-state-store`와 실제 UI pagination까지 연결됐다. fourth slice에서는 dispatch/lifecycle orchestration도 별도 factory module로 분리했고, fifth slice에서는 wakeup control / cancellation cluster를 별도 factory module로 이동했다.
 
 ## 목표
 
@@ -85,6 +85,7 @@
 - `heartbeat-protocol-watchdog.ts`
 - `heartbeat-state-store.ts`
 - `heartbeat-dispatch-lifecycle.ts`
+- `heartbeat-wakeup-control.ts`
 
 분리 대상:
 
@@ -141,3 +142,4 @@
 4. third slice에서 `heartbeat-state-store.ts`를 추가해 DB access/lifecycle cluster를 service 본문 밖으로 옮겼다.
 5. `Team` / `Runs`는 paginated feed를 실제로 소비하고, helper 기반으로 page flattening + load-more를 지원한다.
 6. fourth slice에서 `heartbeat-dispatch-lifecycle.ts`를 추가해 claim/dispatch-watchdog/orphan-reap/agent-status finalize를 별도 factory module로 옮겼다.
+7. fifth slice에서 `heartbeat-wakeup-control.ts`를 추가해 issue execution promotion, lead-supervisor failure wake, run cancellation, issue-scope cancellation cluster를 분리했다.

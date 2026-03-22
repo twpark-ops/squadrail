@@ -23,3 +23,4 @@
 - `p2-runtime-surface-maintenance-plan-2026-03-22.md`
 - `p3-runtime-surface-maintenance-plan-2026-03-22.md`
 - `p4-runtime-surface-maintenance-plan-2026-03-22.md`
+- `p5-runtime-surface-maintenance-plan-2026-03-22.md`

@@ -2,7 +2,7 @@ import { asBoolean, parseObject } from "../adapters/utils.js";
 import { normalizeIssuePriorityValue } from "./heartbeat-dispatch-priority.js";
 import { readNonEmptyString } from "./heartbeat-runtime-utils.js";
 
-const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
+export const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 
 type WakeSource = "timer" | "assignment" | "on_demand" | "automation";
 type WakeTriggerDetail = "manual" | "ping" | "callback" | "system";

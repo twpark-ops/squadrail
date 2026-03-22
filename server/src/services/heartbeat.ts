@@ -32,16 +32,11 @@ import {
 } from "./heartbeat-workspace.js";
 import { extractRunVerificationSignals } from "./run-verification-signals.js";
 import { inspectWorkspaceGitSnapshot } from "./workspace-git-snapshot.js";
-import {
-  buildInternalWorkItemDispatchMetadata,
-  isLeadWatchEnabled,
-  leadSupervisorRunFailureReason,
-  loadInternalWorkItemSupervisorContext,
-} from "./internal-work-item-supervision.js";
 import { logActivity } from "./activity-log.js";
 import { issueProtocolAutoAssistService } from "./issue-protocol-auto-assist.js";
 import { createHeartbeatDispatchLifecycle } from "./heartbeat-dispatch-lifecycle.js";
 import { createHeartbeatStateStore } from "./heartbeat-state-store.js";
+import { createHeartbeatWakeupControl } from "./heartbeat-wakeup-control.js";
 import { loadConfig } from "../config.js";
 import {
   attachResolvedWorkspaceContextToRunContext,
@@ -73,6 +68,7 @@ import {
   buildDeferredWakePromotionPlan,
   buildHeartbeatRunQueuedEvent,
   buildWakeupRequestValues,
+  DEFERRED_WAKE_CONTEXT_KEY,
   deriveCommentId,
   deriveTaskKey,
   describeSessionResetReason,
@@ -106,10 +102,10 @@ import {
   shouldRecoverDegradedProtocolRun,
   shouldRecoverIdleProtocolRun,
   shouldSkipSupersededProtocolFollowup,
-  SUPERSEDED_PROTOCOL_WAKE_REASONS,
   RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
   RUN_PROTOCOL_IDLE_WATCHDOG_MS,
 } from "./heartbeat-protocol-watchdog.js";
+export { buildHeartbeatCancellationArtifacts } from "./heartbeat-wakeup-control.js";
 
 export {
   attachResolvedWorkspaceContextToRunContext,
@@ -180,7 +176,6 @@ const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
-const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 const startLocksByAgent = new Map<string, Promise<void>>();
 
 class SupersededProtocolFollowupError extends Error {
@@ -316,32 +311,6 @@ export function buildHeartbeatOutcomePersistence(input: {
   };
 }
 
-export function buildHeartbeatCancellationArtifacts(input: {
-  message: string;
-  checkpointMessage: string;
-  finishedAt?: Date;
-}) {
-  const finishedAt = input.finishedAt ?? new Date();
-  return {
-    runPatch: {
-      finishedAt,
-      error: input.message,
-      errorCode: "cancelled",
-    },
-    wakeupPatch: {
-      finishedAt,
-      error: input.message,
-    },
-    leasePatch: {
-      phase: "finalize.cancelled",
-      message: input.checkpointMessage,
-    },
-    releasedAt: finishedAt,
-    lastError: input.message,
-    eventMessage: "run cancelled",
-  };
-}
-
 export function heartbeatService(db: Db) {
   const runLogStore = getRunLogStore();
   const secretsSvc = secretService(db);
@@ -409,6 +378,8 @@ export function heartbeatService(db: Db) {
     return parseHeartbeatPolicyConfig(agent.runtimeConfig);
   }
 
+  let wakeupControl: ReturnType<typeof createHeartbeatWakeupControl>;
+
   const {
     applyDispatchPrioritySelection,
     claimQueuedRun,
@@ -432,12 +403,39 @@ export function heartbeatService(db: Db) {
     scheduleDispatchWatchdog,
     clearProtocolIdleWatchdog,
     dispatchWatchdogAttempts,
-    releaseIssueExecutionAndPromote,
-    wakeLeadSupervisorForRunFailure,
+    releaseIssueExecutionAndPromote: (run) => wakeupControl.releaseIssueExecutionAndPromote(run),
+    wakeLeadSupervisorForRunFailure: (inputValue) => wakeupControl.wakeLeadSupervisorForRunFailure(inputValue),
     dispatchAgentQueueStart,
     executeRun,
     startNextQueuedRunForAgent,
   });
+
+  wakeupControl = createHeartbeatWakeupControl({
+    db,
+    publishLiveEvent,
+    getAgent,
+    getRun,
+    resolveSessionBeforeForWakeup,
+    setRunStatus,
+    setWakeupStatus,
+    upsertRunLease,
+    appendRunEvent,
+    clearDispatchWatchdog,
+    scheduleDispatchWatchdog,
+    clearProtocolIdleWatchdog,
+    finalizeAgentStatus,
+    dispatchAgentQueueStart,
+    enqueueWakeup: (agentId, opts) => enqueueWakeup(agentId, opts),
+  });
+
+  const {
+    cancelActiveForAgent,
+    cancelIssueScope,
+    cancelRunInternal,
+    cancelSupersededIssueFollowups,
+    releaseIssueExecutionAndPromote,
+    wakeLeadSupervisorForRunFailure,
+  } = wakeupControl;
 
   async function recoverIdleProtocolRunIfNeeded(input: {
     run: typeof heartbeatRuns.$inferSelect;
@@ -1954,222 +1952,6 @@ export function heartbeatService(db: Db) {
     }
   }
 
-  async function wakeLeadSupervisorForRunFailure(input: {
-    run: typeof heartbeatRuns.$inferSelect;
-    status: "failed" | "timed_out";
-    errorCode?: string | null;
-    error?: string | null;
-  }) {
-    const issueId = readNonEmptyString(parseObject(input.run.contextSnapshot).issueId);
-    if (!issueId) return;
-
-    const issueContext = await loadInternalWorkItemSupervisorContext(db, input.run.companyId, issueId);
-    if (!issueContext || !isLeadWatchEnabled(issueContext)) return;
-
-    const leadAgentId = issueContext.techLeadAgentId;
-    if (!leadAgentId || leadAgentId === input.run.agentId) return;
-
-    const reason = leadSupervisorRunFailureReason({
-      status: input.status,
-      errorCode: input.errorCode ?? null,
-    });
-    if (!reason) return;
-
-    const internalMetadata = buildInternalWorkItemDispatchMetadata(issueContext);
-
-    try {
-      await enqueueWakeup(leadAgentId, {
-        source: "automation",
-        triggerDetail: "system",
-        reason,
-        payload: {
-          issueId,
-          failedRunId: input.run.id,
-          failedRunStatus: input.status,
-          failedRunErrorCode: input.errorCode ?? null,
-          failedRunError: input.error ?? null,
-          ...internalMetadata,
-          protocolDispatchMode: "lead_supervisor",
-        },
-        contextSnapshot: {
-          issueId,
-          taskId: issueId,
-          source: "heartbeat.run",
-          failedRunId: input.run.id,
-          failedRunStatus: input.status,
-          failedRunErrorCode: input.errorCode ?? null,
-          failedRunError: input.error ?? null,
-          ...internalMetadata,
-          protocolDispatchMode: "lead_supervisor",
-        },
-      });
-    } catch (err) {
-      logger.warn(
-        {
-          err,
-          issueId,
-          leadAgentId,
-          failedRunId: input.run.id,
-          failedRunStatus: input.status,
-          failedRunErrorCode: input.errorCode ?? null,
-        },
-        "failed to wake lead supervisor after child issue run failure",
-      );
-    }
-  }
-
-  async function releaseIssueExecutionAndPromote(run: typeof heartbeatRuns.$inferSelect) {
-    const promotedRun = await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select id from issues where company_id = ${run.companyId} and execution_run_id = ${run.id} for update`,
-      );
-
-      const issue = await tx
-        .select({
-          id: issues.id,
-          companyId: issues.companyId,
-          status: issues.status,
-        })
-        .from(issues)
-        .where(and(eq(issues.companyId, run.companyId), eq(issues.executionRunId, run.id)))
-        .then((rows) => rows[0] ?? null);
-
-      if (!issue) return;
-
-      await tx
-        .update(issues)
-        .set({
-          executionRunId: null,
-          executionAgentNameKey: null,
-          executionLockedAt: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(issues.id, issue.id));
-
-      while (true) {
-        const deferred = await tx
-          .select()
-          .from(agentWakeupRequests)
-          .where(
-            and(
-              eq(agentWakeupRequests.companyId, issue.companyId),
-              eq(agentWakeupRequests.status, "deferred_issue_execution"),
-              sql`${agentWakeupRequests.payload} ->> 'issueId' = ${issue.id}`,
-            ),
-          )
-          .orderBy(asc(agentWakeupRequests.requestedAt))
-          .limit(1)
-          .then((rows) => rows[0] ?? null);
-
-        if (!deferred) return null;
-
-        const deferredAgent = await tx
-          .select()
-          .from(agents)
-          .where(eq(agents.id, deferred.agentId))
-          .then((rows) => rows[0] ?? null);
-
-        if (
-          !deferredAgent ||
-          deferredAgent.companyId !== issue.companyId ||
-          deferredAgent.status === "paused" ||
-          deferredAgent.status === "terminated" ||
-          deferredAgent.status === "pending_approval"
-        ) {
-          await tx
-            .update(agentWakeupRequests)
-            .set({
-              status: "failed",
-              finishedAt: new Date(),
-              error: "Deferred wake could not be promoted: agent is not invokable",
-              updatedAt: new Date(),
-            })
-            .where(eq(agentWakeupRequests.id, deferred.id));
-          continue;
-        }
-
-        const deferredPayload = parseObject(deferred.payload);
-        const promotedReason = readNonEmptyString(deferred.reason) ?? "issue_execution_promoted";
-        if (
-          (issue.status === "done" || issue.status === "cancelled")
-          && isSupersededProtocolWakeReason(promotedReason)
-        ) {
-          await tx
-            .update(agentWakeupRequests)
-            .set({
-              status: "cancelled",
-              finishedAt: new Date(),
-              error: `Deferred wake skipped because issue is already ${issue.status}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(agentWakeupRequests.id, deferred.id));
-          continue;
-        }
-        const promotion = buildDeferredWakePromotionPlan({
-          deferredPayload,
-          deferredReason: deferred.reason,
-          deferredSource: deferred.source,
-          deferredTriggerDetail: deferred.triggerDetail,
-        });
-
-        const sessionBefore = await resolveSessionBeforeForWakeup(deferredAgent, promotion.promotedTaskKey);
-        const now = new Date();
-        const newRun = await tx
-          .insert(heartbeatRuns)
-          .values({
-            companyId: deferredAgent.companyId,
-            agentId: deferredAgent.id,
-            invocationSource: promotion.promotedSource,
-            triggerDetail: promotion.promotedTriggerDetail,
-            status: "queued",
-            wakeupRequestId: deferred.id,
-            contextSnapshot: promotion.promotedContextSnapshot,
-            sessionIdBefore: sessionBefore,
-          })
-          .returning()
-          .then((rows) => rows[0]);
-
-        await tx
-          .update(agentWakeupRequests)
-          .set({
-            status: "queued",
-            reason: "issue_execution_promoted",
-            runId: newRun.id,
-            claimedAt: null,
-            finishedAt: null,
-            error: null,
-            updatedAt: now,
-          })
-          .where(eq(agentWakeupRequests.id, deferred.id));
-
-        await tx
-          .update(issues)
-          .set({
-            executionRunId: newRun.id,
-            executionAgentNameKey: normalizeAgentNameKey(deferredAgent.name),
-            executionLockedAt: now,
-            updatedAt: now,
-          })
-          .where(eq(issues.id, issue.id));
-
-        return newRun;
-      }
-    });
-
-    if (!promotedRun) return;
-
-    publishLiveEvent(buildHeartbeatRunQueuedEvent({
-      companyId: promotedRun.companyId,
-      runId: promotedRun.id,
-      agentId: promotedRun.agentId,
-      invocationSource: promotedRun.invocationSource,
-      triggerDetail: promotedRun.triggerDetail,
-      wakeupRequestId: promotedRun.wakeupRequestId,
-    }));
-
-      dispatchAgentQueueStart(promotedRun.agentId);
-  }
-
   async function enqueueWakeup(agentId: string, opts: WakeupOptions = {}) {
     const source = opts.source ?? "on_demand";
     const triggerDetail = opts.triggerDetail ?? null;
@@ -2646,61 +2428,6 @@ export function heartbeatService(db: Db) {
     return newRun;
   }
 
-  async function cancelRunInternal(
-    runId: string,
-    opts?: { message?: string; checkpointMessage?: string },
-  ) {
-    const run = await getRun(runId);
-    if (!run) throw notFound("Heartbeat run not found");
-    if (run.status !== "running" && run.status !== "queued" && run.status !== "claimed") return run;
-    const cancellation = buildHeartbeatCancellationArtifacts({
-      message: readNonEmptyString(opts?.message) ?? "Cancelled by control plane",
-      checkpointMessage: readNonEmptyString(opts?.checkpointMessage) ?? "run cancelled by control plane",
-    });
-
-    const running = runningProcesses.get(run.id);
-    if (running) {
-      running.child.kill("SIGTERM");
-      const graceMs = Math.max(1, running.graceSec) * 1000;
-      setTimeout(() => {
-        if (!running.child.killed) {
-          running.child.kill("SIGKILL");
-        }
-      }, graceMs);
-    }
-
-    const cancelled = await setRunStatus(run.id, "cancelled", cancellation.runPatch);
-
-    await setWakeupStatus(run.wakeupRequestId, "cancelled", cancellation.wakeupPatch);
-
-    await upsertRunLease({
-      run: cancelled ?? run,
-      status: "cancelled",
-      checkpointJson: cancellation.leasePatch,
-      heartbeatAt: cancellation.releasedAt,
-      leaseExpiresAt: cancellation.releasedAt,
-      releasedAt: cancellation.releasedAt,
-      lastError: cancellation.lastError,
-    });
-
-    if (cancelled) {
-      await appendRunEvent(cancelled, 1, {
-        eventType: "lifecycle",
-        stream: "system",
-        level: "warn",
-        message: cancellation.eventMessage,
-      });
-      await releaseIssueExecutionAndPromote(cancelled);
-    }
-
-    runningProcesses.delete(run.id);
-    clearDispatchWatchdog(run.id);
-    clearProtocolIdleWatchdog(run.id);
-    await finalizeAgentStatus(run.agentId, "cancelled");
-    dispatchAgentQueueStart(run.agentId);
-    return cancelled;
-  }
-
   const service = {
     list: (companyId: string, agentId?: string, limit?: number) => {
       const query = db
@@ -2890,171 +2617,11 @@ export function heartbeatService(db: Db) {
 
     cancelRun: cancelRunInternal,
 
-    cancelIssueScope: async (input: {
-      companyId: string;
-      issueId: string;
-      reason?: string | null;
-      excludeRunId?: string | null;
-    }) => {
-      const cancelledAt = new Date();
-      const reason = readNonEmptyString(input.reason) ?? "Cancelled by control plane";
+    cancelIssueScope,
 
-      const wakeupRows = await db
-        .select({ id: agentWakeupRequests.id })
-        .from(agentWakeupRequests)
-        .where(
-          and(
-            eq(agentWakeupRequests.companyId, input.companyId),
-            inArray(agentWakeupRequests.status, ["queued", "claimed", "deferred_issue_execution"]),
-            sql`${agentWakeupRequests.payload} ->> 'issueId' = ${input.issueId}`,
-          ),
-        );
+    cancelSupersededIssueFollowups,
 
-      if (wakeupRows.length > 0) {
-        await db
-          .update(agentWakeupRequests)
-          .set({
-            status: "cancelled",
-            finishedAt: cancelledAt,
-            error: reason,
-            updatedAt: cancelledAt,
-          })
-          .where(inArray(agentWakeupRequests.id, wakeupRows.map((row) => row.id)));
-      }
-
-      const runConditions = [
-        eq(heartbeatRuns.companyId, input.companyId),
-        inArray(heartbeatRuns.status, ["queued", "claimed", "running"]),
-        sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
-      ];
-      if (input.excludeRunId) {
-        runConditions.push(sql`${heartbeatRuns.id} <> ${input.excludeRunId}`);
-      }
-
-      const runs = await db
-        .select({ id: heartbeatRuns.id })
-        .from(heartbeatRuns)
-        .where(and(...runConditions))
-        .orderBy(
-          sql`case when ${heartbeatRuns.status} = 'running' then 0 else 1 end`,
-          asc(heartbeatRuns.createdAt),
-        );
-
-      let cancelledRunCount = 0;
-      for (const run of runs) {
-        const current = await getRun(run.id);
-        if (!current || (current.status !== "queued" && current.status !== "claimed" && current.status !== "running")) continue;
-        await cancelRunInternal(run.id);
-        cancelledRunCount += 1;
-      }
-
-      return {
-        cancelledWakeupCount: wakeupRows.length,
-        cancelledRunCount,
-      };
-    },
-
-    cancelSupersededIssueFollowups: async (input: {
-      companyId: string;
-      issueId: string;
-      reason?: string | null;
-      excludeRunId?: string | null;
-    }) => {
-      const cancelledAt = new Date();
-      const reason = readNonEmptyString(input.reason) ?? "Cancelled stale protocol follow-up";
-      const supersededReasons = [...SUPERSEDED_PROTOCOL_WAKE_REASONS];
-
-      const wakeupRows = await db
-        .select({ id: agentWakeupRequests.id })
-        .from(agentWakeupRequests)
-        .where(
-          and(
-            eq(agentWakeupRequests.companyId, input.companyId),
-            inArray(agentWakeupRequests.status, ["queued", "claimed", "deferred_issue_execution"]),
-            sql`${agentWakeupRequests.payload} ->> 'issueId' = ${input.issueId}`,
-            sql`(
-              ${agentWakeupRequests.reason} in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})
-              or ${agentWakeupRequests.payload} -> ${DEFERRED_WAKE_CONTEXT_KEY} ->> 'wakeReason' in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})
-            )`,
-          ),
-        );
-
-      if (wakeupRows.length > 0) {
-        await db
-          .update(agentWakeupRequests)
-          .set({
-            status: "cancelled",
-            finishedAt: cancelledAt,
-            error: reason,
-            updatedAt: cancelledAt,
-          })
-          .where(inArray(agentWakeupRequests.id, wakeupRows.map((row) => row.id)));
-      }
-
-      const runConditions = [
-        eq(heartbeatRuns.companyId, input.companyId),
-        inArray(heartbeatRuns.status, ["queued", "claimed", "running"]),
-        sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${input.issueId}`,
-        sql`${heartbeatRuns.contextSnapshot} ->> 'wakeReason' in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})`,
-      ];
-      if (input.excludeRunId) {
-        runConditions.push(sql`${heartbeatRuns.id} <> ${input.excludeRunId}`);
-      }
-      const runs = await db
-        .select({ id: heartbeatRuns.id })
-        .from(heartbeatRuns)
-        .where(and(...runConditions));
-
-      let cancelledRunCount = 0;
-      for (const run of runs) {
-        const current = await getRun(run.id);
-        if (!current || (current.status !== "queued" && current.status !== "claimed" && current.status !== "running")) continue;
-        await cancelRunInternal(run.id);
-        cancelledRunCount += 1;
-      }
-
-      return {
-        cancelledWakeupCount: wakeupRows.length,
-        cancelledRunCount,
-      };
-    },
-
-    cancelActiveForAgent: async (agentId: string) => {
-      const runs = await db
-        .select()
-        .from(heartbeatRuns)
-        .where(and(eq(heartbeatRuns.agentId, agentId), inArray(heartbeatRuns.status, ["queued", "running"])));
-
-      for (const run of runs) {
-        const cancellation = buildHeartbeatCancellationArtifacts({
-          message: "Cancelled due to agent pause",
-          checkpointMessage: "run cancelled due to agent pause",
-        });
-        const cancelled = await setRunStatus(run.id, "cancelled", cancellation.runPatch);
-
-        await setWakeupStatus(run.wakeupRequestId, "cancelled", cancellation.wakeupPatch);
-        await upsertRunLease({
-          run: cancelled ?? run,
-          status: "cancelled",
-          checkpointJson: cancellation.leasePatch,
-          heartbeatAt: cancellation.releasedAt,
-          leaseExpiresAt: cancellation.releasedAt,
-          releasedAt: cancellation.releasedAt,
-          lastError: cancellation.lastError,
-        });
-
-        const running = runningProcesses.get(run.id);
-        if (running) {
-          running.child.kill("SIGTERM");
-          runningProcesses.delete(run.id);
-        }
-        clearDispatchWatchdog(run.id);
-        clearProtocolIdleWatchdog(run.id);
-        await releaseIssueExecutionAndPromote(run);
-      }
-
-      return runs.length;
-    },
+    cancelActiveForAgent,
 
     getActiveRunForAgent: async (agentId: string) => {
       const [run] = await db
