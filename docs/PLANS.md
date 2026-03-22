@@ -18,6 +18,7 @@
 - `exec-plans/completed/p3-runtime-surface-maintenance-plan-2026-03-22.md`
 - `exec-plans/completed/p4-runtime-surface-maintenance-plan-2026-03-22.md`
 - `exec-plans/completed/p5-runtime-surface-maintenance-plan-2026-03-22.md`
+- `exec-plans/completed/p6-runtime-surface-maintenance-plan-2026-03-22.md`
 - `exec-plans/completed/canonical-stabilization-sprint-plan-2026-03-18.md`
 - `exec-plans/completed/phase-0-security-baseline-design-2026-03-18.md`
 - `exec-plans/completed/five-axis-hardening-plan-2026-03-18.md`
