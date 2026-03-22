@@ -6,11 +6,14 @@ package "Server" {
   [dashboard.ts service] --> [Overscan-limited feeds]
   [heartbeat.ts] --> [Runtime utils]
   [heartbeat.ts] --> [Dispatch priority utils]
+  [heartbeat.ts] --> [Wake utils]
+  [heartbeat.ts] --> [Protocol watchdog utils]
 }
 
 package "UI" {
   [IssueDetail.tsx] --> [useIssueDetailQueries]
   [useIssueDetailQueries] --> [Polling policy helper]
+  [dashboardApi] --> [Paginated dashboard feeds]
 }
 
 note right of [IssuesService batch summaries]
@@ -21,6 +24,11 @@ end note
 note right of [Overscan-limited feeds]
 Limit broad-load before
 enrich/sort/slice
+end note
+
+note right of [Paginated dashboard feeds]
+limit/offset/hasMore/nextOffset
+prepare later UI pagination
 end note
 
 note right of [useIssueDetailQueries]

@@ -191,6 +191,10 @@ export interface DashboardTeamSupervisionItem {
 export interface DashboardTeamSupervisionFeed {
   companyId: string;
   generatedAt: string;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset: number | null;
   summary: DashboardTeamSupervisionSummary;
   items: DashboardTeamSupervisionItem[];
 }
@@ -273,6 +277,10 @@ export interface DashboardRecoveryQueueSummary {
 export interface DashboardRecoveryQueue {
   companyId: string;
   generatedAt: string;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset: number | null;
   summary: DashboardRecoveryQueueSummary;
   items: DashboardRecoveryCase[];
 }

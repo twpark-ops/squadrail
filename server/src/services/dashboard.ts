@@ -1342,10 +1342,12 @@ export function dashboardService(db: Db) {
     teamSupervision: async (input: {
       companyId: string;
       limit?: number;
+      offset?: number;
     }) => {
       await ensureCompany(input.companyId);
       const limit = input.limit ?? 20;
-      const sourceLimit = Math.max(limit * DASHBOARD_LIMIT_OVERSCAN, limit);
+      const offset = input.offset ?? 0;
+      const sourceLimit = Math.max((offset + limit) * DASHBOARD_LIMIT_OVERSCAN, offset + limit, limit);
 
       const rows = await db
         .select({
@@ -1380,6 +1382,10 @@ export function dashboardService(db: Db) {
         return {
           companyId: input.companyId,
           generatedAt: new Date().toISOString(),
+          limit,
+          offset,
+          hasMore: false,
+          nextOffset: null,
           summary: buildTeamSupervisionSummary({ items: [] }),
           items: [] as DashboardTeamSupervisionItem[],
         };
@@ -1447,7 +1453,7 @@ export function dashboardService(db: Db) {
         else labelMap.set(row.issueId, [row.name]);
       }
 
-      const items = rows
+      const rankedItems = rows
         .flatMap((row) => {
           if (!row.parentId) return [];
           const root = rootMap.get(row.parentId);
@@ -1524,13 +1530,18 @@ export function dashboardService(db: Db) {
           const leftTime = left.lastTransitionAt?.getTime() ?? left.updatedAt.getTime();
           const rightTime = right.lastTransitionAt?.getTime() ?? right.updatedAt.getTime();
           return rightTime - leftTime;
-        })
-        .slice(0, limit);
+        });
+      const items = rankedItems.slice(offset, offset + limit);
+      const hasMore = rankedItems.length > offset + limit;
 
       return {
         companyId: input.companyId,
         generatedAt: new Date().toISOString(),
-        summary: buildTeamSupervisionSummary({ items }),
+        limit,
+        offset,
+        hasMore,
+        nextOffset: hasMore ? offset + limit : null,
+        summary: buildTeamSupervisionSummary({ items: rankedItems }),
         items,
       };
     },
@@ -1823,10 +1834,12 @@ export function dashboardService(db: Db) {
     recoveryQueue: async (input: {
       companyId: string;
       limit?: number;
+      offset?: number;
     }) => {
       await ensureCompany(input.companyId);
       const limit = input.limit ?? 20;
-      const sourceLimit = Math.max(limit * DASHBOARD_LIMIT_OVERSCAN, limit);
+      const offset = input.offset ?? 0;
+      const sourceLimit = Math.max((offset + limit) * DASHBOARD_LIMIT_OVERSCAN, offset + limit, limit);
 
       const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const [violationRows, timeoutRows, integrityRows, runtimeRows] = await Promise.all([
@@ -1941,6 +1954,10 @@ export function dashboardService(db: Db) {
         return {
           companyId: input.companyId,
           generatedAt: new Date().toISOString(),
+          limit,
+          offset,
+          hasMore: false,
+          nextOffset: null,
           summary: buildRecoveryLearningSummary({ items: [] }),
           items: [] as DashboardRecoveryCase[],
         };
@@ -2077,12 +2094,18 @@ export function dashboardService(db: Db) {
       }
 
       cases.sort(compareRecoveryCases);
+      const items = cases.slice(offset, offset + limit);
+      const hasMore = cases.length > offset + limit;
 
       return {
         companyId: input.companyId,
         generatedAt: new Date().toISOString(),
+        limit,
+        offset,
+        hasMore,
+        nextOffset: hasMore ? offset + limit : null,
         summary: buildRecoveryLearningSummary({ items: cases }),
-        items: cases.slice(0, limit),
+        items,
       };
     },
 

@@ -5,8 +5,12 @@ import { dashboardRecoveryActionSchema } from "@squadrail/shared";
 import { dashboardService } from "../services/dashboard.js";
 import { assertCompanyAccess } from "./authz.js";
 
-const protocolQueueQuerySchema = z.object({
+const limitQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+const paginatedFeedQuerySchema = limitQuerySchema.extend({
+  offset: z.coerce.number().int().min(0).optional(),
 });
 
 export function dashboardRoutes(db: Db) {
@@ -24,7 +28,7 @@ export function dashboardRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
 
-    const parsed = protocolQueueQuerySchema.safeParse(req.query);
+    const parsed = limitQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "Validation error", details: parsed.error.issues });
       return;
@@ -41,7 +45,7 @@ export function dashboardRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
 
-    const parsed = protocolQueueQuerySchema.safeParse(req.query);
+    const parsed = limitQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "Validation error", details: parsed.error.issues });
       return;
@@ -58,7 +62,7 @@ export function dashboardRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
 
-    const parsed = protocolQueueQuerySchema.safeParse(req.query);
+    const parsed = paginatedFeedQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "Validation error", details: parsed.error.issues });
       return;
@@ -67,6 +71,7 @@ export function dashboardRoutes(db: Db) {
     const recovery = await svc.recoveryQueue({
       companyId,
       limit: parsed.data.limit,
+      offset: parsed.data.offset ?? 0,
     });
     res.json(recovery);
   });
@@ -75,7 +80,7 @@ export function dashboardRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
 
-    const parsed = protocolQueueQuerySchema.safeParse(req.query);
+    const parsed = paginatedFeedQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "Validation error", details: parsed.error.issues });
       return;
@@ -84,6 +89,7 @@ export function dashboardRoutes(db: Db) {
     const feed = await svc.teamSupervision({
       companyId,
       limit: parsed.data.limit,
+      offset: parsed.data.offset ?? 0,
     });
     res.json(feed);
   });

@@ -194,6 +194,12 @@ describe("dashboard routes", () => {
 
   it("returns recovery queue data", async () => {
     mockRecoveryQueue.mockResolvedValue({
+      companyId: "company-1",
+      generatedAt: new Date("2026-03-12T00:00:00.000Z").toISOString(),
+      limit: 12,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
       summary: {
         totalCases: 1,
         repeatedCases: 1,
@@ -234,6 +240,7 @@ describe("dashboard routes", () => {
     expect(mockRecoveryQueue).toHaveBeenCalledWith({
       companyId: "company-1",
       limit: 12,
+      offset: 0,
     });
     expect(response.body).toMatchObject({
       summary: {
@@ -323,6 +330,10 @@ describe("dashboard routes", () => {
     mockTeamSupervision.mockResolvedValue({
       companyId: "company-1",
       generatedAt: new Date("2026-03-12T00:00:00.000Z").toISOString(),
+      limit: 15,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
       summary: {
         total: 2,
         blocked: 1,
@@ -344,12 +355,52 @@ describe("dashboard routes", () => {
     expect(mockTeamSupervision).toHaveBeenCalledWith({
       companyId: "company-1",
       limit: 15,
+      offset: 0,
     });
     expect(response.body).toMatchObject({
       summary: {
         total: 2,
         blocked: 1,
       },
+    });
+  });
+
+  it("passes offset through paginated dashboard feeds", async () => {
+    mockRecoveryQueue.mockResolvedValue({
+      companyId: "company-1",
+      generatedAt: new Date("2026-03-12T00:00:00.000Z").toISOString(),
+      limit: 5,
+      offset: 10,
+      hasMore: true,
+      nextOffset: 15,
+      summary: {
+        totalCases: 20,
+        repeatedCases: 5,
+        retryableCases: 1,
+        operatorRequiredCases: 19,
+        blockedCases: 0,
+      },
+      items: [],
+    });
+
+    const response = await invokeRoute({
+      path: "/companies/:companyId/dashboard/recovery-queue",
+      method: "get",
+      params: { companyId: "company-1" },
+      query: { limit: "5", offset: "10" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockRecoveryQueue).toHaveBeenCalledWith({
+      companyId: "company-1",
+      limit: 5,
+      offset: 10,
+    });
+    expect(response.body).toMatchObject({
+      limit: 5,
+      offset: 10,
+      hasMore: true,
+      nextOffset: 15,
     });
   });
 

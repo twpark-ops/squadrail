@@ -66,6 +66,48 @@ import {
   priorityRank,
   type HeartbeatQueuedRunPrioritySelection,
 } from "./heartbeat-dispatch-priority.js";
+import {
+  buildDeferredIssueWakePayload,
+  buildDeferredWakePromotionPlan,
+  buildHeartbeatRunQueuedEvent,
+  buildWakeupRequestValues,
+  deriveCommentId,
+  deriveTaskKey,
+  describeSessionResetReason,
+  enrichWakeContextSnapshot,
+  mergeCoalescedContextSnapshot,
+  parseIssueAssigneeAdapterOverrides,
+  selectWakeupCoalescedRun,
+  shouldBypassIssueExecutionLock,
+  shouldQueueFollowupIssueExecution,
+  shouldResetTaskSessionForWake,
+} from "./heartbeat-wake-utils.js";
+import {
+  buildRequiredProtocolProgressError,
+  classifyProtocolRuntimeDegradedState,
+  decideDispatchWatchdogAction,
+  describeProtocolRunRuntimeState,
+  hasRequiredProtocolProgress,
+  isIdleProtocolWatchdogEligibleRequirement,
+  isSupersededProtocolWakeReason,
+  isWorkflowStateEligibleForProtocolRetry,
+  parseHeartbeatPolicyConfig,
+  readLeaseLastProgressAt,
+  resolveProtocolIdleWatchdogDelayMs,
+  resolveDegradedProtocolRecoveryReason,
+  runDispatchWatchdogOutsideDbContext,
+  runProtocolWatchdogRecoveries,
+  scheduleDeferredRunDispatch,
+  shouldEnqueueProtocolRequiredRetry,
+  shouldEnqueueRetryableAdapterFailure,
+  shouldReapHeartbeatRun,
+  shouldRecoverDegradedProtocolRun,
+  shouldRecoverIdleProtocolRun,
+  shouldSkipSupersededProtocolFollowup,
+  SUPERSEDED_PROTOCOL_WAKE_REASONS,
+  RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
+  RUN_PROTOCOL_IDLE_WATCHDOG_MS,
+} from "./heartbeat-protocol-watchdog.js";
 
 export {
   attachResolvedWorkspaceContextToRunContext,
@@ -92,42 +134,52 @@ export {
   priorityRank,
   type HeartbeatQueuedRunPrioritySelection,
 } from "./heartbeat-dispatch-priority.js";
+export {
+  buildDeferredIssueWakePayload,
+  buildDeferredWakePromotionPlan,
+  buildHeartbeatRunQueuedEvent,
+  buildWakeupRequestValues,
+  deriveCommentId,
+  deriveTaskKey,
+  describeSessionResetReason,
+  enrichWakeContextSnapshot,
+  mergeCoalescedContextSnapshot,
+  parseIssueAssigneeAdapterOverrides,
+  selectWakeupCoalescedRun,
+  shouldBypassIssueExecutionLock,
+  shouldQueueFollowupIssueExecution,
+  shouldResetTaskSessionForWake,
+} from "./heartbeat-wake-utils.js";
+export {
+  buildRequiredProtocolProgressError,
+  classifyProtocolRuntimeDegradedState,
+  decideDispatchWatchdogAction,
+  describeProtocolRunRuntimeState,
+  hasRequiredProtocolProgress,
+  isIdleProtocolWatchdogEligibleRequirement,
+  isSupersededProtocolWakeReason,
+  isWorkflowStateEligibleForProtocolRetry,
+  parseHeartbeatPolicyConfig,
+  readLeaseLastProgressAt,
+  resolveProtocolIdleWatchdogDelayMs,
+  resolveDegradedProtocolRecoveryReason,
+  runDispatchWatchdogOutsideDbContext,
+  runProtocolWatchdogRecoveries,
+  scheduleDeferredRunDispatch,
+  shouldEnqueueProtocolRequiredRetry,
+  shouldEnqueueRetryableAdapterFailure,
+  shouldReapHeartbeatRun,
+  shouldRecoverDegradedProtocolRun,
+  shouldRecoverIdleProtocolRun,
+  shouldSkipSupersededProtocolFollowup,
+} from "./heartbeat-protocol-watchdog.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
-const RUN_PROTOCOL_IDLE_WATCHDOG_MS = 10_000;
-const RUN_PROTOCOL_DEGRADED_WATCHDOG_MS = 20_000;
-const RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS = 10_000;
-const RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS = 60_000;
-const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
-const RETRYABLE_ADAPTER_FAILURE_LIMIT = 2;
 const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
 const startLocksByAgent = new Map<string, Promise<void>>();
-const SUPERSEDED_PROTOCOL_WAKE_REASONS = new Set([
-  "issue_ready_for_closure",
-  "issue_ready_for_qa_gate",
-  "protocol_required_retry",
-]);
-const RETRYABLE_ADAPTER_ERROR_CODES = new Set([
-  "claude_stream_incomplete",
-]);
-const IDLE_PROTOCOL_WATCHDOG_REQUIREMENT_KEYS = new Set<ProtocolRunRequirement["key"]>([
-  "assignment_engineer",
-  "assignment_supervisor",
-  "reassignment_engineer",
-  "reassignment_supervisor",
-  "change_request_engineer",
-  "review_reviewer",
-  "qa_gate_reviewer",
-  "approval_tech_lead",
-]);
-const SHORT_SUPERVISORY_PROTOCOL_REQUIREMENT_KEYS = new Set<ProtocolRunRequirement["key"]>([
-  "review_reviewer",
-  "qa_gate_reviewer",
-  "approval_tech_lead",
-]);
 
 class SupersededProtocolFollowupError extends Error {
   readonly code = "superseded_followup";
@@ -140,15 +192,6 @@ class SupersededProtocolFollowupError extends Error {
 
 function appendExcerpt(prev: string, chunk: string) {
   return appendWithCap(prev, chunk, MAX_EXCERPT_BYTES);
-}
-
-export function resolveProtocolIdleWatchdogDelayMs(attempt: number) {
-  const normalizedAttempt = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0;
-  if (normalizedAttempt <= 1) return RUN_PROTOCOL_IDLE_WATCHDOG_MS;
-  return Math.min(
-    RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS,
-    RUN_PROTOCOL_IDLE_WATCHDOG_MS * (2 ** (normalizedAttempt - 1)),
-  );
 }
 
 function isRepoBackedWorkspaceSource(source: ResolvedWorkspaceForRun["source"] | null | undefined) {
@@ -182,355 +225,6 @@ interface WakeupOptions {
   requestedByActorId?: string | null;
   contextSnapshot?: Record<string, unknown>;
 }
-
-interface ParsedIssueAssigneeAdapterOverrides {
-  adapterConfig: Record<string, unknown> | null;
-  useProjectWorkspace: boolean | null;
-}
-
-export function parseIssueAssigneeAdapterOverrides(
-  raw: unknown,
-): ParsedIssueAssigneeAdapterOverrides | null {
-  const parsed = parseObject(raw);
-  const parsedAdapterConfig = parseObject(parsed.adapterConfig);
-  const adapterConfig =
-    Object.keys(parsedAdapterConfig).length > 0 ? parsedAdapterConfig : null;
-  const useProjectWorkspace =
-    typeof parsed.useProjectWorkspace === "boolean"
-      ? parsed.useProjectWorkspace
-      : null;
-  if (!adapterConfig && useProjectWorkspace === null) return null;
-  return {
-    adapterConfig,
-    useProjectWorkspace,
-  };
-}
-
-export function deriveTaskKey(
-  contextSnapshot: Record<string, unknown> | null | undefined,
-  payload: Record<string, unknown> | null | undefined,
-) {
-  return (
-    readNonEmptyString(contextSnapshot?.taskKey) ??
-    readNonEmptyString(contextSnapshot?.taskId) ??
-    readNonEmptyString(contextSnapshot?.issueId) ??
-    readNonEmptyString(payload?.taskKey) ??
-    readNonEmptyString(payload?.taskId) ??
-    readNonEmptyString(payload?.issueId) ??
-    null
-  );
-}
-
-export function shouldResetTaskSessionForWake(
-  contextSnapshot: Record<string, unknown> | null | undefined,
-) {
-  const wakeReason = readNonEmptyString(contextSnapshot?.wakeReason);
-  if (
-    wakeReason === "issue_assigned" ||
-    wakeReason === "issue_reassigned" ||
-    wakeReason === "issue_watch_assigned" ||
-    wakeReason === "issue_watch_reassigned" ||
-    wakeReason === "protocol_review_requested" ||
-    wakeReason === "protocol_implementation_approved" ||
-    wakeReason === "protocol_required_retry" ||
-    wakeReason === "issue_ready_for_closure" ||
-    wakeReason === "issue_ready_for_qa_gate"
-  ) return true;
-
-  if (
-    typeof contextSnapshot?.protocolRequiredRetryCount === "number"
-    && Number.isFinite(contextSnapshot.protocolRequiredRetryCount)
-    && contextSnapshot.protocolRequiredRetryCount > 0
-  ) return true;
-
-  const wakeSource = readNonEmptyString(contextSnapshot?.wakeSource);
-  if (wakeSource === "timer") return true;
-
-  const wakeTriggerDetail = readNonEmptyString(contextSnapshot?.wakeTriggerDetail);
-  return wakeSource === "on_demand" && wakeTriggerDetail === "manual";
-}
-
-export function describeSessionResetReason(
-  contextSnapshot: Record<string, unknown> | null | undefined,
-) {
-  const wakeReason = readNonEmptyString(contextSnapshot?.wakeReason);
-  if (
-    wakeReason === "issue_assigned" ||
-    wakeReason === "issue_reassigned" ||
-    wakeReason === "issue_watch_assigned" ||
-    wakeReason === "issue_watch_reassigned" ||
-    wakeReason === "protocol_review_requested" ||
-    wakeReason === "protocol_implementation_approved" ||
-    wakeReason === "protocol_required_retry" ||
-    wakeReason === "issue_ready_for_closure" ||
-    wakeReason === "issue_ready_for_qa_gate"
-  ) {
-    return `wake reason is ${wakeReason}`;
-  }
-
-  if (
-    typeof contextSnapshot?.protocolRequiredRetryCount === "number"
-    && Number.isFinite(contextSnapshot.protocolRequiredRetryCount)
-    && contextSnapshot.protocolRequiredRetryCount > 0
-  ) {
-    return "a protocol-required retry is forcing a fresh session";
-  }
-
-  const wakeSource = readNonEmptyString(contextSnapshot?.wakeSource);
-  if (wakeSource === "timer") return "wake source is timer";
-
-  const wakeTriggerDetail = readNonEmptyString(contextSnapshot?.wakeTriggerDetail);
-  if (wakeSource === "on_demand" && wakeTriggerDetail === "manual") {
-    return "this is a manual invoke";
-  }
-  return null;
-}
-
-export function deriveCommentId(
-  contextSnapshot: Record<string, unknown> | null | undefined,
-  payload: Record<string, unknown> | null | undefined,
-) {
-  return (
-    readNonEmptyString(contextSnapshot?.wakeCommentId) ??
-    readNonEmptyString(contextSnapshot?.commentId) ??
-    readNonEmptyString(payload?.commentId) ??
-    null
-  );
-}
-
-export function enrichWakeContextSnapshot(input: {
-  contextSnapshot: Record<string, unknown>;
-  reason: string | null;
-  source: WakeupOptions["source"];
-  triggerDetail: WakeupOptions["triggerDetail"] | null;
-  payload: Record<string, unknown> | null;
-}) {
-  const { contextSnapshot, reason, source, triggerDetail, payload } = input;
-  const issueIdFromPayload = readNonEmptyString(payload?.["issueId"]);
-  const commentIdFromPayload = readNonEmptyString(payload?.["commentId"]);
-  const taskKey = deriveTaskKey(contextSnapshot, payload);
-  const wakeCommentId = deriveCommentId(contextSnapshot, payload);
-
-  if (!readNonEmptyString(contextSnapshot["wakeReason"]) && reason) {
-    contextSnapshot.wakeReason = reason;
-  }
-  if (!readNonEmptyString(contextSnapshot["issueId"]) && issueIdFromPayload) {
-    contextSnapshot.issueId = issueIdFromPayload;
-  }
-  if (!readNonEmptyString(contextSnapshot["taskId"]) && issueIdFromPayload) {
-    contextSnapshot.taskId = issueIdFromPayload;
-  }
-  if (!readNonEmptyString(contextSnapshot["taskKey"]) && taskKey) {
-    contextSnapshot.taskKey = taskKey;
-  }
-  if (!readNonEmptyString(contextSnapshot["commentId"]) && commentIdFromPayload) {
-    contextSnapshot.commentId = commentIdFromPayload;
-  }
-  if (!readNonEmptyString(contextSnapshot["wakeCommentId"]) && wakeCommentId) {
-    contextSnapshot.wakeCommentId = wakeCommentId;
-  }
-  if (!readNonEmptyString(contextSnapshot["wakeSource"]) && source) {
-    contextSnapshot.wakeSource = source;
-  }
-  if (!readNonEmptyString(contextSnapshot["wakeTriggerDetail"]) && triggerDetail) {
-    contextSnapshot.wakeTriggerDetail = triggerDetail;
-  }
-  if (!readNonEmptyString(contextSnapshot["issuePriority"])) {
-    const priority = normalizeIssuePriorityValue(payload?.["priority"]);
-    if (priority) contextSnapshot.issuePriority = priority;
-  }
-
-  return {
-    contextSnapshot,
-    issueIdFromPayload,
-    commentIdFromPayload,
-    taskKey,
-    wakeCommentId,
-  };
-}
-
-export function mergeCoalescedContextSnapshot(
-  existingRaw: unknown,
-  incoming: Record<string, unknown>,
-) {
-  const existing = parseObject(existingRaw);
-  const merged: Record<string, unknown> = {
-    ...existing,
-    ...incoming,
-  };
-  const commentId = deriveCommentId(incoming, null);
-  if (commentId) {
-    merged.commentId = commentId;
-    merged.wakeCommentId = commentId;
-  }
-  return merged;
-}
-
-export function shouldQueueFollowupIssueExecution(input: {
-  sameExecutionAgent: boolean;
-  activeExecutionRunStatus: string | null | undefined;
-  wakeCommentId: string | null;
-  contextSnapshot: Record<string, unknown>;
-}) {
-  if (!input.sameExecutionAgent) return false;
-  if (input.wakeCommentId && input.activeExecutionRunStatus === "running") return true;
-  return asBoolean(input.contextSnapshot.forceFollowupRun, false);
-}
-
-export function shouldBypassIssueExecutionLock(input: {
-  reason: string | null;
-  contextSnapshot: Record<string, unknown>;
-}) {
-  return (
-    input.reason === "issue_comment_mentioned"
-    || readNonEmptyString(input.contextSnapshot.wakeReason) === "issue_comment_mentioned"
-  );
-}
-
-function isSameTaskScope(left: string | null, right: string | null) {
-  return (left ?? null) === (right ?? null);
-}
-
-export function selectWakeupCoalescedRun(input: {
-  activeRuns: Array<{
-    id: string;
-    status: string;
-    contextSnapshot: unknown;
-  }>;
-  taskKey: string | null;
-  wakeCommentId: string | null;
-}) {
-  const sameScopeQueuedRun = input.activeRuns.find(
-    (candidate) => candidate.status === "queued" && isSameTaskScope(
-      deriveTaskKey(candidate.contextSnapshot as Record<string, unknown> | null, null),
-      input.taskKey,
-    ),
-  );
-  const sameScopeRunningRun = input.activeRuns.find(
-    (candidate) => candidate.status === "running" && isSameTaskScope(
-      deriveTaskKey(candidate.contextSnapshot as Record<string, unknown> | null, null),
-      input.taskKey,
-    ),
-  );
-  const shouldQueueFollowupForCommentWake =
-    Boolean(input.wakeCommentId) && Boolean(sameScopeRunningRun) && !sameScopeQueuedRun;
-
-  return {
-    sameScopeQueuedRun: sameScopeQueuedRun ?? null,
-    sameScopeRunningRun: sameScopeRunningRun ?? null,
-    shouldQueueFollowupForCommentWake,
-    coalescedTargetRun:
-      sameScopeQueuedRun ?? (shouldQueueFollowupForCommentWake ? null : sameScopeRunningRun ?? null),
-  };
-}
-
-export function buildDeferredIssueWakePayload(input: {
-  payload: Record<string, unknown> | null;
-  issueId: string;
-  contextSnapshot: Record<string, unknown>;
-}) {
-  return {
-    ...(input.payload ?? {}),
-    issueId: input.issueId,
-    [DEFERRED_WAKE_CONTEXT_KEY]: input.contextSnapshot,
-  };
-}
-
-export function buildDeferredWakePromotionPlan(input: {
-  deferredPayload: Record<string, unknown>;
-  deferredReason?: string | null;
-  deferredSource?: string | null;
-  deferredTriggerDetail?: string | null;
-}) {
-  const deferredContextSeed = parseObject(input.deferredPayload[DEFERRED_WAKE_CONTEXT_KEY]);
-  const promotedReason = readNonEmptyString(input.deferredReason) ?? "issue_execution_promoted";
-  const promotedSource =
-    (readNonEmptyString(input.deferredSource) as WakeupOptions["source"]) ?? "automation";
-  const promotedTriggerDetail =
-    (readNonEmptyString(input.deferredTriggerDetail) as WakeupOptions["triggerDetail"]) ?? null;
-  const promotedPayload = { ...input.deferredPayload };
-  delete promotedPayload[DEFERRED_WAKE_CONTEXT_KEY];
-
-  const {
-    contextSnapshot: promotedContextSnapshot,
-    taskKey: promotedTaskKey,
-  } = enrichWakeContextSnapshot({
-    contextSnapshot: { ...deferredContextSeed },
-    reason: promotedReason,
-    source: promotedSource,
-    triggerDetail: promotedTriggerDetail,
-    payload: promotedPayload,
-  });
-
-  return {
-    promotedReason,
-    promotedSource,
-    promotedTriggerDetail,
-    promotedPayload,
-    promotedContextSnapshot,
-    promotedTaskKey,
-  };
-}
-
-export function buildWakeupRequestValues(input: {
-  companyId: string;
-  agentId: string;
-  source: NonNullable<WakeupOptions["source"]>;
-  triggerDetail: WakeupOptions["triggerDetail"] | null;
-  reason: string | null;
-  payload: Record<string, unknown> | null;
-  status: string;
-  requestedByActorType?: WakeupOptions["requestedByActorType"] | null;
-  requestedByActorId?: string | null;
-  idempotencyKey?: string | null;
-  runId?: string | null;
-  finishedAt?: Date | null;
-  coalescedCount?: number | null;
-}) {
-  return {
-    companyId: input.companyId,
-    agentId: input.agentId,
-    source: input.source,
-    triggerDetail: input.triggerDetail,
-    reason: input.reason,
-    payload: input.payload,
-    status: input.status,
-    requestedByActorType: input.requestedByActorType ?? null,
-    requestedByActorId: input.requestedByActorId ?? null,
-    idempotencyKey: input.idempotencyKey ?? null,
-    runId: input.runId ?? null,
-    finishedAt: input.finishedAt ?? null,
-    coalescedCount: input.coalescedCount ?? undefined,
-  };
-}
-
-export function buildHeartbeatRunQueuedEvent(input: {
-  companyId: string;
-  runId: string;
-  agentId: string;
-  invocationSource: string | null;
-  triggerDetail: string | null;
-  wakeupRequestId: string | null;
-}) {
-  return {
-    companyId: input.companyId,
-    type: "heartbeat.run.queued" as const,
-    payload: {
-      runId: input.runId,
-      agentId: input.agentId,
-      invocationSource: input.invocationSource,
-      triggerDetail: input.triggerDetail,
-      wakeupRequestId: input.wakeupRequestId,
-    },
-  };
-}
-
-type RunLeaseLike = {
-  status?: string | null;
-  checkpointJson?: Record<string, unknown> | null;
-  leaseExpiresAt?: Date | string | null;
-  releasedAt?: Date | string | null;
-};
 
 export function resolveHeartbeatRunOutcome(input: {
   latestRunStatus?: string | null;
@@ -643,548 +337,6 @@ export function buildHeartbeatCancellationArtifacts(input: {
     releasedAt: finishedAt,
     lastError: input.message,
     eventMessage: "run cancelled",
-  };
-}
-
-type ObservedProtocolProgressMessage = {
-  messageType: string;
-};
-
-type HeartbeatRunEventLike = {
-  eventType?: string | null;
-  createdAt?: Date | string | null;
-};
-
-export function readLeaseLastProgressAt(checkpointJson: unknown) {
-  const checkpoint = parseObject(checkpointJson);
-  return toEpochMillis(readNonEmptyString(checkpoint.lastProgressAt));
-}
-
-function isProtocolWatchdogCheckpointPhase(checkpointPhase: string | null) {
-  return (
-    checkpointPhase === "adapter.invoke"
-    || checkpointPhase === "adapter.execute_start"
-    || Boolean(checkpointPhase && (checkpointPhase.startsWith("preflight.") || checkpointPhase.startsWith("adapter.")))
-  );
-}
-
-export function isIdleProtocolWatchdogEligibleRequirement(requirement: ProtocolRunRequirement | null | undefined) {
-  return Boolean(requirement && IDLE_PROTOCOL_WATCHDOG_REQUIREMENT_KEYS.has(requirement.key));
-}
-
-function isShortSupervisoryProtocolRequirement(requirement: ProtocolRunRequirement | null | undefined) {
-  return Boolean(requirement && SHORT_SUPERVISORY_PROTOCOL_REQUIREMENT_KEYS.has(requirement.key));
-}
-
-export function shouldRecoverIdleProtocolRun(input: {
-  runStatus: string;
-  hasRunningProcess: boolean;
-  requirement: ProtocolRunRequirement | null;
-  issueStatus?: string | null;
-  workflowState?: string | null;
-  protocolRetryCount: number;
-  checkpointJson?: unknown;
-  latestEvent?: HeartbeatRunEventLike | null;
-  startedAt?: Date | string | null;
-  now?: Date;
-  idleThresholdMs?: number;
-}) {
-  if (input.runStatus !== "running") return false;
-  if (!input.hasRunningProcess) return false;
-  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return false;
-  if (!shouldEnqueueProtocolRequiredRetry({
-    protocolRetryCount: input.protocolRetryCount,
-    issueStatus: input.issueStatus ?? null,
-    workflowState: input.workflowState ?? null,
-    requirement: input.requirement,
-  })) {
-    return false;
-  }
-
-  const checkpoint = parseObject(input.checkpointJson);
-  const checkpointPhase = readNonEmptyString(checkpoint.phase);
-  const checkpointLooksIdle = isProtocolWatchdogCheckpointPhase(checkpointPhase);
-  if (!checkpointLooksIdle) return false;
-
-  const lastProgressAtMs =
-    readLeaseLastProgressAt(checkpoint)
-    ?? toEpochMillis(input.latestEvent?.createdAt)
-    ?? toEpochMillis(input.startedAt)
-    ?? 0;
-  const idleThresholdMs = input.idleThresholdMs ?? RUN_PROTOCOL_IDLE_WATCHDOG_MS;
-  return (input.now ?? new Date()).getTime() - lastProgressAtMs >= idleThresholdMs;
-}
-
-export function classifyDegradedProtocolRunReason(input: {
-  requirement: ProtocolRunRequirement | null;
-  wakeReason?: string | null;
-  adapterRetryCount: number;
-  adapterRetryErrorCode?: string | null;
-}) {
-  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return null;
-  if (readNonEmptyString(input.wakeReason) !== "adapter_retry") return null;
-
-  if (
-    readNonEmptyString(input.adapterRetryErrorCode) === "claude_stream_incomplete"
-    && input.adapterRetryCount >= 1
-  ) {
-    return "claude_stream_incomplete_retry_loop" as const;
-  }
-  if (input.adapterRetryCount < RETRYABLE_ADAPTER_FAILURE_LIMIT) return null;
-  return "adapter_retry_loop" as const;
-}
-
-function classifySupervisoryInvokeStallReason(input: {
-  runStatus: string;
-  requirement: ProtocolRunRequirement | null;
-  checkpointJson?: unknown;
-  startedAt?: Date | string | null;
-  now?: Date;
-  degradedThresholdMs?: number;
-}) {
-  if (input.runStatus !== "running") return null;
-  if (!isShortSupervisoryProtocolRequirement(input.requirement)) return null;
-
-  const checkpoint = parseObject(input.checkpointJson);
-  const checkpointPhase = readNonEmptyString(checkpoint.phase);
-  if (!isProtocolWatchdogCheckpointPhase(checkpointPhase)) return null;
-
-  const startedAtMs = toEpochMillis(input.startedAt) ?? 0;
-  if (startedAtMs <= 0) return null;
-
-  const degradedThresholdMs = Math.min(
-    input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
-    RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS,
-  );
-  if ((input.now ?? new Date()).getTime() - startedAtMs < degradedThresholdMs) return null;
-  return "supervisory_invoke_stall" as const;
-}
-
-function resolveProtocolRecoveryThresholdMs(input: {
-  degradedReason: string | null;
-  degradedThresholdMs?: number;
-}) {
-  if (input.degradedReason === "supervisory_invoke_stall") {
-    return Math.min(
-      input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
-      RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS,
-    );
-  }
-  return input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS;
-}
-
-function resolveDegradedProtocolRecoveryReason(input: {
-  runStatus: string;
-  requirement: ProtocolRunRequirement | null;
-  wakeReason?: string | null;
-  adapterRetryCount: number;
-  adapterRetryErrorCode?: string | null;
-  checkpointJson?: unknown;
-  startedAt?: Date | string | null;
-  now?: Date;
-  degradedThresholdMs?: number;
-}) {
-  return classifyDegradedProtocolRunReason({
-    requirement: input.requirement,
-    wakeReason: input.wakeReason,
-    adapterRetryCount: input.adapterRetryCount,
-    adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
-  }) ?? classifySupervisoryInvokeStallReason({
-    runStatus: input.runStatus,
-    requirement: input.requirement,
-    checkpointJson: input.checkpointJson,
-    startedAt: input.startedAt,
-    now: input.now,
-    degradedThresholdMs: input.degradedThresholdMs,
-  });
-}
-
-export function classifyProtocolRuntimeDegradedState(input: {
-  runStatus: string;
-  requirement: ProtocolRunRequirement | null;
-  wakeReason?: string | null;
-  protocolRequiredRetryCount?: number;
-  protocolDegradedRecoveryCount?: number;
-  protocolIdleRecovery?: boolean;
-  adapterRetryCount: number;
-  adapterRetryErrorCode?: string | null;
-  checkpointJson?: unknown;
-  startedAt?: Date | string | null;
-  now?: Date;
-  degradedThresholdMs?: number;
-}) {
-  const degradedReason = resolveDegradedProtocolRecoveryReason({
-    runStatus: input.runStatus,
-    requirement: input.requirement,
-    wakeReason: input.wakeReason,
-    adapterRetryCount: input.adapterRetryCount,
-    adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
-    checkpointJson: input.checkpointJson,
-    startedAt: input.startedAt,
-    now: input.now,
-    degradedThresholdMs: input.degradedThresholdMs,
-  });
-  if (degradedReason === "claude_stream_incomplete_retry_loop") {
-    return degradedReason;
-  }
-  if (input.runStatus !== "running") return degradedReason;
-  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return degradedReason;
-
-  const checkpoint = parseObject(input.checkpointJson);
-  const checkpointPhase = readNonEmptyString(checkpoint.phase);
-  if (!isProtocolWatchdogCheckpointPhase(checkpointPhase)) return degradedReason;
-
-  const recoveryApplied =
-    input.protocolIdleRecovery === true
-    || (input.protocolRequiredRetryCount ?? 0) > 0
-    || (input.protocolDegradedRecoveryCount ?? 0) > 0;
-  if (!recoveryApplied) return degradedReason;
-
-  const startedAtMs = toEpochMillis(input.startedAt) ?? readLeaseLastProgressAt(checkpoint) ?? 0;
-  const degradedThresholdMs = input.degradedThresholdMs ?? RUN_PROTOCOL_DEGRADED_WATCHDOG_MS;
-  if ((input.now ?? new Date()).getTime() - startedAtMs < degradedThresholdMs) return degradedReason;
-
-  return "recovered_supervisory_invoke_stall" as const;
-}
-
-export function describeProtocolRunRuntimeState(input: {
-  runStatus: string;
-  contextSnapshot?: unknown;
-  checkpointJson?: unknown;
-  startedAt?: Date | string | null;
-  now?: Date;
-}) {
-  const context = parseObject(input.contextSnapshot);
-  const requirement = resolveProtocolRunRequirement({
-    protocolMessageType: readNonEmptyString(context.protocolMessageType),
-    protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
-  });
-  const runtimeDegradedState = classifyProtocolRuntimeDegradedState({
-    runStatus: input.runStatus,
-    requirement,
-    wakeReason: readNonEmptyString(context.wakeReason),
-    protocolRequiredRetryCount:
-      typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
-        ? context.protocolRequiredRetryCount
-        : 0,
-    protocolDegradedRecoveryCount:
-      typeof context.protocolDegradedRecoveryCount === "number" && Number.isFinite(context.protocolDegradedRecoveryCount)
-        ? context.protocolDegradedRecoveryCount
-        : 0,
-    protocolIdleRecovery: context.protocolIdleRecovery === true,
-    adapterRetryCount:
-      typeof context.adapterRetryCount === "number" && Number.isFinite(context.adapterRetryCount)
-        ? context.adapterRetryCount
-        : 0,
-    adapterRetryErrorCode: readNonEmptyString(context.adapterRetryErrorCode),
-    checkpointJson: input.checkpointJson,
-    startedAt: input.startedAt,
-    now: input.now,
-  });
-  return {
-    runtimeDegradedState,
-    runtimeHealth: runtimeDegradedState ? "degraded" as const : "normal" as const,
-  };
-}
-
-export function shouldRecoverDegradedProtocolRun(input: {
-  runStatus: string;
-  hasRunningProcess: boolean;
-  requirement: ProtocolRunRequirement | null;
-  wakeReason?: string | null;
-  issueStatus?: string | null;
-  workflowState?: string | null;
-  protocolRetryCount: number;
-  protocolDegradedRecoveryCount: number;
-  adapterRetryCount: number;
-  adapterRetryErrorCode?: string | null;
-  checkpointJson?: unknown;
-  startedAt?: Date | string | null;
-  now?: Date;
-  degradedThresholdMs?: number;
-}) {
-  if (input.runStatus !== "running") return false;
-  if (!input.hasRunningProcess) return false;
-  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return false;
-  if (input.protocolDegradedRecoveryCount >= 1) return false;
-  if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
-  if (!input.requirement || !input.workflowState) return false;
-  if (!isWorkflowStateEligibleForProtocolRetry({
-    requirement: input.requirement,
-    workflowState: input.workflowState,
-  })) return false;
-
-  const degradedReason = resolveDegradedProtocolRecoveryReason({
-    runStatus: input.runStatus,
-    requirement: input.requirement,
-    wakeReason: input.wakeReason,
-    adapterRetryCount: input.adapterRetryCount,
-    adapterRetryErrorCode: input.adapterRetryErrorCode ?? null,
-    checkpointJson: input.checkpointJson,
-    startedAt: input.startedAt,
-    now: input.now,
-    degradedThresholdMs: input.degradedThresholdMs,
-  });
-  if (!degradedReason) return false;
-
-  const checkpoint = parseObject(input.checkpointJson);
-  const checkpointPhase = readNonEmptyString(checkpoint.phase);
-  if (!isProtocolWatchdogCheckpointPhase(checkpointPhase)) return false;
-
-  const startedAtMs = toEpochMillis(input.startedAt) ?? readLeaseLastProgressAt(checkpoint) ?? 0;
-  const degradedThresholdMs = resolveProtocolRecoveryThresholdMs({
-    degradedReason,
-    degradedThresholdMs: input.degradedThresholdMs,
-  });
-  return (input.now ?? new Date()).getTime() - startedAtMs >= degradedThresholdMs;
-}
-
-export async function runProtocolWatchdogRecoveries(input: {
-  recoverIdle: () => Promise<boolean>;
-  recoverDegraded: () => Promise<boolean>;
-  onIdleError?: (error: unknown) => Promise<void> | void;
-  onDegradedError?: (error: unknown) => Promise<void> | void;
-}) {
-  let recovered = false;
-  try {
-    recovered = await input.recoverIdle();
-  } catch (error) {
-    await input.onIdleError?.(error);
-  }
-  if (recovered) return true;
-
-  try {
-    return await input.recoverDegraded();
-  } catch (error) {
-    await input.onDegradedError?.(error);
-    return false;
-  }
-}
-
-export function hasRequiredProtocolProgress(input: {
-  requirement: ProtocolRunRequirement | null;
-  messages: ObservedProtocolProgressMessage[];
-  finalWorkflowState?: string | null;
-}) {
-  const requirement = input.requirement;
-  if (!requirement) return true;
-  const observedMessageTypes = Array.from(
-    new Set(
-      input.messages
-        .map((message) => readNonEmptyString(message.messageType))
-        .filter((messageType): messageType is string => Boolean(messageType)),
-    ),
-  );
-  const hasRequired = observedMessageTypes.some((messageType) => requirement.requiredMessageTypes.includes(
-    messageType as ProtocolRunRequirement["requiredMessageTypes"][number],
-  ));
-  if (!hasRequired) return false;
-
-  const hasNonIntermediateProgress = observedMessageTypes.some((messageType) => !requirement.intermediateMessageTypes.includes(
-    messageType as ProtocolRunRequirement["intermediateMessageTypes"][number],
-  ));
-  if (hasNonIntermediateProgress) return true;
-
-  return !isWorkflowStateEligibleForProtocolRetry({
-    requirement,
-    workflowState: input.finalWorkflowState,
-  });
-}
-
-export function buildRequiredProtocolProgressError(input: {
-  requirement: ProtocolRunRequirement;
-  observedMessageTypes: string[];
-  retryEnqueued: boolean;
-}) {
-  const expected = input.requirement.requiredMessageTypes.join(", ");
-  const observed = input.observedMessageTypes.length > 0 ? input.observedMessageTypes.join(", ") : "none";
-  const retrySuffix = input.retryEnqueued
-    ? " A protocol-retry wake was queued automatically."
-    : "";
-  return [
-    `Run ended without required protocol progress for ${input.requirement.protocolMessageType}/${input.requirement.recipientRole}.`,
-    `Expected one of: ${expected}.`,
-    `Observed: ${observed}.`,
-  ].join(" ") + retrySuffix;
-}
-
-export function shouldEnqueueProtocolRequiredRetry(input: {
-  protocolRetryCount: number;
-  issueStatus?: string | null;
-  workflowState?: string | null;
-  requirement?: ProtocolRunRequirement | null;
-}) {
-  if (input.protocolRetryCount >= PROTOCOL_REQUIRED_RETRY_LIMIT) return false;
-  if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
-  if (!input.requirement || !input.workflowState) return false;
-  return isWorkflowStateEligibleForProtocolRetry({
-    requirement: input.requirement,
-    workflowState: input.workflowState,
-  });
-}
-
-export function shouldEnqueueRetryableAdapterFailure(input: {
-  adapterErrorCode?: string | null;
-  adapterRetryCount: number;
-  issueStatus?: string | null;
-}) {
-  const errorCode = readNonEmptyString(input.adapterErrorCode);
-  if (!errorCode || !RETRYABLE_ADAPTER_ERROR_CODES.has(errorCode)) return false;
-  if (input.adapterRetryCount >= RETRYABLE_ADAPTER_FAILURE_LIMIT) return false;
-  if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
-  return true;
-}
-
-export function isWorkflowStateEligibleForProtocolRetry(input: {
-  requirement: ProtocolRunRequirement;
-  workflowState: string | null | undefined;
-}) {
-  const workflowState = readNonEmptyString(input.workflowState);
-  if (!workflowState) return false;
-
-  switch (input.requirement.key) {
-    case "assignment_engineer":
-    case "reassignment_engineer":
-      return workflowState === "assigned" || workflowState === "accepted";
-    case "assignment_supervisor":
-    case "reassignment_supervisor":
-      return workflowState === "assigned";
-    case "implementation_engineer":
-      return workflowState === "implementing";
-    case "change_request_engineer":
-      return workflowState === "changes_requested";
-    case "review_reviewer":
-      return workflowState === "submitted_for_review" || workflowState === "under_review";
-    case "qa_gate_reviewer":
-      return workflowState === "qa_pending" || workflowState === "under_qa_review";
-    case "approval_tech_lead":
-      return workflowState === "approved";
-    default:
-      return false;
-  }
-}
-
-export function shouldSkipSupersededProtocolFollowup(input: {
-  wakeReason?: string | null;
-  issueStatus?: string | null;
-  workflowState?: string | null;
-  protocolMessageType?: string | null;
-  protocolRecipientRole?: string | null;
-}) {
-  if (
-    (input.issueStatus === "done" || input.issueStatus === "cancelled")
-    && isSupersededProtocolWakeReason(input.wakeReason)
-  ) {
-    return true;
-  }
-
-  const requirement = resolveProtocolRunRequirement({
-    protocolMessageType: readNonEmptyString(input.protocolMessageType) ?? undefined,
-    protocolRecipientRole: readNonEmptyString(input.protocolRecipientRole) ?? undefined,
-  });
-  if (!requirement) return false;
-
-  if (input.issueStatus === "done" || input.issueStatus === "cancelled") {
-    return true;
-  }
-
-  const workflowState = readNonEmptyString(input.workflowState);
-  if (!workflowState) return false;
-
-  return !isWorkflowStateEligibleForProtocolRetry({
-    requirement,
-    workflowState,
-  });
-}
-
-export function isSupersededProtocolWakeReason(wakeReason?: string | null) {
-  const normalized = readNonEmptyString(wakeReason);
-  return normalized ? SUPERSEDED_PROTOCOL_WAKE_REASONS.has(normalized) : false;
-}
-
-export function shouldReapHeartbeatRun(input: {
-  runStatus: string;
-  runUpdatedAt: Date | string | null | undefined;
-  lease?: RunLeaseLike | null;
-  now?: Date;
-  staleThresholdMs?: number;
-}) {
-  if (input.runStatus !== "queued" && input.runStatus !== "running") return false;
-
-  const nowMs = (input.now ?? new Date()).getTime();
-  const leaseExpiresAtMs = toEpochMillis(input.lease?.leaseExpiresAt);
-  const leaseReleasedAtMs = toEpochMillis(input.lease?.releasedAt);
-
-  if (!leaseReleasedAtMs && leaseExpiresAtMs !== null && leaseExpiresAtMs > nowMs) {
-    return false;
-  }
-
-  const refTime = leaseExpiresAtMs ?? toEpochMillis(input.runUpdatedAt) ?? 0;
-  const staleThresholdMs = input.staleThresholdMs ?? 0;
-  if (staleThresholdMs > 0 && nowMs - refTime < staleThresholdMs) {
-    return false;
-  }
-
-  return true;
-}
-
-export function decideDispatchWatchdogAction(input: {
-  runStatus: string;
-  leaseStatus?: string | null;
-  checkpointPhase?: string | null;
-  dispatchAttempts: number;
-  hasRunningProcess: boolean;
-  slotBlocked?: boolean;
-}) {
-  if (input.hasRunningProcess) return "noop" as const;
-  if (input.runStatus === "queued") {
-    if (input.slotBlocked) return "hold" as const;
-    if (
-      input.leaseStatus
-      && input.leaseStatus !== "queued"
-      && input.leaseStatus !== "launching"
-    ) {
-      return "noop" as const;
-    }
-    if (
-      input.checkpointPhase !== "queue.created"
-      && input.checkpointPhase !== "dispatch.redispatch"
-      && input.checkpointPhase !== "dispatch.waiting_for_slot"
-    ) {
-      return "noop" as const;
-    }
-    if (input.dispatchAttempts >= RUN_DISPATCH_RETRY_LIMIT) return "fail" as const;
-    return "redispatch" as const;
-  }
-  if (input.runStatus !== "running") return "noop" as const;
-  if (input.leaseStatus && input.leaseStatus !== "launching") return "noop" as const;
-  if (input.checkpointPhase !== "claim.queued" && input.checkpointPhase !== "dispatch.redispatch") {
-    return "noop" as const;
-  }
-  if (input.dispatchAttempts >= RUN_DISPATCH_RETRY_LIMIT) return "fail" as const;
-  return "redispatch" as const;
-}
-
-export function scheduleDeferredRunDispatch(dispatch: () => void) {
-  setImmediate(dispatch);
-}
-
-export function runDispatchWatchdogOutsideDbContext(callback: () => void) {
-  runWithoutDbContext(callback);
-}
-
-export function parseHeartbeatPolicyConfig(runtimeConfig: unknown) {
-  const runtime = parseObject(runtimeConfig);
-  const heartbeat = parseObject(runtime.heartbeat);
-
-  return {
-    enabled: asBoolean(heartbeat.enabled, true),
-    intervalSec: Math.max(0, asNumber(heartbeat.intervalSec, 0)),
-    wakeOnDemand: asBoolean(
-      heartbeat.wakeOnDemand ?? heartbeat.wakeOnAssignment ?? heartbeat.wakeOnOnDemand ?? heartbeat.wakeOnAutomation,
-      true,
-    ),
-    maxConcurrentRuns: normalizeMaxConcurrentRuns(heartbeat.maxConcurrentRuns),
   };
 }
 

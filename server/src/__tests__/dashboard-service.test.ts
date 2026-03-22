@@ -349,6 +349,10 @@ describe("dashboard service", () => {
       limit: 10,
     });
 
+    expect(view.limit).toBe(10);
+    expect(view.offset).toBe(0);
+    expect(view.hasMore).toBe(false);
+    expect(view.nextOffset).toBeNull();
     expect(view.summary).toEqual({
       total: 1,
       blocked: 1,
@@ -368,6 +372,100 @@ describe("dashboard service", () => {
         summaryText: "Waiting for dependency issues to land before execution can resume.",
         watchReviewer: true,
         watchLead: true,
+      }),
+    ]);
+  });
+
+  it("supports offset pagination for team supervision feeds", async () => {
+    const { db } = createDashboardDbMock({
+      selectResults: [
+        [{ id: "company-1" }],
+        [
+          {
+            issueId: "child-1",
+            parentId: "root-1",
+            identifier: "CLO-201",
+            title: "Blocked implementation",
+            priority: "high",
+            status: "blocked",
+            assigneeAgentId: "eng-1",
+            updatedAt: new Date("2026-03-13T10:00:00.000Z"),
+            workflowState: "blocked",
+            reviewerAgentId: null,
+            techLeadAgentId: null,
+            blockedCode: "dependency_wait",
+            lastTransitionAt: new Date("2026-03-13T10:05:00.000Z"),
+            lastProtocolMessageId: null,
+          },
+          {
+            issueId: "child-2",
+            parentId: "root-2",
+            identifier: "CLO-202",
+            title: "Review follow-up",
+            priority: "medium",
+            status: "in_review",
+            assigneeAgentId: "eng-2",
+            updatedAt: new Date("2026-03-13T09:00:00.000Z"),
+            workflowState: "submitted_for_review",
+            reviewerAgentId: "rev-1",
+            techLeadAgentId: null,
+            blockedCode: null,
+            lastTransitionAt: new Date("2026-03-13T09:15:00.000Z"),
+            lastProtocolMessageId: "message-2",
+          },
+          {
+            issueId: "child-3",
+            parentId: "root-3",
+            identifier: "CLO-203",
+            title: "Active implementation",
+            priority: "low",
+            status: "in_progress",
+            assigneeAgentId: "eng-3",
+            updatedAt: new Date("2026-03-13T08:00:00.000Z"),
+            workflowState: "implementing",
+            reviewerAgentId: null,
+            techLeadAgentId: null,
+            blockedCode: null,
+            lastTransitionAt: new Date("2026-03-13T08:30:00.000Z"),
+            lastProtocolMessageId: null,
+          },
+        ],
+        [
+          { id: "root-1", identifier: "CLO-101", title: "Root 1", projectId: null, projectName: null },
+          { id: "root-2", identifier: "CLO-102", title: "Root 2", projectId: null, projectName: null },
+          { id: "root-3", identifier: "CLO-103", title: "Root 3", projectId: null, projectName: null },
+        ],
+        [
+          { issueId: "child-1", name: "work:implementation" },
+          { issueId: "child-2", name: "work:review" },
+          { issueId: "child-3", name: "work:implementation" },
+        ],
+        [
+          { id: "eng-1", name: "Engineer One", title: "Engineer", role: "engineer", status: "active" },
+          { id: "eng-2", name: "Engineer Two", title: "Engineer", role: "engineer", status: "active" },
+          { id: "eng-3", name: "Engineer Three", title: "Engineer", role: "engineer", status: "active" },
+          { id: "rev-1", name: "Reviewer One", title: "Reviewer", role: "reviewer", status: "active" },
+        ],
+        [{ id: "message-2", summary: "Waiting for reviewer pass" }],
+      ],
+    });
+    const service = dashboardService(db as never);
+
+    const view = await service.teamSupervision({
+      companyId: "company-1",
+      limit: 1,
+      offset: 1,
+    });
+
+    expect(view.summary.total).toBe(3);
+    expect(view.limit).toBe(1);
+    expect(view.offset).toBe(1);
+    expect(view.hasMore).toBe(true);
+    expect(view.nextOffset).toBe(2);
+    expect(view.items).toEqual([
+      expect.objectContaining({
+        workItemIssueId: "child-2",
+        summaryKind: "review",
       }),
     ]);
   });
@@ -672,6 +770,10 @@ describe("dashboard service", () => {
       limit: 10,
     });
 
+    expect(view.limit).toBe(10);
+    expect(view.offset).toBe(0);
+    expect(view.hasMore).toBe(false);
+    expect(view.nextOffset).toBeNull();
     expect(view.summary).toEqual({
       totalCases: 4,
       repeatedCases: 3,
@@ -696,6 +798,74 @@ describe("dashboard service", () => {
         }),
       ]),
     );
+
+    vi.useRealTimers();
+  });
+
+  it("supports offset pagination for recovery queue feeds", async () => {
+    const now = new Date("2026-03-13T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const { db } = createDashboardDbMock({
+      selectResults: [
+        [{ id: "company-1" }],
+        [
+          {
+            issueId: "issue-1",
+            createdAt: new Date("2026-03-13T10:00:00.000Z"),
+            severity: "critical",
+            code: "close_without_verification",
+            summary: { error: "Violation" },
+          },
+        ],
+        [
+          {
+            issueId: "issue-2",
+            createdAt: new Date("2026-03-13T09:00:00.000Z"),
+            summary: "Reviewer timeout",
+            code: "review_timeout",
+          },
+        ],
+        [
+          {
+            issueId: "issue-3",
+            createdAt: new Date("2026-03-13T08:00:00.000Z"),
+            unsignedCount: 2,
+          },
+        ],
+        [
+          {
+            id: "run-1",
+            contextSnapshot: { issueId: "issue-4" },
+            errorCode: "dispatch_timeout",
+            error: "Dispatch timed out",
+            finishedAt: new Date("2026-03-13T11:00:00.000Z"),
+            updatedAt: new Date("2026-03-13T11:00:00.000Z"),
+          },
+        ],
+        [
+          { issueId: "issue-1", workflowState: "approved", identifier: "CLO-1", title: "Violation issue" },
+          { issueId: "issue-2", workflowState: "blocked", identifier: "CLO-2", title: "Timeout issue" },
+          { issueId: "issue-3", workflowState: "implementing", identifier: "CLO-3", title: "Integrity issue" },
+          { issueId: "issue-4", workflowState: "implementing", identifier: "CLO-4", title: "Runtime issue" },
+        ],
+      ],
+    });
+    const service = dashboardService(db as never);
+
+    const view = await service.recoveryQueue({
+      companyId: "company-1",
+      limit: 2,
+      offset: 1,
+    });
+
+    expect(view.summary.totalCases).toBe(4);
+    expect(view.limit).toBe(2);
+    expect(view.offset).toBe(1);
+    expect(view.hasMore).toBe(true);
+    expect(view.nextOffset).toBe(3);
+    expect(view.items).toHaveLength(2);
 
     vi.useRealTimers();
   });
