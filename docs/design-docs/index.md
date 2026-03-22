@@ -21,4 +21,5 @@
 - `rag-current-architecture.md`
 - `qa-execution-gate-design.md`
 - `protocol-dispatch-reliability-design-2026-03-22.md`
+- `runtime-surface-maintenance-design-2026-03-22.md`
 - `supervisory-lane-autonomy-gap-design-2026-03-20.md`

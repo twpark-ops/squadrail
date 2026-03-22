@@ -19,7 +19,7 @@ import { logger } from "../middleware/logger.js";
 import { publishLiveEvent } from "./live-events.js";
 import { getRunLogStore, type RunLogHandle } from "./run-log-store.js";
 import { getServerAdapter, runningProcesses } from "../adapters/index.js";
-import type { AdapterExecutionResult, AdapterInvocationMeta, AdapterSessionCodec } from "../adapters/index.js";
+import type { AdapterExecutionResult, AdapterInvocationMeta } from "../adapters/index.js";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { parseObject, asBoolean, asNumber, appendWithCap, MAX_EXCERPT_BYTES } from "../adapters/utils.js";
 import { secretService } from "./secrets.js";
@@ -41,11 +41,59 @@ import {
 import { logActivity } from "./activity-log.js";
 import { issueProtocolAutoAssistService } from "./issue-protocol-auto-assist.js";
 import { loadConfig } from "../config.js";
+import {
+  attachResolvedWorkspaceContextToRunContext,
+  buildProcessLostError,
+  buildTaskSessionUpsertSet,
+  computeLeaseExpiresAt,
+  getAdapterSessionCodec,
+  insertOrRefetchSingleton,
+  mergeRunResultJson,
+  normalizeAgentNameKey,
+  normalizeMaxConcurrentRuns,
+  normalizeSessionParams,
+  readNonEmptyString,
+  resolveNextSessionState,
+  toEpochMillis,
+  truncateDisplayId,
+} from "./heartbeat-runtime-utils.js";
+import {
+  buildDispatchPriorityContextSnapshot,
+  buildDispatchPrioritySelectionDetails,
+  normalizeIssuePriorityValue,
+  prioritizeQueuedRunsForDispatch,
+  priorityClassFromRank,
+  priorityRank,
+  type HeartbeatQueuedRunPrioritySelection,
+} from "./heartbeat-dispatch-priority.js";
+
+export {
+  attachResolvedWorkspaceContextToRunContext,
+  buildProcessLostError,
+  buildTaskSessionUpsertSet,
+  computeLeaseExpiresAt,
+  getAdapterSessionCodec,
+  insertOrRefetchSingleton,
+  mergeRunResultJson,
+  normalizeAgentNameKey,
+  normalizeMaxConcurrentRuns,
+  normalizeSessionParams,
+  readNonEmptyString,
+  resolveNextSessionState,
+  toEpochMillis,
+  truncateDisplayId,
+} from "./heartbeat-runtime-utils.js";
+export {
+  buildDispatchPriorityContextSnapshot,
+  buildDispatchPrioritySelectionDetails,
+  normalizeIssuePriorityValue,
+  prioritizeQueuedRunsForDispatch,
+  priorityClassFromRank,
+  priorityRank,
+  type HeartbeatQueuedRunPrioritySelection,
+} from "./heartbeat-dispatch-priority.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
-const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
-const HEARTBEAT_MAX_CONCURRENT_RUNS_MAX = 10;
-const RUN_LEASE_TTL_MS = 45_000;
 const RUN_LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
 const RUN_DISPATCH_WATCHDOG_MS = 8_000;
 const RUN_DISPATCH_RETRY_LIMIT = 2;
@@ -55,11 +103,7 @@ const RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS = 10_000;
 const RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS = 60_000;
 const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
 const RETRYABLE_ADAPTER_FAILURE_LIMIT = 2;
-const DISPATCH_PRIORITY_ESCALATION_STEP_MS = 20 * 60 * 1000;
-const DISPATCH_PRIORITY_ESCALATION_MAX_BOOST = 2;
 const DEFERRED_WAKE_CONTEXT_KEY = "_squadrailWakeContext";
-const WORKSPACE_CONTEXT_KEY = "squadrailWorkspace";
-const WORKSPACES_CONTEXT_KEY = "squadrailWorkspaces";
 const startLocksByAgent = new Map<string, Promise<void>>();
 const SUPERSEDED_PROTOCOL_WAKE_REASONS = new Set([
   "issue_ready_for_closure",
@@ -107,88 +151,8 @@ export function resolveProtocolIdleWatchdogDelayMs(attempt: number) {
   );
 }
 
-export function mergeRunResultJson(
-  base: Record<string, unknown> | null | undefined,
-  additions: Record<string, unknown> | null,
-) {
-  if (!additions || Object.keys(additions).length === 0) return base ?? null;
-  if (!base) return additions;
-  const service = {
-    ...base,
-    ...additions,
-  };
-
-  return service;
-}
-
 function isRepoBackedWorkspaceSource(source: ResolvedWorkspaceForRun["source"] | null | undefined) {
   return source === "project_shared" || source === "project_isolated";
-}
-
-export function attachResolvedWorkspaceContextToRunContext(input: {
-  contextSnapshot: Record<string, unknown>;
-  resolvedWorkspace: ResolvedWorkspaceForRun;
-}) {
-  const { contextSnapshot, resolvedWorkspace } = input;
-  const workspaceContext = {
-    cwd: resolvedWorkspace.cwd,
-    source: resolvedWorkspace.source,
-    projectId: resolvedWorkspace.projectId,
-    workspaceId: resolvedWorkspace.workspaceId,
-    repoUrl: resolvedWorkspace.repoUrl,
-    repoRef: resolvedWorkspace.repoRef,
-    executionPolicy: resolvedWorkspace.executionPolicy,
-    workspaceUsage: resolvedWorkspace.workspaceUsage,
-    branchName: resolvedWorkspace.branchName,
-    workspaceState: resolvedWorkspace.workspaceState,
-    hasLocalChanges: resolvedWorkspace.hasLocalChanges,
-  };
-
-  contextSnapshot[WORKSPACE_CONTEXT_KEY] = workspaceContext;
-  contextSnapshot.squadrailWorkspace = workspaceContext;
-  contextSnapshot[WORKSPACES_CONTEXT_KEY] = resolvedWorkspace.workspaceHints;
-  contextSnapshot.squadrailWorkspaces = resolvedWorkspace.workspaceHints;
-
-  if (resolvedWorkspace.projectId && !readNonEmptyString(contextSnapshot.projectId)) {
-    contextSnapshot.projectId = resolvedWorkspace.projectId;
-  }
-
-  return contextSnapshot;
-}
-
-type TaskSessionUpsertSetInput = {
-  sessionParamsJson: Record<string, unknown> | null;
-  sessionDisplayId: string | null;
-  lastRunId: string | null;
-  lastError: string | null;
-};
-
-export function buildTaskSessionUpsertSet(
-  input: TaskSessionUpsertSetInput,
-  updatedAt: Date = new Date(),
-) {
-  return {
-    sessionParamsJson: input.sessionParamsJson,
-    sessionDisplayId: input.sessionDisplayId,
-    lastRunId: input.lastRunId,
-    lastError: input.lastError,
-    updatedAt,
-  };
-}
-
-export async function insertOrRefetchSingleton<T>(input: {
-  insert: () => Promise<T | null>;
-  refetch: () => Promise<T | null>;
-}) {
-  const inserted = await input.insert();
-  if (inserted) return inserted;
-  return input.refetch();
-}
-
-export function normalizeMaxConcurrentRuns(value: unknown) {
-  const parsed = Math.floor(asNumber(value, HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT));
-  if (!Number.isFinite(parsed)) return HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT;
-  return Math.max(HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT, Math.min(HEARTBEAT_MAX_CONCURRENT_RUNS_MAX, parsed));
 }
 
 async function withAgentStartLock<T>(agentId: string, fn: () => Promise<T>) {
@@ -222,170 +186,6 @@ interface WakeupOptions {
 interface ParsedIssueAssigneeAdapterOverrides {
   adapterConfig: Record<string, unknown> | null;
   useProjectWorkspace: boolean | null;
-}
-
-export function readNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-export function normalizeIssuePriorityValue(value: unknown): IssuePriority | null {
-  const normalized = readNonEmptyString(value)?.toLowerCase();
-  if (
-    normalized === "critical"
-    || normalized === "high"
-    || normalized === "medium"
-    || normalized === "low"
-  ) {
-    return normalized;
-  }
-  return null;
-}
-
-export function priorityRank(priority: IssuePriority | null) {
-  switch (priority) {
-    case "critical":
-      return 3;
-    case "high":
-      return 2;
-    case "medium":
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-export function priorityClassFromRank(rank: number) {
-  if (rank >= 3) return "critical" as const;
-  if (rank === 2) return "high" as const;
-  if (rank === 1) return "normal" as const;
-  return "low" as const;
-}
-
-export interface HeartbeatQueuedRunPrioritySelection<T extends {
-  id: string;
-  createdAt: Date | string;
-  contextSnapshot: Record<string, unknown> | null | undefined;
-}> {
-  run: T;
-  issueId: string | null;
-  issuePriority: IssuePriority | null;
-  priorityClass: "critical" | "high" | "normal" | "low";
-  ageBoost: number;
-  queuedForMs: number;
-  effectiveRank: number;
-  preemptedRunIds: string[];
-}
-
-export function buildDispatchPrioritySelectionDetails(input: {
-  priorityClass: "critical" | "high" | "normal" | "low";
-  issuePriority: IssuePriority | null;
-  ageBoost: number;
-  preemptedRunIds: string[];
-}) {
-  return {
-    priorityClass: input.priorityClass,
-    issuePriority: input.issuePriority,
-    ageBoost: input.ageBoost,
-    preemptedRunIds: input.preemptedRunIds,
-  };
-}
-
-export function buildDispatchPriorityContextSnapshot(input: {
-  existingContext: Record<string, unknown>;
-  selection: Pick<
-    HeartbeatQueuedRunPrioritySelection<{
-      id: string;
-      createdAt: Date | string;
-      contextSnapshot: Record<string, unknown> | null | undefined;
-    }>,
-    "issuePriority" | "priorityClass" | "ageBoost" | "queuedForMs" | "preemptedRunIds"
-  >;
-  selectedAt?: Date;
-}) {
-  const selectedAt = input.selectedAt ?? new Date();
-  return {
-    ...input.existingContext,
-    ...(input.selection.issuePriority ? { issuePriority: input.selection.issuePriority } : {}),
-    dispatchPriorityClass: input.selection.priorityClass,
-    dispatchPriorityAgeBoost: input.selection.ageBoost,
-    dispatchPriorityQueuedForMs: input.selection.queuedForMs,
-    dispatchPrioritySelectedAt: selectedAt.toISOString(),
-    ...(input.selection.preemptedRunIds.length > 0
-      ? {
-          dispatchPreemption: {
-            preempted: true,
-            selectedAt: selectedAt.toISOString(),
-            ...buildDispatchPrioritySelectionDetails(input.selection),
-          },
-        }
-      : {}),
-  } satisfies Record<string, unknown>;
-}
-
-export function prioritizeQueuedRunsForDispatch<T extends {
-  id: string;
-  createdAt: Date | string;
-  contextSnapshot: Record<string, unknown> | null | undefined;
-}>(input: {
-  runs: T[];
-  issuePriorityByIssueId?: Map<string, IssuePriority>;
-  now?: Date;
-}) {
-  const now = input.now ?? new Date();
-  const decorated = input.runs.map((run) => {
-    const contextSnapshot = parseObject(run.contextSnapshot);
-    const issueId = readNonEmptyString(contextSnapshot.issueId);
-    const rawPriority =
-      normalizeIssuePriorityValue(contextSnapshot.issuePriority)
-      ?? (issueId ? input.issuePriorityByIssueId?.get(issueId) ?? null : null);
-    const queuedAt = run.createdAt instanceof Date ? run.createdAt : new Date(run.createdAt);
-    const queuedForMs = Math.max(0, now.getTime() - queuedAt.getTime());
-    const ageBoost = Math.min(
-      DISPATCH_PRIORITY_ESCALATION_MAX_BOOST,
-      Math.floor(queuedForMs / DISPATCH_PRIORITY_ESCALATION_STEP_MS),
-    );
-    const effectiveRank = Math.min(3, priorityRank(rawPriority) + ageBoost);
-
-    return {
-      run,
-      issueId,
-      issuePriority: rawPriority,
-      priorityClass: priorityClassFromRank(effectiveRank),
-      ageBoost,
-      queuedForMs,
-      effectiveRank,
-      createdAtMs: queuedAt.getTime(),
-    };
-  });
-
-  const fifoOrder = [...decorated].sort((left, right) => {
-    if (left.createdAtMs !== right.createdAtMs) return left.createdAtMs - right.createdAtMs;
-    return left.run.id.localeCompare(right.run.id);
-  });
-
-  const dispatchOrder = [...decorated].sort((left, right) => {
-    if (left.effectiveRank !== right.effectiveRank) return right.effectiveRank - left.effectiveRank;
-    if (left.createdAtMs !== right.createdAtMs) return left.createdAtMs - right.createdAtMs;
-    return left.run.id.localeCompare(right.run.id);
-  });
-
-  return dispatchOrder.map((entry) => {
-    const preemptedRunIds = fifoOrder
-      .filter((candidate) => candidate.createdAtMs < entry.createdAtMs && candidate.effectiveRank < entry.effectiveRank)
-      .map((candidate) => candidate.run.id)
-      .slice(0, 5);
-
-    return {
-      run: entry.run,
-      issueId: entry.issueId,
-      issuePriority: entry.issuePriority,
-      priorityClass: entry.priorityClass,
-      ageBoost: entry.ageBoost,
-      queuedForMs: entry.queuedForMs,
-      effectiveRank: entry.effectiveRank,
-      preemptedRunIds,
-    } satisfies HeartbeatQueuedRunPrioritySelection<T>;
-  });
 }
 
 export function parseIssueAssigneeAdapterOverrides(
@@ -725,37 +525,12 @@ export function buildHeartbeatRunQueuedEvent(input: {
   };
 }
 
-export function truncateDisplayId(value: string | null | undefined, max = 128) {
-  if (!value) return null;
-  return value.length > max ? value.slice(0, max) : value;
-}
-
-export function toEpochMillis(value: Date | string | null | undefined) {
-  if (!value) return null;
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-export function computeLeaseExpiresAt(now = new Date()) {
-  return new Date(now.getTime() + RUN_LEASE_TTL_MS);
-}
-
 type RunLeaseLike = {
   status?: string | null;
   checkpointJson?: Record<string, unknown> | null;
   leaseExpiresAt?: Date | string | null;
   releasedAt?: Date | string | null;
 };
-
-export function buildProcessLostError(lease?: RunLeaseLike | null) {
-  const checkpoint = parseObject(lease?.checkpointJson);
-  const phase = readNonEmptyString(checkpoint.phase);
-  if (phase) {
-    return `Process lost during ${phase} -- server may have restarted`;
-  }
-  return "Process lost -- server may have restarted";
-}
 
 export function resolveHeartbeatRunOutcome(input: {
   latestRunStatus?: string | null;
@@ -1296,6 +1071,13 @@ export function shouldSkipSupersededProtocolFollowup(input: {
   protocolMessageType?: string | null;
   protocolRecipientRole?: string | null;
 }) {
+  if (
+    (input.issueStatus === "done" || input.issueStatus === "cancelled")
+    && isSupersededProtocolWakeReason(input.wakeReason)
+  ) {
+    return true;
+  }
+
   const requirement = resolveProtocolRunRequirement({
     protocolMessageType: readNonEmptyString(input.protocolMessageType) ?? undefined,
     protocolRecipientRole: readNonEmptyString(input.protocolRecipientRole) ?? undefined,
@@ -1389,96 +1171,6 @@ export function scheduleDeferredRunDispatch(dispatch: () => void) {
 
 export function runDispatchWatchdogOutsideDbContext(callback: () => void) {
   runWithoutDbContext(callback);
-}
-
-export function normalizeAgentNameKey(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : null;
-}
-
-const defaultSessionCodec: AdapterSessionCodec = {
-  deserialize(raw: unknown) {
-    const asObj = parseObject(raw);
-    if (Object.keys(asObj).length > 0) return asObj;
-    const sessionId = readNonEmptyString((raw as Record<string, unknown> | null)?.sessionId);
-    if (sessionId) return { sessionId };
-    return null;
-  },
-  serialize(params: Record<string, unknown> | null) {
-    if (!params || Object.keys(params).length === 0) return null;
-    return params;
-  },
-  getDisplayId(params: Record<string, unknown> | null) {
-    return readNonEmptyString(params?.sessionId);
-  },
-};
-
-export function getAdapterSessionCodec(adapterType: string) {
-  const adapter = getServerAdapter(adapterType);
-  return adapter.sessionCodec ?? defaultSessionCodec;
-}
-
-export function normalizeSessionParams(params: Record<string, unknown> | null | undefined) {
-  if (!params) return null;
-  return Object.keys(params).length > 0 ? params : null;
-}
-
-export function resolveNextSessionState(input: {
-  codec: AdapterSessionCodec;
-  adapterResult: AdapterExecutionResult;
-  previousParams: Record<string, unknown> | null;
-  previousDisplayId: string | null;
-  previousLegacySessionId: string | null;
-}) {
-  const { codec, adapterResult, previousParams, previousDisplayId, previousLegacySessionId } = input;
-
-  if (adapterResult.clearSession) {
-    return {
-      params: null as Record<string, unknown> | null,
-      displayId: null as string | null,
-      legacySessionId: null as string | null,
-    };
-  }
-
-  const explicitParams = adapterResult.sessionParams;
-  const hasExplicitParams = adapterResult.sessionParams !== undefined;
-  const hasExplicitSessionId = adapterResult.sessionId !== undefined;
-  const explicitSessionId = readNonEmptyString(adapterResult.sessionId);
-  const hasExplicitDisplay = adapterResult.sessionDisplayId !== undefined;
-  const explicitDisplayId = readNonEmptyString(adapterResult.sessionDisplayId);
-  const shouldUsePrevious = !hasExplicitParams && !hasExplicitSessionId && !hasExplicitDisplay;
-
-  const candidateParams =
-    hasExplicitParams
-      ? explicitParams
-      : hasExplicitSessionId
-        ? (explicitSessionId ? { sessionId: explicitSessionId } : null)
-        : previousParams;
-
-  const serialized = normalizeSessionParams(codec.serialize(normalizeSessionParams(candidateParams) ?? null));
-  const deserialized = normalizeSessionParams(codec.deserialize(serialized));
-
-  const displayId = truncateDisplayId(
-    explicitDisplayId ??
-      (codec.getDisplayId ? codec.getDisplayId(deserialized) : null) ??
-      readNonEmptyString(deserialized?.sessionId) ??
-      (shouldUsePrevious ? previousDisplayId : null) ??
-      explicitSessionId ??
-      (shouldUsePrevious ? previousLegacySessionId : null),
-  );
-
-  const legacySessionId =
-    explicitSessionId ??
-    readNonEmptyString(deserialized?.sessionId) ??
-    displayId ??
-    (shouldUsePrevious ? previousLegacySessionId : null);
-
-  return {
-    params: serialized,
-    displayId,
-    legacySessionId,
-  };
 }
 
 export function parseHeartbeatPolicyConfig(runtimeConfig: unknown) {

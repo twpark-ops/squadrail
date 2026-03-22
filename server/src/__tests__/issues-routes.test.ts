@@ -15,6 +15,7 @@ const {
   mockIssueGetAncestors,
   mockIssueListInternalWorkItems,
   mockIssueGetInternalWorkItemSummary,
+  mockIssueListInternalWorkItemSummaries,
   mockIssueCreateInternalWorkItem,
   mockIssueRemove,
   mockIssueListLabels,
@@ -78,6 +79,7 @@ const {
   mockIssueGetAncestors: vi.fn(),
   mockIssueListInternalWorkItems: vi.fn(),
   mockIssueGetInternalWorkItemSummary: vi.fn(),
+  mockIssueListInternalWorkItemSummaries: vi.fn(),
   mockIssueCreateInternalWorkItem: vi.fn(),
   mockIssueRemove: vi.fn(),
   mockIssueListLabels: vi.fn(),
@@ -226,6 +228,7 @@ vi.mock("../services/index.js", () => ({
     getAncestors: mockIssueGetAncestors,
     listInternalWorkItems: mockIssueListInternalWorkItems,
     getInternalWorkItemSummary: mockIssueGetInternalWorkItemSummary,
+    listInternalWorkItemSummaries: mockIssueListInternalWorkItemSummaries,
     createInternalWorkItem: mockIssueCreateInternalWorkItem,
     list: mockIssueList,
     listComments: vi.fn(),
@@ -5002,6 +5005,7 @@ describe("issue routes wakeup handling", () => {
       mockAccessCanUser.mockResolvedValue(true);
       mockAccessHasPermission.mockResolvedValue(true);
       mockIssueList.mockResolvedValue([]);
+      mockIssueListInternalWorkItemSummaries.mockResolvedValue(new Map());
     });
 
     it("returns 400 for invalid parentId query param", async () => {
@@ -5028,6 +5032,58 @@ describe("issue routes wakeup handling", () => {
         "company-1",
         expect.objectContaining({ includeSubtasks: true }),
       );
+    });
+
+    it("uses batched internal work item summaries for root issues", async () => {
+      mockIssueList.mockResolvedValue([
+        {
+          id: "root-1",
+          companyId: "company-1",
+          title: "Root issue",
+          status: "in_progress",
+          parentId: null,
+        },
+        {
+          id: "child-1",
+          companyId: "company-1",
+          title: "Child issue",
+          status: "todo",
+          parentId: "root-1",
+        },
+      ]);
+      mockIssueListInternalWorkItemSummaries.mockResolvedValue(new Map([
+        ["root-1", {
+          total: 1,
+          backlog: 0,
+          todo: 1,
+          inProgress: 0,
+          inReview: 0,
+          blocked: 0,
+          done: 0,
+          cancelled: 0,
+          activeAssigneeAgentIds: [],
+          blockerIssueId: null,
+          reviewRequestedIssueId: null,
+        }],
+      ]));
+
+      const response = await invokeRoute({
+        path: "/companies/:companyId/issues",
+        method: "get",
+        params: { companyId: "company-1" },
+        query: { includeSubtasks: "true" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockIssueListInternalWorkItemSummaries).toHaveBeenCalledWith(["root-1"]);
+      expect(response.body[0]).toEqual(expect.objectContaining({
+        id: "root-1",
+        internalWorkItemSummary: expect.objectContaining({
+          total: 1,
+          todo: 1,
+        }),
+        progressSnapshot: expect.any(Object),
+      }));
     });
   });
 });

@@ -18,6 +18,7 @@ import {
 import {
   extractProjectMentionIds,
   normalizeAgentUrlKey,
+  type IssueInternalWorkItemSummary,
   readProjectWorkspaceExecutionPolicyFromMetadata,
   stripProjectWorkspaceExecutionPolicyFromMetadata,
 } from "@squadrail/shared";
@@ -395,7 +396,7 @@ export function issueService(db: Db) {
   }
 
   function summarizeInternalWorkItems(items: IssueWithLabels[]) {
-    const summary = {
+    const summary: IssueInternalWorkItemSummary = {
       total: items.length,
       backlog: 0,
       todo: 0,
@@ -581,6 +582,37 @@ export function issueService(db: Db) {
         .orderBy(asc(issues.createdAt), asc(issues.id));
       const labeled = await withIssueLabels(db, rows);
       return labeled;
+    },
+
+    listInternalWorkItemSummaries: async (parentIssueIds: string[]) => {
+      const normalizedParentIds = [...new Set(parentIssueIds)];
+      if (normalizedParentIds.length === 0) {
+        return new Map<string, IssueInternalWorkItemSummary>();
+      }
+
+      const rows = await db
+        .select()
+        .from(issues)
+        .where(inArray(issues.parentId, normalizedParentIds))
+        .orderBy(asc(issues.createdAt), asc(issues.id));
+      const labeled = await withIssueLabels(db, rows);
+      const rowsByParentId = new Map<string, IssueWithLabels[]>();
+
+      for (const row of labeled) {
+        if (!row.parentId) continue;
+        const existing = rowsByParentId.get(row.parentId);
+        if (existing) {
+          existing.push(row);
+        } else {
+          rowsByParentId.set(row.parentId, [row]);
+        }
+      }
+
+      const summaries = new Map<string, IssueInternalWorkItemSummary>();
+      for (const parentIssueId of normalizedParentIds) {
+        summaries.set(parentIssueId, summarizeInternalWorkItems(rowsByParentId.get(parentIssueId) ?? []));
+      }
+      return summaries;
     },
 
     getInternalWorkItemSummary: async (parentIssueId: string) => {

@@ -13,10 +13,12 @@
 
 - `exec-plans/completed/p0-protocol-dispatch-reconciliation-plan-2026-03-22.md`
 - `exec-plans/completed/p1-protocol-dispatch-outbox-plan-2026-03-22.md`
+- `exec-plans/completed/p1-runtime-surface-maintenance-plan-2026-03-22.md`
 - `exec-plans/completed/p2-autonomy-fallback-hardening-plan-2026-03-19.md`
 - `exec-plans/active/p3-project-qa-contract-execution-plan-2026-03-21.md`
 - `design-docs/supervisory-lane-autonomy-gap-design-2026-03-20.md`
 - `design-docs/protocol-dispatch-reliability-design-2026-03-22.md`
+- `design-docs/runtime-surface-maintenance-design-2026-03-22.md`
 - `exec-plans/completed/p1-retrieval-stabilization-plan.md`
 - `exec-plans/completed/five-axis-hardening-plan-2026-03-18.md`
 - `exec-plans/completed/phase3-real-repo-execution-hardening.md`

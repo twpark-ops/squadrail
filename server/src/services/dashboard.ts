@@ -42,6 +42,7 @@ const DASHBOARD_PROTOCOL_QUEUE_STATES = [
 ] as const;
 
 const DASHBOARD_BRIEF_SCOPES = ["engineer", "reviewer", "tech_lead", "closure"] as const;
+const DASHBOARD_LIMIT_OVERSCAN = 5;
 const PROTOCOL_SUMMARY_WORKFLOW_STATES = [
   "backlog",
   ...DASHBOARD_PROTOCOL_QUEUE_STATES,
@@ -1344,6 +1345,7 @@ export function dashboardService(db: Db) {
     }) => {
       await ensureCompany(input.companyId);
       const limit = input.limit ?? 20;
+      const sourceLimit = Math.max(limit * DASHBOARD_LIMIT_OVERSCAN, limit);
 
       const rows = await db
         .select({
@@ -1371,7 +1373,8 @@ export function dashboardService(db: Db) {
             isNotNull(issues.parentId),
           ),
         )
-        .orderBy(desc(issueProtocolState.lastTransitionAt), desc(issues.updatedAt));
+        .orderBy(desc(issueProtocolState.lastTransitionAt), desc(issues.updatedAt))
+        .limit(sourceLimit);
 
       if (rows.length === 0) {
         return {
@@ -1823,6 +1826,7 @@ export function dashboardService(db: Db) {
     }) => {
       await ensureCompany(input.companyId);
       const limit = input.limit ?? 20;
+      const sourceLimit = Math.max(limit * DASHBOARD_LIMIT_OVERSCAN, limit);
 
       const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const [violationRows, timeoutRows, integrityRows, runtimeRows] = await Promise.all([
@@ -1841,7 +1845,8 @@ export function dashboardService(db: Db) {
               eq(issueProtocolViolations.status, "open"),
             ),
           )
-          .orderBy(desc(issueProtocolViolations.createdAt)),
+          .orderBy(desc(issueProtocolViolations.createdAt))
+          .limit(sourceLimit),
         db
           .select({
             issueId: issueProtocolMessages.issueId,
@@ -1856,7 +1861,8 @@ export function dashboardService(db: Db) {
               eq(issueProtocolMessages.messageType, "TIMEOUT_ESCALATION"),
             ),
           )
-          .orderBy(desc(issueProtocolMessages.createdAt)),
+          .orderBy(desc(issueProtocolMessages.createdAt))
+          .limit(sourceLimit),
         db
           .select({
             issueId: issueProtocolMessages.issueId,
@@ -1870,7 +1876,8 @@ export function dashboardService(db: Db) {
               or(isNull(issueProtocolMessages.integritySignature), isNull(issueProtocolMessages.integrityAlgorithm)),
             ),
           )
-          .groupBy(issueProtocolMessages.issueId),
+          .groupBy(issueProtocolMessages.issueId)
+          .limit(sourceLimit),
         db
           .select({
             id: heartbeatRuns.id,
@@ -1888,7 +1895,8 @@ export function dashboardService(db: Db) {
               gte(heartbeatRuns.updatedAt, last24h),
             ),
           )
-          .orderBy(desc(heartbeatRuns.updatedAt)),
+          .orderBy(desc(heartbeatRuns.updatedAt))
+          .limit(sourceLimit),
       ]);
 
       const dedupedRuntimeRows = new Map<string, (typeof runtimeRows)[number]>();

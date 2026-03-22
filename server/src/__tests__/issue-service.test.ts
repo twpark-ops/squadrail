@@ -1063,6 +1063,63 @@ describe("issue service", () => {
     expect(rows.map((r) => r.id)).toEqual(["issue-root", "issue-child"]);
   });
 
+  it("batches internal work item summaries for multiple parents", async () => {
+    const child1 = makeIssue({
+      id: "issue-child-1",
+      parentId: "parent-1",
+      status: "in_progress",
+      assigneeAgentId: "agent-1",
+      updatedAt: new Date("2026-03-13T09:10:00.000Z"),
+    });
+    const child2 = makeIssue({
+      id: "issue-child-2",
+      parentId: "parent-1",
+      status: "blocked",
+      updatedAt: new Date("2026-03-13T09:20:00.000Z"),
+    });
+    const child3 = makeIssue({
+      id: "issue-child-3",
+      parentId: "parent-2",
+      status: "done",
+      updatedAt: new Date("2026-03-13T09:30:00.000Z"),
+    });
+    const implementationLabel = makeLabel({ id: "label-impl", name: "work:implementation" });
+    const reviewLabel = makeLabel({ id: "label-review", name: "watch:reviewer" });
+    const { db } = createIssueDbMock({
+      selectResults: [
+        [child1, child2, child3],
+        [
+          { issueId: "issue-child-1", label: implementationLabel },
+          { issueId: "issue-child-2", label: reviewLabel },
+          { issueId: "issue-child-3", label: implementationLabel },
+        ],
+      ],
+    });
+    const service = issueService(db as never);
+
+    const summaries = await service.listInternalWorkItemSummaries(["parent-1", "parent-2", "parent-3"]);
+
+    expect(summaries.get("parent-1")).toMatchObject({
+      total: 2,
+      inProgress: 1,
+      blocked: 1,
+      activeAssigneeAgentIds: ["agent-1"],
+      blockerIssueId: "issue-child-2",
+    });
+    expect(summaries.get("parent-2")).toMatchObject({
+      total: 1,
+      done: 1,
+      activeAssigneeAgentIds: [],
+      blockerIssueId: null,
+    });
+    expect(summaries.get("parent-3")).toMatchObject({
+      total: 0,
+      done: 0,
+      activeAssigneeAgentIds: [],
+      blockerIssueId: null,
+    });
+  });
+
   it("defaults to root issues only when no parentId or includeSubtasks", async () => {
     const root = makeIssue({
       id: "issue-root-only",

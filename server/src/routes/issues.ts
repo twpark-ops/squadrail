@@ -1893,13 +1893,7 @@ export function issueRoutes(
     // Attach simplified progress snapshot for root issues
     if (includeSubtasks) {
       const rootIds = result.filter((i: Record<string, unknown>) => !i.parentId).map((i: Record<string, unknown>) => i.id as string);
-      const summaryMap = new Map<string, import("@squadrail/shared").IssueInternalWorkItemSummary>();
-      await Promise.all(
-        rootIds.map(async (rootId) => {
-          const summary = await svc.getInternalWorkItemSummary(rootId);
-          if (summary) summaryMap.set(rootId, summary);
-        }),
-      );
+      const summaryMap = await svc.listInternalWorkItemSummaries(rootIds);
       const enriched = result.map((issue: Record<string, unknown>) => {
         if (issue.parentId) return issue;
         const summary = summaryMap.get(issue.id as string) ?? null;

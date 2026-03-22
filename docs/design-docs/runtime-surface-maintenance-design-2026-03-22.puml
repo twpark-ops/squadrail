@@ -1,0 +1,31 @@
+@startuml
+title Runtime Surface Maintenance
+
+package "Server" {
+  [issues.ts route] --> [IssuesService batch summaries]
+  [dashboard.ts service] --> [Overscan-limited feeds]
+  [heartbeat.ts] --> [Runtime utils]
+  [heartbeat.ts] --> [Dispatch priority utils]
+}
+
+package "UI" {
+  [IssueDetail.tsx] --> [useIssueDetailQueries]
+  [useIssueDetailQueries] --> [Polling policy helper]
+}
+
+note right of [IssuesService batch summaries]
+Replace per-root summary queries
+with one batched fetch + group
+end note
+
+note right of [Overscan-limited feeds]
+Limit broad-load before
+enrich/sort/slice
+end note
+
+note right of [useIssueDetailQueries]
+Keep page rendering slimmer
+before tab component split
+end note
+
+@enduml

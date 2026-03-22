@@ -2,28 +2,17 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams, Link, useNavigate, useLocation, useSearchParams } from "@/lib/router";
 import {
   useQuery,
-  useQueries,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
 import { issuesApi } from "../api/issues";
-import { activityApi } from "../api/activity";
-import { heartbeatsApi } from "../api/heartbeats";
-import { agentsApi } from "../api/agents";
-import { authApi } from "../api/auth";
-import { companiesApi } from "../api/companies";
-import { knowledgeApi } from "../api/knowledge";
-import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
 import { useToast } from "../context/ToastContext";
 import { usePanel } from "../context/PanelContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { useProjectOrder } from "../hooks/useProjectOrder";
-import {
-  buildIssueDetailPollingState,
-  resolveIssueDetailLiveRefetchInterval,
-} from "../lib/issue-detail-polling";
+import { useIssueDetailQueries } from "../hooks/useIssueDetailQueries";
 import { relativeTime, cn, formatTokens } from "../lib/utils";
 import { InlineEditor } from "../components/InlineEditor";
 import { CommentThread } from "../components/CommentThread";
@@ -1300,21 +1289,35 @@ export function IssueDetail() {
   const preferredClarificationId = searchParams.get("clarification");
 
   const {
-    data: issue,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: queryKeys.issues.detail(issueId!),
-    queryFn: () => issuesApi.get(issueId!),
-    enabled: !!issueId,
-  });
-
-  const commentsTabActive = detailTab === "comments";
-  const subissuesTabActive = detailTab === "subissues";
-  const documentsTabActive = detailTab === "documents";
-  const activityTabActive = detailTab === "activity";
-  const deliverablesTabActive = detailTab === "deliverables";
-  const pollingState = buildIssueDetailPollingState({
+    issue,
+    issueLoading: isLoading,
+    issueError: error,
+    comments,
+    protocolState,
+    protocolMessages,
+    protocolBriefs,
+    reviewCycles,
+    protocolViolations,
+    changeSurface,
+    activity,
+    linkedRuns,
+    linkedApprovals,
+    attachments,
+    deliverables,
+    issueDocuments,
+    refetchDocuments,
+    liveRuns,
+    activeRun,
+    allIssues,
+    agents,
+    session,
+    projects,
+    setupProgress,
+    retrievalRunHitsQueries,
+  } = useIssueDetailQueries({
+    issueId,
+    selectedCompanyId,
+    issueSection: issueSection as "Work" | "Changes",
     detailTab: detailTab as
       | "brief"
       | "protocol"
@@ -1324,119 +1327,6 @@ export function IssueDetail() {
       | "activity"
       | "delivery"
       | "deliverables",
-    issueSection: issueSection as "Work" | "Changes",
-  });
-
-  const { data: comments } = useQuery({
-    queryKey: queryKeys.issues.comments(issueId!),
-    queryFn: () => issuesApi.listComments(issueId!),
-    enabled: !!issueId && commentsTabActive,
-  });
-
-  const { data: protocolState } = useQuery({
-    queryKey: queryKeys.issues.protocolState(issueId!),
-    queryFn: () => issuesApi.getProtocolState(issueId!),
-    enabled: !!issueId,
-    refetchInterval: pollingState.protocolState ? 5000 : false,
-  });
-
-  const { data: protocolMessages = [] } = useQuery({
-    queryKey: queryKeys.issues.protocolMessages(issueId!),
-    queryFn: () => issuesApi.listProtocolMessages(issueId!),
-    enabled: !!issueId,
-    refetchInterval: pollingState.protocolMessages ? 5000 : false,
-  });
-
-  const { data: protocolBriefs = [] } = useQuery({
-    queryKey: queryKeys.issues.protocolBriefs(issueId!),
-    queryFn: async () => {
-      const result = await issuesApi.listProtocolBriefs(issueId!);
-      return Array.isArray(result) ? result : [result];
-    },
-    enabled: !!issueId,
-    refetchInterval: pollingState.protocolBriefs ? 5000 : false,
-  });
-
-  const { data: reviewCycles = [] } = useQuery({
-    queryKey: queryKeys.issues.protocolReviewCycles(issueId!),
-    queryFn: () => issuesApi.listProtocolReviewCycles(issueId!),
-    enabled: !!issueId,
-    refetchInterval: pollingState.reviewCycles ? 5000 : false,
-  });
-
-  const { data: protocolViolations = [] } = useQuery({
-    queryKey: queryKeys.issues.protocolViolations(issueId!),
-    queryFn: () => issuesApi.listProtocolViolations(issueId!),
-    enabled: !!issueId,
-    refetchInterval: pollingState.protocolViolations ? 5000 : false,
-  });
-
-  const { data: changeSurface } = useQuery({
-    queryKey: queryKeys.issues.changeSurface(issueId!),
-    queryFn: () => issuesApi.getChangeSurface(issueId!),
-    enabled: !!issueId && issueSection === "Changes",
-    refetchInterval: pollingState.changeSurface ? 5000 : false,
-  });
-
-  const { data: activity } = useQuery({
-    queryKey: queryKeys.issues.activity(issueId!),
-    queryFn: () => activityApi.forIssue(issueId!),
-    enabled: !!issueId && activityTabActive,
-  });
-
-  const { data: linkedRuns } = useQuery({
-    queryKey: queryKeys.issues.runs(issueId!),
-    queryFn: () => activityApi.runsForIssue(issueId!),
-    enabled: !!issueId,
-    refetchInterval: pollingState.linkedRuns ? 5000 : false,
-  });
-
-  const { data: linkedApprovals } = useQuery({
-    queryKey: queryKeys.issues.approvals(issueId!),
-    queryFn: () => issuesApi.listApprovals(issueId!),
-    enabled: !!issueId,
-  });
-
-  const { data: attachments } = useQuery({
-    queryKey: queryKeys.issues.attachments(issueId!),
-    queryFn: () => issuesApi.listAttachments(issueId!),
-    enabled: !!issueId,
-  });
-
-  const { data: deliverables } = useQuery({
-    queryKey: queryKeys.issues.deliverables(issueId!),
-    queryFn: () => issuesApi.deliverables(issueId!, issue!.companyId),
-    enabled: !!issueId && !!issue && deliverablesTabActive,
-  });
-
-  const { data: issueDocuments, refetch: refetchDocuments } = useQuery({
-    queryKey: queryKeys.issues.documents(issueId!),
-    queryFn: () => issuesApi.documents.list(issue!.companyId, issueId!),
-    enabled: !!issueId && !!issue && documentsTabActive,
-  });
-
-  const { data: liveRuns } = useQuery({
-    queryKey: queryKeys.issues.liveRuns(issueId!),
-    queryFn: () => heartbeatsApi.liveRunsForIssue(issueId!),
-    enabled: !!issueId,
-    refetchInterval: (query) =>
-      resolveIssueDetailLiveRefetchInterval({
-        pollingActive: pollingState.linkedRuns,
-        hasData: ((query.state.data as Array<unknown> | undefined)?.length ?? 0) > 0,
-        intervalMs: 3000,
-      }),
-  });
-
-  const { data: activeRun } = useQuery({
-    queryKey: queryKeys.issues.activeRun(issueId!),
-    queryFn: () => heartbeatsApi.activeRunForIssue(issueId!),
-    enabled: !!issueId,
-    refetchInterval: (query) =>
-      resolveIssueDetailLiveRefetchInterval({
-        pollingActive: pollingState.linkedRuns,
-        hasData: Boolean(query.state.data),
-        intervalMs: 3000,
-      }),
   });
 
   const hasLiveRuns = (liveRuns ?? []).length > 0 || !!activeRun;
@@ -1498,50 +1388,10 @@ export function IssueDetail() {
     });
   }, [linkedRuns, liveRuns, activeRun]);
 
-  const { data: allIssues } = useQuery({
-    queryKey: [...queryKeys.issues.list(selectedCompanyId!), "include-subtasks"],
-    queryFn: () => issuesApi.list(selectedCompanyId!, { includeSubtasks: true }),
-    enabled: !!selectedCompanyId && subissuesTabActive,
-  });
-
-  const { data: agents } = useQuery({
-    queryKey: queryKeys.agents.list(selectedCompanyId!),
-    queryFn: () => agentsApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
-  });
-
-  const { data: session } = useQuery({
-    queryKey: queryKeys.auth.session,
-    queryFn: () => authApi.getSession(),
-  });
-
-  const { data: projects } = useQuery({
-    queryKey: queryKeys.projects.list(selectedCompanyId!),
-    queryFn: () => projectsApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
-  });
-
-  const { data: setupProgress } = useQuery({
-    queryKey: queryKeys.companies.setupProgress(selectedCompanyId!),
-    queryFn: () => companiesApi.getSetupProgress(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
-  });
-
   const onboardingMeta = setupProgress?.metadata as OnboardingMetadata | undefined;
   const isOnboardingIssue = Boolean(
     onboardingMeta?.onboardingIssueId && onboardingMeta.onboardingIssueId === issue?.id
   );
-
-  const retrievalRunHitsQueries = useQueries({
-    queries: (changeSurface?.retrievalContext.latestRuns ?? [])
-      .slice(0, 3)
-      .map((run) => ({
-        queryKey: ["knowledge", "retrieval-run-hits", run.retrievalRunId],
-        queryFn: () => knowledgeApi.getRetrievalRunHits(run.retrievalRunId),
-        enabled: issueSection === "Changes",
-        staleTime: 15_000,
-      })),
-  });
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
   const { orderedProjects } = useProjectOrder({
     projects: projects ?? [],
