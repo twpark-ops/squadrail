@@ -6,22 +6,26 @@ import {
   needsE2eCancellation,
   shouldHideE2eIssue,
 } from "./e2e-issue-utils.mjs";
+import { computeRateLimitRetryDelayMs } from "./e2e-api-utils.mjs";
 
 const BASE_URL = process.env.SQUADRAIL_BASE_URL ?? "http://127.0.0.1:3101";
 const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight";
 const NIGHTLY_MODE = process.env.SWIFTSIGHT_E2E_NIGHTLY === "1";
 const HIDE_TERMINAL = process.env.SWIFTSIGHT_E2E_HIDE_COMPLETED !== "0";
 const ACTOR_ID = process.env.SWIFTSIGHT_E2E_ACTOR_ID ?? "cloud-swiftsight-e2e-board";
+const API_RETRY_LIMIT = Math.max(0, Number(process.env.SWIFTSIGHT_E2E_API_RETRY_LIMIT ?? 3));
 
 function note(message = "") {
   process.stdout.write(`${message}\n`);
 }
 
 async function api(pathname, options = {}) {
+  const attempt = options.attempt ?? 0;
   const response = await fetch(`${BASE_URL}${pathname}`, {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
+      "x-squadrail-e2e-bypass-rate-limit": "true",
       ...(options.headers ?? {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -34,6 +38,19 @@ async function api(pathname, options = {}) {
       : await response.text();
 
   if (!response.ok) {
+    if (response.status === 429 && attempt < API_RETRY_LIMIT) {
+      const delayMs = computeRateLimitRetryDelayMs({
+        status: response.status,
+        body,
+        attempt,
+      });
+      note(`retry ${options.method ?? "GET"} ${pathname} after ${delayMs}ms due to rate limit`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return api(pathname, {
+        ...options,
+        attempt: attempt + 1,
+      });
+    }
     throw new Error(
       `API ${options.method ?? "GET"} ${pathname} failed with ${response.status}: ${
         typeof body === "string" ? body : JSON.stringify(body)
@@ -170,17 +187,25 @@ async function cleanupTaggedIssues(companyId, labelIds) {
         note(`skip cancel ${issue.identifier}: ${error.message}`);
       }
       if (HIDE_TERMINAL) {
-        await markIssueCancelled(issue.id);
-        summary.hidden += 1;
-        note(`hid ${issue.identifier}`);
+        try {
+          await markIssueCancelled(issue.id);
+          summary.hidden += 1;
+          note(`hid ${issue.identifier}`);
+        } catch (error) {
+          note(`skip hide ${issue.identifier}: ${error.message}`);
+        }
       }
       continue;
     }
 
     if (HIDE_TERMINAL && shouldHideE2eIssue(issue.status)) {
-      await markIssueCancelled(issue.id);
-      summary.hidden += 1;
-      note(`hid ${issue.identifier}`);
+      try {
+        await markIssueCancelled(issue.id);
+        summary.hidden += 1;
+        note(`hid ${issue.identifier}`);
+      } catch (error) {
+        note(`skip hide ${issue.identifier}: ${error.message}`);
+      }
     }
   }
 
@@ -218,9 +243,13 @@ async function cleanupTaggedIssues(companyId, labelIds) {
       }
     }
 
-    await cancelHeartbeatRun(run.id);
-    summary.runsCancelled += 1;
-    note(`cancelled run ${run.id} for issue ${issue.identifier ?? issue.id}`);
+    try {
+      await cancelHeartbeatRun(run.id);
+      summary.runsCancelled += 1;
+      note(`cancelled run ${run.id} for issue ${issue.identifier ?? issue.id}`);
+    } catch (error) {
+      note(`skip cancel run ${run.id}: ${error.message}`);
+    }
   }
 
   return summary;

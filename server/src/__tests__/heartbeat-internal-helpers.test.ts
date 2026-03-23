@@ -30,6 +30,7 @@ import {
   priorityClassFromRank,
   priorityRank,
   readNonEmptyString,
+  refreshPromotedIssueExecutionContextSnapshot,
   resolveHeartbeatRunOutcome,
   resolveNextSessionState,
   selectWakeupCoalescedRun,
@@ -183,6 +184,33 @@ describe("heartbeat internal helpers", () => {
       sessionDisplayId: "runtime-1",
       lastRunId: "run-1",
       lastError: null,
+    });
+  });
+
+  it("refreshes promoted protocol context with the current workflow state", () => {
+    expect(refreshPromotedIssueExecutionContextSnapshot({
+      contextSnapshot: {
+        issueId: "issue-1",
+        protocolMessageType: "APPROVE_IMPLEMENTATION",
+        protocolRecipientRole: "qa",
+        protocolWorkflowStateBefore: "under_review",
+        protocolWorkflowStateAfter: "qa_pending",
+        protocolRequiredRetryCount: 2,
+      },
+      currentWorkflowState: "under_qa_review",
+    })).toMatchObject({
+      protocolWorkflowStateBefore: "under_qa_review",
+      protocolWorkflowStateAfter: "under_qa_review",
+      protocolRequiredRetryCount: 2,
+    });
+
+    expect(refreshPromotedIssueExecutionContextSnapshot({
+      contextSnapshot: {
+        issueId: "issue-1",
+      },
+      currentWorkflowState: "under_qa_review",
+    })).toEqual({
+      issueId: "issue-1",
     });
   });
 

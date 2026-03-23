@@ -1031,6 +1031,12 @@ describe("pm intake helpers", () => {
     expect(preview.selectedProjectName).toBe("swiftcl");
     expect(preview.projectCandidates[0]?.projectName).toBe("swiftcl");
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_support_tags");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("summary_evidence:code_summary:file:internal/blocks/artifact.go");
+    expect(preview.projectCandidates[0]?.summaryEvidence[0]).toMatchObject({
+      sourceType: "code_summary",
+      summaryKind: "file",
+      path: "internal/blocks/artifact.go",
+    });
   });
 
   it("routes symptom-first DICOM persistence issues to cloud when DB storage ownership outweighs parser-only matches", () => {
@@ -1207,6 +1213,10 @@ describe("pm intake helpers", () => {
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_owner_tags");
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("project_context");
     expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("knowledge_lexical_terms");
+    expect(preview.projectCandidates[0]?.reasons.join(" ")).toContain("summary_evidence:code_summary:file:internal/server/registry/series.go");
+    expect(preview.projectCandidates[0]?.summaryEvidence.map((evidence) => evidence.path)).toContain(
+      "internal/server/registry/series.go",
+    );
   });
 
   it("handles zero knowledge documents without error", () => {

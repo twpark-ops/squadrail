@@ -64,6 +64,7 @@ describe("issue route helpers", () => {
 
   it("recognizes retrieval-generating protocol messages and mention contexts", () => {
     expect(shouldGenerateProtocolRetrievalContext("ASSIGN_TASK")).toBe(true);
+    expect(shouldGenerateProtocolRetrievalContext("START_IMPLEMENTATION")).toBe(true);
     expect(shouldGenerateProtocolRetrievalContext("SUBMIT_FOR_REVIEW")).toBe(true);
     expect(shouldGenerateProtocolRetrievalContext("CLOSE_TASK")).toBe(false);
 

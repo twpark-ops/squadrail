@@ -57,6 +57,7 @@ export function shouldResetTaskSessionForWake(
     wakeReason === "protocol_review_requested" ||
     wakeReason === "protocol_implementation_approved" ||
     wakeReason === "protocol_required_retry" ||
+    wakeReason === "protocol_progress_followup" ||
     wakeReason === "issue_ready_for_closure" ||
     wakeReason === "issue_ready_for_qa_gate"
   ) return true;
@@ -86,6 +87,7 @@ export function describeSessionResetReason(
     wakeReason === "protocol_review_requested" ||
     wakeReason === "protocol_implementation_approved" ||
     wakeReason === "protocol_required_retry" ||
+    wakeReason === "protocol_progress_followup" ||
     wakeReason === "issue_ready_for_closure" ||
     wakeReason === "issue_ready_for_qa_gate"
   ) {

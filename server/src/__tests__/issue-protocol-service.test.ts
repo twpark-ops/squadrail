@@ -1828,6 +1828,8 @@ describe("issue protocol service", () => {
       selectResults: [
         [issue],
         [currentState],
+        [],
+        [],
         [{ companyId: "company-1" }],
         [thread],
         [lastMessage],
@@ -1884,6 +1886,482 @@ describe("issue protocol service", () => {
       value: expect.objectContaining({
         issueId: "issue-changes",
         authorAgentId: "rev-2",
+      }),
+    });
+  });
+
+  it("enriches evidence citations with source types and summary kinds before persisting review decisions", async () => {
+    const issue = {
+      id: "issue-citation-enrichment",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-2",
+    };
+    const currentState = {
+      issueId: "issue-citation-enrichment",
+      companyId: "company-1",
+      workflowState: "under_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-2",
+      primaryEngineerAgentId: "eng-2",
+      reviewerAgentId: "rev-2",
+      qaAgentId: null,
+      currentReviewCycle: 3,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-citation-enrichment",
+      issueId: "issue-citation-enrichment",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-citation-enrichment-8",
+      issueId: "issue-citation-enrichment",
+      threadId: "thread-citation-enrichment",
+      seq: 8,
+      integritySignature: null,
+    };
+    const submittedMessage = {
+      id: "submit-citation-enrichment-7",
+      issueId: "issue-citation-enrichment",
+      threadId: "thread-citation-enrichment",
+      seq: 7,
+      messageType: "SUBMIT_FOR_REVIEW",
+      payload: {},
+    };
+    const openCycle = {
+      id: "cycle-citation-enrichment-open",
+      issueId: "issue-citation-enrichment",
+      cycleNumber: 3,
+      closedAt: null,
+    };
+    const createdMessage = {
+      id: "message-citation-enrichment-9",
+      issueId: "issue-citation-enrichment",
+      threadId: "thread-citation-enrichment",
+      seq: 9,
+      messageType: "APPROVE_IMPLEMENTATION",
+      senderActorType: "agent",
+      senderActorId: "rev-2",
+      senderRole: "reviewer",
+      workflowStateBefore: "under_review",
+      workflowStateAfter: "approved",
+      summary: "Approve with retrieval-backed evidence",
+      payload: {
+        approvalSummary: "Looks good.",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-citation-enrichment",
+    };
+    const { db, insertValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [{
+          retrievalRunId: "00000000-0000-0000-0000-000000000991",
+          finalRank: 1,
+          documentPath: "internal/storage/path.go",
+          sourceType: "code_summary",
+          documentMetadata: { summaryKind: "file" },
+          chunkMetadata: {},
+        }],
+        [submittedMessage],
+        [],
+        [thread],
+        [lastMessage],
+        [openCycle],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await service.appendMessage({
+      issueId: "issue-citation-enrichment",
+      authorAgentId: "rev-2",
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "rev-2",
+          role: "reviewer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "rev-2",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "under_review",
+        workflowStateAfter: "approved",
+        summary: "Approve with retrieval-backed evidence",
+        payload: {
+          approvalSummary: "Looks good.",
+          approvalMode: "agent_review",
+          approvalChecklist: ["Checklist item"],
+          verifiedEvidence: ["go test ./internal/storage -count=1"],
+          residualRisks: ["No immediate follow-up risk remains"],
+          evidenceCitations: [
+            {
+              retrievalRunId: "00000000-0000-0000-0000-000000000991",
+              citedPaths: ["internal/storage/path.go"],
+              citedHitRanks: [1],
+            },
+          ],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(insertValues).toContainEqual({
+      table: issueProtocolMessages,
+      value: expect.objectContaining({
+        issueId: "issue-citation-enrichment",
+        messageType: "APPROVE_IMPLEMENTATION",
+        payload: expect.objectContaining({
+          evidenceCitations: [
+            expect.objectContaining({
+              retrievalRunId: "00000000-0000-0000-0000-000000000991",
+              citedPaths: ["internal/storage/path.go"],
+              citedHitRanks: [1],
+              citedSourceTypes: ["code_summary"],
+              citedSummaryKinds: ["file"],
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
+  it("synthesizes QA approval citations from the latest QA brief when the payload omits them", async () => {
+    const issue = {
+      id: "issue-qa-citation-fallback",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-2",
+    };
+    const currentState = {
+      issueId: "issue-qa-citation-fallback",
+      companyId: "company-1",
+      workflowState: "under_qa_review",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-2",
+      primaryEngineerAgentId: "eng-2",
+      reviewerAgentId: "rev-2",
+      qaAgentId: "qa-2",
+      currentReviewCycle: 4,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-qa-citation-fallback",
+      issueId: "issue-qa-citation-fallback",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-qa-citation-fallback-10",
+      issueId: "issue-qa-citation-fallback",
+      threadId: "thread-qa-citation-fallback",
+      seq: 10,
+      integritySignature: null,
+    };
+    const qaBrief = {
+      id: "brief-qa-citation-fallback",
+      briefScope: "qa",
+      retrievalRunId: "00000000-0000-0000-0000-000000000992",
+      contentJson: {
+        hits: [
+          {
+            rank: 1,
+            path: "internal/storage/path.go",
+            sourceType: "code_summary",
+          },
+          {
+            rank: 2,
+            path: "internal/storage/path_test.go",
+            sourceType: "test_report",
+          },
+        ],
+      },
+      generatedFromMessageSeq: 9,
+      createdAt: new Date("2026-03-23T06:20:00.000Z"),
+    };
+    const submittedMessage = {
+      id: "submit-qa-citation-fallback-7",
+      issueId: "issue-qa-citation-fallback",
+      threadId: "thread-qa-citation-fallback",
+      seq: 7,
+      messageType: "SUBMIT_FOR_REVIEW",
+      payload: {},
+    };
+    const openCycle = {
+      id: "cycle-qa-citation-fallback-open",
+      issueId: "issue-qa-citation-fallback",
+      cycleNumber: 4,
+      closedAt: null,
+    };
+    const createdMessage = {
+      id: "message-qa-citation-fallback-11",
+      issueId: "issue-qa-citation-fallback",
+      threadId: "thread-qa-citation-fallback",
+      seq: 11,
+      messageType: "APPROVE_IMPLEMENTATION",
+      senderActorType: "agent",
+      senderActorId: "qa-2",
+      senderRole: "qa",
+      workflowStateBefore: "under_qa_review",
+      workflowStateAfter: "approved",
+      summary: "QA approval fallback",
+      payload: {
+        approvalSummary: "QA checks passed.",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-qa-citation-fallback",
+    };
+    const { db, insertValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [qaBrief],
+        [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000992",
+            finalRank: 1,
+            documentPath: "internal/storage/path.go",
+            sourceType: "code_summary",
+            documentMetadata: { summaryKind: "file" },
+            chunkMetadata: {},
+          },
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000992",
+            finalRank: 2,
+            documentPath: "internal/storage/path_test.go",
+            sourceType: "test_report",
+            documentMetadata: {},
+            chunkMetadata: {},
+          },
+        ],
+        [submittedMessage],
+        [],
+        [thread],
+        [lastMessage],
+        [openCycle],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await service.appendMessage({
+      issueId: "issue-qa-citation-fallback",
+      authorAgentId: "qa-2",
+      message: {
+        messageType: "APPROVE_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "qa-2",
+          role: "qa",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "qa-2",
+            role: "qa",
+          },
+        ],
+        workflowStateBefore: "under_qa_review",
+        workflowStateAfter: "approved",
+        summary: "QA approval fallback",
+        payload: {
+          approvalSummary: "QA checks passed.",
+          approvalMode: "agent_review",
+          approvalChecklist: ["Checklist item"],
+          verifiedEvidence: ["PASS go test ./internal/storage -run 'TestSafeJoin|TestValidatePathWithinBase'"],
+          residualRisks: ["Residual risk"],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(insertValues).toContainEqual({
+      table: issueProtocolMessages,
+      value: expect.objectContaining({
+        issueId: "issue-qa-citation-fallback",
+        messageType: "APPROVE_IMPLEMENTATION",
+        payload: expect.objectContaining({
+          evidenceCitations: [
+            expect.objectContaining({
+              retrievalRunId: "00000000-0000-0000-0000-000000000992",
+              briefId: "brief-qa-citation-fallback",
+              citedPaths: ["internal/storage/path.go"],
+              citedHitRanks: [1],
+              citedSourceTypes: ["code_summary"],
+              citedSummaryKinds: ["file"],
+            }),
+            expect.objectContaining({
+              retrievalRunId: "00000000-0000-0000-0000-000000000992",
+              briefId: "brief-qa-citation-fallback",
+              citedPaths: ["internal/storage/path_test.go"],
+              citedHitRanks: [2],
+              citedSourceTypes: ["test_report"],
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
+  it("reuses the latest cited protocol message when close payload omits citations", async () => {
+    const issue = {
+      id: "issue-close-citation-fallback",
+      companyId: "company-1",
+      projectId: null,
+      assigneeAgentId: "eng-2",
+      status: "in_review",
+    };
+    const currentState = {
+      issueId: "issue-close-citation-fallback",
+      companyId: "company-1",
+      workflowState: "approved",
+      coarseIssueStatus: "in_review",
+      techLeadAgentId: "lead-2",
+      primaryEngineerAgentId: "eng-2",
+      reviewerAgentId: "rev-2",
+      qaAgentId: "qa-2",
+      currentReviewCycle: 4,
+      metadata: {},
+    };
+    const thread = {
+      id: "thread-close-citation-fallback",
+      issueId: "issue-close-citation-fallback",
+      companyId: "company-1",
+      threadType: "primary",
+      title: "Primary protocol thread",
+    };
+    const lastMessage = {
+      id: "message-close-citation-fallback-11",
+      issueId: "issue-close-citation-fallback",
+      threadId: "thread-close-citation-fallback",
+      seq: 11,
+      integritySignature: null,
+    };
+    const citedApprovalMessage = {
+      payload: {
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000993",
+            citedPaths: ["internal/storage/path.go"],
+            citedHitRanks: [1],
+            citedSourceTypes: ["code"],
+          },
+        ],
+      },
+    };
+    const createdMessage = {
+      id: "message-close-citation-fallback-12",
+      issueId: "issue-close-citation-fallback",
+      threadId: "thread-close-citation-fallback",
+      seq: 12,
+      messageType: "CLOSE_TASK",
+      senderActorType: "agent",
+      senderActorId: "lead-2",
+      senderRole: "tech_lead",
+      workflowStateBefore: "approved",
+      workflowStateAfter: "done",
+      summary: "Close with inherited citations",
+      payload: {
+        closureSummary: "Done.",
+      },
+      integritySignature: null,
+    };
+    const sealedMessage = {
+      ...createdMessage,
+      payloadSha256: "sha",
+      previousIntegritySignature: null,
+      integrityAlgorithm: "sha256:hmac-v1",
+      integritySignature: "sig-close-citation-fallback",
+    };
+    const { db, insertValues } = createIssueProtocolDbMock({
+      selectResults: [
+        [issue],
+        [currentState],
+        [],
+        [citedApprovalMessage],
+        [],
+        [],
+        [{ companyId: "company-1" }],
+        [thread],
+        [lastMessage],
+      ],
+      insertResults: [[createdMessage]],
+      updateResults: [[sealedMessage], [{ ...currentState, workflowState: "done", coarseIssueStatus: "done" }], [{ ...issue, status: "done" }]],
+    });
+    const service = issueProtocolService(db as never);
+
+    await service.appendMessage({
+      issueId: "issue-close-citation-fallback",
+      authorAgentId: "lead-2",
+      message: {
+        messageType: "CLOSE_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "lead-2",
+          role: "tech_lead",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "lead-2",
+            role: "tech_lead",
+          },
+        ],
+        workflowStateBefore: "approved",
+        workflowStateAfter: "done",
+        summary: "Close with inherited citations",
+        payload: {
+          closeReason: "completed",
+          closureSummary: "Done.",
+          verificationSummary: "Verified.",
+          rollbackPlan: "Rollback branch.",
+          finalArtifacts: [],
+          finalTestStatus: "passed",
+          mergeStatus: "merged",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(insertValues).toContainEqual({
+      table: issueProtocolMessages,
+      value: expect.objectContaining({
+        issueId: "issue-close-citation-fallback",
+        messageType: "CLOSE_TASK",
+        payload: expect.objectContaining({
+          evidenceCitations: [
+            expect.objectContaining({
+              retrievalRunId: "00000000-0000-0000-0000-000000000993",
+              citedPaths: ["internal/storage/path.go"],
+              citedHitRanks: [1],
+              citedSourceTypes: ["code"],
+            }),
+          ],
+        }),
       }),
     });
   });
@@ -2230,6 +2708,8 @@ describe("issue protocol service", () => {
       selectResults: [
         [issue],
         [currentState],
+        [],
+        [],
         [{ companyId: "company-1" }],
         [thread],
         [lastMessage],

@@ -15,6 +15,7 @@ import {
   summarizeKnowledgeQualityGate,
   summarizeBriefQuality,
 } from "./rag-readiness-utils.mjs";
+import { isMissingMergeCandidateError } from "./e2e-api-utils.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -243,6 +244,18 @@ async function markMerged(issueId) {
   });
 }
 
+async function markMergedIfPresent(issueId) {
+  try {
+    await markMerged(issueId);
+    return { applied: true };
+  } catch (error) {
+    if (isMissingMergeCandidateError(error)) {
+      return { applied: false, reason: "missing_merge_candidate" };
+    }
+    throw error;
+  }
+}
+
 async function runScenarioOnce(input) {
   const result = await runNodeScript("scripts/e2e/cloud-swiftsight-real-org.mjs", {
     SWIFTSIGHT_E2E_SCENARIO: input.scenarioKey,
@@ -304,8 +317,12 @@ async function main() {
   await recordOperatorPin(seedRun.issueId, seedInspect.reviewQuality.retrievalRunId, scenarioConfig.pinnedPaths);
   note(`operator pin recorded for ${scenarioConfig.pinnedPaths.join(", ")}`);
 
-  await markMerged(seedRun.issueId);
-  note("merge candidate marked as merged for retrieval feedback");
+  const mergeFeedback = await markMergedIfPresent(seedRun.issueId);
+  note(
+    mergeFeedback.applied
+      ? "merge candidate marked as merged for retrieval feedback"
+      : `merge candidate feedback skipped: ${mergeFeedback.reason}`,
+  );
 
   section("Follow-up Issue");
   const followUpRun = await runScenarioOnce({

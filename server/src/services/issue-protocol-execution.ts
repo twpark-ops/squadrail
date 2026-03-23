@@ -63,6 +63,13 @@ export interface ProtocolExecutionDispatchPlanItem {
   payload: Record<string, unknown>;
 }
 
+interface ProtocolExecutionOwnershipSnapshot {
+  techLeadAgentId?: string | null;
+  primaryEngineerAgentId?: string | null;
+  reviewerAgentId?: string | null;
+  qaAgentId?: string | null;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -233,11 +240,36 @@ function buildDispatchPlanBase(input: {
   recipient: CreateIssueProtocolMessage["recipients"][number];
   recipientHint?: ProtocolExecutionRecipientHint;
   issueContext?: InternalWorkItemSupervisorContext | null;
+  ownershipSnapshot?: ProtocolExecutionOwnershipSnapshot | null;
   dispatchMode?: ProtocolDispatchMode;
   forceFollowupRun?: boolean;
   forceFreshAdapterSession?: boolean;
 }) {
   const internalMetadata = buildInternalWorkItemDispatchMetadata(input.issueContext);
+  const ownershipMetadata = {
+    techLeadAgentId:
+      input.issueContext?.techLeadAgentId
+      ?? readNonEmptyString(input.ownershipSnapshot?.techLeadAgentId)
+      ?? null,
+    reviewerAgentId:
+      input.issueContext?.reviewerAgentId
+      ?? readNonEmptyString(input.ownershipSnapshot?.reviewerAgentId)
+      ?? readNonEmptyString(input.protocolPayload.reviewerAgentId)
+      ?? readNonEmptyString(input.protocolPayload.newReviewerAgentId)
+      ?? null,
+    qaAgentId:
+      input.issueContext?.qaAgentId
+      ?? readNonEmptyString(input.ownershipSnapshot?.qaAgentId)
+      ?? readNonEmptyString(input.protocolPayload.qaAgentId)
+      ?? readNonEmptyString(input.protocolPayload.newQaAgentId)
+      ?? null,
+    primaryEngineerAgentId:
+      input.issueContext?.primaryEngineerAgentId
+      ?? readNonEmptyString(input.ownershipSnapshot?.primaryEngineerAgentId)
+      ?? readNonEmptyString(input.protocolPayload.assigneeAgentId)
+      ?? readNonEmptyString(input.protocolPayload.newAssigneeAgentId)
+      ?? null,
+  };
   const reviewSubmission = buildReviewSubmissionSnapshot(input.message, input.protocolPayload);
   const dispatchMetadata =
     {
@@ -263,6 +295,7 @@ function buildDispatchPlanBase(input: {
       protocolWorkflowStateAfter: input.message.workflowStateAfter,
       protocolSummary: input.message.summary,
       protocolPayload: input.protocolPayload,
+      ...ownershipMetadata,
       ...internalMetadata,
       ...dispatchMetadata,
       ...(reviewSubmission ? { reviewSubmission } : {}),
@@ -297,6 +330,7 @@ function buildDispatchPlanBase(input: {
       protocolRecipientRole: input.recipient.role,
       protocolSenderRole: input.message.sender.role,
       protocolPayload: input.protocolPayload,
+      ...ownershipMetadata,
       ...internalMetadata,
       ...dispatchMetadata,
       ...(reviewSubmission ? { reviewSubmission } : {}),
@@ -339,6 +373,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
   senderAgentId?: string | null;
   recipientHints?: ProtocolExecutionRecipientHint[];
   issueContext?: InternalWorkItemSupervisorContext | null;
+  ownershipSnapshot?: ProtocolExecutionOwnershipSnapshot | null;
 }) {
   const reason = protocolExecutionReason(input.message.messageType);
   const source = protocolExecutionSource(input.message.messageType);
@@ -393,6 +428,16 @@ export function buildProtocolExecutionDispatchPlan(input: {
       (recipient.role === "tech_lead" || recipient.role === "engineer") &&
       (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
       input.message.workflowStateAfter === "assigned";
+    // Some real-org lanes reuse a single agent identity across PM/TL/engineer
+    // roles. When staffing changes role but not agent id, the follow-up run is
+    // still required and must not be dropped as a self-send.
+    const sameAgentRoleHandoff =
+      recipient.recipientType === "agent" &&
+      Boolean(input.senderAgentId) &&
+      recipient.recipientId === input.senderAgentId &&
+      recipient.role !== input.message.sender.role &&
+      (input.message.messageType === "ASSIGN_TASK" || input.message.messageType === "REASSIGN_TASK") &&
+      input.message.workflowStateAfter === "assigned";
     const qaGateDirectRecipient =
       recipient.recipientType === "agent" &&
       recipient.role === "qa" &&
@@ -435,6 +480,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       recipient,
       recipientHint,
       issueContext: input.issueContext,
+      ownershipSnapshot: input.ownershipSnapshot,
       dispatchMode:
         approvalCloseDirectRecipient
           ? "approval_close_followup"
@@ -446,6 +492,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
       forceFollowupRun:
         engineerSelfStart
         || engineerChangeRequestRecovery
+        || sameAgentRoleHandoff
         || reviewerDirectFollowup
         || qaGateDirectRecipient
         || approvalCloseDirectRecipient,
@@ -472,7 +519,12 @@ export function buildProtocolExecutionDispatchPlan(input: {
       return { kind: "notify_only", ...base };
     }
 
-    if (input.senderAgentId && recipient.recipientId === input.senderAgentId && !engineerSelfStart) {
+    if (
+      input.senderAgentId
+      && recipient.recipientId === input.senderAgentId
+      && !engineerSelfStart
+      && !sameAgentRoleHandoff
+    ) {
       return { kind: "skip_sender", ...base };
     }
 
@@ -529,6 +581,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
           role: "qa",
         },
         issueContext: input.issueContext,
+        ownershipSnapshot: input.ownershipSnapshot,
         dispatchMode: "qa_gate_followup",
         forceFollowupRun: true,
         forceFreshAdapterSession: true,
@@ -561,6 +614,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
           role: "tech_lead",
         },
         issueContext: input.issueContext,
+        ownershipSnapshot: input.ownershipSnapshot,
         dispatchMode: "approval_close_followup",
         forceFollowupRun: true,
         forceFreshAdapterSession: true,
@@ -589,6 +643,7 @@ export function buildProtocolExecutionDispatchPlan(input: {
         role: "tech_lead",
       },
       issueContext: input.issueContext,
+      ownershipSnapshot: input.ownershipSnapshot,
       dispatchMode: "lead_supervisor",
     });
 
@@ -622,6 +677,19 @@ export function issueProtocolExecutionService(db: Db) {
       };
     }) => {
       const issueContext = await loadInternalWorkItemSupervisorContext(db, input.companyId, input.issueId);
+      const currentState = await db
+        .select({
+          workflowState: issueProtocolState.workflowState,
+          metadata: issueProtocolState.metadata,
+          techLeadAgentId: issueProtocolState.techLeadAgentId,
+          primaryEngineerAgentId: issueProtocolState.primaryEngineerAgentId,
+          reviewerAgentId: issueProtocolState.reviewerAgentId,
+          qaAgentId: issueProtocolState.qaAgentId,
+        })
+        .from(issueProtocolState)
+        .where(and(eq(issueProtocolState.issueId, input.issueId), eq(issueProtocolState.companyId, input.companyId)))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
       const plan = buildProtocolExecutionDispatchPlan({
         issueId: input.issueId,
         protocolMessageId: input.protocolMessageId,
@@ -629,16 +697,8 @@ export function issueProtocolExecutionService(db: Db) {
         senderAgentId: input.actor.agentId,
         recipientHints: input.recipientHints,
         issueContext,
+        ownershipSnapshot: currentState,
       });
-      const currentState = await db
-        .select({
-          workflowState: issueProtocolState.workflowState,
-          metadata: issueProtocolState.metadata,
-        })
-        .from(issueProtocolState)
-        .where(and(eq(issueProtocolState.issueId, input.issueId), eq(issueProtocolState.companyId, input.companyId)))
-        .limit(1)
-        .then((rows) => rows[0] ?? null);
 
       const storedDependencyGraph = readIssueDependencyGraphMetadata(currentState?.metadata ?? null);
       const dependencyGraph =

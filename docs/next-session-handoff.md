@@ -19,7 +19,9 @@ One-line startup rule:
   - RAG meaning layer는 baseline/current proof 축을 대부분 닫았고, 다음 immediate next는 `active p4 follow-up plan` 기준으로 `hidden child issue cleanup + proof runner 분리 + PM projection 보강`이다.
   - retrieval evidence provenance baseline, change surface citation read model, `rag-readiness` citation gate wiring은 이미 들어갔다.
   - reviewer `APPROVE_IMPLEMENTATION -> qa_pending` helper 기본값과 `under_review / under_qa_review` follow-up short lane decision-first guidance까지 반영됐다.
-  - 이제 남은 RAG follow-up은 `PM projection uplift + hidden child cleanup + final live proof artifact refresh` 쪽이다.
+  - implementation progress-only follow-up도 fresh adapter session 기반 `protocol_progress_followup` wake로 보강됐다.
+  - 최신 local rerun은 `CLO-340`이 실제 close까지 닫혔고, fresh rerun `CLO-342`는 `qa_pending`까지 진입한 상태에서 local exec session saturation 때문에 runner를 수동 중단했다.
+  - 이제 남은 RAG follow-up은 `PM projection uplift + hidden child cleanup + final live proof artifact refresh` 쪽이며, 다음 시작은 lingering `CLO-*` cleanup 후 clean slate rerun이다.
 
 ## Current Status
 
@@ -36,11 +38,13 @@ One-line startup rule:
     - `changedProjectSelectionCount=0`
   - residual risk:
     - hidden child issue cleanup 뒤 queued/running follow-up run이 다시 붙는 버그가 남아 있다
+    - latest full live proof artifact는 runner stop 때문에 아직 재생성 중간 상태다
   - immediate next:
-    1. hidden child issue follow-up run root cause 추적
-    2. `domain-aware proof only`와 `rag-readiness`를 분리해 proof axis를 독립화하고 artifact를 분리
-    3. summary hit를 PM project candidate scoring/projection 쪽에 더 직접 연결
-    4. citation presence를 live proof gate로 승격한 뒤 최신 rerun artifact를 다시 frozen baseline과 비교
+    1. lingering `CLO-*` issue/run cleanup 후 clean slate live rerun 재개
+    2. hidden child issue follow-up run root cause 추적
+    3. `domain-aware proof only`와 `rag-readiness`를 분리해 proof axis를 독립화하고 artifact를 분리
+    4. summary hit를 PM project candidate scoring/projection 쪽에 더 직접 연결
+    5. citation presence를 live proof gate로 승격한 뒤 최신 rerun artifact를 다시 frozen baseline과 비교
 
 - `P0 productization pivot`: Phase 1/2/3 shipped, Phase 4 preview/diff shipped
   - lower delivery kernel은 이미 제품 수준으로 닫혔다.

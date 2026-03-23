@@ -7,6 +7,13 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { extractJsonTail, summarizeKnowledgeQualityGate } from "./rag-readiness-utils.mjs";
 import { compareDomainAwareProofRuns, normalizeDomainAwareProofResultSet } from "./summary-proof-utils.mjs";
+import {
+  collectCleanupIssueIds,
+  collectIssueIds,
+  collectVisibleIssueIds,
+  expandCleanupIssueIds,
+  summarizePostRunCleanup,
+} from "./summary-layer-proof-cleanup-utils.mjs";
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -18,6 +25,7 @@ const PREPARE_FIXTURE = process.env.SWIFTSIGHT_SUMMARY_PROOF_PREPARE_FIXTURE !==
 const PREPARE_FORCE_FULL = process.env.SWIFTSIGHT_SUMMARY_PROOF_FORCE_FULL !== "0";
 const PREPARE_MAX_FILES = Number.parseInt(process.env.SWIFTSIGHT_SUMMARY_PROOF_MAX_FILES ?? "80", 10);
 const COMPANY_NAME = process.env.SQUADRAIL_COMPANY_NAME ?? "cloud-swiftsight-summary-eval";
+const FALLBACK_COMPANY_NAME = process.env.SWIFTSIGHT_SUMMARY_PROOF_FALLBACK_COMPANY ?? "cloud-swiftsight";
 const PROOF_MODE = INCLUDE_RAG_READINESS ? "full" : "domain_only";
 
 function note(message = "") {
@@ -59,12 +67,17 @@ async function api(pathname, options = {}) {
 
 async function resolveCompanyByName(name) {
   const companies = await api("/api/companies");
-  const normalized = name.trim().toLowerCase();
-  const match = companies.find((company) => {
-    const companyName = typeof company.name === "string" ? company.name.toLowerCase() : "";
-    const slug = typeof company.slug === "string" ? company.slug.toLowerCase() : "";
-    return companyName === normalized || slug === normalized;
-  });
+  const resolveMatch = (candidateName) => {
+    const normalized = candidateName.trim().toLowerCase();
+    return companies.find((company) => {
+      const companyName = typeof company.name === "string" ? company.name.toLowerCase() : "";
+      const slug = typeof company.slug === "string" ? company.slug.toLowerCase() : "";
+      return companyName === normalized || slug === normalized;
+    }) ?? null;
+  };
+
+  const match = resolveMatch(name)
+    ?? (FALLBACK_COMPANY_NAME && FALLBACK_COMPANY_NAME !== name ? resolveMatch(FALLBACK_COMPANY_NAME) : null);
   if (!match) {
     throw new Error(`Company not found: ${name}`);
   }
@@ -133,95 +146,40 @@ async function prepareSummaryFixture(company) {
   };
 }
 
-function collectVisibleIssueIds(issues) {
-  return new Set(
-    (Array.isArray(issues) ? issues : [])
-      .filter((issue) => !issue?.parentId)
-      .map((issue) => issue?.id)
-      .filter((issueId) => typeof issueId === "string" && issueId.length > 0),
-  );
-}
-
-function collectIssueIds(issues) {
-  return new Set(
-    (Array.isArray(issues) ? issues : [])
-      .map((issue) => issue?.id)
-      .filter((issueId) => typeof issueId === "string" && issueId.length > 0),
-  );
-}
-
-async function verifyPostRunCleanup(companyId, visibleIssueIdsBefore) {
+async function verifyPostRunCleanup(companyId, visibleIssueIdsBefore, trackedIssueIds = new Set()) {
   const [issues, heartbeatRuns] = await Promise.all([
     listCompanyIssues(companyId),
     listHeartbeatRuns(companyId),
   ]);
-  const terminalStatuses = new Set(["cancelled", "done"]);
-  const visibleNewIssues = (Array.isArray(issues) ? issues : [])
-    .filter((issue) => !issue?.parentId)
-    .filter((issue) => !visibleIssueIdsBefore.has(issue?.id))
-    .filter((issue) => !terminalStatuses.has(issue?.status));
-  const activeRuns = (Array.isArray(heartbeatRuns) ? heartbeatRuns : [])
-    .filter((run) => ["queued", "claimed", "running"].includes(run?.status));
-
-  return {
-    visibleNewIssueCount: visibleNewIssues.length,
-    visibleNewIssues: visibleNewIssues.map((issue) => ({
-      id: issue.id,
-      identifier: issue.identifier ?? null,
-      title: issue.title ?? null,
-      status: issue.status ?? null,
-    })),
-    activeRunCount: activeRuns.length,
-    activeRuns: activeRuns.map((run) => ({
-      id: run.id,
-      status: run.status,
-      issueId: run?.contextSnapshot?.issueId ?? null,
-    })),
-  };
-}
-
-function collectCleanupIssueIds(currentResults) {
-  const record = currentResults && typeof currentResults === "object" ? currentResults : {};
-  const scenarioDetails = Array.isArray(record.scenarioDetails) ? record.scenarioDetails : [];
-  const ids = new Set();
-
-  for (const entry of scenarioDetails) {
-    if (typeof entry?.issueId === "string" && entry.issueId.length > 0) {
-      ids.add(entry.issueId);
-    }
-    const cleanupTouched = Array.isArray(entry?.cleanup?.touched) ? entry.cleanup.touched : [];
-    for (const touched of cleanupTouched) {
-      if (typeof touched?.issueId === "string" && touched.issueId.length > 0) {
-        ids.add(touched.issueId);
-      }
-    }
-    const childResults = Array.isArray(entry?.delivery?.childResults) ? entry.delivery.childResults : [];
-    for (const child of childResults) {
-      if (typeof child?.issueId === "string" && child.issueId.length > 0) {
-        ids.add(child.issueId);
-      }
-    }
-  }
-
-  return ids;
+  return summarizePostRunCleanup({
+    issues,
+    heartbeatRuns,
+    visibleIssueIdsBefore,
+    trackedIssueIds,
+  });
 }
 
 async function cancelLingeringRuns(companyId, issueIds) {
   const cancelledRunIds = new Set();
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const runs = await listHeartbeatRuns(companyId);
+    const [issues, runs] = await Promise.all([
+      listCompanyIssues(companyId),
+      listHeartbeatRuns(companyId),
+    ]);
+    const expandedIssueIds = expandCleanupIssueIds(issues, issueIds);
     const activeRuns = (Array.isArray(runs) ? runs : [])
       .filter((run) => ["queued", "claimed", "running"].includes(run?.status))
       .filter((run) => {
         const issueId = run?.contextSnapshot?.issueId ?? null;
-        return typeof issueId === "string" && issueIds.has(issueId);
+        return typeof issueId === "string" && expandedIssueIds.has(issueId);
       });
 
     if (activeRuns.length === 0) {
       return {
         cancelledRunCount: cancelledRunIds.size,
         cancelledRunIds: [...cancelledRunIds],
+        trackedIssueCount: expandedIssueIds.size,
       };
     }
 
@@ -236,16 +194,17 @@ async function cancelLingeringRuns(companyId, issueIds) {
   return {
     cancelledRunCount: cancelledRunIds.size,
     cancelledRunIds: [...cancelledRunIds],
+    trackedIssueCount: 0,
   };
 }
 
-async function runDomainAwarePmBurnIn() {
+async function runDomainAwarePmBurnIn(companyName) {
   const { stdout, stderr } = await execFileAsync("node", ["scripts/e2e/cloud-swiftsight-domain-aware-pm-burn-in.mjs"], {
     cwd: REPO_ROOT,
     env: {
       ...process.env,
       SQUADRAIL_BASE_URL: BASE_URL,
-      SQUADRAIL_COMPANY_NAME: COMPANY_NAME,
+      SQUADRAIL_COMPANY_NAME: companyName,
       SWIFTSIGHT_PM_EVAL_CLEANUP: "1",
     },
     maxBuffer: 16 * 1024 * 1024,
@@ -303,6 +262,8 @@ async function main() {
   const company = await resolveCompanyByName(COMPANY_NAME);
   note(`companyId=${company.id}`);
   note(`companyName=${company.name}`);
+  note(`requestedCompany=${COMPANY_NAME}`);
+  note(`fallbackCompany=${FALLBACK_COMPANY_NAME}`);
 
   if (PREPARE_FIXTURE) {
     section("Prepare Summary Fixture");
@@ -319,7 +280,7 @@ async function main() {
   const visibleIssueIdsBefore = collectVisibleIssueIds(issuesBefore);
 
   section("Run Current Domain-Aware PM Burn-In");
-  const currentResults = await runDomainAwarePmBurnIn();
+  const currentResults = await runDomainAwarePmBurnIn(company.name);
   const comparison = compareDomainAwareProofRuns({
     baseline: baselineArtifact,
     current: currentResults,
@@ -330,12 +291,19 @@ async function main() {
 
   section("Cancel Lingering Domain-Aware Runs");
   const cleanupIssueIds = collectCleanupIssueIds(currentResults);
+  section("Cleanup Domain-Aware Proof Issues");
+  const domainCleanupSummary = await runRealOrgCleanup(company.name);
+  note(`domainCleanupCancelled=${domainCleanupSummary?.cancelled ?? 0}`);
+  note(`domainCleanupHidden=${domainCleanupSummary?.hidden ?? 0}`);
+  note(`domainCleanupRunsCancelled=${domainCleanupSummary?.runsCancelled ?? 0}`);
+
   const cleanupRunSweep = await cancelLingeringRuns(company.id, cleanupIssueIds);
   note(`cleanupIssueCount=${cleanupIssueIds.size}`);
   note(`cancelledRunCount=${cleanupRunSweep.cancelledRunCount}`);
+  note(`trackedCleanupIssueCount=${cleanupRunSweep.trackedIssueCount ?? 0}`);
 
   section("Verify Domain-Aware Cleanup");
-  const cleanupSummary = await verifyPostRunCleanup(company.id, visibleIssueIdsBefore);
+  const cleanupSummary = await verifyPostRunCleanup(company.id, visibleIssueIdsBefore, cleanupIssueIds);
   note(`visibleNewIssueCount=${cleanupSummary.visibleNewIssueCount}`);
   note(`activeRunCount=${cleanupSummary.activeRunCount}`);
 
@@ -376,11 +344,23 @@ async function main() {
       ragCleanupRunSweep = await cancelLingeringRuns(ragCompany.id, allCleanupIssueIds);
       note(`ragCleanupIssueCount=${allCleanupIssueIds.size}`);
       note(`ragCancelledRunCount=${ragCleanupRunSweep.cancelledRunCount}`);
+      note(`ragTrackedCleanupIssueCount=${ragCleanupRunSweep.trackedIssueCount ?? 0}`);
     }
   }
 
+  section("Cleanup Domain-Aware Proof Issues (final sweep)");
+  const finalDomainCleanupSummary = await runRealOrgCleanup(company.name);
+  note(`finalDomainCleanupCancelled=${finalDomainCleanupSummary?.cancelled ?? 0}`);
+  note(`finalDomainCleanupHidden=${finalDomainCleanupSummary?.hidden ?? 0}`);
+  note(`finalDomainCleanupRunsCancelled=${finalDomainCleanupSummary?.runsCancelled ?? 0}`);
+
+  section("Cancel Lingering Domain-Aware Runs (final sweep)");
+  const finalCleanupRunSweep = await cancelLingeringRuns(company.id, cleanupIssueIds);
+  note(`finalCancelledRunCount=${finalCleanupRunSweep.cancelledRunCount}`);
+  note(`finalTrackedCleanupIssueCount=${finalCleanupRunSweep.trackedIssueCount ?? 0}`);
+
   section("Verify Final Cleanup");
-  const finalCleanupSummary = await verifyPostRunCleanup(company.id, visibleIssueIdsBefore);
+  const finalCleanupSummary = await verifyPostRunCleanup(company.id, visibleIssueIdsBefore, cleanupIssueIds);
   note(`finalVisibleNewIssueCount=${finalCleanupSummary.visibleNewIssueCount}`);
   note(`finalActiveRunCount=${finalCleanupSummary.activeRunCount}`);
 
@@ -391,8 +371,11 @@ async function main() {
         baseline: baselineArtifact,
         current: normalizeDomainAwareProofResultSet(currentResults),
         comparison,
+        domainCleanupSummary,
         cleanupRunSweep,
         cleanupSummary,
+        finalDomainCleanupSummary,
+        finalCleanupRunSweep,
         finalCleanupSummary,
         ragReadinessSummary,
         ragCleanupSummary,

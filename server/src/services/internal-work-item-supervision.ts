@@ -137,5 +137,9 @@ export function buildInternalWorkItemDispatchMetadata(
     internalWorkItemKind: getInternalWorkItemKind(context),
     reviewerWatchEnabled: isReviewerWatchEnabled(context),
     leadWatchEnabled: isLeadWatchEnabled(context),
+    techLeadAgentId: context?.techLeadAgentId ?? null,
+    reviewerAgentId: context?.reviewerAgentId ?? null,
+    qaAgentId: context?.qaAgentId ?? null,
+    primaryEngineerAgentId: context?.primaryEngineerAgentId ?? null,
   };
 }

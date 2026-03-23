@@ -1,9 +1,10 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import type { Db } from "@squadrail/db";
 import {
   heartbeatRunEvents,
   heartbeatRunLeases,
   heartbeatRuns,
+  issueProtocolMessages,
   issueProtocolState,
   issues,
 } from "@squadrail/db";
@@ -13,9 +14,11 @@ import { parseObject } from "../adapters/utils.js";
 import { logger } from "../middleware/logger.js";
 import { readNonEmptyString } from "./heartbeat-runtime-utils.js";
 import {
+  RUN_IMPLEMENTATION_PROGRESS_ONLY_WATCHDOG_MS,
   RUN_PROTOCOL_DEGRADED_WATCHDOG_MS,
   RUN_PROTOCOL_IDLE_WATCHDOG_MS,
   isIdleProtocolWatchdogEligibleRequirement,
+  refreshProtocolRetryContextSnapshot,
   resolveDegradedProtocolRecoveryReason,
   resolveProtocolIdleWatchdogDelayMs,
   runDispatchWatchdogOutsideDbContext,
@@ -77,7 +80,9 @@ export function createHeartbeatProtocolRecovery(input: {
       protocolMessageType: readNonEmptyString(context.protocolMessageType),
       protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
     });
-    if (!isIdleProtocolWatchdogEligibleRequirement(requirement)) return false;
+    if (!isIdleProtocolWatchdogEligibleRequirement(requirement) && requirement?.key !== "implementation_engineer") {
+      return false;
+    }
 
     const issueStateSnapshot = await db
       .select({
@@ -105,6 +110,28 @@ export function createHeartbeatProtocolRecovery(input: {
       .orderBy(desc(heartbeatRunEvents.seq))
       .limit(1)
       .then((rows) => rows[0] ?? null);
+    const protocolMessageWindowStart = inputValue.run.startedAt
+      ? new Date(inputValue.run.startedAt.getTime() - 1_000)
+      : null;
+    const protocolMessages = protocolMessageWindowStart
+      ? await db
+        .select({
+          messageType: issueProtocolMessages.messageType,
+          payload: issueProtocolMessages.payload,
+          createdAt: issueProtocolMessages.createdAt,
+        })
+        .from(issueProtocolMessages)
+        .where(
+          and(
+            eq(issueProtocolMessages.companyId, inputValue.run.companyId),
+            eq(issueProtocolMessages.issueId, issueId),
+            eq(issueProtocolMessages.senderActorType, "agent"),
+            eq(issueProtocolMessages.senderActorId, inputValue.run.agentId),
+            gt(issueProtocolMessages.createdAt, protocolMessageWindowStart),
+          ),
+        )
+        .orderBy(desc(issueProtocolMessages.createdAt))
+      : [];
     const protocolRetryCount =
       typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
         ? context.protocolRequiredRetryCount
@@ -118,10 +145,14 @@ export function createHeartbeatProtocolRecovery(input: {
       workflowState: issueStateSnapshot?.workflowState ?? null,
       protocolRetryCount,
       checkpointJson: inputValue.lease?.checkpointJson ?? null,
+      messages: protocolMessages,
       latestEvent,
       startedAt: inputValue.run.startedAt,
       now: inputValue.now,
-      idleThresholdMs: inputValue.idleThresholdMs,
+      idleThresholdMs:
+        requirement?.key === "implementation_engineer"
+          ? Math.max(inputValue.idleThresholdMs ?? 0, RUN_IMPLEMENTATION_PROGRESS_ONLY_WATCHDOG_MS)
+          : inputValue.idleThresholdMs,
     })) {
       return false;
     }
@@ -136,21 +167,24 @@ export function createHeartbeatProtocolRecovery(input: {
         protocolRequiredPreviousRunId: inputValue.run.id,
         protocolIdleRecovery: true,
       },
-      contextSnapshot: {
-        ...context,
-        issueId,
-        taskId: issueId,
-        wakeReason: "protocol_required_retry",
-        protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
-        protocolRequiredRetryCount: protocolRetryCount + 1,
-        protocolRequiredPreviousRunId: inputValue.run.id,
-        protocolIdleRecovery: true,
-        protocolIdleRecoveryPhase:
-          readNonEmptyString(checkpoint.phase)
-          ?? readNonEmptyString(latestEvent?.eventType),
-        forceFollowupRun: true,
-        forceFreshAdapterSession: true,
-      },
+      contextSnapshot: refreshProtocolRetryContextSnapshot({
+        contextSnapshot: {
+          ...context,
+          issueId,
+          taskId: issueId,
+          wakeReason: "protocol_required_retry",
+          protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+          protocolRequiredRetryCount: protocolRetryCount + 1,
+          protocolRequiredPreviousRunId: inputValue.run.id,
+          protocolIdleRecovery: true,
+          protocolIdleRecoveryPhase:
+            readNonEmptyString(checkpoint.phase)
+            ?? readNonEmptyString(latestEvent?.eventType),
+          forceFollowupRun: true,
+          forceFreshAdapterSession: true,
+        },
+        workflowState: issueStateSnapshot?.workflowState ?? null,
+      }),
     });
 
     await cancelRunInternal(inputValue.run.id, {
@@ -274,20 +308,23 @@ export function createHeartbeatProtocolRecovery(input: {
         protocolDegradedRecovery: true,
         protocolDegradedRecoveryReason: degradedReason,
       },
-      contextSnapshot: {
-        ...context,
-        issueId,
-        taskId: issueId,
-        wakeReason: "protocol_required_retry",
-        protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
-        protocolRequiredRetryCount: protocolRetryCount + 1,
-        protocolDegradedRecoveryCount: protocolDegradedRecoveryCount + 1,
-        protocolRequiredPreviousRunId: inputValue.run.id,
-        protocolDegradedRecovery: true,
-        protocolDegradedRecoveryReason: degradedReason,
-        forceFollowupRun: true,
-        forceFreshAdapterSession: true,
-      },
+      contextSnapshot: refreshProtocolRetryContextSnapshot({
+        contextSnapshot: {
+          ...context,
+          issueId,
+          taskId: issueId,
+          wakeReason: "protocol_required_retry",
+          protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+          protocolRequiredRetryCount: protocolRetryCount + 1,
+          protocolDegradedRecoveryCount: protocolDegradedRecoveryCount + 1,
+          protocolRequiredPreviousRunId: inputValue.run.id,
+          protocolDegradedRecovery: true,
+          protocolDegradedRecoveryReason: degradedReason,
+          forceFollowupRun: true,
+          forceFreshAdapterSession: true,
+        },
+        workflowState: issueStateSnapshot?.workflowState ?? null,
+      }),
     });
 
     await cancelRunInternal(inputValue.run.id, {

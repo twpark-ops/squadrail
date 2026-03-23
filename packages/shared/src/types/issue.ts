@@ -485,12 +485,25 @@ export interface PmIntakeProjectionPreviewRequest {
   requiredKnowledgeTags?: string[];
 }
 
+export interface PmIntakeProjectionPreviewSummaryEvidence {
+  documentId: string;
+  sourceType: string;
+  summaryKind: string | null;
+  path: string | null;
+  title: string | null;
+  score: number;
+  structuredScore: number;
+  ambientScore: number;
+  reasons: string[];
+}
+
 export interface PmIntakeProjectionPreviewProjectCandidate {
   projectId: string;
   projectName: string;
   score: number;
   selected: boolean;
   reasons: string[];
+  summaryEvidence: PmIntakeProjectionPreviewSummaryEvidence[];
 }
 
 export interface PmIntakeProjectionPreviewRoot {

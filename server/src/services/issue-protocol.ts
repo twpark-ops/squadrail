@@ -3,6 +3,9 @@ import type { Db } from "@squadrail/db";
 import { resolveClarificationResumeWorkflowState } from "@squadrail/shared";
 import {
   issueComments,
+  knowledgeChunks,
+  knowledgeDocuments,
+  issueTaskBriefs,
   issueMergeCandidates,
   issueProtocolArtifacts,
   issueProtocolMessages,
@@ -13,6 +16,7 @@ import {
   issueReviewCycles,
   issues,
   projects,
+  retrievalRunHits,
 } from "@squadrail/db";
 import type {
   IssueProtocolBlockedPhase,
@@ -42,6 +46,9 @@ import {
   verifyProtocolMessageIntegrity,
 } from "../protocol-integrity.js";
 import { resolveIssueDependencyGraphMetadata } from "./issue-dependency-graph.js";
+
+type IssueProtocolTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type ProtocolCitationRecord = Record<string, unknown>;
 
 const MESSAGE_RULES: Record<
   IssueProtocolMessageType,
@@ -129,6 +136,331 @@ const MESSAGE_RULES: Record<
   TIMEOUT_ESCALATION: { from: "*", to: "same", roles: ["system"], stateChanging: false },
   RECORD_PROTOCOL_VIOLATION: { from: "*", to: "same", roles: ["system"], stateChanging: false },
 };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readNonEmptyStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value
+      .map((entry) => readNonEmptyString(entry))
+      .filter((entry): entry is string => Boolean(entry)),
+  ));
+}
+
+function readPositiveIntArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value
+      .map((entry) => {
+        if (typeof entry === "number" && Number.isInteger(entry) && entry > 0) return entry;
+        if (typeof entry === "string" && /^\d+$/.test(entry.trim())) return Number(entry.trim());
+        return null;
+      })
+      .filter((entry): entry is number => entry !== null),
+  ));
+}
+
+function extractSummaryKindFromMetadata(value: unknown) {
+  return readNonEmptyString(asRecord(value).summaryKind);
+}
+
+function readEvidenceCitations(value: unknown) {
+  return Array.isArray(value)
+    ? value
+      .map((entry) => asRecord(entry))
+      .filter((entry) => Object.keys(entry).length > 0)
+    : [];
+}
+
+function buildDefaultEvidenceCitationsFromBrief(brief: {
+  id: string;
+  retrievalRunId: string | null;
+  contentJson: Record<string, unknown> | null;
+}) {
+  const retrievalRunId = readNonEmptyString(brief.retrievalRunId);
+  if (!retrievalRunId) return [];
+
+  const hits = Array.isArray(asRecord(brief.contentJson).hits)
+    ? (asRecord(brief.contentJson).hits as unknown[])
+      .map((entry) => asRecord(entry))
+      .filter((entry) => Object.keys(entry).length > 0)
+    : [];
+
+  const mergedByPath = new Map<string, Record<string, unknown>>();
+  const anonymousCitations: Array<Record<string, unknown>> = [];
+
+  for (const hit of hits) {
+    const path = readNonEmptyString(hit.path);
+    const rank = typeof hit.rank === "number" && Number.isInteger(hit.rank) && hit.rank > 0 ? hit.rank : null;
+    const sourceType = readNonEmptyString(hit.sourceType);
+    const summaryKind = readNonEmptyString(hit.summaryKind);
+
+    if (!path && !rank) continue;
+
+    const baseCitation = (path
+      ? mergedByPath.get(path) ?? {
+        retrievalRunId,
+        briefId: brief.id,
+        citedPaths: [path],
+        citedHitRanks: [] as number[],
+        citedSourceTypes: [] as string[],
+        citedSummaryKinds: [] as string[],
+      }
+      : {
+        retrievalRunId,
+        briefId: brief.id,
+        citedHitRanks: [] as number[],
+        citedSourceTypes: [] as string[],
+        citedSummaryKinds: [] as string[],
+      }) as {
+        retrievalRunId: string;
+        briefId: string;
+        citedPaths?: string[];
+        citedHitRanks: number[];
+        citedSourceTypes: string[];
+        citedSummaryKinds: string[];
+      };
+
+    if (rank && !baseCitation.citedHitRanks.includes(rank)) {
+      baseCitation.citedHitRanks.push(rank);
+    }
+    if (sourceType && !baseCitation.citedSourceTypes.includes(sourceType)) {
+      baseCitation.citedSourceTypes.push(sourceType);
+    }
+    if (summaryKind && !baseCitation.citedSummaryKinds.includes(summaryKind)) {
+      baseCitation.citedSummaryKinds.push(summaryKind);
+    }
+
+    if (path) {
+      mergedByPath.set(path, baseCitation);
+    } else {
+      anonymousCitations.push(baseCitation);
+    }
+  }
+
+  return [...mergedByPath.values(), ...anonymousCitations]
+    .map((citation) => ({
+      ...citation,
+      ...(Array.isArray(citation.citedHitRanks) && citation.citedHitRanks.length > 0
+        ? { citedHitRanks: citation.citedHitRanks }
+        : {}),
+      ...(Array.isArray(citation.citedSourceTypes) && citation.citedSourceTypes.length > 0
+        ? { citedSourceTypes: citation.citedSourceTypes }
+        : {}),
+      ...(Array.isArray(citation.citedSummaryKinds) && citation.citedSummaryKinds.length > 0
+        ? { citedSummaryKinds: citation.citedSummaryKinds }
+        : {}),
+    }))
+    .slice(0, 3);
+}
+
+function resolveFallbackCitationBriefScopes(input: {
+  messageType: IssueProtocolMessageType;
+  senderRole: IssueProtocolRole;
+}) {
+  switch (input.messageType) {
+    case "SUBMIT_FOR_REVIEW":
+      return ["engineer"];
+    case "APPROVE_IMPLEMENTATION":
+    case "REQUEST_CHANGES":
+      return input.senderRole === "qa" ? ["qa", "reviewer"] : ["reviewer", "qa"];
+    case "CLOSE_TASK":
+      return ["closure", "qa", "reviewer"];
+    default:
+      return [];
+  }
+}
+
+async function synthesizeProtocolEvidenceCitationsTx(
+  tx: IssueProtocolTx,
+  input: {
+    companyId: string;
+    issueId: string;
+    messageType: IssueProtocolMessageType;
+    senderRole: IssueProtocolRole;
+  },
+) {
+  const preferredBriefScopes = resolveFallbackCitationBriefScopes({
+    messageType: input.messageType,
+    senderRole: input.senderRole,
+  });
+  if (preferredBriefScopes.length === 0) return [];
+
+  const briefRows = await tx
+    .select({
+      id: issueTaskBriefs.id,
+      briefScope: issueTaskBriefs.briefScope,
+      retrievalRunId: issueTaskBriefs.retrievalRunId,
+      contentJson: issueTaskBriefs.contentJson,
+      generatedFromMessageSeq: issueTaskBriefs.generatedFromMessageSeq,
+      createdAt: issueTaskBriefs.createdAt,
+    })
+    .from(issueTaskBriefs)
+    .where(and(
+      eq(issueTaskBriefs.companyId, input.companyId),
+      eq(issueTaskBriefs.issueId, input.issueId),
+      inArray(issueTaskBriefs.briefScope, preferredBriefScopes),
+    ))
+    .orderBy(desc(issueTaskBriefs.generatedFromMessageSeq), desc(issueTaskBriefs.createdAt));
+
+  const briefScopePriority = new Map(preferredBriefScopes.map((scope, index) => [scope, index]));
+  const bestBrief = briefRows
+    .slice()
+    .sort((left, right) => {
+      const leftPriority = briefScopePriority.get(left.briefScope) ?? Number.MAX_SAFE_INTEGER;
+      const rightPriority = briefScopePriority.get(right.briefScope) ?? Number.MAX_SAFE_INTEGER;
+      if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+      const leftSeq = typeof left.generatedFromMessageSeq === "number" ? left.generatedFromMessageSeq : -1;
+      const rightSeq = typeof right.generatedFromMessageSeq === "number" ? right.generatedFromMessageSeq : -1;
+      if (leftSeq !== rightSeq) return rightSeq - leftSeq;
+      return (right.createdAt?.getTime?.() ?? 0) - (left.createdAt?.getTime?.() ?? 0);
+    })[0];
+
+  if (bestBrief) {
+    const briefCitations = buildDefaultEvidenceCitationsFromBrief(bestBrief);
+    if (briefCitations.length > 0) return briefCitations;
+  }
+
+  const recentMessages = await tx
+    .select({ payload: issueProtocolMessages.payload })
+    .from(issueProtocolMessages)
+    .where(eq(issueProtocolMessages.issueId, input.issueId))
+    .orderBy(desc(issueProtocolMessages.seq));
+
+  for (const message of recentMessages) {
+    const citations = readEvidenceCitations(asRecord(message.payload).evidenceCitations);
+    if (citations.length > 0) return citations;
+  }
+
+  return [];
+}
+
+async function enrichProtocolEvidenceCitationsTx(
+  tx: IssueProtocolTx,
+  input: {
+    companyId: string;
+    issueId: string;
+    messageType: IssueProtocolMessageType;
+    senderRole: IssueProtocolRole;
+    payload: Record<string, unknown>;
+  },
+) {
+  const citations = readEvidenceCitations(input.payload.evidenceCitations);
+  const synthesizedCitations = citations.length > 0
+    ? citations
+    : await synthesizeProtocolEvidenceCitationsTx(tx, {
+      companyId: input.companyId,
+      issueId: input.issueId,
+      messageType: input.messageType,
+      senderRole: input.senderRole,
+    });
+  const effectiveCitations: ProtocolCitationRecord[] = synthesizedCitations.map((citation) => asRecord(citation));
+  if (effectiveCitations.length === 0) return input.payload;
+
+  const runIds = Array.from(new Set(
+    effectiveCitations
+      .map((citation) => readNonEmptyString(citation.retrievalRunId))
+      .filter((entry): entry is string => Boolean(entry)),
+  ));
+  if (runIds.length === 0) {
+    return {
+      ...input.payload,
+      evidenceCitations: effectiveCitations,
+    };
+  }
+
+  const hitRows = await tx
+    .select({
+      retrievalRunId: retrievalRunHits.retrievalRunId,
+      finalRank: retrievalRunHits.finalRank,
+      documentPath: knowledgeDocuments.path,
+      sourceType: knowledgeDocuments.sourceType,
+      documentMetadata: knowledgeDocuments.metadata,
+      chunkMetadata: knowledgeChunks.metadata,
+    })
+    .from(retrievalRunHits)
+    .innerJoin(knowledgeChunks, eq(retrievalRunHits.chunkId, knowledgeChunks.id))
+    .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
+    .where(and(
+      eq(retrievalRunHits.companyId, input.companyId),
+      inArray(retrievalRunHits.retrievalRunId, runIds),
+    ))
+    .orderBy(asc(retrievalRunHits.finalRank), asc(retrievalRunHits.id));
+
+  const hitsByRunId = new Map<string, typeof hitRows>();
+  for (const row of hitRows) {
+    const bucket = hitsByRunId.get(row.retrievalRunId) ?? [];
+    bucket.push(row);
+    hitsByRunId.set(row.retrievalRunId, bucket);
+  }
+
+  const enrichedCitations = effectiveCitations.map((citation) => {
+    const retrievalRunId = readNonEmptyString(citation.retrievalRunId);
+    if (!retrievalRunId) return citation;
+
+    const citedPaths = readNonEmptyStringArray(citation.citedPaths);
+    const citedHitRanks = readPositiveIntArray(citation.citedHitRanks);
+    const citedSourceTypes = readNonEmptyStringArray(citation.citedSourceTypes);
+    const citedSummaryKinds = readNonEmptyStringArray(citation.citedSummaryKinds);
+    if (citedSourceTypes.length > 0 && citedSummaryKinds.length > 0 && citedPaths.length > 0) {
+      return citation;
+    }
+
+    const runHits = hitsByRunId.get(retrievalRunId) ?? [];
+    const matchedHits = runHits.filter((row) => {
+      const pathMatched = citedPaths.length > 0 && row.documentPath ? citedPaths.includes(row.documentPath) : false;
+      const rankMatched =
+        citedHitRanks.length > 0
+        && typeof row.finalRank === "number"
+        && citedHitRanks.includes(row.finalRank);
+      return pathMatched || rankMatched;
+    });
+    if (matchedHits.length === 0) return citation;
+
+    const derivedPaths = citedPaths.length > 0
+      ? citedPaths
+      : Array.from(new Set(
+        matchedHits
+          .map((row) => readNonEmptyString(row.documentPath))
+          .filter((entry): entry is string => Boolean(entry)),
+      ));
+    const derivedSourceTypes = citedSourceTypes.length > 0
+      ? citedSourceTypes
+      : Array.from(new Set(
+        matchedHits
+          .map((row) => readNonEmptyString(row.sourceType))
+          .filter((entry): entry is string => Boolean(entry)),
+      ));
+    const derivedSummaryKinds = citedSummaryKinds.length > 0
+      ? citedSummaryKinds
+      : Array.from(new Set(
+        matchedHits
+          .map((row) =>
+            extractSummaryKindFromMetadata(row.documentMetadata)
+            ?? extractSummaryKindFromMetadata(row.chunkMetadata))
+          .filter((entry): entry is string => Boolean(entry)),
+      ));
+
+    return {
+      ...citation,
+      ...(derivedPaths.length > 0 ? { citedPaths: derivedPaths } : {}),
+      ...(derivedSourceTypes.length > 0 ? { citedSourceTypes: derivedSourceTypes } : {}),
+      ...(derivedSummaryKinds.length > 0 ? { citedSummaryKinds: derivedSummaryKinds } : {}),
+    };
+  });
+
+  return {
+    ...input.payload,
+    evidenceCitations: enrichedCitations,
+  };
+}
 
 export function mapProtocolStateToIssueStatus(state: IssueProtocolWorkflowState): IssueStatus {
   switch (state) {
@@ -949,6 +1281,16 @@ export function issueProtocolService(db: Db) {
             }),
           };
         }
+
+        const enrichedPayload = await enrichProtocolEvidenceCitationsTx(tx, {
+          companyId: issue.companyId,
+          issueId: issue.id,
+          messageType: effectiveMessage.messageType,
+          senderRole: effectiveMessage.sender.role,
+          payload: asRecord(effectiveMessage.payload),
+        });
+        (effectiveMessage as { payload: typeof effectiveMessage.payload }).payload =
+          enrichedPayload as typeof effectiveMessage.payload;
 
         await validateMessage(currentState, effectiveMessage);
         await validateEvidenceRequirements(tx, issue.id, effectiveMessage);

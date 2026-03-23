@@ -182,7 +182,7 @@ const COMMAND_HELP = {
     "  --payload <json>                                  progressPercent, completedItems, nextSteps, risks, changedFiles, testSummary, summary",
   ].join("\n"),
   "submit-for-review": [
-    "Usage: squadrail-protocol.mjs submit-for-review --issue <issueId> [--sender-role <role>] --reviewer-id <agentId> --summary <text> --implementation-summary <text> [options]",
+    "Usage: squadrail-protocol.mjs submit-for-review --issue <issueId> [--sender-role <role>] [--reviewer-id <agentId>] --summary <text> --implementation-summary <text> [options]",
     "",
     "Required evidence options:",
     "  --evidence \"item1||item2\"",
@@ -194,6 +194,7 @@ const COMMAND_HELP = {
     "  --evidence-citations <json-array>",
     "  --citation-run-id <uuid> --cited-paths \"path1||path2\" [--cited-hit-ranks \"1||2\"]",
     "  --payload <json>                                  reviewerId, implementationSummary, evidence, diffSummary, changedFiles, testResults, reviewChecklist, residualRisks, evidenceCitations, summary",
+    "  reviewer-id defaults to the current protocol reviewer when omitted.",
   ].join("\n"),
   "ack-change-request": [
     "Usage: squadrail-protocol.mjs ack-change-request --issue <issueId> [--sender-role <role>] --summary <text> --change-request-ids \"id1||id2\" --planned-fix-order \"step1||step2\" [--payload <json>]",
@@ -247,7 +248,7 @@ const COMMAND_HELP = {
     "  --citation-run-id <uuid> --cited-paths \"path1||path2\" [--cited-hit-ranks \"1||2\"]",
   ].join("\n"),
   "reassign-task": [
-    "Usage: squadrail-protocol.mjs reassign-task --issue <issueId> --sender-role <role> --assignee-id <agentId> --reviewer-id <agentId> --reason <text> [options]",
+    "Usage: squadrail-protocol.mjs reassign-task --issue <issueId> --sender-role <role> --assignee-id <agentId> --reason <text> [--reviewer-id <agentId>] [options]",
     "",
     "Supported options:",
     "  --assignee-id / --new-assignee-agent-id / --new-assignee / --assignee",
@@ -488,7 +489,81 @@ function parsePositiveIntList(value) {
     .filter((entry) => Number.isInteger(entry) && entry > 0);
 }
 
+function parseEvidenceCitationString(value, index = 0) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) {
+    fail(`Evidence citation #${index + 1} must not be empty.`);
+  }
+
+  const retrievalRunIdMatch = raw.match(/(?:^|\s)(?:retrievalRunId|runId)=([0-9a-fA-F-]{36})(?=\s|$)/);
+  const retrievalRunId = retrievalRunIdMatch?.[1]?.trim() ?? null;
+  if (!retrievalRunId) {
+    fail(`Evidence citation #${index + 1} is missing retrievalRunId.`);
+  }
+
+  const briefIdMatch = raw.match(/(?:^|\s)briefId=([0-9a-fA-F-]{36})(?=\s|$)/);
+  const briefId = briefIdMatch?.[1]?.trim() ?? null;
+  const citedHitRanks = [
+    ...[...raw.matchAll(/(?:^|\s)hit#(\d+)(?=\s|$)/g)].map((match) => Number(match[1])),
+    ...[...raw.matchAll(/(?:^|\s)(?:rank|hitRank)=(\d+)(?=\s|$)/g)].map((match) => Number(match[1])),
+  ]
+    .filter((entry) => Number.isInteger(entry) && entry > 0);
+  const explicitPaths = [
+    ...[...raw.matchAll(/(?:^|\s)(?:path|citedPath)=([^\s]+)(?=\s|$)/g)].map((match) => match[1]?.trim()),
+    ...[...raw.matchAll(/(?:^|\s)paths=([^\s]+)(?=\s|$)/g)].flatMap((match) =>
+      String(match[1] ?? "")
+        .split(/\|\||,/)
+        .map((entry) => entry.trim()),
+    ),
+  ].filter(Boolean);
+  const citedSourceTypes = [...raw.matchAll(/(?:^|\s)sourceType=([^\s]+)(?=\s|$)/g)]
+    .map((match) => match[1]?.trim())
+    .filter(Boolean);
+  const citedSummaryKinds = [...raw.matchAll(/(?:^|\s)summaryKind=([^\s]+)(?=\s|$)/g)]
+    .map((match) => match[1]?.trim())
+    .filter(Boolean);
+  const citationReasonMatch = raw.match(/(?:^|\s)citationReason=(.+)$/);
+  const citationReason = citationReasonMatch?.[1]?.trim() ?? null;
+
+  let remainder = raw
+    .replace(/(?:^|\s)(?:retrievalRunId|runId)=[0-9a-fA-F-]{36}(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)briefId=[0-9a-fA-F-]{36}(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)hit#\d+(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)(?:rank|hitRank)=\d+(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)(?:path|citedPath)=[^\s]+(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)paths=[^\s]+(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)sourceType=[^\s]+(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)summaryKind=[^\s]+(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)citationReason=.+$/g, " ")
+    .trim();
+  const citedPaths = [...explicitPaths, ...(remainder ? [remainder] : [])];
+
+  if (
+    citedHitRanks.length === 0
+    && citedPaths.length === 0
+    && citedSourceTypes.length === 0
+    && citedSummaryKinds.length === 0
+  ) {
+    fail(
+      `Evidence citation #${index + 1} must include at least one of citedHitRanks, citedPaths, citedSourceTypes, or citedSummaryKinds.`,
+    );
+  }
+
+  return {
+    retrievalRunId,
+    ...(briefId ? { briefId } : {}),
+    ...(citedHitRanks.length > 0 ? { citedHitRanks } : {}),
+    ...(citedPaths.length > 0 ? { citedPaths } : {}),
+    ...(citedSourceTypes.length > 0 ? { citedSourceTypes } : {}),
+    ...(citedSummaryKinds.length > 0 ? { citedSummaryKinds } : {}),
+    ...(citationReason ? { citationReason } : {}),
+  };
+}
+
 function normalizeEvidenceCitation(input, index = 0) {
+  if (typeof input === "string") {
+    return parseEvidenceCitationString(input, index);
+  }
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     fail(`Evidence citation #${index + 1} must be a JSON object.`);
   }
@@ -510,10 +585,14 @@ function normalizeEvidenceCitation(input, index = 0) {
     ? record.citedHitRanks
       .map((entry) => Number(entry))
       .filter((entry) => Number.isInteger(entry) && entry > 0)
-    : [];
-  const citedPaths = parseListLike(record.citedPaths);
-  const citedSourceTypes = parseListLike(record.citedSourceTypes);
-  const citedSummaryKinds = parseListLike(record.citedSummaryKinds);
+    : Number.isInteger(Number(record.rank)) && Number(record.rank) > 0
+      ? [Number(record.rank)]
+      : Number.isInteger(Number(record.hitRank)) && Number(record.hitRank) > 0
+        ? [Number(record.hitRank)]
+        : [];
+  const citedPaths = parseListLike(record.citedPaths ?? record.path ?? record.paths);
+  const citedSourceTypes = parseListLike(record.citedSourceTypes ?? record.sourceType ?? record.sourceTypes);
+  const citedSummaryKinds = parseListLike(record.citedSummaryKinds ?? record.summaryKind ?? record.summaryKinds);
   const citationReason =
     typeof record.citationReason === "string" && record.citationReason.trim().length > 0
       ? record.citationReason.trim()
@@ -738,6 +817,17 @@ async function resolveSenderRole(options, commandName = null) {
       if (issueState?.techLeadAgentId === AGENT_ID) {
         return "tech_lead";
       }
+    } else if (preferExplicitEngineer) {
+      if (issueState?.primaryEngineerAgentId === AGENT_ID) {
+        return "engineer";
+      }
+      if (
+        (commandName === "start-implementation" || commandName === "ack-change-request")
+        && issueState?.techLeadAgentId === AGENT_ID
+        && !issueState?.primaryEngineerAgentId
+      ) {
+        return "engineer";
+      }
     } else if (!preferExplicitEngineer) {
       if (issueState?.qaAgentId === AGENT_ID) {
         return "qa";
@@ -823,6 +913,41 @@ function buildClarificationRecipients(requestedFrom, recipientId) {
     fail("--recipient-id is required when --requested-from is not human_board.");
   }
   return [buildAgentRecipient(recipientId, requestedFrom)];
+}
+
+function inferClarificationQuestionType(senderRole, workflowState) {
+  if (senderRole === "engineer") {
+    if (
+      workflowState === "implementing"
+      || workflowState === "accepted"
+      || workflowState === "changes_requested"
+    ) {
+      return "implementation";
+    }
+    if (workflowState === "assigned") {
+      return "scope";
+    }
+  }
+
+  if (senderRole === "reviewer" || senderRole === "qa") {
+    if (
+      workflowState === "submitted_for_review"
+      || workflowState === "under_review"
+      || workflowState === "qa_pending"
+      || workflowState === "under_qa_review"
+      || workflowState === "approved"
+    ) {
+      return "review_feedback";
+    }
+  }
+
+  if (senderRole === "pm" || senderRole === "tech_lead" || senderRole === "cto") {
+    if (workflowState === "assigned" || workflowState === "accepted") {
+      return "scope";
+    }
+  }
+
+  return null;
 }
 
 function findLatestPendingClarification(messages, requestedFrom, causalMessageId = null) {
@@ -990,7 +1115,6 @@ async function reassignTaskCommand(options) {
     "reviewer-id",
     "reviewer",
   ], payloadPatch.newReviewerAgentId ?? payloadPatch.reviewerAgentId ?? null);
-  if (!reviewerId) fail("Missing required option: --reviewer-id");
   const summary = readAnyOption(options, ["summary", "goal"], payloadPatch.goal ?? payloadPatch.summary ?? "Route implementation");
   const reason = readOption(options, "reason", payloadPatch.reason ?? null);
   if (!reason) fail("Missing required option: --reason");
@@ -1038,11 +1162,15 @@ async function reassignTaskCommand(options) {
         recipientId: assigneeId,
         role: assigneeRole,
       },
-      {
-        recipientType: "agent",
-        recipientId: reviewerId,
-        role: "reviewer",
-      },
+      ...(reviewerId
+        ? [
+            {
+              recipientType: "agent",
+              recipientId: reviewerId,
+              role: "reviewer",
+            },
+          ]
+        : []),
     ],
     workflowStateBefore: readOption(options, "workflow-before", state.workflowState),
     workflowStateAfter: "assigned",
@@ -1052,7 +1180,7 @@ async function reassignTaskCommand(options) {
       ...extraPayload,
       reason,
       newAssigneeAgentId: assigneeId,
-      newReviewerAgentId: reviewerId,
+      ...(reviewerId ? { newReviewerAgentId: reviewerId } : {}),
       ...(qaId ? { newQaAgentId: qaId } : {}),
       ...(carryForwardBriefVersion ? { carryForwardBriefVersion: Number(carryForwardBriefVersion) } : {}),
     },
@@ -1199,10 +1327,12 @@ async function askClarificationCommand(options) {
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
   const senderRole = await resolveSenderRole(options, "ask-clarification");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
+  const state = await getIssueState(issueId);
+  const inferredQuestionType = inferClarificationQuestionType(senderRole, state.workflowState ?? null);
   const questionType = readAliasedOption(
     options,
     ["question-type", "questionType"],
-    payloadPatch.questionType ?? null,
+    payloadPatch.questionType ?? inferredQuestionType,
   );
   if (!questionType) fail("Missing required option: --question-type");
   const question = readAliasedOption(
@@ -1246,8 +1376,6 @@ async function askClarificationCommand(options) {
     ["recipient-id", "recipientId"],
     payloadPatch.recipientId ?? null,
   );
-  const state = await getIssueState(issueId);
-
   const body = {
     messageType: "ASK_CLARIFICATION",
     sender: buildSenderIdentity(senderRole),
@@ -1459,12 +1587,13 @@ async function submitForReviewCommand(options) {
   }
   const issueId = readOption(options, "issue", DEFAULT_ISSUE_ID);
   if (!issueId) fail("Missing issue id. Provide --issue or SQUADRAIL_TASK_ID.");
+  const state = await getIssueState(issueId);
   const senderRole = await resolveSenderRole(options, "submit-for-review");
   const payloadPatch = parseJsonOption(options, "payload") ?? {};
   const reviewerId = readAliasedOption(
     options,
     ["reviewer-id", "reviewerId"],
-    payloadPatch.reviewerId ?? payloadPatch.newReviewerAgentId ?? null,
+    payloadPatch.reviewerId ?? payloadPatch.newReviewerAgentId ?? state.reviewerAgentId ?? null,
   );
   if (!reviewerId) fail("Missing required option: --reviewer-id");
   const implementationSummary = readAliasedOption(
@@ -1525,7 +1654,6 @@ async function submitForReviewCommand(options) {
     ["sanity-command", "sanityCommand"],
     payloadPatch.sanityCommand ?? null,
   );
-  const state = await getIssueState(issueId);
 
   const body = {
     messageType: "SUBMIT_FOR_REVIEW",

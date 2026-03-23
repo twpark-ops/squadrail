@@ -50,6 +50,19 @@ export interface PmIntakeKnowledgeDocument {
   metadata?: Record<string, unknown> | null;
 }
 
+interface PmIntakeSummaryEvidenceTrace {
+  documentId: string;
+  sourceType: KnowledgeSourceType;
+  summaryKind: string | null;
+  path: string | null;
+  title: string | null;
+  score: number;
+  structuredScore: number;
+  ambientScore: number;
+  signalScore: number;
+  reasons: string[];
+}
+
 interface BuildPmIntakeProjectionPreviewInput {
   issue: {
     id: string;
@@ -423,6 +436,10 @@ function readStringArray(value: unknown) {
     .filter(Boolean);
 }
 
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 function readRecord(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
@@ -491,6 +508,8 @@ function scoreKnowledgeDocumentForProject(input: {
 }) {
   const metadata = readRecord(input.document.metadata);
   const projectSelection = readRecord(metadata.pmProjectSelection);
+  const summaryKind = typeof metadata.summaryKind === "string" ? metadata.summaryKind : null;
+  const summaryPath = readString(metadata.sourcePath) ?? readString(input.document.path);
   const ownerTags = readStringArray(projectSelection.ownerTags);
   const supportTags = readStringArray(projectSelection.supportTags);
   const avoidTags = readStringArray(projectSelection.avoidTags);
@@ -684,11 +703,52 @@ function scoreKnowledgeDocumentForProject(input: {
     }
   }
 
+  let summarySignalScore = 0;
+  const summaryEvidenceReasons: string[] = [];
+  if (summarySource) {
+    if (focusedOwnerTagMatches.length > 0 || focusedOwnerTokenMatches.length > 0) {
+      summarySignalScore += 6;
+      summaryEvidenceReasons.push("owner_tag_match");
+    }
+    if (focusedSupportTagMatches.length > 0 || focusedSupportTokenMatches.length > 0) {
+      summarySignalScore += 4;
+      summaryEvidenceReasons.push("support_tag_match");
+    }
+    if (lexicalMatch.matches.length > 0) {
+      summarySignalScore += Math.min(4, lexicalMatch.matches.length);
+      summaryEvidenceReasons.push(`lexical:${lexicalMatch.matches.join(",")}`);
+    }
+    if (summaryKind === "file" || summaryKind === "module") {
+      summarySignalScore += 1;
+      summaryEvidenceReasons.push(`summary_kind:${summaryKind}`);
+    }
+  }
+
+  const summaryEvidence =
+    summarySource && (summarySignalScore > 0 || structuredScore > 0 || ambientScore > 0)
+      ? {
+          documentId: input.document.id,
+          sourceType: input.document.sourceType,
+          summaryKind,
+          path: summaryPath,
+          title: readString(input.document.title),
+          score: summarySignalScore + structuredScore + ambientScore,
+          structuredScore,
+          ambientScore,
+          signalScore: summarySignalScore,
+          reasons: uniqueStrings([
+            ...summaryEvidenceReasons,
+            ...reasons.filter((reason) => !reason.startsWith("knowledge_match:")),
+          ]).slice(0, 8),
+        } satisfies PmIntakeSummaryEvidenceTrace
+      : null;
+
   return {
     structuredScore,
     ambientScore,
     score: structuredScore + ambientScore,
     reasons,
+    summaryEvidence,
   };
 }
 
@@ -704,6 +764,7 @@ function scoreProjectCandidate(
     return {
       score: 100,
       reasons: ["matches_issue_project"],
+      summaryEvidence: [],
     };
   }
 
@@ -720,6 +781,7 @@ function scoreProjectCandidate(
   let knowledgeStructuredScore = 0;
   const structuredReasonPool: string[] = [];
   const knowledgeAmbientSignals: Array<{ score: number; reasons: string[] }> = [];
+  const summaryEvidenceCandidates: PmIntakeSummaryEvidenceTrace[] = [];
 
   for (const term of buildProjectSearchTerms(project)) {
     const normalized = compactLine(term).toLowerCase();
@@ -855,6 +917,9 @@ function scoreProjectCandidate(
         reasons: knowledgeScore.reasons.filter((reason) => reason.startsWith("knowledge_match:")),
       });
     }
+    if (knowledgeScore.summaryEvidence) {
+      summaryEvidenceCandidates.push(knowledgeScore.summaryEvidence);
+    }
   }
 
   const knowledgeStructuredCap = hasKnowledgeIntent ? KNOWLEDGE_STRUCTURED_CAP_WITH_INTENT : KNOWLEDGE_STRUCTURED_CAP_DEFAULT;
@@ -875,7 +940,41 @@ function scoreProjectCandidate(
     ).slice(0, 6),
   );
 
-  return { score, reasons };
+  const summaryEvidence = summaryEvidenceCandidates
+    .sort((left, right) => {
+      if (left.signalScore !== right.signalScore) return right.signalScore - left.signalScore;
+      if (left.structuredScore !== right.structuredScore) return right.structuredScore - left.structuredScore;
+      return right.ambientScore - left.ambientScore;
+    })
+    .slice(0, 3);
+  const summaryEvidenceScore = summaryEvidence
+    .slice(0, 2)
+    .reduce((sum, evidence, index) => sum + Math.min(index === 0 ? 8 : 6, evidence.signalScore), 0);
+  score += summaryEvidenceScore;
+  reasons.push(
+    ...summaryEvidence
+      .slice(0, 2)
+      .map((evidence) => {
+        const evidenceLabel = evidence.path ?? evidence.title ?? evidence.documentId;
+        return `summary_evidence:${evidence.sourceType}:${evidence.summaryKind ?? "summary"}:${evidenceLabel}`;
+      }),
+  );
+
+  return {
+    score,
+    reasons,
+    summaryEvidence: summaryEvidence.map((evidence) => ({
+      documentId: evidence.documentId,
+      sourceType: evidence.sourceType,
+      summaryKind: evidence.summaryKind,
+      path: evidence.path,
+      title: evidence.title,
+      score: evidence.score,
+      structuredScore: evidence.structuredScore,
+      ambientScore: evidence.ambientScore,
+      reasons: evidence.reasons,
+    })),
+  };
 }
 
 function buildAgentMatchTerms(agent: PmIntakeAgent) {
@@ -1224,6 +1323,7 @@ export function buildPmIntakeProjectionPreview(
       score: candidate.score,
       selected: candidate.project.id === selectedProject?.id,
       reasons: candidate.reasons,
+      summaryEvidence: candidate.summaryEvidence,
     })),
     staffing: {
       techLeadAgentId: techLead.id,

@@ -124,13 +124,172 @@ function formatConcreteProtocolHelperCommand(input: {
   command: string;
   issueId?: string | null;
   payload?: Record<string, unknown> | null;
+  senderRole?: string | null;
 }) {
   const issueRef = input.issueId && input.issueId.trim().length > 0
     ? input.issueId.trim()
     : "$SQUADRAIL_TASK_ID";
-  const base = `node "${getProtocolHelperVarRef()}" ${input.command} --issue "${escapeForDoubleQuotedBash(issueRef)}"`;
+  const baseSegments = [
+    `node "${getProtocolHelperVarRef()}" ${input.command}`,
+    `--issue "${escapeForDoubleQuotedBash(issueRef)}"`,
+  ];
+  const senderRole = nonEmptyString(input.senderRole);
+  if (senderRole) {
+    baseSegments.push(`--sender-role "${escapeForDoubleQuotedBash(senderRole)}"`);
+  }
+  const base = baseSegments.join(" ");
   if (!input.payload || Object.keys(input.payload).length === 0) {
     return base;
+  }
+  if (
+    input.command === "ask-clarification"
+    || input.command === "submit-for-review"
+    || input.command === "approve-implementation"
+    || input.command === "close-task"
+  ) {
+    const payload = parseObject(input.payload);
+    const segments = [base];
+
+    if (input.command === "ask-clarification") {
+      const summary = nonEmptyString(payload.summary);
+      const questionType = nonEmptyString(payload.questionType);
+      const question = nonEmptyString(payload.question);
+      const requestedFrom = nonEmptyString(payload.requestedFrom);
+      const recipientId = nonEmptyString(payload.recipientId);
+      const blocking = typeof payload.blocking === "boolean" ? payload.blocking : null;
+      const proposedAssumptions = asStringArray(payload.proposedAssumptions);
+      const relatedArtifacts = asStringArray(payload.relatedArtifacts);
+      const resumeWorkflowState = nonEmptyString(payload.resumeWorkflowState);
+
+      if (summary) segments.push(`--summary "${escapeForDoubleQuotedBash(summary)}"`);
+      if (questionType) segments.push(`--question-type "${escapeForDoubleQuotedBash(questionType)}"`);
+      if (question) segments.push(`--question "${escapeForDoubleQuotedBash(question)}"`);
+      if (requestedFrom) segments.push(`--requested-from "${escapeForDoubleQuotedBash(requestedFrom)}"`);
+      if (recipientId) segments.push(`--recipient-id "${escapeForDoubleQuotedBash(recipientId)}"`);
+      if (blocking != null) segments.push(`--blocking "${blocking ? "true" : "false"}"`);
+      if (resumeWorkflowState) {
+        segments.push(`--resume-workflow-state "${escapeForDoubleQuotedBash(resumeWorkflowState)}"`);
+      }
+      if (proposedAssumptions.length > 0) {
+        segments.push(`--proposed-assumptions "${escapeForDoubleQuotedBash(proposedAssumptions.join("||"))}"`);
+      }
+      if (relatedArtifacts.length > 0) {
+        segments.push(`--related-artifacts "${escapeForDoubleQuotedBash(relatedArtifacts.join("||"))}"`);
+      }
+      return segments.join(" ");
+    }
+
+    const firstCitation = parseArray(payload.evidenceCitations)
+      .map((entry) => parseObject(entry))
+      .find((entry) => Object.keys(entry).length > 0) ?? null;
+
+    if (input.command === "submit-for-review") {
+      const reviewerId = nonEmptyString(payload.reviewerId);
+      const summary = nonEmptyString(payload.summary);
+      const implementationSummary = nonEmptyString(payload.implementationSummary);
+      const diffSummary = nonEmptyString(payload.diffSummary);
+      const evidence = asStringArray(payload.evidence);
+      const changedFiles = asStringArray(payload.changedFiles);
+      const testResults = asStringArray(payload.testResults);
+      const reviewChecklist = asStringArray(payload.reviewChecklist);
+      const residualRisks = asStringArray(payload.residualRisks);
+
+      if (reviewerId) segments.push(`--reviewer-id "${escapeForDoubleQuotedBash(reviewerId)}"`);
+      if (summary) segments.push(`--summary "${escapeForDoubleQuotedBash(summary)}"`);
+      if (implementationSummary) {
+        segments.push(`--implementation-summary "${escapeForDoubleQuotedBash(implementationSummary)}"`);
+      }
+      if (evidence.length > 0) segments.push(`--evidence "${escapeForDoubleQuotedBash(evidence.join("||"))}"`);
+      if (diffSummary) segments.push(`--diff-summary "${escapeForDoubleQuotedBash(diffSummary)}"`);
+      if (changedFiles.length > 0) {
+        segments.push(`--changed-files "${escapeForDoubleQuotedBash(changedFiles.join("||"))}"`);
+      }
+      if (testResults.length > 0) segments.push(`--test-results "${escapeForDoubleQuotedBash(testResults.join("||"))}"`);
+      if (reviewChecklist.length > 0) {
+        segments.push(`--review-checklist "${escapeForDoubleQuotedBash(reviewChecklist.join("||"))}"`);
+      }
+      if (residualRisks.length > 0) {
+        segments.push(`--residual-risks "${escapeForDoubleQuotedBash(residualRisks.join("||"))}"`);
+      }
+    } else if (input.command === "approve-implementation") {
+      const summary = nonEmptyString(payload.summary);
+      const approvalSummary = nonEmptyString(payload.approvalSummary);
+      const approvalChecklist = asStringArray(payload.approvalChecklist);
+      const verifiedEvidence = asStringArray(payload.verifiedEvidence);
+      const residualRisks = asStringArray(payload.residualRisks);
+      const approvalMode = nonEmptyString(payload.approvalMode);
+      const executionLog = nonEmptyString(payload.executionLog);
+      const outputVerified = nonEmptyString(payload.outputVerified);
+      const sanityCommand = nonEmptyString(payload.sanityCommand);
+
+      if (summary) segments.push(`--summary "${escapeForDoubleQuotedBash(summary)}"`);
+      if (approvalSummary) segments.push(`--approval-summary "${escapeForDoubleQuotedBash(approvalSummary)}"`);
+      if (approvalChecklist.length > 0) {
+        segments.push(`--approval-checklist "${escapeForDoubleQuotedBash(approvalChecklist.join("||"))}"`);
+      }
+      if (verifiedEvidence.length > 0) {
+        segments.push(`--verified-evidence "${escapeForDoubleQuotedBash(verifiedEvidence.join("||"))}"`);
+      }
+      if (residualRisks.length > 0) {
+        segments.push(`--residual-risks "${escapeForDoubleQuotedBash(residualRisks.join("||"))}"`);
+      }
+      if (approvalMode) segments.push(`--approval-mode "${escapeForDoubleQuotedBash(approvalMode)}"`);
+      if (executionLog) segments.push(`--execution-log "${escapeForDoubleQuotedBash(executionLog)}"`);
+      if (outputVerified) segments.push(`--output-verified "${escapeForDoubleQuotedBash(outputVerified)}"`);
+      if (sanityCommand) segments.push(`--sanity-command "${escapeForDoubleQuotedBash(sanityCommand)}"`);
+    } else if (input.command === "close-task") {
+      const summary = nonEmptyString(payload.summary);
+      const closureSummary = nonEmptyString(payload.closureSummary);
+      const verificationSummary = nonEmptyString(payload.verificationSummary);
+      const rollbackPlan = nonEmptyString(payload.rollbackPlan);
+      const finalArtifacts = asStringArray(payload.finalArtifacts);
+      const remainingRisks = asStringArray(payload.remainingRisks);
+      const closeReason = nonEmptyString(payload.closeReason);
+      const mergeStatus = nonEmptyString(payload.mergeStatus);
+      const finalTestStatus = nonEmptyString(payload.finalTestStatus);
+
+      if (summary) segments.push(`--summary "${escapeForDoubleQuotedBash(summary)}"`);
+      if (closureSummary) segments.push(`--closure-summary "${escapeForDoubleQuotedBash(closureSummary)}"`);
+      if (verificationSummary) {
+        segments.push(`--verification-summary "${escapeForDoubleQuotedBash(verificationSummary)}"`);
+      }
+      if (rollbackPlan) segments.push(`--rollback-plan "${escapeForDoubleQuotedBash(rollbackPlan)}"`);
+      if (finalArtifacts.length > 0) {
+        segments.push(`--final-artifacts "${escapeForDoubleQuotedBash(finalArtifacts.join("||"))}"`);
+      }
+      if (remainingRisks.length > 0) {
+        segments.push(`--remaining-risks "${escapeForDoubleQuotedBash(remainingRisks.join("||"))}"`);
+      }
+      if (closeReason) segments.push(`--close-reason "${escapeForDoubleQuotedBash(closeReason)}"`);
+      if (mergeStatus) segments.push(`--merge-status "${escapeForDoubleQuotedBash(mergeStatus)}"`);
+      if (finalTestStatus) {
+        segments.push(`--final-test-status "${escapeForDoubleQuotedBash(finalTestStatus)}"`);
+      }
+    }
+
+    if (firstCitation) {
+      const citationRunId = nonEmptyString(firstCitation.retrievalRunId);
+      const citationBriefId = nonEmptyString(firstCitation.briefId);
+      const citedHitRanks = asStringArray(parseArray(firstCitation.citedHitRanks).map((entry) => String(entry)));
+      const citedPaths = asStringArray(firstCitation.citedPaths);
+      const citedSourceTypes = asStringArray(firstCitation.citedSourceTypes);
+      const citedSummaryKinds = asStringArray(firstCitation.citedSummaryKinds);
+      const citationReason = nonEmptyString(firstCitation.citationReason);
+      if (citationRunId) segments.push(`--citation-run-id "${escapeForDoubleQuotedBash(citationRunId)}"`);
+      if (citationBriefId) segments.push(`--citation-brief-id "${escapeForDoubleQuotedBash(citationBriefId)}"`);
+      if (citedHitRanks.length > 0) {
+        segments.push(`--cited-hit-ranks "${escapeForDoubleQuotedBash(citedHitRanks.join("||"))}"`);
+      }
+      if (citedPaths.length > 0) segments.push(`--cited-paths "${escapeForDoubleQuotedBash(citedPaths.join("||"))}"`);
+      if (citedSourceTypes.length > 0) {
+        segments.push(`--cited-source-types "${escapeForDoubleQuotedBash(citedSourceTypes.join("||"))}"`);
+      }
+      if (citedSummaryKinds.length > 0) {
+        segments.push(`--cited-summary-kinds "${escapeForDoubleQuotedBash(citedSummaryKinds.join("||"))}"`);
+      }
+      if (citationReason) segments.push(`--citation-reason "${escapeForDoubleQuotedBash(citationReason)}"`);
+    }
+    return segments.join(" ");
   }
   const payloadJson = JSON.stringify(input.payload);
   return `${base} --payload '${escapeForSingleQuotedBash(payloadJson)}'`;
@@ -359,6 +518,77 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function readPositiveIntArray(value: unknown) {
+  return parseArray(value)
+    .map((entry) => {
+      if (typeof entry === "number" && Number.isInteger(entry) && entry > 0) return entry;
+      if (typeof entry === "string" && /^\d+$/.test(entry.trim())) return Number(entry.trim());
+      return null;
+    })
+    .filter((entry): entry is number => entry !== null);
+}
+
+function extractEvidenceSummaryKind(entry: Record<string, unknown>) {
+  return nonEmptyString(entry.summaryKind) ?? nonEmptyString(parseObject(entry.documentMetadata).summaryKind);
+}
+
+function buildDefaultEvidenceCitation(input: {
+  retrievalRunId?: string | null;
+  citationPaths: string[];
+  taskBriefEvidence?: Array<Record<string, unknown>>;
+  citationReason: string;
+}) {
+  const retrievalRunId = nonEmptyString(input.retrievalRunId);
+  if (!retrievalRunId) return null;
+
+  const normalizedEvidence = (input.taskBriefEvidence ?? [])
+    .map((entry) => parseObject(entry))
+    .filter((entry) => Object.keys(entry).length > 0);
+  const preferredPathSet = new Set(input.citationPaths);
+  const selectedEvidence = preferredPathSet.size > 0
+    ? normalizedEvidence.filter((entry) => {
+      const entryPath = nonEmptyString(entry.path);
+      return entryPath ? preferredPathSet.has(entryPath) : false;
+    })
+    : [];
+  const effectiveEvidence = selectedEvidence.length > 0 ? selectedEvidence : normalizedEvidence.slice(0, 4);
+  const citedPaths = Array.from(new Set([
+    ...input.citationPaths,
+    ...effectiveEvidence
+      .map((entry) => nonEmptyString(entry.path))
+      .filter((entry): entry is string => Boolean(entry)),
+  ]));
+  const citedHitRanks = Array.from(new Set(effectiveEvidence.flatMap((entry) => readPositiveIntArray([entry.rank]))));
+  const citedSourceTypes = Array.from(new Set(
+    effectiveEvidence
+      .map((entry) => nonEmptyString(entry.sourceType))
+      .filter((entry): entry is string => Boolean(entry)),
+  ));
+  const citedSummaryKinds = Array.from(new Set(
+    effectiveEvidence
+      .map((entry) => extractEvidenceSummaryKind(entry))
+      .filter((entry): entry is string => Boolean(entry)),
+  ));
+
+  if (
+    citedPaths.length === 0
+    && citedHitRanks.length === 0
+    && citedSourceTypes.length === 0
+    && citedSummaryKinds.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    retrievalRunId,
+    ...(citedHitRanks.length > 0 ? { citedHitRanks } : {}),
+    ...(citedPaths.length > 0 ? { citedPaths } : {}),
+    ...(citedSourceTypes.length > 0 ? { citedSourceTypes } : {}),
+    ...(citedSummaryKinds.length > 0 ? { citedSummaryKinds } : {}),
+    citationReason: input.citationReason,
+  };
+}
+
 function isShortProtocolLaneKey(key: ProtocolRunRequirement["key"] | null | undefined) {
   return key === "assignment_supervisor"
     || key === "reassignment_supervisor"
@@ -367,11 +597,25 @@ function isShortProtocolLaneKey(key: ProtocolRunRequirement["key"] | null | unde
     || key === "approval_tech_lead";
 }
 
+function shouldSkipInitialStartReview(input: {
+  requirement: ProtocolRunRequirement;
+  workflowBefore?: string | null;
+}) {
+  if (input.requirement.key === "review_reviewer") {
+    return input.workflowBefore === "under_review";
+  }
+  if (input.requirement.key === "qa_gate_reviewer") {
+    return input.workflowBefore === "under_qa_review";
+  }
+  return false;
+}
+
 export function buildProtocolHelperSnippet(messageType: string) {
   const commandByMessageType: Record<string, string> = {
     REASSIGN_TASK: "reassign-task",
     ACK_ASSIGNMENT: "ack-assignment",
     START_IMPLEMENTATION: "start-implementation",
+    ASK_CLARIFICATION: "ask-clarification",
     REPORT_PROGRESS: "report-progress",
     SUBMIT_FOR_REVIEW: "submit-for-review",
     ACK_CHANGE_REQUEST: "ack-change-request",
@@ -391,6 +635,7 @@ function buildConcreteProtocolHelperSnippet(input: {
   issueId?: string | null;
   body: Record<string, unknown>;
   protocolPayload?: Record<string, unknown>;
+  runtimeContext?: Record<string, unknown>;
   protocolSummary?: string | null;
   reviewSubmission?: Record<string, unknown>;
   retrievalRunId?: string | null;
@@ -399,20 +644,49 @@ function buildConcreteProtocolHelperSnippet(input: {
   const messageType = nonEmptyString(input.body.messageType);
   const payload = { ...parseObject(input.body.payload) };
   const protocolPayload = parseObject(input.protocolPayload);
+  const runtimeContext = parseObject(input.runtimeContext);
   const reviewSubmission = parseObject(input.reviewSubmission);
   const reviewSubmissionChangedFiles = asStringArray(reviewSubmission.changedFiles);
   const reviewSubmissionChecklist = asStringArray(reviewSubmission.reviewChecklist);
   const reviewSubmissionEvidence = asStringArray(reviewSubmission.evidence);
   const reviewSubmissionTestResults = asStringArray(reviewSubmission.testResults);
   const reviewSubmissionResidualRisks = asStringArray(reviewSubmission.residualRisks);
+  const reviewerId =
+    nonEmptyString(input.protocolPayload?.reviewerAgentId)
+    ?? nonEmptyString(input.protocolPayload?.newReviewerAgentId)
+    ?? nonEmptyString(protocolPayload.reviewerAgentId)
+    ?? nonEmptyString(protocolPayload.newReviewerAgentId)
+    ?? nonEmptyString(runtimeContext.reviewerAgentId)
+    ?? nonEmptyString(runtimeContext.newReviewerAgentId)
+    ?? nonEmptyString(payload.reviewerId)
+    ?? nonEmptyString(payload.reviewerAgentId);
   const protocolPayloadVerifiedEvidence = asStringArray(protocolPayload.verifiedEvidence);
   const protocolPayloadApprovalChecklist = asStringArray(protocolPayload.approvalChecklist);
   const taskBriefEvidencePaths = (input.taskBriefEvidence ?? [])
     .map((entry) => nonEmptyString(entry.path))
     .filter((entry): entry is string => Boolean(entry));
+  const explicitSenderRole = nonEmptyString(runtimeContext.protocolRecipientRole);
   const citationPaths = reviewSubmissionChangedFiles.length > 0
     ? reviewSubmissionChangedFiles.slice(0, 4)
     : taskBriefEvidencePaths.slice(0, 4);
+  const submitCitation = buildDefaultEvidenceCitation({
+    retrievalRunId: input.retrievalRunId,
+    citationPaths,
+    taskBriefEvidence: input.taskBriefEvidence,
+    citationReason: "implementation_handoff_brief_evidence",
+  });
+  const approvalCitation = buildDefaultEvidenceCitation({
+    retrievalRunId: input.retrievalRunId,
+    citationPaths,
+    taskBriefEvidence: input.taskBriefEvidence,
+    citationReason: "review_decision_brief_evidence",
+  });
+  const closeCitation = buildDefaultEvidenceCitation({
+    retrievalRunId: input.retrievalRunId,
+    citationPaths,
+    taskBriefEvidence: input.taskBriefEvidence,
+    citationReason: "closure_brief_evidence",
+  });
   const bodySummary = nonEmptyString(input.body.summary);
   if (!payload.summary && bodySummary) {
     payload.summary = bodySummary;
@@ -423,16 +697,51 @@ function buildConcreteProtocolHelperSnippet(input: {
     case "assignment_supervisor":
     case "reassignment_supervisor":
       if (messageType === "REASSIGN_TASK") {
-        payload.newAssigneeAgentId =
-          nonEmptyString(input.protocolPayload?.assigneeAgentId)
+        const preferredSupervisorAssigneeId =
+          input.requirement.recipientRole === "pm"
+            ? nonEmptyString(runtimeContext.techLeadAgentId)
+              ?? nonEmptyString(input.protocolPayload?.techLeadAgentId)
+            : null;
+        const preferredSupervisorAssigneeRole =
+          preferredSupervisorAssigneeId ? "tech_lead" : null;
+        const resolvedAssigneeId =
+          preferredSupervisorAssigneeId
           ?? nonEmptyString(input.protocolPayload?.newAssigneeAgentId)
+          ?? nonEmptyString(input.protocolPayload?.assigneeAgentId)
           ?? nonEmptyString(payload.newAssigneeAgentId)
+          ?? null;
+        const resolvedQaId =
+          nonEmptyString(input.protocolPayload?.qaAgentId)
+          ?? nonEmptyString(input.protocolPayload?.newQaAgentId)
+          ?? nonEmptyString(runtimeContext.qaAgentId)
+          ?? nonEmptyString(payload.newQaAgentId)
+          ?? null;
+        const reviewerFallbackCandidates = [
+          nonEmptyString(input.protocolPayload?.reviewerAgentId),
+          nonEmptyString(input.protocolPayload?.newReviewerAgentId),
+          nonEmptyString(runtimeContext.reviewerAgentId),
+          nonEmptyString(payload.newReviewerAgentId),
+        ].filter((entry, index, array): entry is string =>
+          Boolean(entry) && array.indexOf(entry) === index,
+        );
+        const resolvedReviewerId = reviewerFallbackCandidates.find(
+          (candidate) => candidate !== resolvedAssigneeId && candidate !== resolvedQaId,
+        ) ?? null;
+        payload.newAssigneeAgentId =
+          resolvedAssigneeId
           ?? payload.newAssigneeAgentId;
-        payload.newReviewerAgentId =
-          nonEmptyString(input.protocolPayload?.reviewerAgentId)
-          ?? nonEmptyString(input.protocolPayload?.newReviewerAgentId)
-          ?? nonEmptyString(payload.newReviewerAgentId)
-          ?? payload.newReviewerAgentId;
+        if (
+          preferredSupervisorAssigneeId
+          && resolvedAssigneeId === preferredSupervisorAssigneeId
+          && preferredSupervisorAssigneeRole
+        ) {
+          payload.newAssigneeRole = preferredSupervisorAssigneeRole;
+        }
+        if (resolvedReviewerId) {
+          payload.newReviewerAgentId = resolvedReviewerId;
+        } else {
+          delete payload.newReviewerAgentId;
+        }
         payload.newQaAgentId =
           nonEmptyString(input.protocolPayload?.qaAgentId)
           ?? nonEmptyString(input.protocolPayload?.newQaAgentId)
@@ -445,6 +754,7 @@ function buildConcreteProtocolHelperSnippet(input: {
           command: "reassign-task",
           issueId: input.issueId,
           payload,
+          senderRole: explicitSenderRole,
         });
       }
       return null;
@@ -455,6 +765,7 @@ function buildConcreteProtocolHelperSnippet(input: {
           command: "ack-assignment",
           issueId: input.issueId,
           payload,
+          senderRole: explicitSenderRole,
         });
       }
       if (messageType === "START_IMPLEMENTATION") {
@@ -462,6 +773,7 @@ function buildConcreteProtocolHelperSnippet(input: {
           command: "start-implementation",
           issueId: input.issueId,
           payload,
+          senderRole: explicitSenderRole,
         });
       }
       return null;
@@ -475,6 +787,63 @@ function buildConcreteProtocolHelperSnippet(input: {
           command: "ack-change-request",
           issueId: input.issueId,
           payload,
+          senderRole: explicitSenderRole,
+        });
+      }
+      return null;
+    case "implementation_engineer":
+      if (messageType === "ASK_CLARIFICATION") {
+        const techLeadRecipientId =
+          nonEmptyString(runtimeContext.techLeadAgentId)
+          ?? nonEmptyString(input.protocolPayload?.techLeadAgentId)
+          ?? null;
+        payload.questionType =
+          nonEmptyString(payload.questionType)
+          ?? "implementation";
+        payload.question =
+          nonEmptyString(payload.question)
+          ?? "The acceptance step that should run before review is still unclear. Which exact command or artifact should be used to continue?";
+        payload.requestedFrom =
+          nonEmptyString(payload.requestedFrom)
+          ?? (techLeadRecipientId ? "tech_lead" : "human_board");
+        payload.summary =
+          nonEmptyString(payload.summary)
+          ?? "Need the exact implementation acceptance command before continuing.";
+        payload.blocking = payload.blocking ?? true;
+        if (techLeadRecipientId) {
+          payload.recipientId =
+            nonEmptyString(payload.recipientId)
+            ?? techLeadRecipientId;
+        } else {
+          delete payload.recipientId;
+        }
+        return formatConcreteProtocolHelperCommand({
+          command: "ask-clarification",
+          issueId: input.issueId,
+          payload,
+          senderRole: explicitSenderRole,
+        });
+      }
+      if (messageType === "REPORT_PROGRESS") {
+        return formatConcreteProtocolHelperCommand({
+          command: "report-progress",
+          issueId: input.issueId,
+          payload,
+          senderRole: explicitSenderRole,
+        });
+      }
+      if (messageType === "SUBMIT_FOR_REVIEW") {
+        if (reviewerId) {
+          payload.reviewerId = reviewerId;
+        }
+        if (submitCitation) {
+          payload.evidenceCitations = [submitCitation];
+        }
+        return formatConcreteProtocolHelperCommand({
+          command: "submit-for-review",
+          issueId: input.issueId,
+          payload,
+          senderRole: explicitSenderRole,
         });
       }
       return null;
@@ -491,6 +860,7 @@ function buildConcreteProtocolHelperSnippet(input: {
           command: "start-review",
           issueId: input.issueId,
           payload,
+          senderRole: explicitSenderRole,
         });
       }
       if (messageType === "APPROVE_IMPLEMENTATION") {
@@ -518,31 +888,27 @@ function buildConcreteProtocolHelperSnippet(input: {
         if (reviewSubmissionResidualRisks.length > 0) {
           payload.residualRisks = reviewSubmissionResidualRisks;
         }
-        if (
-          typeof input.retrievalRunId === "string"
-          && input.retrievalRunId.length > 0
-          && citationPaths.length > 0
-        ) {
-          payload.evidenceCitations = [
-            {
-              retrievalRunId: input.retrievalRunId,
-              citedPaths: citationPaths,
-            },
-          ];
+        if (approvalCitation) {
+          payload.evidenceCitations = [approvalCitation];
         }
         return formatConcreteProtocolHelperCommand({
           command: "approve-implementation",
           issueId: input.issueId,
           payload,
+          senderRole: explicitSenderRole,
         });
       }
       return null;
     case "approval_tech_lead":
       if (messageType === "CLOSE_TASK") {
+        if (closeCitation) {
+          payload.evidenceCitations = [closeCitation];
+        }
         return formatConcreteProtocolHelperCommand({
           command: "close-task",
           issueId: input.issueId,
           payload,
+          senderRole: explicitSenderRole,
         });
       }
       return null;
@@ -555,19 +921,21 @@ function buildImmediateProtocolCommandSequence(input: {
   requirement: ProtocolRunRequirement;
   issueId?: string | null;
   protocolPayload?: Record<string, unknown>;
+  runtimeContext?: Record<string, unknown>;
   protocolSummary?: string | null;
   reviewSubmission?: Record<string, unknown>;
   retrievalRunId?: string | null;
   taskBriefEvidence?: Array<Record<string, unknown>>;
   workflowBefore?: string | null;
 }) {
-  const commands = buildProtocolExampleBodies(input.requirement)
+  const commands = buildProtocolExampleBodies(input.requirement, input.taskBriefEvidence)
     .map((example) => {
       const snippet = buildConcreteProtocolHelperSnippet({
         requirement: input.requirement,
         issueId: input.issueId,
         body: example.body,
         protocolPayload: input.protocolPayload,
+        runtimeContext: input.runtimeContext,
         protocolSummary: input.protocolSummary,
         reviewSubmission: input.reviewSubmission,
         retrievalRunId: input.retrievalRunId,
@@ -595,12 +963,12 @@ function buildImmediateProtocolCommandSequence(input: {
     case "approval_tech_lead":
       return commands.slice(0, 1);
     case "review_reviewer":
-      if (input.workflowBefore === "under_review") {
+      if (shouldSkipInitialStartReview(input)) {
         return commands.filter((entry) => entry.messageType !== "START_REVIEW");
       }
       return commands.slice(0, 2);
     case "qa_gate_reviewer":
-      if (input.workflowBefore === "under_qa_review") {
+      if (shouldSkipInitialStartReview(input)) {
         return commands.filter((entry) => entry.messageType !== "START_REVIEW");
       }
       return commands.slice(0, 2);
@@ -609,7 +977,10 @@ function buildImmediateProtocolCommandSequence(input: {
   }
 }
 
-function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
+function buildProtocolExampleBodies(
+  requirement: ProtocolRunRequirement,
+  taskBriefEvidence?: Array<Record<string, unknown>>,
+) {
   const sender = {
     actorType: "agent",
     actorId: "$SQUADRAIL_AGENT_ID",
@@ -622,6 +993,36 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
       role: requirement.recipientRole,
     },
   ];
+  const scopedPaths = (taskBriefEvidence ?? [])
+    .map((entry) => nonEmptyString(entry.path))
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, 2);
+  const scopedPathText = scopedPaths.length > 0
+    ? scopedPaths.join(" and ")
+    : "the scoped target files from the current brief";
+  const engineerScopeSummary = scopedPaths.length > 0
+    ? `Implement the assigned fix in ${scopedPathText} and add focused validation.`
+    : "Implement the assigned fix in the scoped target files and add focused validation.";
+  const engineerRiskSummary =
+    "A focused patch can regress existing behavior if the scoped validation is incomplete.";
+  const engineerHypothesisSummary = scopedPaths.length > 0
+    ? `${scopedPathText} contain the primary behavior and regression coverage needed for this slice.`
+    : "The current brief contains the primary behavior and regression coverage needed for this slice.";
+  const engineerProgressSummary = scopedPaths.length > 0
+    ? `Scoped the active files (${scopedPathText}) and prepared the focused validation path.`
+    : "Scoped the active files from the current brief and prepared the focused validation path.";
+  const engineerReviewEvidence = scopedPaths.length > 0
+    ? [`Focused patch applied in ${scopedPathText}.`]
+    : ["Focused patch applied in the scoped target files."];
+  const engineerReviewChecklist = scopedPaths.length > 0
+    ? [
+        `The targeted change in ${scopedPathText} satisfies the requested slice.`,
+        "Focused validation evidence matches the requested acceptance bar.",
+      ]
+    : [
+        "The targeted change satisfies the requested slice.",
+        "Focused validation evidence matches the requested acceptance bar.",
+      ];
 
   switch (requirement.key) {
     case "assignment_supervisor":
@@ -638,11 +1039,6 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
                 recipientId: "$TARGET_ASSIGNEE_AGENT_ID",
                 role: "engineer",
               },
-              {
-                recipientType: "agent",
-                recipientId: "$TARGET_REVIEWER_AGENT_ID",
-                role: "reviewer",
-              },
             ],
             workflowStateBefore: "assigned",
             workflowStateAfter: "assigned",
@@ -650,7 +1046,6 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
             payload: {
               reason: "Clarified scope and delegated implementation to the owned project lane.",
               newAssigneeAgentId: "$TARGET_ASSIGNEE_AGENT_ID",
-              newReviewerAgentId: "$TARGET_REVIEWER_AGENT_ID",
             },
             artifacts: [],
           },
@@ -694,9 +1089,9 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
             summary: "Accepted the assignment and confirmed scope.",
             payload: {
               accepted: true,
-              understoodScope: "Resolve build-info based service.version behavior in the observability package with focused tests.",
+              understoodScope: engineerScopeSummary,
               initialRisks: [
-                "Build metadata may be unavailable outside stamped builds and needs a deterministic fallback.",
+                engineerRiskSummary,
               ],
             },
             artifacts: [],
@@ -714,7 +1109,7 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
             payload: {
               implementationMode: "direct",
               activeHypotheses: [
-                "runtime/debug build info can provide a version string before falling back to a deterministic default.",
+                engineerHypothesisSummary,
               ],
             },
             artifacts: [],
@@ -723,6 +1118,25 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
       ];
     case "implementation_engineer":
       return [
+        {
+          label: "Minimal ASK_CLARIFICATION example",
+          body: {
+            messageType: "ASK_CLARIFICATION",
+            sender,
+            recipients: [],
+            workflowStateBefore: "implementing",
+            workflowStateAfter: "implementing",
+            summary: "Need the exact implementation acceptance command before continuing.",
+            payload: {
+              questionType: "implementation",
+              question:
+                "The exact acceptance step that should run before review is still unclear. Which command or artifact should I use to continue?",
+              blocking: true,
+              requestedFrom: "human_board",
+            },
+            artifacts: [],
+          },
+        },
         {
           label: "Minimal REPORT_PROGRESS example",
           body: {
@@ -735,19 +1149,16 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
             payload: {
               progressPercent: 50,
               completedItems: [
-                "Scoped the target files and confirmed the fallback behavior to implement.",
+                engineerProgressSummary,
               ],
               nextSteps: [
-                "Apply the implementation patch.",
-                "Run focused observability tests.",
+                "Apply the focused implementation patch.",
+                "Run the required focused validation command from the current brief.",
               ],
               risks: [
-                "Build-info availability differs between stamped and local builds.",
+                engineerRiskSummary,
               ],
-              changedFiles: [
-                "internal/observability/tracing.go",
-                "internal/observability/tracing_test.go",
-              ],
+              changedFiles: scopedPaths,
               testSummary: null,
             },
             artifacts: [],
@@ -763,25 +1174,17 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
             workflowStateAfter: "submitted_for_review",
             summary: "Implementation is ready for review with focused validation evidence.",
             payload: {
-              implementationSummary: "Removed the hard-coded version and resolved service.version from build info with a deterministic fallback.",
-              evidence: [
-                "createResource now resolves service.version through a helper before constructing the resource.",
-              ],
-              reviewChecklist: [
-                "Version resolution uses build info before fallback.",
-                "Tests cover both resolved and fallback behavior.",
-              ],
-              changedFiles: [
-                "internal/observability/tracing.go",
-                "internal/observability/tracing_test.go",
-              ],
+              implementationSummary: "Implemented the requested focused slice and prepared review evidence for the targeted files.",
+              evidence: engineerReviewEvidence,
+              reviewChecklist: engineerReviewChecklist,
+              changedFiles: scopedPaths,
               testResults: [
-                "go test ./internal/observability -count=1",
+                "Run the focused validation command from the current brief and capture the result.",
               ],
               residualRisks: [
-                "Fallback remains necessary when build stamping is absent in local builds.",
+                engineerRiskSummary,
               ],
-              diffSummary: "Added a build-info version helper and regression coverage for fallback behavior.",
+              diffSummary: "Applied the focused patch and aligned regression coverage with the requested slice.",
             },
             artifacts: [],
           },
@@ -853,7 +1256,7 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
                 "Focused test command passed.",
               ],
               residualRisks: [
-                "Fallback path remains relevant when build stamping is missing.",
+                "Any remaining risk should be limited to follow-up validation outside this focused slice.",
               ],
             },
             artifacts: [],
@@ -905,7 +1308,7 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
               ],
               executionLog: "Run the documented acceptance command and capture the observed output.",
               outputVerified: "Observed output matches the expected QA success signal.",
-              sanityCommand: "./scripts/qa-smoke.sh",
+              sanityCommand: "",
             },
             artifacts: [],
           },
@@ -926,7 +1329,7 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
               closeReason: "completed",
               closureSummary: "Shipped the requested implementation and completed the review loop.",
               verificationSummary: "Focused tests passed and reviewer approval was recorded before closure.",
-              rollbackPlan: "Revert the implementation commit or restore the previous resource version helper.",
+              rollbackPlan: "Revert the focused patch and restore the previous behavior if this slice regresses.",
               finalArtifacts: [
                 "diff artifact attached",
                 "test_run artifact attached",
@@ -935,7 +1338,7 @@ function buildProtocolExampleBodies(requirement: ProtocolRunRequirement) {
               finalTestStatus: "passed",
               mergeStatus: "merge_not_required",
               remainingRisks: [
-                "Build metadata still depends on stamping configuration outside local builds.",
+                "Any remaining risk should be limited to follow-up validation outside this focused slice.",
               ],
             },
             artifacts: [],
@@ -968,7 +1371,13 @@ export function renderSquadrailRuntimeNote(input: {
     && Number.isFinite(input.context.protocolRequiredRetryCount)
       ? input.context.protocolRequiredRetryCount
       : 0;
+  const protocolProgressFollowupCount =
+    typeof input.context.protocolProgressFollowupCount === "number"
+    && Number.isFinite(input.context.protocolProgressFollowupCount)
+      ? input.context.protocolProgressFollowupCount
+      : 0;
   const protocolRequiredPreviousRunId = nonEmptyString(input.context.protocolRequiredPreviousRunId);
+  const protocolProgressPreviousRunId = nonEmptyString(input.context.protocolProgressPreviousRunId);
   const timeoutCode = nonEmptyString(input.context.timeoutCode);
   const reminderCode = nonEmptyString(input.context.reminderCode);
   const latestBriefId = nonEmptyString(input.context.latestBriefId);
@@ -979,8 +1388,23 @@ export function renderSquadrailRuntimeNote(input: {
   const workspaceSource = nonEmptyString(workspaceContext.source);
   const workspaceBranchName = nonEmptyString(workspaceContext.branchName);
   const protocolPayload = parseObject(input.context.protocolPayload);
-  const protocolPayloadKeys = Object.keys(protocolPayload).sort();
-  const protocolPayloadVerifiedEvidence = asStringArray(protocolPayload.verifiedEvidence);
+  const enrichedProtocolPayload: Record<string, unknown> = {
+    ...(nonEmptyString(input.context.techLeadAgentId)
+      ? { techLeadAgentId: nonEmptyString(input.context.techLeadAgentId) }
+      : {}),
+    ...(nonEmptyString(input.context.primaryEngineerAgentId)
+      ? { primaryEngineerAgentId: nonEmptyString(input.context.primaryEngineerAgentId) }
+      : {}),
+    ...(nonEmptyString(input.context.reviewerAgentId)
+      ? { reviewerAgentId: nonEmptyString(input.context.reviewerAgentId) }
+      : {}),
+    ...(nonEmptyString(input.context.qaAgentId)
+      ? { qaAgentId: nonEmptyString(input.context.qaAgentId) }
+      : {}),
+    ...protocolPayload,
+  };
+  const protocolPayloadKeys = Object.keys(enrichedProtocolPayload).sort();
+  const protocolPayloadVerifiedEvidence = asStringArray(enrichedProtocolPayload.verifiedEvidence);
   const reviewSubmission = parseObject(input.context.reviewSubmission);
   const reviewSubmissionChangedFiles = asStringArray(reviewSubmission.changedFiles);
   const reviewSubmissionChecklist = asStringArray(reviewSubmission.reviewChecklist);
@@ -1002,6 +1426,7 @@ export function renderSquadrailRuntimeNote(input: {
   const taskBriefEvidence = parseArray(taskBrief.evidence)
     .map((item) => parseObject(item))
     .filter((item) => Object.keys(item).length > 0);
+  const briefRefreshScope = latestBriefScope ?? taskBriefScope ?? "engineer";
 
   const protocolRequirement = resolveProtocolRunRequirement({
     protocolMessageType,
@@ -1051,13 +1476,25 @@ export function renderSquadrailRuntimeNote(input: {
     if (protocolRequirement.key === "implementation_engineer") {
       lines.push("- Work only inside the isolated implementation workspace and finish with review handoff or explicit progress.");
       lines.push("- Stay inside the assigned issue scope. Do not make opportunistic cleanup, refactors, or warning-only fixes outside the requested acceptance criteria.");
+      lines.push("- Do not open `SKILL.md`, run helper `--help`, or rediscover Squadrail transport usage in this lane. The runtime note and helper command forms below already define the contract.");
+      lines.push("- Do not use the `squadrail` skill in this lane and do not inspect any file under the repository `skills/` directory or the helper source file path itself. Read the cited repository files and execute the cited verification commands instead.");
+      lines.push("- `REPORT_PROGRESS` is not mandatory, but if this run will take more than a quick edit-to-review pass, send one early progress update as soon as you can name the target files, acceptance command, or concrete implementation hypothesis.");
+      lines.push("- A valid early `REPORT_PROGRESS` may describe the intended file edits and planned focused verification even before the first patch is written.");
+      lines.push("- If the acceptance scope is already clear, prefer going straight from `START_IMPLEMENTATION` to focused edits, the required verification command, and `SUBMIT_FOR_REVIEW` in the same run.");
+      lines.push("- Do not stop after `REPORT_PROGRESS`. Progress-only runs without concrete edits, focused validation, or review handoff are incomplete and will be retried.");
+      lines.push("- Do not spend a long turn reading files, searching the repository, or drafting notes without recording either `REPORT_PROGRESS`, `ASK_CLARIFICATION`, or `SUBMIT_FOR_REVIEW`.");
       lines.push("- Run only the exact test suite, build, or lint commands needed to verify acceptance criteria. Do not run golangci-lint, repo-wide lint, complexity checks, or unrelated validation.");
       lines.push("- Once the required edits are complete and the named acceptance tests pass, submit for review immediately instead of continuing with extra tooling.");
+      lines.push("- After the focused verification command succeeds, your next protocol action should be the concrete `submit-for-review` helper command shown below.");
+      lines.push("- Do not spend another turn drafting a prose recap, re-reading files, or searching for more context after the acceptance command is green.");
       lines.push("- If a non-required command fails after the acceptance criteria are already satisfied, do not widen scope chasing it; hand off with the exact required evidence.");
       lines.push("- For `SUBMIT_FOR_REVIEW`, use `workflowStateAfter: \"submitted_for_review\"` exactly.");
       lines.push("- `SUBMIT_FOR_REVIEW.recipients` must include the assigned reviewer agent with role `reviewer`. Reuse the reviewer from the assignment payload or current protocol state.");
       lines.push("- `SUBMIT_FOR_REVIEW.payload` must stay flat. Use only: `implementationSummary`, `evidence[]`, `diffSummary`, `changedFiles[]`, `testResults[]`, `reviewChecklist[]`, `residualRisks[]`, and optional `evidenceCitations[]`.");
-      lines.push("- When the brief or retrieval evidence drove your handoff, include `evidenceCitations[]` with the current `retrievalRunId` plus cited path or hit rank.");
+      lines.push("- Prefer explicit helper flags over raw `--payload` JSON when test commands or checklist text contain quotes or shell metacharacters.");
+      lines.push("- When the brief or retrieval evidence drove your handoff, include `evidenceCitations[]` with the current `retrievalRunId`, at least one cited path or hit rank, and the cited `sourceType` when the brief shows it.");
+      lines.push("- If the next acceptance step is still unclear, send `ASK_CLARIFICATION` with `--question-type \"implementation\"` before more file reads or progress-only updates.");
+      lines.push("- Use the concrete `ask-clarification` helper form below when you need an execution decision; do not omit `--question-type` or `--question`.");
       lines.push("- `changedFiles` must be a string array of file paths. Do not send objects inside `changedFiles`.");
       lines.push("- Do not invent nested objects such as `testEvidence`, structured `diffSummary`, `acceptanceCriteriaMet`, or custom residual-risk objects.");
       lines.push("- Prefer leaving `artifacts` empty unless you have a real `diff` or `commit` artifact URI. Squadrail auto-captures `run`, `test_run`, and `build_run` context.");
@@ -1081,12 +1518,16 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- Reserve `REQUEST_HUMAN_DECISION` for true ambiguity: contradictory artifacts, missing verification evidence, or an approval decision that cannot be made from the submitted diff/evidence.");
       lines.push("- For `REQUEST_CHANGES`, keep `payload` flat and use only `severity`, `reviewSummary`, `changeRequests[]`, `requiredEvidence[]`, `mustFixBeforeApprove`, and optional `evidenceCitations[]`.");
       lines.push("- For `APPROVE_IMPLEMENTATION`, keep `payload` flat and use only `approvalSummary`, `approvalMode`, `approvalChecklist[]`, `verifiedEvidence[]`, `residualRisks[]`, and optional `evidenceCitations[]`.");
-      lines.push("- When your review decision depends on brief evidence, cite it with `evidenceCitations[]` using `retrievalRunId` and at least one cited path or hit rank.");
+      lines.push("- When your review decision depends on brief evidence, cite it with `evidenceCitations[]` using `retrievalRunId`, at least one cited path or hit rank, and the cited `sourceType` when the brief shows it.");
       lines.push("- Valid `approvalMode` values are exactly: `agent_review`, `tech_lead_review`, or `human_override`.");
     }
 
     if (protocolRequirement.key === "qa_gate_reviewer") {
-      lines.push("- Your first shell action in this lane should be the concrete helper command shown below.");
+      if (workflowBefore === "under_qa_review") {
+        lines.push("- QA review is already open. Your first shell action in this lane should be the reviewer-approved verification command, not another `START_REVIEW`.");
+      } else {
+        lines.push("- Your first shell action in this lane should be the concrete helper command shown below.");
+      }
       lines.push("- You are the QA execution gate reviewer. Your role is to EXECUTE the built software, not just read code or diffs.");
       lines.push("- **Do not create, edit, or delete any source files.** You have implementation workspace access for running commands only. Code changes are the engineer's responsibility.");
       lines.push("- Do not stop after `START_REVIEW` while the issue remains in `qa_pending` or `under_qa_review`. QA-start-only runs are incomplete and will be retried.");
@@ -1095,9 +1536,11 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- Run the acceptance criteria commands or sanity checks in the project workspace. Record what you ran and what you observed.");
       lines.push("- Do not approve based on code reading alone. You must execute at least one verification command.");
       lines.push("- If the reviewer-approved verification command passes and the observed output matches the acceptance signal, prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`.");
-      lines.push("- For `START_REVIEW`, describe your execution plan: which commands, fixtures, or probes you will use.");
-      lines.push("- For `APPROVE_IMPLEMENTATION`, include execution evidence in payload: `executionLog` (commands run + output), `outputVerified` (expected vs actual), `sanityCommand` (primary check command; reuse the reviewer-approved command when possible), optional `fixtureUsed`, and optional `evidenceCitations[]`.");
-      lines.push("- For `REQUEST_CHANGES`, include the failure output as evidence: `executionLog` (failed command + output), `failureEvidence` (what went wrong), `expectedBehavior` (what should have happened), and optional `evidenceCitations[]`.");
+      if (workflowBefore !== "under_qa_review") {
+        lines.push("- For `START_REVIEW`, describe your execution plan: which commands, fixtures, or probes you will use.");
+      }
+      lines.push("- For `APPROVE_IMPLEMENTATION`, include execution evidence in payload: `executionLog` (commands run + output), `outputVerified` (expected vs actual), `sanityCommand` (primary check command; reuse the reviewer-approved command when possible), optional `fixtureUsed`, and optional `evidenceCitations[]` with `sourceType` when the brief shows it.");
+      lines.push("- For `REQUEST_CHANGES`, include the failure output as evidence: `executionLog` (failed command + output), `failureEvidence` (what went wrong), `expectedBehavior` (what should have happened), and optional `evidenceCitations[]` with `sourceType` when the brief shows it.");
     }
 
     if (protocolRequirement.key === "approval_tech_lead") {
@@ -1107,7 +1550,7 @@ export function renderSquadrailRuntimeNote(input: {
       lines.push("- For `CLOSE_TASK.payload.mergeStatus`, use exactly one of: `merged`, `merge_not_required`, `pending_external_merge`.");
       lines.push("- Never invent aliases such as `merge_pending`, `merge_required`, or free-form merge labels.");
       lines.push("- If code is approved but merge has not happened yet, use `pending_external_merge` and explain the external merge owner in `remainingRisks[]`.");
-      lines.push("- If closure is based on retrieval-backed evidence or review briefs, include `evidenceCitations[]` with the cited retrieval run and paths.");
+      lines.push("- If closure is based on retrieval-backed evidence or review briefs, include `evidenceCitations[]` with the cited retrieval run, path or hit rank, and `sourceType` when known.");
     }
 
     if (protocolRequiredRetryCount > 0) {
@@ -1115,6 +1558,18 @@ export function renderSquadrailRuntimeNote(input: {
         `- RETRY WARNING: previous run ${protocolRequiredPreviousRunId ?? "unknown"} ended without required protocol progress.`,
       );
       lines.unshift("- RETRY MODE: complete the required protocol action first. Repeating repository inspection without protocol will fail again.");
+      if (protocolRequirement?.key === "implementation_engineer") {
+        lines.unshift("- IMPLEMENTATION RETRY RULE: inspect the current workspace diff first and reuse any existing edits instead of restarting discovery from scratch.");
+        lines.unshift("- IMPLEMENTATION RETRY RULE: if the focused acceptance test is already green or the required diff is already present, submit for review in this run instead of sending another progress-only update.");
+      }
+    }
+
+    if (protocolProgressFollowupCount > 0 && protocolRequirement?.key === "implementation_engineer") {
+      lines.unshift(
+        `- FOLLOW-UP WARNING: previous implementation run ${protocolProgressPreviousRunId ?? "unknown"} ended after progress only.`,
+      );
+      lines.unshift("- FOLLOW-UP MODE: continue from the existing isolated workspace diff and finish with `SUBMIT_FOR_REVIEW` once the focused acceptance command is green.");
+      lines.unshift("- FOLLOW-UP MODE: do not restart baseline exploration if the current workspace already contains the required edits or evidence.");
     }
 
     return lines;
@@ -1124,7 +1579,8 @@ export function renderSquadrailRuntimeNote(input: {
     ? buildImmediateProtocolCommandSequence({
       requirement: protocolRequirement,
       issueId,
-      protocolPayload,
+      protocolPayload: enrichedProtocolPayload,
+      runtimeContext: input.context,
       protocolSummary,
       reviewSubmission,
       retrievalRunId,
@@ -1177,6 +1633,8 @@ export function renderSquadrailRuntimeNote(input: {
     shortLines.push("SHORT PROTOCOL LANE:");
     shortLines.push("- Treat this wake as protocol-first. Repository inspection is secondary and should not happen before the first helper command succeeds.");
     shortLines.push("- If the helper fails for a supported transition, report a blocker and stop instead of retrying with ad-hoc HTTP.");
+    shortLines.push("- Do not open `SKILL.md`, run `--help`, or rediscover helper usage in this lane. The concrete helper commands above are already the contract.");
+    shortLines.push("- Do not use the `squadrail` skill in this lane and do not inspect any file under the repository `skills/` directory or the helper source file path unless the runtime note is missing entirely.");
     if (protocolRequirement?.key === "assignment_supervisor" || protocolRequirement?.key === "reassignment_supervisor") {
       shortLines.push("- Route with `REASSIGN_TASK` when the execution owner is clear. Use `ASK_CLARIFICATION` or `ESCALATE_BLOCKER` only when ownership is genuinely unclear.");
     }
@@ -1186,7 +1644,7 @@ export function renderSquadrailRuntimeNote(input: {
       } else {
         shortLines.push("- After `START_REVIEW`, conclude the lane with `APPROVE_IMPLEMENTATION`, `REQUEST_CHANGES`, or `REQUEST_HUMAN_DECISION`.");
       }
-      shortLines.push("- If your review decision depends on the brief, cite it with `evidenceCitations[]` using the current `retrievalRunId` and at least one cited path or hit rank.");
+      shortLines.push("- If your review decision depends on the brief, cite it with `evidenceCitations[]` using the current `retrievalRunId`, at least one cited path or hit rank, and the cited `sourceType` when the brief shows it.");
       shortLines.push("- If the submitted checklist, focused tests, and changed files are coherent, prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`.");
     }
     if (protocolRequirement?.key === "qa_gate_reviewer") {
@@ -1196,13 +1654,14 @@ export function renderSquadrailRuntimeNote(input: {
       }
       if (protocolPayloadVerifiedEvidence.length > 0) {
         shortLines.push(`- Start with the reviewer-approved verification command: ${protocolPayloadVerifiedEvidence[0]}`);
+        shortLines.push("- Do not fetch another brief or re-open helper documentation before running that command unless the command text itself is missing.");
       }
       shortLines.push("- If that verification passes and the observed output matches the expected acceptance signal, prefer `APPROVE_IMPLEMENTATION` over `REQUEST_HUMAN_DECISION`.");
-      shortLines.push("- Include execution evidence in the decision payload and add optional `evidenceCitations[]` when the brief or retrieval evidence guided the QA verdict.");
+      shortLines.push("- Include execution evidence in the decision payload and add optional `evidenceCitations[]` with `sourceType` when the brief or retrieval evidence guided the QA verdict.");
     }
     if (protocolRequirement?.key === "approval_tech_lead") {
       shortLines.push("- Approval is incomplete until `CLOSE_TASK` or `REQUEST_HUMAN_DECISION` is recorded.");
-      shortLines.push("- If closure depends on retrieval-backed evidence or review briefs, include `evidenceCitations[]` with the cited retrieval run and paths.");
+      shortLines.push("- If closure depends on retrieval-backed evidence or review briefs, include `evidenceCitations[]` with the cited retrieval run, path or hit rank, and `sourceType` when known.");
     }
     shortLines.push("");
 
@@ -1332,7 +1791,8 @@ export function renderSquadrailRuntimeNote(input: {
           requirement: requirementForExamples,
           issueId,
           body: example.body,
-          protocolPayload,
+          protocolPayload: enrichedProtocolPayload,
+          runtimeContext: input.context,
           protocolSummary,
         });
         const payload = parseObject(example.body.payload);
@@ -1375,7 +1835,7 @@ export function renderSquadrailRuntimeNote(input: {
     lines.push("Implementation workspace discipline:");
     lines.push("- Start with the target files named in the task brief or evidence summary. Do not spend the run rediscovering task scope through extra API exploration.");
     lines.push("- The task brief content below is the canonical brief for this run.");
-    lines.push(`- If you absolutely must refresh the brief, use \`node "${getProtocolHelperVarRef()}" get-brief --issue "$SQUADRAIL_TASK_ID"\`.`);
+    lines.push(`- If you absolutely must refresh the brief, use \`node "${getProtocolHelperVarRef()}" get-brief --issue "$SQUADRAIL_TASK_ID" --scope "${briefRefreshScope}"\`.`);
     lines.push("- Do not use curl, wget, or ad-hoc HTTP to fetch Squadrail issue or brief data.");
     lines.push("- Move from file read -> focused patch -> focused test before any additional environment inspection.");
     lines.push("");

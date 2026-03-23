@@ -308,6 +308,7 @@ describe("issue retrieval helpers", () => {
   it("maps protocol messages to retrieval events", () => {
     expect(deriveRetrievalEventType("ASSIGN_TASK")).toBe("on_assignment");
     expect(deriveRetrievalEventType("REASSIGN_TASK")).toBe("on_assignment");
+    expect(deriveRetrievalEventType("START_IMPLEMENTATION")).toBe("on_progress_report");
     expect(deriveRetrievalEventType("SUBMIT_FOR_REVIEW")).toBe("on_review_submit");
     expect(deriveRetrievalEventType("NOTE")).toBeNull();
   });

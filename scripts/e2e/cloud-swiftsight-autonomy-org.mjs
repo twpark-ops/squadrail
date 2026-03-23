@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { resolveChildDeliveryActors } from "./autonomy-role-utils.mjs";
 import {
   ensureCompanyContext,
   listProjects,
@@ -312,10 +313,10 @@ async function runBoardProtocolHelper({ companyId, issueId, args }) {
   return stdout.trim();
 }
 
-async function ackAssignment(issueId, companyId, preview) {
+async function ackAssignment(issueId, companyId, implementationAssigneeAgentId) {
   await runProtocolHelper({
     companyId,
-    agentId: preview.staffing.implementationAssigneeAgentId,
+    agentId: implementationAssigneeAgentId,
     issueId,
     args: [
       "ack-assignment",
@@ -334,10 +335,10 @@ async function ackAssignment(issueId, companyId, preview) {
   });
 }
 
-async function startImplementation(issueId, companyId, preview) {
+async function startImplementation(issueId, companyId, implementationAssigneeAgentId) {
   await runProtocolHelper({
     companyId,
-    agentId: preview.staffing.implementationAssigneeAgentId,
+    agentId: implementationAssigneeAgentId,
     issueId,
     args: [
       "start-implementation",
@@ -388,10 +389,10 @@ function resolveClarificationTarget(preview, mode) {
   };
 }
 
-async function askClarification(issueId, companyId, preview, workflowStateBefore, clarificationTarget) {
+async function askClarification(issueId, companyId, implementationAssigneeAgentId, workflowStateBefore, clarificationTarget) {
   await runProtocolHelper({
     companyId,
-    agentId: preview.staffing.implementationAssigneeAgentId,
+    agentId: implementationAssigneeAgentId,
     issueId,
     args: [
       "ask-clarification",
@@ -430,10 +431,10 @@ async function askClarification(issueId, companyId, preview, workflowStateBefore
   return askMessage;
 }
 
-async function escalateBlocker(issueId, companyId, preview, workflowStateBefore, clarificationTarget) {
+async function escalateBlocker(issueId, companyId, implementationAssigneeAgentId, workflowStateBefore, clarificationTarget) {
   await runProtocolHelper({
     companyId,
-    agentId: preview.staffing.implementationAssigneeAgentId,
+    agentId: implementationAssigneeAgentId,
     issueId,
     args: [
       "escalate-blocker",
@@ -496,10 +497,10 @@ async function answerClarification(issueId, companyId, askMessage, clarification
   });
 }
 
-async function submitForReview(issueId, companyId, preview, project) {
+async function submitForReview(issueId, companyId, preview, implementationAssigneeAgentId, project) {
   await runProtocolHelper({
     companyId,
-    agentId: preview.staffing.implementationAssigneeAgentId,
+    agentId: implementationAssigneeAgentId,
     issueId,
     args: [
       "submit-for-review",
@@ -776,11 +777,17 @@ async function executeChildDeliveryLoop(input) {
     clarificationMode = "human_board",
   } = input;
 
-  await ackAssignment(childIssue.id, companyId, preview);
+  const assignedActors = resolveChildDeliveryActors(await getProtocolState(childIssue.id), preview);
+  assert(assignedActors.implementationAssigneeAgentId, `Missing implementation assignee for ${childIssue.id}`);
+
+  await ackAssignment(childIssue.id, companyId, assignedActors.implementationAssigneeAgentId);
   const acceptedState = await waitForProtocolState(childIssue.id, "accepted");
   assert.equal(acceptedState.workflowState, "accepted");
 
-  await startImplementation(childIssue.id, companyId, preview);
+  const acceptedActors = resolveChildDeliveryActors(acceptedState, preview);
+  assert(acceptedActors.implementationAssigneeAgentId, `Missing accepted implementation assignee for ${childIssue.id}`);
+
+  await startImplementation(childIssue.id, companyId, acceptedActors.implementationAssigneeAgentId);
   const implementingState = await waitForProtocolState(childIssue.id, "implementing");
   assert.equal(implementingState.workflowState, "implementing");
 
@@ -789,10 +796,12 @@ async function executeChildDeliveryLoop(input) {
   let closeBlockedWhileClarificationPending = true;
   if (clarificationMode !== "none") {
     const clarificationTarget = resolveClarificationTarget(preview, clarificationMode);
+    const implementingActors = resolveChildDeliveryActors(implementingState, preview);
+    assert(implementingActors.implementationAssigneeAgentId, `Missing implementing assignee for ${childIssue.id}`);
     await escalateBlocker(
       childIssue.id,
       companyId,
-      preview,
+      implementingActors.implementationAssigneeAgentId,
       implementingState.workflowState,
       clarificationTarget,
     );
@@ -802,7 +811,7 @@ async function executeChildDeliveryLoop(input) {
     askMessage = await askClarification(
       childIssue.id,
       companyId,
-      preview,
+      implementingActors.implementationAssigneeAgentId,
       blockedState.workflowState,
       clarificationTarget,
     );
@@ -818,14 +827,25 @@ async function executeChildDeliveryLoop(input) {
     assert.equal(finalPreReviewState.workflowState, "implementing");
   }
 
-  await submitForReview(childIssue.id, companyId, preview, project);
+  const preReviewActors = resolveChildDeliveryActors(finalPreReviewState, preview);
+  assert(preReviewActors.implementationAssigneeAgentId, `Missing review submission assignee for ${childIssue.id}`);
+
+  await submitForReview(
+    childIssue.id,
+    companyId,
+    preview,
+    preReviewActors.implementationAssigneeAgentId,
+    project,
+  );
   const submittedState = await waitForProtocolState(childIssue.id, "submitted_for_review");
   assert.equal(submittedState.workflowState, "submitted_for_review");
+  const submittedActors = resolveChildDeliveryActors(submittedState, preview);
+  assert(submittedActors.reviewerAgentId, `Missing reviewer owner for ${childIssue.id}`);
 
   await startReview(
     childIssue.id,
     companyId,
-    preview.staffing.reviewerAgentId,
+    submittedActors.reviewerAgentId,
     "reviewer",
     [
       "Scope remained bounded to the selected project lane",
@@ -836,21 +856,26 @@ async function executeChildDeliveryLoop(input) {
   const underReviewState = await waitForProtocolState(childIssue.id, "under_review");
   assert.equal(underReviewState.workflowState, "under_review");
 
-  if (preview.staffing.qaAgentId) {
+  if (submittedActors.qaAgentId) {
+    const underReviewActors = resolveChildDeliveryActors(underReviewState, preview);
+    assert(underReviewActors.reviewerAgentId, `Missing reviewer decision owner for ${childIssue.id}`);
+
     await approveImplementation(
       childIssue.id,
       companyId,
-      preview.staffing.reviewerAgentId,
+      underReviewActors.reviewerAgentId,
       "reviewer",
       "qa_pending",
     );
     const qaPendingState = await waitForProtocolState(childIssue.id, "qa_pending");
     assert.equal(qaPendingState.workflowState, "qa_pending");
+    const qaPendingActors = resolveChildDeliveryActors(qaPendingState, preview);
+    assert(qaPendingActors.qaAgentId, `Missing QA owner for ${childIssue.id}`);
 
     await startReview(
       childIssue.id,
       companyId,
-      preview.staffing.qaAgentId,
+      qaPendingActors.qaAgentId,
       "qa",
       [
         "Focused verification evidence is sufficient",
@@ -861,19 +886,24 @@ async function executeChildDeliveryLoop(input) {
     );
     const underQaState = await waitForProtocolState(childIssue.id, "under_qa_review");
     assert.equal(underQaState.workflowState, "under_qa_review");
+    const underQaActors = resolveChildDeliveryActors(underQaState, preview);
+    assert(underQaActors.qaAgentId, `Missing QA decision owner for ${childIssue.id}`);
 
     await approveImplementation(
       childIssue.id,
       companyId,
-      preview.staffing.qaAgentId,
+      underQaActors.qaAgentId,
       "qa",
       "approved",
     );
   } else {
+    const underReviewActors = resolveChildDeliveryActors(underReviewState, preview);
+    assert(underReviewActors.reviewerAgentId, `Missing reviewer approval owner for ${childIssue.id}`);
+
     await approveImplementation(
       childIssue.id,
       companyId,
-      preview.staffing.reviewerAgentId,
+      underReviewActors.reviewerAgentId,
       "reviewer",
       "approved",
     );

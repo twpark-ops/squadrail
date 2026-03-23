@@ -74,6 +74,100 @@ describe("squadrail protocol helper CLI", () => {
     expect(stdout).toContain("--understood-scope");
   });
 
+  it("allows reassign-task without reviewer when the assignee lane is already known", async () => {
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const server = http.createServer((req, res) => {
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          issueId: "issue-123",
+          workflowState: "assigned",
+          reviewerAgentId: "agent-tl-1",
+          qaAgentId: "agent-qa-1",
+        }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+          });
+          res.statusCode = 201;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "reassign-task",
+          "--issue",
+          "issue-123",
+          "--sender-role",
+          "pm",
+          "--assignee-id",
+          "agent-tl-1",
+          "--assignee-role",
+          "tech_lead",
+          "--reason",
+          "Route to TL lane without forcing a temporary reviewer",
+          "--summary",
+          "Hand execution to the TL lane",
+          "--qa-id",
+          "agent-qa-1",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(requests).toHaveLength(1);
+      const body = requests[0]?.body as Record<string, unknown>;
+      expect(body.messageType).toBe("REASSIGN_TASK");
+      expect(body.recipients).toEqual([
+        {
+          recipientType: "agent",
+          recipientId: "agent-tl-1",
+          role: "tech_lead",
+        },
+      ]);
+      expect(body.payload).toMatchObject({
+        reason: "Route to TL lane without forcing a temporary reviewer",
+        newAssigneeAgentId: "agent-tl-1",
+        newQaAgentId: "agent-qa-1",
+      });
+      expect((body.payload as Record<string, unknown>).newReviewerAgentId).toBeUndefined();
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("lists company projects for PM routing helpers", async () => {
     const server = http.createServer((req, res) => {
       if (req.method === "GET" && req.url === "/api/companies/company-123/projects") {
@@ -356,6 +450,116 @@ describe("squadrail protocol helper CLI", () => {
     }
   });
 
+  it("prefers the engineer lane role for same-agent reassignment helpers", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          workflowState: "assigned",
+          techLeadAgentId: "lead-123",
+          primaryEngineerAgentId: "agent-123",
+          reviewerAgentId: "reviewer-123",
+          qaAgentId: "qa-123",
+          currentReviewCycle: 0,
+        }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([
+          {
+            id: "agent-123",
+            companyId: "company-123",
+            role: "pm",
+            title: "PM",
+            urlKey: "swiftsight-pm",
+            name: "SwiftSight PM",
+          },
+        ]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "ack-assignment",
+          "--issue",
+          "issue-123",
+          "--summary",
+          "Acknowledged the same-agent engineer handoff",
+          "--understood-scope",
+          "Implement the routed project slice",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toMatchObject({
+        messageType: "ACK_ASSIGNMENT",
+        sender: {
+          actorType: "agent",
+          actorId: "agent-123",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "agent-123",
+            role: "engineer",
+          },
+        ],
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("posts blocking clarification requests for human-board follow-up", async () => {
     const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
     const server = http.createServer((req, res) => {
@@ -456,6 +660,99 @@ describe("squadrail protocol helper CLI", () => {
             "Keep the change in the cloud lane only",
             "Focused verification is enough",
           ],
+        },
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("infers implementation question type for engineer clarification in implementing workflow", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "implementing", currentReviewCycle: 0 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "engineer", title: "Engineer" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "ask-clarification",
+          "--issue",
+          "issue-123",
+          "--sender-role",
+          "engineer",
+          "--question",
+          "Which exact acceptance command should run before review?",
+          "--summary",
+          "Need the exact implementation acceptance command before continuing.",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.body).toMatchObject({
+        messageType: "ASK_CLARIFICATION",
+        workflowStateBefore: "implementing",
+        workflowStateAfter: "implementing",
+        payload: {
+          questionType: "implementation",
+          question: "Which exact acceptance command should run before review?",
+          blocking: true,
+          requestedFrom: "human_board",
         },
       });
     } finally {
@@ -1171,6 +1468,125 @@ describe("squadrail protocol helper CLI", () => {
         rollbackPlan: "Revert merge candidate",
         finalTestStatus: "passed",
         remainingRisks: ["Needs maintainer merge"],
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("accepts close-task citation flags used by runtime note concrete helpers", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: http.IncomingHttpHeaders }> = [];
+    const server = http.createServer((req, res) => {
+      if (!req.url) {
+        res.statusCode = 400;
+        res.end("missing url");
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ workflowState: "approved", currentReviewCycle: 1 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: "agent-123", role: "tech_lead", title: "Tech Lead" }]));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "close-task",
+          "--issue",
+          "issue-123",
+          "--summary",
+          "Close with retrieval-backed evidence",
+          "--closure-summary",
+          "Closed with the cited retrieval context.",
+          "--verification-summary",
+          "Reviewed evidence and final verification outputs.",
+          "--rollback-plan",
+          "Revert the focused patch",
+          "--final-artifacts",
+          "diff||test_run||approval",
+          "--final-test-status",
+          "passed",
+          "--merge-status",
+          "merge_not_required",
+          "--close-reason",
+          "completed",
+          "--remaining-risks",
+          "No immediate follow-up risk remains",
+          "--citation-run-id",
+          "00000000-0000-0000-0000-000000000881",
+          "--cited-hit-ranks",
+          "1||2",
+          "--cited-paths",
+          "internal/storage/path.go||internal/storage/path_test.go",
+          "--cited-source-types",
+          "code||code_summary",
+          "--cited-summary-kinds",
+          "file",
+          "--citation-reason",
+          "closure_brief_evidence",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain('"ok": true');
+      expect(requests).toHaveLength(1);
+      const body = requests[0]?.body as Record<string, unknown>;
+      expect(body.payload).toMatchObject({
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000881",
+            citedHitRanks: [1, 2],
+            citedPaths: ["internal/storage/path.go", "internal/storage/path_test.go"],
+            citedSourceTypes: ["code", "code_summary"],
+            citedSummaryKinds: ["file"],
+            citationReason: "closure_brief_evidence",
+          },
+        ],
       });
     } finally {
       await closeTestServer(server);
@@ -1947,6 +2363,116 @@ describe("squadrail protocol helper CLI", () => {
     }
   });
 
+  it("accepts approve-implementation citation flags used by runtime note concrete helpers", async () => {
+    const requests: Array<{ path: string; body: unknown; headers: Record<string, unknown> }> = [];
+    const server = http.createServer((req, res) => {
+      if (req.method === "GET" && req.url === "/api/issues/issue-123/protocol/state") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          workflowState: "under_review",
+          assigneeAgentId: "eng-1",
+          reviewerAgentId: "agent-123",
+        }));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/api/companies/company-123/agents") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([
+          { id: "agent-123", role: "reviewer", title: "Reviewer", urlKey: "reviewer" },
+        ]));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/issues/issue-123/protocol/messages") {
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on("end", () => {
+          requests.push({
+            path: req.url ?? "",
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            headers: req.headers,
+          });
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+      res.statusCode = 404;
+      res.end("not found");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "approve-implementation",
+          "--issue",
+          "issue-123",
+          "--sender-role",
+          "reviewer",
+          "--summary",
+          "Approve with cited retrieval evidence",
+          "--approval-summary",
+          "Reviewed the focused patch and cited retrieval evidence.",
+          "--approval-checklist",
+          "Acceptance criteria covered||Focused validation reviewed",
+          "--verified-evidence",
+          "go test ./internal/storage -count=1||Path diff matches issue scope",
+          "--residual-risks",
+          "QA verification remains pending",
+          "--citation-run-id",
+          "00000000-0000-0000-0000-000000000882",
+          "--cited-hit-ranks",
+          "1||2",
+          "--cited-paths",
+          "internal/storage/path.go||internal/storage/path_test.go",
+          "--cited-source-types",
+          "code||code_summary",
+          "--cited-summary-kinds",
+          "file",
+          "--citation-reason",
+          "review_decision_brief_evidence",
+        ],
+        {
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(stdout).toContain("\"ok\": true");
+      expect(requests).toHaveLength(1);
+      const body = requests[0]?.body as Record<string, unknown>;
+      expect(body.payload).toMatchObject({
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000882",
+            citedHitRanks: [1, 2],
+            citedPaths: ["internal/storage/path.go", "internal/storage/path_test.go"],
+            citedSourceTypes: ["code", "code_summary"],
+            citedSummaryKinds: ["file"],
+            citationReason: "review_decision_brief_evidence",
+          },
+        ],
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
   it("only auto-attaches git artifacts on submit-for-review", async () => {
     const requests: Array<Record<string, unknown>> = [];
     const server = http.createServer((req, res) => {
@@ -2092,6 +2618,532 @@ describe("squadrail protocol helper CLI", () => {
             citedSourceTypes: ["code", "review"],
             citedSummaryKinds: ["file"],
             citationReason: "Review handoff follows the retrieved README and review note.",
+          },
+        ],
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("normalizes shorthand evidence citation objects for submit-for-review", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        const body = raw ? JSON.parse(raw) : null;
+        if (req.url === "/api/issues/issue-123/protocol/state" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            issueId: "issue-123",
+            companyId: "company-123",
+            workflowState: "implementing",
+            techLeadAgentId: "techlead-123",
+            primaryEngineerAgentId: "engineer-123",
+            reviewerAgentId: "reviewer-123",
+            qaAgentId: "qa-123",
+            currentReviewCycle: 0,
+            lastProtocolMessageId: null,
+            lastTransitionAt: "2026-03-23T00:00:00.000Z",
+            blockedPhase: null,
+            blockedCode: null,
+            blockedByMessageId: null,
+            metadata: {},
+          }));
+          return;
+        }
+        if (req.url === "/api/companies/company-123/agents" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify([
+            {
+              id: "agent-123",
+              companyId: "company-123",
+              role: "engineer",
+              name: "Engineer",
+            },
+            {
+              id: "reviewer-123",
+              companyId: "company-123",
+              role: "reviewer",
+              name: "Reviewer",
+            },
+          ]));
+          return;
+        }
+        if (req.url === "/api/issues/issue-123/protocol/messages" && req.method === "POST") {
+          requests.push(body);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            ok: true,
+            message: body,
+            state: {
+              issueId: "issue-123",
+              workflowState: "submitted_for_review",
+            },
+          }));
+          return;
+        }
+
+        res.statusCode = 404;
+        res.end("not found");
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    const repoDir = await createGitRepo();
+
+    try {
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "submit-for-review",
+          "--issue",
+          "issue-123",
+          "--reviewer-id",
+          "reviewer-123",
+          "--summary",
+          "Submit for review",
+          "--implementation-summary",
+          "Implementation summary",
+          "--evidence",
+          "Evidence A",
+          "--diff-summary",
+          "Updated the focused files",
+          "--changed-files",
+          "README.md",
+          "--test-results",
+          "pnpm test",
+          "--review-checklist",
+          "Checklist A",
+          "--residual-risks",
+          "Risk A",
+          "--evidence-citations",
+          "{\"retrievalRunId\":\"00000000-0000-0000-0000-000000000777\",\"path\":\"README.md\",\"rank\":1,\"sourceType\":\"code\",\"summaryKind\":\"file\"}",
+        ],
+        {
+          cwd: repoDir,
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.messageType).toBe("SUBMIT_FOR_REVIEW");
+      expect(requests[0]?.payload).toMatchObject({
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000777",
+            citedHitRanks: [1],
+            citedPaths: ["README.md"],
+            citedSourceTypes: ["code"],
+            citedSummaryKinds: ["file"],
+          },
+        ],
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("normalizes shorthand evidence citation strings from payload for submit-for-review", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        const body = raw ? JSON.parse(raw) : null;
+        if (req.url === "/api/issues/issue-123/protocol/state" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            issueId: "issue-123",
+            companyId: "company-123",
+            workflowState: "implementing",
+            techLeadAgentId: "techlead-123",
+            primaryEngineerAgentId: "engineer-123",
+            reviewerAgentId: "reviewer-123",
+            qaAgentId: "qa-123",
+            currentReviewCycle: 0,
+            lastProtocolMessageId: null,
+            lastTransitionAt: "2026-03-23T00:00:00.000Z",
+            blockedPhase: null,
+            blockedCode: null,
+            blockedByMessageId: null,
+            metadata: {},
+          }));
+          return;
+        }
+        if (req.url === "/api/companies/company-123/agents" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify([
+            {
+              id: "agent-123",
+              companyId: "company-123",
+              role: "engineer",
+              name: "Engineer",
+            },
+            {
+              id: "reviewer-123",
+              companyId: "company-123",
+              role: "reviewer",
+              name: "Reviewer",
+            },
+          ]));
+          return;
+        }
+        if (req.url === "/api/issues/issue-123/protocol/messages" && req.method === "POST") {
+          requests.push(body);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            ok: true,
+            message: body,
+            state: {
+              issueId: "issue-123",
+              workflowState: "submitted_for_review",
+            },
+          }));
+          return;
+        }
+
+        res.statusCode = 404;
+        res.end("not found");
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    const repoDir = await createGitRepo();
+
+    try {
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "submit-for-review",
+          "--issue",
+          "issue-123",
+          "--reviewer-id",
+          "reviewer-123",
+          "--summary",
+          "Submit for review",
+          "--implementation-summary",
+          "Implementation summary",
+          "--evidence",
+          "Evidence A",
+          "--diff-summary",
+          "Updated the focused files",
+          "--changed-files",
+          "README.md",
+          "--test-results",
+          "pnpm test",
+          "--review-checklist",
+          "Checklist A",
+          "--residual-risks",
+          "Risk A",
+          "--payload",
+          "{\"evidenceCitations\":[\"retrievalRunId=00000000-0000-0000-0000-000000000777 hit#1 README.md\"]}",
+        ],
+        {
+          cwd: repoDir,
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.messageType).toBe("SUBMIT_FOR_REVIEW");
+      expect(requests[0]?.payload).toMatchObject({
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000777",
+            citedHitRanks: [1],
+            citedPaths: ["README.md"],
+          },
+        ],
+      });
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("defaults submit-for-review reviewer-id from protocol state when omitted", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        const body = raw ? JSON.parse(raw) : null;
+        if (req.url === "/api/issues/issue-123/protocol/state" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            issueId: "issue-123",
+            companyId: "company-123",
+            workflowState: "implementing",
+            techLeadAgentId: "techlead-123",
+            primaryEngineerAgentId: "engineer-123",
+            reviewerAgentId: "reviewer-123",
+            qaAgentId: "qa-123",
+            currentReviewCycle: 0,
+            lastProtocolMessageId: null,
+            lastTransitionAt: "2026-03-23T00:00:00.000Z",
+            blockedPhase: null,
+            blockedCode: null,
+            blockedByMessageId: null,
+            metadata: {},
+          }));
+          return;
+        }
+        if (req.url === "/api/companies/company-123/agents" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify([
+            {
+              id: "agent-123",
+              companyId: "company-123",
+              role: "engineer",
+              name: "Engineer",
+            },
+            {
+              id: "reviewer-123",
+              companyId: "company-123",
+              role: "reviewer",
+              name: "Reviewer",
+            },
+          ]));
+          return;
+        }
+        if (req.url === "/api/issues/issue-123/protocol/messages" && req.method === "POST") {
+          requests.push(body);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            ok: true,
+            message: body,
+            state: {
+              issueId: "issue-123",
+              workflowState: "submitted_for_review",
+            },
+          }));
+          return;
+        }
+
+        res.statusCode = 404;
+        res.end("not found");
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    const repoDir = await createGitRepo();
+
+    try {
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "submit-for-review",
+          "--issue",
+          "issue-123",
+          "--summary",
+          "Submit for review",
+          "--implementation-summary",
+          "Implementation summary",
+          "--evidence",
+          "Evidence A",
+          "--diff-summary",
+          "Updated the focused files",
+          "--changed-files",
+          "README.md",
+          "--test-results",
+          "pnpm test",
+          "--review-checklist",
+          "Checklist A",
+          "--residual-risks",
+          "Risk A",
+        ],
+        {
+          cwd: repoDir,
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.messageType).toBe("SUBMIT_FOR_REVIEW");
+      expect(requests[0]?.recipients).toEqual([
+        expect.objectContaining({
+          recipientId: "reviewer-123",
+          role: "reviewer",
+        }),
+      ]);
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+
+  it("normalizes rank/path/sourceType shorthand evidence citation strings", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        const body = raw ? JSON.parse(raw) : null;
+        if (req.url === "/api/issues/issue-123/protocol/state" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            issueId: "issue-123",
+            companyId: "company-123",
+            workflowState: "implementing",
+            techLeadAgentId: "techlead-123",
+            primaryEngineerAgentId: "engineer-123",
+            reviewerAgentId: "reviewer-123",
+            qaAgentId: "qa-123",
+            currentReviewCycle: 0,
+            lastProtocolMessageId: null,
+            lastTransitionAt: "2026-03-23T00:00:00.000Z",
+            blockedPhase: null,
+            blockedCode: null,
+            blockedByMessageId: null,
+            metadata: {},
+          }));
+          return;
+        }
+        if (req.url === "/api/companies/company-123/agents" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify([
+            {
+              id: "agent-123",
+              companyId: "company-123",
+              role: "engineer",
+              name: "Engineer",
+            },
+            {
+              id: "reviewer-123",
+              companyId: "company-123",
+              role: "reviewer",
+              name: "Reviewer",
+            },
+          ]));
+          return;
+        }
+        if (req.url === "/api/issues/issue-123/protocol/messages" && req.method === "POST") {
+          requests.push(body);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            ok: true,
+            message: body,
+            state: {
+              issueId: "issue-123",
+              workflowState: "submitted_for_review",
+            },
+          }));
+          return;
+        }
+
+        res.statusCode = 404;
+        res.end("not found");
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      server.close();
+      throw new Error("failed to bind test server");
+    }
+
+    const repoDir = await createGitRepo();
+
+    try {
+      await execFileAsync(
+        "node",
+        [
+          SCRIPT_PATH,
+          "submit-for-review",
+          "--issue",
+          "issue-123",
+          "--summary",
+          "Submit for review",
+          "--implementation-summary",
+          "Implementation summary",
+          "--evidence",
+          "Evidence A",
+          "--diff-summary",
+          "Updated the focused files",
+          "--changed-files",
+          "README.md",
+          "--test-results",
+          "pnpm test",
+          "--review-checklist",
+          "Checklist A",
+          "--residual-risks",
+          "Risk A",
+          "--payload",
+          "{\"evidenceCitations\":[\"retrievalRunId=00000000-0000-0000-0000-000000000777 rank=1 path=README.md sourceType=code summaryKind=file\"]}",
+        ],
+        {
+          cwd: repoDir,
+          env: {
+            ...buildEnv(),
+            SQUADRAIL_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.payload).toMatchObject({
+        evidenceCitations: [
+          {
+            retrievalRunId: "00000000-0000-0000-0000-000000000777",
+            citedHitRanks: [1],
+            citedPaths: ["README.md"],
+            citedSourceTypes: ["code"],
+            citedSummaryKinds: ["file"],
           },
         ],
       });

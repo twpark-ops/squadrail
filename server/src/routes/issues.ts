@@ -151,6 +151,24 @@ function readRunContextProtocolField(
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+async function resolveRunScopedProtocolRole(input: {
+  actorType: "agent" | "user" | "system";
+  agentId: string | null;
+  runId: string | null;
+  issueId: string;
+  heartbeat: ReturnType<typeof heartbeatService>;
+}) {
+  if (input.actorType !== "agent" || !input.agentId || !input.runId) return null;
+  const actorRun = await input.heartbeat.getRun(input.runId);
+  if (!actorRun || actorRun.status !== "running" || actorRun.agentId !== input.agentId) {
+    return null;
+  }
+  if (!runMatchesIssueScope(actorRun, input.issueId)) {
+    return null;
+  }
+  return readRunContextProtocolField(actorRun.contextSnapshot, "protocolRecipientRole");
+}
+
 const PROTOCOL_RETRIEVAL_MESSAGE_TYPES = new Set<CreateIssueProtocolMessage["messageType"]>([
   "ASSIGN_TASK",
   "REASSIGN_TASK",
@@ -158,6 +176,7 @@ const PROTOCOL_RETRIEVAL_MESSAGE_TYPES = new Set<CreateIssueProtocolMessage["mes
   "ANSWER_CLARIFICATION",
   "PROPOSE_PLAN",
   "ESCALATE_BLOCKER",
+  "START_IMPLEMENTATION",
   "SUBMIT_FOR_REVIEW",
   "REQUEST_CHANGES",
   "TIMEOUT_ESCALATION",
@@ -1044,7 +1063,7 @@ export function issueRoutes(
     }
 
     if (message.messageType === "APPROVE_IMPLEMENTATION") {
-      normalizedPayload.approvalMode = normalizeProtocolApprovalModeAlias(payloadRecord.approvalMode);
+      normalizedPayload.approvalMode = normalizeProtocolApprovalModeAlias(payloadRecord.approvalMode ?? "agent_review");
     }
 
     return {
@@ -1578,12 +1597,20 @@ export function issueRoutes(
       }
 
       const allowedProtocolRoles = getAllowedProtocolRoles(agent);
-      if (!allowedProtocolRoles.has(message.sender.role)) {
+      const runScopedProtocolRole = await resolveRunScopedProtocolRole({
+        actorType: actor.actorType,
+        agentId: req.actor.agentId ?? null,
+        runId: actor.runId,
+        issueId: issue.id,
+        heartbeat,
+      });
+      if (!allowedProtocolRoles.has(message.sender.role) && runScopedProtocolRole !== message.sender.role) {
         return denyWithProtocolViolation(403, `Role mismatch: claimed ${message.sender.role}, actual ${agent.role}`, {
           reason: "role_escalation_attempt",
           claimedRole: message.sender.role,
           actualRole: agent.role,
           allowedRoles: Array.from(allowedProtocolRoles),
+          runScopedProtocolRole,
         });
       }
 
@@ -2535,6 +2562,20 @@ export function issueRoutes(
       }
       next(err);
       return;
+    }
+
+    try {
+      await heartbeat.cancelSupersededIssueFollowups({
+        companyId: issue.companyId,
+        issueId: issue.id,
+        reason: `Cancelled stale protocol follow-up after ${message.messageType}`,
+        excludeRunId: actor.actorType === "agent" ? actor.runId : null,
+      });
+    } catch (err) {
+      logger.warn(
+        { err, issueId: issue.id, messageType: message.messageType },
+        "Failed to cancel superseded protocol follow-up runs",
+      );
     }
 
     if (actor.actorType === "agent" && actor.runId) {

@@ -64,10 +64,13 @@ import {
   buildDispatchPrioritySelectionDetails,
   priorityClassFromRank,
   priorityRank,
+  resolveDispatchWakePriorityRank,
+  shouldPreemptRunningRunForQueuedSelection,
   type HeartbeatQueuedRunPrioritySelection,
 } from "./heartbeat-dispatch-priority.js";
 import {
   buildRequiredProtocolProgressError,
+  classifyDegradedProtocolRunReason,
   classifyProtocolRuntimeDegradedState,
   decideDispatchWatchdogAction,
   describeProtocolRunRuntimeState,
@@ -75,13 +78,16 @@ import {
   isIdleProtocolWatchdogEligibleRequirement,
   isSupersededProtocolWakeReason,
   isWorkflowStateEligibleForProtocolRetry,
+  mergeProtocolMessagesWithHelperInvocations,
   parseHeartbeatPolicyConfig,
   readLeaseLastProgressAt,
+  refreshProtocolRetryContextSnapshot,
   resolveProtocolIdleWatchdogDelayMs,
   resolveDegradedProtocolRecoveryReason,
   runDispatchWatchdogOutsideDbContext,
   runProtocolWatchdogRecoveries,
   scheduleDeferredRunDispatch,
+  shouldEnqueueImplementationProgressFollowup,
   shouldEnqueueProtocolRequiredRetry,
   shouldEnqueueRetryableAdapterFailure,
   shouldReapHeartbeatRun,
@@ -89,7 +95,10 @@ import {
   shouldRecoverIdleProtocolRun,
   shouldSkipSupersededProtocolFollowup,
 } from "./heartbeat-protocol-watchdog.js";
-export { buildHeartbeatCancellationArtifacts } from "./heartbeat-wakeup-control.js";
+export {
+  buildHeartbeatCancellationArtifacts,
+  refreshPromotedIssueExecutionContextSnapshot,
+} from "./heartbeat-wakeup-control.js";
 export { buildHeartbeatOutcomePersistence, resolveHeartbeatRunOutcome } from "./heartbeat-run-execution.js";
 
 export {
@@ -115,6 +124,8 @@ export {
   prioritizeQueuedRunsForDispatch,
   priorityClassFromRank,
   priorityRank,
+  resolveDispatchWakePriorityRank,
+  shouldPreemptRunningRunForQueuedSelection,
   type HeartbeatQueuedRunPrioritySelection,
 } from "./heartbeat-dispatch-priority.js";
 export {
@@ -135,6 +146,7 @@ export {
 } from "./heartbeat-wake-utils.js";
 export {
   buildRequiredProtocolProgressError,
+  classifyDegradedProtocolRunReason,
   classifyProtocolRuntimeDegradedState,
   decideDispatchWatchdogAction,
   describeProtocolRunRuntimeState,
@@ -142,13 +154,16 @@ export {
   isIdleProtocolWatchdogEligibleRequirement,
   isSupersededProtocolWakeReason,
   isWorkflowStateEligibleForProtocolRetry,
+  mergeProtocolMessagesWithHelperInvocations,
   parseHeartbeatPolicyConfig,
   readLeaseLastProgressAt,
+  refreshProtocolRetryContextSnapshot,
   resolveProtocolIdleWatchdogDelayMs,
   resolveDegradedProtocolRecoveryReason,
   runDispatchWatchdogOutsideDbContext,
   runProtocolWatchdogRecoveries,
   scheduleDeferredRunDispatch,
+  shouldEnqueueImplementationProgressFollowup,
   shouldEnqueueProtocolRequiredRetry,
   shouldEnqueueRetryableAdapterFailure,
   shouldReapHeartbeatRun,
@@ -329,6 +344,7 @@ export function heartbeatService(db: Db) {
     dispatchAgentQueueStart: (agentId) => runExecution.dispatchAgentQueueStart(agentId),
     releaseIssueExecutionAndPromote: (run) => wakeupControl.releaseIssueExecutionAndPromote(run),
     wakeLeadSupervisorForRunFailure: (inputValue) => wakeupControl.wakeLeadSupervisorForRunFailure(inputValue),
+    cancelRunInternal: (runId, opts) => wakeupControl.cancelRunInternal(runId, opts),
     enqueueWakeup: (agentId, opts) => wakeupControl.enqueueWakeup(agentId, opts),
     clearDispatchWatchdog,
     clearProtocolIdleWatchdog,

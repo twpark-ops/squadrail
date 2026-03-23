@@ -4,6 +4,7 @@ import {
   agents,
   agentWakeupRequests,
   heartbeatRuns,
+  issueProtocolState,
   issues,
 } from "@squadrail/db";
 import type { LiveEventType } from "@squadrail/shared";
@@ -33,7 +34,12 @@ import {
   normalizeAgentNameKey,
   readNonEmptyString,
 } from "./heartbeat-runtime-utils.js";
-import { SUPERSEDED_PROTOCOL_WAKE_REASONS, isSupersededProtocolWakeReason } from "./heartbeat-protocol-watchdog.js";
+import {
+  SUPERSEDED_PROTOCOL_WAKE_REASONS,
+  isSupersededProtocolWakeReason,
+  refreshProtocolRetryContextSnapshot,
+  shouldSkipSupersededProtocolFollowup,
+} from "./heartbeat-protocol-watchdog.js";
 
 type PublishHeartbeatLiveEvent = (input: {
   companyId: string;
@@ -76,6 +82,29 @@ export function buildHeartbeatCancellationArtifacts(input: {
     lastError: input.message,
     eventMessage: "run cancelled",
   };
+}
+
+export function refreshPromotedIssueExecutionContextSnapshot(input: {
+  contextSnapshot: Record<string, unknown>;
+  currentWorkflowState?: string | null;
+}) {
+  const workflowState = readNonEmptyString(input.currentWorkflowState);
+  if (!workflowState) {
+    return {
+      ...input.contextSnapshot,
+    };
+  }
+  if (!readNonEmptyString(input.contextSnapshot.protocolMessageType)) {
+    return {
+      ...input.contextSnapshot,
+    };
+  }
+  return refreshProtocolRetryContextSnapshot({
+    contextSnapshot: {
+      ...input.contextSnapshot,
+    },
+    workflowState,
+  });
 }
 
 export function createHeartbeatWakeupControl(input: {
@@ -697,8 +726,16 @@ export function createHeartbeatWakeupControl(input: {
           id: issues.id,
           companyId: issues.companyId,
           status: issues.status,
+          workflowState: issueProtocolState.workflowState,
         })
         .from(issues)
+        .leftJoin(
+          issueProtocolState,
+          and(
+            eq(issueProtocolState.issueId, issues.id),
+            eq(issueProtocolState.companyId, issues.companyId),
+          ),
+        )
         .where(and(eq(issues.companyId, run.companyId), eq(issues.executionRunId, run.id)))
         .then((rows) => rows[0] ?? null);
 
@@ -779,6 +816,10 @@ export function createHeartbeatWakeupControl(input: {
           deferredSource: deferred.source,
           deferredTriggerDetail: deferred.triggerDetail,
         });
+        const promotedContextSnapshot = refreshPromotedIssueExecutionContextSnapshot({
+          contextSnapshot: promotion.promotedContextSnapshot,
+          currentWorkflowState: issue.workflowState ?? null,
+        });
 
         const sessionBefore = await resolveSessionBeforeForWakeup(deferredAgent, promotion.promotedTaskKey);
         const now = new Date();
@@ -791,7 +832,7 @@ export function createHeartbeatWakeupControl(input: {
             triggerDetail: promotion.promotedTriggerDetail,
             status: "queued",
             wakeupRequestId: deferred.id,
-            contextSnapshot: promotion.promotedContextSnapshot,
+            contextSnapshot: promotedContextSnapshot,
             sessionIdBefore: sessionBefore,
           })
           .returning()
@@ -966,9 +1007,46 @@ export function createHeartbeatWakeupControl(input: {
     const cancelledAt = new Date();
     const reason = readNonEmptyString(inputValue.reason) ?? "Cancelled stale protocol follow-up";
     const supersededReasons = [...SUPERSEDED_PROTOCOL_WAKE_REASONS];
+    const issueRow = await db
+      .select({ status: issues.status })
+      .from(issues)
+      .where(and(eq(issues.companyId, inputValue.companyId), eq(issues.id, inputValue.issueId)))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    const protocolStateRow = await db
+      .select({ workflowState: issueProtocolState.workflowState })
+      .from(issueProtocolState)
+      .where(
+        and(
+          eq(issueProtocolState.companyId, inputValue.companyId),
+          eq(issueProtocolState.issueId, inputValue.issueId),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    const issueStateSnapshot = {
+      status: issueRow?.status ?? null,
+      workflowState: protocolStateRow?.workflowState ?? null,
+    };
+
+    const shouldCancelProtocolContext = (
+      contextSnapshot: Record<string, unknown> | null | undefined,
+      wakeReason: string | null,
+    ) =>
+      shouldSkipSupersededProtocolFollowup({
+        issueStatus: issueStateSnapshot?.status ?? null,
+        workflowState: issueStateSnapshot?.workflowState ?? null,
+        wakeReason,
+        protocolMessageType: readNonEmptyString(contextSnapshot?.protocolMessageType),
+        protocolRecipientRole: readNonEmptyString(contextSnapshot?.protocolRecipientRole),
+      });
 
     const wakeupRows = await db
-      .select({ id: agentWakeupRequests.id })
+      .select({
+        id: agentWakeupRequests.id,
+        reason: agentWakeupRequests.reason,
+        payload: agentWakeupRequests.payload,
+      })
       .from(agentWakeupRequests)
       .where(
         and(
@@ -982,7 +1060,22 @@ export function createHeartbeatWakeupControl(input: {
         ),
       );
 
-    if (wakeupRows.length > 0) {
+    const wakeupIds = wakeupRows
+      .filter((row) => {
+        if (row.reason && supersededReasons.includes(row.reason)) {
+          return true;
+        }
+        const payload = parseObject(row.payload);
+        const deferredContext = parseObject(payload[DEFERRED_WAKE_CONTEXT_KEY]);
+        if (Object.keys(deferredContext).length === 0) return false;
+        return shouldCancelProtocolContext(
+          deferredContext,
+          readNonEmptyString(deferredContext.wakeReason) ?? readNonEmptyString(row.reason),
+        );
+      })
+      .map((row) => row.id);
+
+    if (wakeupIds.length > 0) {
       await db
         .update(agentWakeupRequests)
         .set({
@@ -991,33 +1084,43 @@ export function createHeartbeatWakeupControl(input: {
           error: reason,
           updatedAt: cancelledAt,
         })
-        .where(inArray(agentWakeupRequests.id, wakeupRows.map((row) => row.id)));
+        .where(inArray(agentWakeupRequests.id, wakeupIds));
     }
 
     const runConditions = [
       eq(heartbeatRuns.companyId, inputValue.companyId),
       inArray(heartbeatRuns.status, ["queued", "claimed", "running"]),
       sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${inputValue.issueId}`,
-      sql`${heartbeatRuns.contextSnapshot} ->> 'wakeReason' in (${sql.join(supersededReasons.map((value) => sql`${value}`), sql`, `)})`,
     ];
     if (inputValue.excludeRunId) {
       runConditions.push(sql`${heartbeatRuns.id} <> ${inputValue.excludeRunId}`);
     }
     const runs = await db
-      .select({ id: heartbeatRuns.id })
+      .select({
+        id: heartbeatRuns.id,
+        contextSnapshot: heartbeatRuns.contextSnapshot,
+      })
       .from(heartbeatRuns)
       .where(and(...runConditions));
+    const supersededRunIds = runs
+      .filter((run) =>
+        shouldCancelProtocolContext(
+          parseObject(run.contextSnapshot),
+          readNonEmptyString(parseObject(run.contextSnapshot).wakeReason),
+        ),
+      )
+      .map((run) => run.id);
 
     let cancelledRunCount = 0;
-    for (const run of runs) {
-      const current = await getRun(run.id);
+    for (const runId of supersededRunIds) {
+      const current = await getRun(runId);
       if (!current || (current.status !== "queued" && current.status !== "claimed" && current.status !== "running")) continue;
-      await cancelRunInternal(run.id);
+      await cancelRunInternal(runId);
       cancelledRunCount += 1;
     }
 
     return {
-      cancelledWakeupCount: wakeupRows.length,
+      cancelledWakeupCount: wakeupIds.length,
       cancelledRunCount,
     };
   }

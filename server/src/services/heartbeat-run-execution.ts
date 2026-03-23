@@ -6,6 +6,7 @@ import {
   agentTaskSessions,
   costEvents,
   heartbeatRuns,
+  heartbeatRunEvents,
   issueProtocolMessages,
   issueProtocolState,
   issues,
@@ -39,6 +40,7 @@ import {
 import {
   normalizeIssuePriorityValue,
   prioritizeQueuedRunsForDispatch,
+  shouldPreemptRunningRunForQueuedSelection,
   type HeartbeatQueuedRunPrioritySelection,
 } from "./heartbeat-dispatch-priority.js";
 import {
@@ -51,6 +53,9 @@ import {
   buildRequiredProtocolProgressError,
   hasRequiredProtocolProgress,
   isIdleProtocolWatchdogEligibleRequirement,
+  mergeProtocolMessagesWithHelperInvocations,
+  refreshProtocolRetryContextSnapshot,
+  shouldEnqueueImplementationProgressFollowup,
   shouldEnqueueProtocolRequiredRetry,
   shouldEnqueueRetryableAdapterFailure,
   shouldSkipSupersededProtocolFollowup,
@@ -273,6 +278,10 @@ export function createHeartbeatRunExecution(input: {
     errorCode?: string | null;
     error?: string | null;
   }) => Promise<void>;
+  cancelRunInternal: (
+    runId: string,
+    opts?: { message?: string; checkpointMessage?: string },
+  ) => Promise<typeof heartbeatRuns.$inferSelect | null | undefined>;
   enqueueWakeup: (
     agentId: string,
     opts?: HeartbeatWakeupOptions,
@@ -309,6 +318,7 @@ export function createHeartbeatRunExecution(input: {
     dispatchAgentQueueStart,
     releaseIssueExecutionAndPromote,
     wakeLeadSupervisorForRunFailure,
+    cancelRunInternal,
     enqueueWakeup,
     clearDispatchWatchdog,
     clearProtocolIdleWatchdog,
@@ -375,10 +385,6 @@ export function createHeartbeatRunExecution(input: {
       const agent = await getAgent(agentId);
       if (!agent) return [];
       const policy = parseHeartbeatPolicy(agent);
-      const runningCount = await countRunningRunsForAgent(agentId);
-      const availableSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
-      if (availableSlots <= 0) return [];
-
       const queuedRuns = await db
         .select()
         .from(heartbeatRuns)
@@ -417,10 +423,41 @@ export function createHeartbeatRunExecution(input: {
       const prioritizedRuns = prioritizeQueuedRunsForDispatch({
         runs: queuedRuns,
         issuePriorityByIssueId,
-      }).slice(0, availableSlots);
+      });
 
+      let runningCount = await countRunningRunsForAgent(agentId);
+      let availableSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
+
+      if (availableSlots <= 0 && prioritizedRuns.length > 0) {
+        const runningRuns = await db
+          .select()
+          .from(heartbeatRuns)
+          .where(and(eq(heartbeatRuns.agentId, agentId), eq(heartbeatRuns.status, "running")))
+          .orderBy(asc(heartbeatRuns.createdAt));
+
+        const queuedSelection = prioritizedRuns[0];
+        const preemptableRun = runningRuns.find((runningRun) =>
+          shouldPreemptRunningRunForQueuedSelection({
+            selection: queuedSelection,
+            runningContextSnapshot: parseObject(runningRun.contextSnapshot),
+          }),
+        );
+
+        if (preemptableRun) {
+          await cancelRunInternal(preemptableRun.id, {
+            message: "Cancelled lower-priority timeout escalation to unblock an active protocol follow-up",
+            checkpointMessage: "run cancelled to unblock a higher-priority protocol follow-up",
+          });
+          runningCount = await countRunningRunsForAgent(agentId);
+          availableSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
+        }
+      }
+
+      if (availableSlots <= 0) return [];
+
+      const selectedRuns = prioritizedRuns.slice(0, availableSlots);
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
-      for (const queuedRun of prioritizedRuns) {
+      for (const queuedRun of selectedRuns) {
         const claimed = await claimQueuedRun(queuedRun.run);
         if (!claimed) continue;
         claimedRuns.push(await applyDispatchPrioritySelection({
@@ -518,7 +555,9 @@ export function createHeartbeatRunExecution(input: {
       protocolMessageType: readNonEmptyString(context.protocolMessageType),
       protocolRecipientRole: readNonEmptyString(context.protocolRecipientRole),
     });
-    const idleWatchdogEligible = isIdleProtocolWatchdogEligibleRequirement(idleWatchdogRequirement);
+    const idleWatchdogEligible =
+      isIdleProtocolWatchdogEligibleRequirement(idleWatchdogRequirement)
+      || idleWatchdogRequirement?.key === "implementation_engineer";
     const bumpProtocolIdleWatchdog = () => {
       if (!idleWatchdogEligible) return;
       scheduleProtocolIdleWatchdog(runId);
@@ -864,6 +903,11 @@ export function createHeartbeatRunExecution(input: {
         typeof context.protocolRequiredRetryCount === "number" && Number.isFinite(context.protocolRequiredRetryCount)
           ? context.protocolRequiredRetryCount
           : 0;
+      const protocolProgressFollowupCount =
+        typeof context.protocolProgressFollowupCount === "number"
+        && Number.isFinite(context.protocolProgressFollowupCount)
+          ? context.protocolProgressFollowupCount
+          : 0;
       const adapterRetryCount =
         typeof context.adapterRetryCount === "number" && Number.isFinite(context.adapterRetryCount)
           ? context.adapterRetryCount
@@ -908,10 +952,31 @@ export function createHeartbeatRunExecution(input: {
             ),
           )
           .orderBy(asc(issueProtocolMessages.createdAt));
+        const helperEvents = await db
+          .select({
+            eventType: heartbeatRunEvents.eventType,
+            payload: heartbeatRunEvents.payload,
+            createdAt: heartbeatRunEvents.createdAt,
+          })
+          .from(heartbeatRunEvents)
+          .where(
+            and(
+              eq(heartbeatRunEvents.companyId, run.companyId),
+              eq(heartbeatRunEvents.runId, run.id),
+              eq(heartbeatRunEvents.agentId, agent.id),
+              eq(heartbeatRunEvents.eventType, "protocol.helper_invocation"),
+              gt(heartbeatRunEvents.createdAt, new Date(startedAt.getTime() - 1_000)),
+            ),
+          )
+          .orderBy(asc(heartbeatRunEvents.createdAt));
+        const effectiveProtocolMessages = mergeProtocolMessagesWithHelperInvocations({
+          messages: protocolMessages,
+          helperEvents,
+        });
 
         const observedMessageTypes = Array.from(
           new Set(
-            protocolMessages
+            effectiveProtocolMessages
               .map((message) => readNonEmptyString(message.messageType))
               .filter((messageType): messageType is string => Boolean(messageType)),
           ),
@@ -936,7 +1001,7 @@ export function createHeartbeatRunExecution(input: {
           : null;
         const satisfied = hasRequiredProtocolProgress({
           requirement: protocolRequirement,
-          messages: protocolMessages,
+          messages: effectiveProtocolMessages,
           finalWorkflowState: issueStateSnapshot?.workflowState ?? null,
         });
 
@@ -958,8 +1023,20 @@ export function createHeartbeatRunExecution(input: {
             requirement: protocolRequirement,
           });
           if (retryEnqueued) {
-            const retryContextSnapshot: Record<string, unknown> = {
-              ...context,
+            const retryContextSnapshot: Record<string, unknown> = refreshProtocolRetryContextSnapshot({
+              contextSnapshot: {
+                ...context,
+                issueId,
+                taskId: issueId,
+                wakeReason: "protocol_required_retry",
+                protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+                protocolRequiredRetryCount: protocolRetryCount + 1,
+                protocolRequiredPreviousRunId: run.id,
+                forceFollowupRun: true,
+              },
+              workflowState: issueStateSnapshot?.workflowState ?? null,
+            });
+            Object.assign(retryContextSnapshot, {
               issueId,
               taskId: issueId,
               wakeReason: "protocol_required_retry",
@@ -967,7 +1044,7 @@ export function createHeartbeatRunExecution(input: {
               protocolRequiredRetryCount: protocolRetryCount + 1,
               protocolRequiredPreviousRunId: run.id,
               forceFollowupRun: true,
-            };
+            });
             await enqueueWakeup(agent.id, {
               source: "automation",
               triggerDetail: "system",
@@ -1004,6 +1081,61 @@ export function createHeartbeatRunExecution(input: {
               retryCount: protocolRetryCount,
             },
           });
+        } else {
+          const progressFollowupEnqueued = shouldEnqueueImplementationProgressFollowup({
+            forceFollowupRun: context.forceFollowupRun === true,
+            progressFollowupCount: protocolProgressFollowupCount,
+            issueStatus: issueStateSnapshot?.status ?? null,
+            workflowState: issueStateSnapshot?.workflowState ?? null,
+            requirement: protocolRequirement,
+            observedMessageTypes,
+          });
+          if (progressFollowupEnqueued) {
+            const followupContextSnapshot: Record<string, unknown> = refreshProtocolRetryContextSnapshot({
+              contextSnapshot: {
+                ...context,
+                issueId,
+                taskId: issueId,
+                wakeReason: "protocol_progress_followup",
+                protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+                protocolProgressFollowupCount: protocolProgressFollowupCount + 1,
+                protocolProgressPreviousRunId: run.id,
+                forceFollowupRun: true,
+                forceFreshAdapterSession: true,
+              },
+              workflowState: issueStateSnapshot?.workflowState ?? null,
+            });
+            Object.assign(followupContextSnapshot, {
+              issueId,
+              taskId: issueId,
+              wakeReason: "protocol_progress_followup",
+              protocolOriginalWakeReason: readNonEmptyString(context.wakeReason),
+              protocolProgressFollowupCount: protocolProgressFollowupCount + 1,
+              protocolProgressPreviousRunId: run.id,
+              forceFollowupRun: true,
+              forceFreshAdapterSession: true,
+            });
+            await enqueueWakeup(agent.id, {
+              source: "automation",
+              triggerDetail: "system",
+              reason: "protocol_progress_followup",
+              payload: {
+                issueId,
+                protocolProgressPreviousRunId: run.id,
+              },
+              contextSnapshot: followupContextSnapshot,
+            });
+            await appendRunEvent(eventRun, seq++, {
+              eventType: "protocol.followup",
+              stream: "system",
+              level: "info",
+              message: "queued implementation follow-up after progress-only completion",
+              payload: {
+                progressFollowupCount: protocolProgressFollowupCount,
+                observedMessageTypes,
+              },
+            });
+          }
         }
       }
 

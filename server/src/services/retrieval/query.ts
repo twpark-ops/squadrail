@@ -21,6 +21,7 @@ export const RETRIEVAL_EVENT_BY_MESSAGE_TYPE = {
   ASSIGN_TASK: "on_assignment",
   REASSIGN_TASK: "on_assignment",
   ACK_ASSIGNMENT: "on_acceptance",
+  START_IMPLEMENTATION: "on_progress_report",
   ASK_CLARIFICATION: "on_progress_report",
   ANSWER_CLARIFICATION: "on_progress_report",
   PROPOSE_PLAN: "on_plan_requested",

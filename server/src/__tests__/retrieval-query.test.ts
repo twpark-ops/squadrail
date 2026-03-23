@@ -13,6 +13,10 @@ function buildMessage(message: CreateIssueProtocolMessage) {
 }
 
 describe("retrieval query helpers", () => {
+  it("maps implementation start to a progress retrieval event", () => {
+    expect(deriveRetrievalEventType("START_IMPLEMENTATION")).toBe("on_progress_report");
+  });
+
   it("derives brief scope from event type and recipient role", () => {
     expect(deriveBriefScope({ eventType: "on_close", recipientRole: "engineer" })).toBe("closure");
     expect(deriveBriefScope({ eventType: "on_assignment", recipientRole: "human_board" })).toBe("global");

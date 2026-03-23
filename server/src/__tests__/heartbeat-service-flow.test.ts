@@ -1,4 +1,4 @@
-import { agentRuntimeState, agents, agentTaskSessions, agentWakeupRequests, heartbeatRunEvents, heartbeatRunLeases, heartbeatRuns, issues } from "@squadrail/db";
+import { agentRuntimeState, agents, agentTaskSessions, agentWakeupRequests, heartbeatRunEvents, heartbeatRunLeases, heartbeatRuns, issueProtocolState, issues } from "@squadrail/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runningProcesses } from "@squadrail/adapter-utils/server-utils";
 
@@ -39,6 +39,7 @@ function createResolvedSelectChain(selectRows: Map<unknown, unknown[][]>) {
       selectedTable = table;
       return chain;
     },
+    leftJoin: () => chain,
     where: () => chain,
     orderBy: () => chain,
     limit: () => chain,
@@ -799,7 +800,9 @@ describe("heartbeat service flow coverage", () => {
       status: "claimed",
       contextSnapshot: {
         issueId: "issue-3",
-        wakeReason: "protocol_required_retry",
+        wakeReason: "adapter_retry",
+        protocolMessageType: "ASSIGN_TASK",
+        protocolRecipientRole: "pm",
       },
     });
     const cancelledRun = {
@@ -816,9 +819,21 @@ describe("heartbeat service flow coverage", () => {
     };
     const { db, updateSets } = createHeartbeatDbMock({
       selectRows: new Map([
-        [agentWakeupRequests, [[{ id: "wake-superseded-1" }]]],
+        [agentWakeupRequests, [[{
+          id: "wake-superseded-1",
+          reason: "adapter_retry",
+          payload: {
+            issueId: "issue-3",
+            _squadrailWakeContext: {
+              wakeReason: "adapter_retry",
+              protocolMessageType: "ASSIGN_TASK",
+              protocolRecipientRole: "pm",
+            },
+          },
+        }]]],
         [heartbeatRuns, [[supersededRun], [supersededRun], [supersededRun], [{ count: 0 }]]],
-        [issues, [[]]],
+        [issues, [[{ status: "in_progress", workflowState: "implementing" }]]],
+        [issueProtocolState, [[{ workflowState: "implementing" }]]],
         [agents, [[makeAgent()]]],
       ]),
       updateRows: new Map([

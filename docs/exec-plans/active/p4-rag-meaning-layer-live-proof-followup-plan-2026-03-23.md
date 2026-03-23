@@ -77,6 +77,19 @@ last-reviewed: "2026-03-23"
   - live rerun note:
     - `CLO-236` local rerun에서 reviewer approval은 `qa_pending`으로 정상 승격됐고, QA `START_REVIEW` payload가 reviewer-approved verification command를 직접 사용했다.
     - 최종 `rag-readiness` artifact refresh는 새 rerun에서 계속 진행 중이며, 남은 일은 full live proof summary 재생성과 artifact 문서 갱신이다.
+- implementation progress-only follow-up checkpointed
+  - forced implementation follow-up run이 `REPORT_PROGRESS`만 남기고 종료되면 `protocol_progress_followup` wake로 fresh adapter session을 다시 열어 `SUBMIT_FOR_REVIEW`까지 이어갈 수 있게 보강했다.
+  - helper invocation event와 protocol message를 합쳐 finalize race에서도 실제 progress를 판단하도록 heartbeat watchdog/helper를 보강했다.
+  - run-scoped protocol role 허용과 superseded follow-up cancel을 추가해 same-agent multi-role lane에서 stale wake가 남지 않게 했다.
+  - `cloud-swiftsight-summary-layer-proof` / cleanup 유틸을 분리해 hidden child cleanup 검증과 post-run cleanup 요약을 독립 helper로 재사용하게 만들었다.
+  - focused tests:
+    - `heartbeat-protocol-progress.test.ts`
+    - `squadrail-runtime-note.test.ts`
+    - `heartbeat-helper-flows.test.ts`
+  - live rerun note:
+    - `CLO-340` local rerun은 implementation progress-only lane 이후 `SUBMIT_FOR_REVIEW -> APPROVE -> QA -> CLOSE`까지 실제로 닫혔다.
+    - 후속 fresh rerun `CLO-342`는 `qa_pending`까지 진입한 상태에서 operator가 local exec session saturation 때문에 runner를 수동 중단했다.
+    - 따라서 이번 배치는 artifact refresh 완료가 아니라 **checkpoint commit**이며, 다음 시작점은 clean slate rerun이다.
 
 # Implementation Plan
 
@@ -84,7 +97,8 @@ last-reviewed: "2026-03-23"
 2. hidden child issue cleanup과 follow-up wake/run enqueue 경로를 계측하고 focused regression test를 추가한다.
 3. domain-aware proof와 rag-readiness runner를 분리해 각자 독립 artifact를 남기게 한다.
 4. PM projection scoring에서 summary source와 summary metadata trace를 먼저 읽도록 연결하고 focused tests를 추가한다.
-5. live proof를 재실행해 baseline 대비 개선/회귀를 기록하고, 종료 시 문서를 `completed/`로 이동한다.
+5. lingering `CLO-*` issue/run cleanup 후 `rag-readiness`와 `domain-aware proof only`를 clean slate로 재실행한다.
+6. live proof를 재실행해 baseline 대비 개선/회귀를 기록하고, 종료 시 문서를 `completed/`로 이동한다.
 
 # Validation
 
@@ -94,6 +108,7 @@ last-reviewed: "2026-03-23"
 - protocol payload / review-flow focused tests
 - `pnpm e2e:cloud-swiftsight-rag-readiness`
 - `pnpm e2e:cloud-swiftsight-domain-aware-pm-burn-in`
+- `pnpm e2e:cloud-swiftsight-real-org:cleanup`
 
 # Exit Criteria
 
@@ -102,3 +117,4 @@ last-reviewed: "2026-03-23"
 - summary-enabled fixture가 PM projection / project selection에서 baseline 대비 개선 근거를 남긴다.
 - review / QA / close payload에서 retrieval evidence citation이 stable `retrievalRunId + cited path/rank` 기준으로 남는다.
 - progress / handoff / active plan 상태가 서로 모순되지 않는다.
+- full live proof artifact는 clean slate rerun 기준으로 재생성된다.

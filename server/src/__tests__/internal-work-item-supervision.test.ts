@@ -17,6 +17,9 @@ const INTERNAL_CONTEXT = {
   parentId: "root-1",
   labelNames: ["team:internal", "work:implementation", "watch:reviewer", "watch:lead"],
   techLeadAgentId: "lead-1",
+  reviewerAgentId: "reviewer-1",
+  qaAgentId: "qa-1",
+  primaryEngineerAgentId: "eng-1",
 };
 
 describe("internal work item supervision helpers", () => {
@@ -71,6 +74,10 @@ describe("internal work item supervision helpers", () => {
       internalWorkItemKind: "implementation",
       reviewerWatchEnabled: true,
       leadWatchEnabled: true,
+      techLeadAgentId: "lead-1",
+      reviewerAgentId: "reviewer-1",
+      qaAgentId: "qa-1",
+      primaryEngineerAgentId: "eng-1",
     });
   });
 
@@ -256,12 +263,19 @@ describe("internal work item supervision helpers", () => {
         parentId: "root-1",
         labelNames: ["team:internal", "work:qa", "watch:reviewer", "watch:lead"],
         techLeadAgentId: "lead-1",
+        reviewerAgentId: null,
+        qaAgentId: null,
+        primaryEngineerAgentId: null,
       })).toEqual({
         issueInternalWorkItem: true,
         rootIssueId: "root-1",
         internalWorkItemKind: "qa",
         reviewerWatchEnabled: true,
         leadWatchEnabled: true,
+        techLeadAgentId: "lead-1",
+        reviewerAgentId: null,
+        qaAgentId: null,
+        primaryEngineerAgentId: null,
       });
     });
 
@@ -271,12 +285,19 @@ describe("internal work item supervision helpers", () => {
         parentId: "root-1",
         labelNames: ["work:implementation", "watch:reviewer"],
         techLeadAgentId: "lead-1",
+        reviewerAgentId: null,
+        qaAgentId: null,
+        primaryEngineerAgentId: null,
       })).toEqual({
         issueInternalWorkItem: true,
         rootIssueId: "root-1",
         internalWorkItemKind: "implementation",
         reviewerWatchEnabled: true,
         leadWatchEnabled: false,
+        techLeadAgentId: "lead-1",
+        reviewerAgentId: null,
+        qaAgentId: null,
+        primaryEngineerAgentId: null,
       });
     });
 
@@ -286,12 +307,19 @@ describe("internal work item supervision helpers", () => {
         parentId: "root-1",
         labelNames: ["bug"],
         techLeadAgentId: null,
+        reviewerAgentId: null,
+        qaAgentId: null,
+        primaryEngineerAgentId: null,
       })).toEqual({
         issueInternalWorkItem: true,
         rootIssueId: "root-1",
         internalWorkItemKind: null,
         reviewerWatchEnabled: false,
         leadWatchEnabled: false,
+        techLeadAgentId: null,
+        reviewerAgentId: null,
+        qaAgentId: null,
+        primaryEngineerAgentId: null,
       });
     });
   });

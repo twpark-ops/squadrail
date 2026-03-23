@@ -7,10 +7,13 @@ import {
   describeProtocolRunRuntimeState,
   hasRequiredProtocolProgress,
   isIdleProtocolWatchdogEligibleRequirement,
+  mergeProtocolMessagesWithHelperInvocations,
   isSupersededProtocolWakeReason,
   readLeaseLastProgressAt,
+  refreshProtocolRetryContextSnapshot,
   resolveProtocolIdleWatchdogDelayMs,
   runProtocolWatchdogRecoveries,
+  shouldEnqueueImplementationProgressFollowup,
   shouldEnqueueRetryableAdapterFailure,
   shouldRecoverDegradedProtocolRun,
   shouldEnqueueProtocolRequiredRetry,
@@ -52,6 +55,41 @@ describe("heartbeat protocol progress helpers", () => {
       hasRequiredProtocolProgress({
         requirement,
         messages: [{ messageType: "ACK_ASSIGNMENT" }, { messageType: "START_IMPLEMENTATION" }],
+        finalWorkflowState: "implementing",
+      }),
+    ).toBe(true);
+  });
+
+  it("treats helper invocation events as protocol progress evidence during finalize races", () => {
+    const requirement = resolveProtocolRunRequirement({
+      protocolMessageType: "REASSIGN_TASK",
+      protocolRecipientRole: "engineer",
+    });
+
+    const merged = mergeProtocolMessagesWithHelperInvocations({
+      messages: [
+        { messageType: "ACK_ASSIGNMENT", createdAt: new Date("2026-03-23T09:13:32.097Z") },
+      ],
+      helperEvents: [
+        {
+          eventType: "protocol.helper_invocation",
+          createdAt: new Date("2026-03-23T09:13:37.440Z"),
+          payload: {
+            messageType: "START_IMPLEMENTATION",
+            senderRole: "engineer",
+          },
+        },
+      ],
+    });
+
+    expect(merged.map((message) => message.messageType)).toEqual([
+      "ACK_ASSIGNMENT",
+      "START_IMPLEMENTATION",
+    ]);
+    expect(
+      hasRequiredProtocolProgress({
+        requirement,
+        messages: merged,
         finalWorkflowState: "implementing",
       }),
     ).toBe(true);
@@ -106,6 +144,11 @@ describe("heartbeat protocol progress helpers", () => {
     ).toBe(true);
     expect(
       shouldResetTaskSessionForWake({
+        wakeReason: "protocol_progress_followup",
+      }),
+    ).toBe(true);
+    expect(
+      shouldResetTaskSessionForWake({
         protocolRequiredRetryCount: 1,
       }),
     ).toBe(true);
@@ -148,6 +191,10 @@ describe("heartbeat protocol progress helpers", () => {
   });
 
   it("does not enqueue protocol-required retry for terminal issues", () => {
+    const implementationRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "START_IMPLEMENTATION",
+      protocolRecipientRole: "engineer",
+    });
     expect(
       shouldEnqueueProtocolRequiredRetry({
         protocolRetryCount: 0,
@@ -170,6 +217,30 @@ describe("heartbeat protocol progress helpers", () => {
       shouldEnqueueProtocolRequiredRetry({
         protocolRetryCount: 1,
         issueStatus: "in_progress",
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 1,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 2,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnqueueProtocolRequiredRetry({
+        protocolRetryCount: 3,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
       }),
     ).toBe(false);
   });
@@ -238,6 +309,54 @@ describe("heartbeat protocol progress helpers", () => {
     ).toBe(false);
   });
 
+  it("queues implementation progress follow-up only for forced progress-only implementation runs", () => {
+    const implementationRequirement = resolveProtocolRunRequirement({
+      protocolMessageType: "START_IMPLEMENTATION",
+      protocolRecipientRole: "engineer",
+    });
+
+    expect(
+      shouldEnqueueImplementationProgressFollowup({
+        forceFollowupRun: true,
+        progressFollowupCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
+        observedMessageTypes: ["REPORT_PROGRESS"],
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnqueueImplementationProgressFollowup({
+        forceFollowupRun: false,
+        progressFollowupCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
+        observedMessageTypes: ["REPORT_PROGRESS"],
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnqueueImplementationProgressFollowup({
+        forceFollowupRun: true,
+        progressFollowupCount: 2,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
+        observedMessageTypes: ["REPORT_PROGRESS"],
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnqueueImplementationProgressFollowup({
+        forceFollowupRun: true,
+        progressFollowupCount: 0,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        requirement: implementationRequirement,
+        observedMessageTypes: ["SUBMIT_FOR_REVIEW"],
+      }),
+    ).toBe(false);
+  });
+
   it("treats review start and QA start as intermediate progress until a decision follows", () => {
     const reviewRequirement = resolveProtocolRunRequirement({
       protocolMessageType: "SUBMIT_FOR_REVIEW",
@@ -276,6 +395,34 @@ describe("heartbeat protocol progress helpers", () => {
         finalWorkflowState: "approved",
       }),
     ).toBe(true);
+  });
+
+  it("refreshes protocol retry context with the current workflow state", () => {
+    expect(
+      refreshProtocolRetryContextSnapshot({
+        contextSnapshot: {
+          protocolWorkflowStateBefore: "under_review",
+          protocolWorkflowStateAfter: "qa_pending",
+          wakeReason: "protocol_required_retry",
+        },
+        workflowState: "under_qa_review",
+      }),
+    ).toMatchObject({
+      protocolWorkflowStateBefore: "under_qa_review",
+      protocolWorkflowStateAfter: "under_qa_review",
+      wakeReason: "protocol_required_retry",
+    });
+
+    expect(
+      refreshProtocolRetryContextSnapshot({
+        contextSnapshot: {
+          protocolWorkflowStateBefore: "under_review",
+        },
+        workflowState: null,
+      }),
+    ).toMatchObject({
+      protocolWorkflowStateBefore: "under_review",
+    });
   });
 
   it("recovers idle short-lane protocol runs but leaves long implementation lanes alone", () => {
@@ -325,6 +472,62 @@ describe("heartbeat protocol progress helpers", () => {
         checkpointJson: idleCheckpoint,
         latestEvent: {
           eventType: "adapter.invoke",
+          createdAt: "2026-03-20T10:00:00Z",
+        },
+        startedAt: "2026-03-20T10:00:00Z",
+        now,
+        idleThresholdMs: 20_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverIdleProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: implementationRequirement,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        protocolRetryCount: 0,
+        checkpointJson: idleCheckpoint,
+        messages: [
+          {
+            messageType: "REPORT_PROGRESS",
+            createdAt: "2026-03-20T10:00:00Z",
+            payload: {
+              changedFiles: [],
+              testSummary: null,
+            },
+          },
+        ],
+        latestEvent: {
+          eventType: "protocol.helper_invocation",
+          createdAt: "2026-03-20T10:00:00Z",
+        },
+        startedAt: "2026-03-20T10:00:00Z",
+        now,
+        idleThresholdMs: 20_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverIdleProtocolRun({
+        runStatus: "running",
+        hasRunningProcess: true,
+        requirement: implementationRequirement,
+        issueStatus: "in_progress",
+        workflowState: "implementing",
+        protocolRetryCount: 0,
+        checkpointJson: idleCheckpoint,
+        messages: [
+          {
+            messageType: "REPORT_PROGRESS",
+            createdAt: "2026-03-20T10:00:00Z",
+            payload: {
+              changedFiles: ["internal/storage/path.go"],
+              testSummary: null,
+            },
+          },
+        ],
+        latestEvent: {
+          eventType: "protocol.helper_invocation",
           createdAt: "2026-03-20T10:00:00Z",
         },
         startedAt: "2026-03-20T10:00:00Z",
@@ -583,6 +786,7 @@ describe("heartbeat protocol progress helpers", () => {
     expect(isSupersededProtocolWakeReason("issue_ready_for_closure")).toBe(true);
     expect(isSupersededProtocolWakeReason("issue_ready_for_qa_gate")).toBe(true);
     expect(isSupersededProtocolWakeReason("protocol_required_retry")).toBe(true);
+    expect(isSupersededProtocolWakeReason("protocol_progress_followup")).toBe(true);
     expect(isSupersededProtocolWakeReason("heartbeat_timer")).toBe(false);
     expect(
       shouldSkipSupersededProtocolFollowup({

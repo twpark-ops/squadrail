@@ -4,6 +4,8 @@ import {
   buildDispatchPrioritySelectionDetails,
   enrichWakeContextSnapshot,
   prioritizeQueuedRunsForDispatch,
+  resolveDispatchWakePriorityRank,
+  shouldPreemptRunningRunForQueuedSelection,
 } from "../services/heartbeat.js";
 
 describe("heartbeat priority dispatch", () => {
@@ -67,6 +69,47 @@ describe("heartbeat priority dispatch", () => {
     });
   });
 
+  it("prioritizes short supervisory follow-ups ahead of older timeout escalations", () => {
+    const ordered = prioritizeQueuedRunsForDispatch({
+      now: new Date("2026-03-12T03:00:00.000Z"),
+      runs: [
+        {
+          id: "run-timeout",
+          createdAt: new Date("2026-03-12T02:10:00.000Z"),
+          contextSnapshot: {
+            issueId: "issue-timeout",
+            issuePriority: "high",
+            wakeReason: "protocol_timeout_escalation",
+            protocolMessageType: "REQUEST_HUMAN_DECISION",
+            protocolRecipientRole: "tech_lead",
+          },
+        },
+        {
+          id: "run-close",
+          createdAt: new Date("2026-03-12T02:55:00.000Z"),
+          contextSnapshot: {
+            issueId: "issue-close",
+            issuePriority: "high",
+            wakeReason: "issue_ready_for_closure",
+            protocolMessageType: "APPROVE_IMPLEMENTATION",
+            protocolRecipientRole: "tech_lead",
+          },
+        },
+      ],
+    });
+
+    expect(ordered[0]).toMatchObject({
+      run: { id: "run-close" },
+      wakePriorityRank: 3,
+      wakeReason: "issue_ready_for_closure",
+      preemptedRunIds: ["run-timeout"],
+    });
+    expect(ordered[1]).toMatchObject({
+      run: { id: "run-timeout" },
+      wakePriorityRank: 0,
+    });
+  });
+
   it("copies payload priority into wake context snapshots", () => {
     const result = enrichWakeContextSnapshot({
       contextSnapshot: {},
@@ -90,11 +133,15 @@ describe("heartbeat priority dispatch", () => {
     expect(buildDispatchPrioritySelectionDetails({
       priorityClass: "critical",
       issuePriority: "critical",
+      wakePriorityRank: 3,
+      wakeReason: "issue_ready_for_closure",
       ageBoost: 2,
       preemptedRunIds: ["run-medium", "run-low"],
     })).toEqual({
       priorityClass: "critical",
       issuePriority: "critical",
+      wakePriorityRank: 3,
+      wakeReason: "issue_ready_for_closure",
       ageBoost: 2,
       preemptedRunIds: ["run-medium", "run-low"],
     });
@@ -108,6 +155,8 @@ describe("heartbeat priority dispatch", () => {
       selection: {
         issuePriority: "critical",
         priorityClass: "critical",
+        wakePriorityRank: 3,
+        wakeReason: "issue_ready_for_closure",
         ageBoost: 0,
         queuedForMs: 60_000,
         preemptedRunIds: ["run-medium"],
@@ -117,10 +166,14 @@ describe("heartbeat priority dispatch", () => {
       issueId: "issue-1",
       issuePriority: "critical",
       dispatchPriorityClass: "critical",
+      dispatchWakePriorityRank: 3,
+      dispatchWakeReason: "issue_ready_for_closure",
       dispatchPriorityQueuedForMs: 60_000,
       dispatchPreemption: {
         preempted: true,
         priorityClass: "critical",
+        wakePriorityRank: 3,
+        wakeReason: "issue_ready_for_closure",
         preemptedRunIds: ["run-medium"],
       },
     });
@@ -132,11 +185,50 @@ describe("heartbeat priority dispatch", () => {
       selection: {
         issuePriority: "medium",
         priorityClass: "normal",
+        wakePriorityRank: 1,
+        wakeReason: null,
         ageBoost: 0,
         queuedForMs: 30_000,
         preemptedRunIds: [],
       },
       selectedAt: new Date("2026-03-12T02:00:00.000Z"),
     })).not.toHaveProperty("dispatchPreemption");
+  });
+
+  it("marks timeout escalations as lower-priority than closure follow-ups for preemption", () => {
+    const selection = prioritizeQueuedRunsForDispatch({
+      runs: [
+        {
+          id: "run-close",
+          createdAt: new Date("2026-03-12T02:55:00.000Z"),
+          contextSnapshot: {
+            issueId: "issue-close",
+            issuePriority: "high",
+            wakeReason: "issue_ready_for_closure",
+            protocolMessageType: "APPROVE_IMPLEMENTATION",
+            protocolRecipientRole: "tech_lead",
+          },
+        },
+      ],
+    })[0];
+
+    expect(resolveDispatchWakePriorityRank({
+      wakeReason: "protocol_timeout_escalation",
+      protocolMessageType: "REQUEST_HUMAN_DECISION",
+      protocolRecipientRole: "tech_lead",
+    })).toBe(0);
+    expect(resolveDispatchWakePriorityRank({
+      wakeReason: "issue_ready_for_closure",
+      protocolMessageType: "APPROVE_IMPLEMENTATION",
+      protocolRecipientRole: "tech_lead",
+    })).toBe(3);
+    expect(shouldPreemptRunningRunForQueuedSelection({
+      selection,
+      runningContextSnapshot: {
+        wakeReason: "protocol_timeout_escalation",
+        protocolMessageType: "REQUEST_HUMAN_DECISION",
+        protocolRecipientRole: "tech_lead",
+      },
+    })).toBe(true);
   });
 });

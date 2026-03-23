@@ -2235,6 +2235,95 @@ describe("issue routes wakeup handling", () => {
     );
   });
 
+  it("allows run-scoped same-agent engineer handoff even when the base agent role is pm", async () => {
+    mockIssueGetById.mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      companyId: "company-1",
+      identifier: "CLO-316",
+      title: "Same-agent engineer handoff",
+      description: null,
+      projectId: "project-1",
+      labels: [],
+      status: "todo",
+    });
+    mockAgentGetById.mockResolvedValue({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      companyId: "company-1",
+      role: "pm",
+      status: "active",
+      title: "PM",
+      urlKey: "swiftsight-pm",
+    });
+    mockHeartbeatGetRun.mockResolvedValue({
+      id: "run-same-agent-1",
+      companyId: "company-1",
+      agentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      invocationSource: "assignment",
+      status: "running",
+      startedAt: new Date("2026-03-23T08:33:50.000Z"),
+      finishedAt: null,
+      stdoutExcerpt: null,
+      stderrExcerpt: null,
+      contextSnapshot: {
+        issueId: "11111111-1111-4111-8111-111111111111",
+        protocolMessageType: "REASSIGN_TASK",
+        protocolRecipientRole: "engineer",
+      },
+    });
+    mockProtocolAppendMessage.mockResolvedValue({
+      message: { id: "protocol-message-same-agent", seq: 3 },
+      state: { workflowState: "accepted" },
+    });
+
+    const response = await invokeRoute({
+      path: "/issues/:id/protocol/messages",
+      method: "post",
+      params: { id: "11111111-1111-4111-8111-111111111111" },
+      actor: {
+        ...buildAgentActor("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        runId: "run-same-agent-1",
+      },
+      body: {
+        messageType: "ACK_ASSIGNMENT",
+        sender: {
+          actorType: "agent",
+          actorId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "accepted",
+        summary: "Acknowledge the engineer handoff",
+        payload: {
+          accepted: true,
+          understoodScope: "Implement the routed project slice",
+          initialRisks: [],
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(response.statusCode, JSON.stringify(response.body)).toBe(201);
+    expect(mockProtocolAppendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: "11111111-1111-4111-8111-111111111111",
+        message: expect.objectContaining({
+          messageType: "ACK_ASSIGNMENT",
+          sender: expect.objectContaining({
+            actorId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            role: "engineer",
+          }),
+        }),
+      }),
+    );
+  });
+
   it("rejects internal work items when assignee cannot act as engineer or tech lead", async () => {
     mockIssueGetById.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
@@ -4300,12 +4389,19 @@ describe("issue routes wakeup handling", () => {
           actorId: "rev-1",
           role: "reviewer",
         },
-        recipients: [],
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "qa-1",
+            role: "qa",
+          },
+        ],
         workflowStateBefore: "under_review",
         workflowStateAfter: "qa_pending",
         summary: "Approved for QA gate",
         payload: {
           approvalSummary: "Looks good",
+          approvalMode: "agent_review",
           approvalChecklist: ["Focused review complete"],
           verifiedEvidence: ["Diff reviewed"],
           residualRisks: ["Monitor QA result"],
@@ -4315,6 +4411,12 @@ describe("issue routes wakeup handling", () => {
     });
 
     expect(response.statusCode).toBe(201);
+    expect(mockHeartbeatCancelSupersededIssueFollowups).toHaveBeenCalledWith({
+      companyId: "company-1",
+      issueId: "11111111-1111-4111-8111-111111111111",
+      reason: "Cancelled stale protocol follow-up after APPROVE_IMPLEMENTATION",
+      excludeRunId: "run-review-1",
+    });
     expect(mockHeartbeatCancelRun).toHaveBeenCalledWith("run-review-1", {
       message: "Cancelled actor run after APPROVE_IMPLEMENTATION advanced the protocol lane",
       checkpointMessage: "run cancelled after protocol lane advanced",

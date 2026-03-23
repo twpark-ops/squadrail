@@ -46,6 +46,9 @@ describe("heartbeat helper flows", () => {
       wakeReason: "protocol_required_retry",
     })).toBe("wake reason is protocol_required_retry");
     expect(describeSessionResetReason({
+      wakeReason: "protocol_progress_followup",
+    })).toBe("wake reason is protocol_progress_followup");
+    expect(describeSessionResetReason({
       wakeReason: "issue_ready_for_closure",
     })).toBe("wake reason is issue_ready_for_closure");
     expect(describeSessionResetReason({

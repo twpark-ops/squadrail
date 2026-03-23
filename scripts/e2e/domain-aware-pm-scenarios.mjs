@@ -189,6 +189,16 @@ export function evaluateDomainAwarePmPreview(preview, scenario) {
       projectName: candidate?.projectName ?? null,
       score: candidate?.score ?? null,
       reasons: Array.isArray(candidate?.reasons) ? candidate.reasons : [],
+      summaryEvidence: Array.isArray(candidate?.summaryEvidence)
+        ? candidate.summaryEvidence.map((evidence) => ({
+            sourceType: typeof evidence?.sourceType === "string" ? evidence.sourceType : null,
+            summaryKind: typeof evidence?.summaryKind === "string" ? evidence.summaryKind : null,
+            path: typeof evidence?.path === "string" ? evidence.path : null,
+            title: typeof evidence?.title === "string" ? evidence.title : null,
+            score: typeof evidence?.score === "number" ? evidence.score : null,
+            reasons: Array.isArray(evidence?.reasons) ? evidence.reasons : [],
+          }))
+        : [],
     })),
     staffing: preview?.staffing ?? null,
     warnings,

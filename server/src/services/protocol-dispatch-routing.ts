@@ -55,6 +55,7 @@ export async function maybeApplyPreRetrievalSupervisorReroute(input: {
 } | null> {
   const supervisoryRecipient = resolvePreRetrievalAutoAssistRecipient(input.message);
   if (!supervisoryRecipient || supervisoryRecipient.role !== "tech_lead") return null;
+  if (typeof (input.db as { select?: unknown }).select !== "function") return null;
 
   const [project, state, engineerCandidates] = await Promise.all([
     input.issue.projectId

@@ -11,12 +11,16 @@ export const RUN_PROTOCOL_IDLE_WATCHDOG_MS = 10_000;
 export const RUN_PROTOCOL_DEGRADED_WATCHDOG_MS = 20_000;
 export const RUN_SHORT_SUPERVISORY_DEGRADED_WATCHDOG_MS = 10_000;
 export const RUN_PROTOCOL_IDLE_WATCHDOG_MAX_MS = 60_000;
+export const RUN_IMPLEMENTATION_PROGRESS_ONLY_WATCHDOG_MS = 30_000;
 export const PROTOCOL_REQUIRED_RETRY_LIMIT = 1;
+export const IMPLEMENTATION_PROTOCOL_REQUIRED_RETRY_LIMIT = 3;
+export const IMPLEMENTATION_PROGRESS_FOLLOWUP_LIMIT = 2;
 export const RETRYABLE_ADAPTER_FAILURE_LIMIT = 2;
 export const SUPERSEDED_PROTOCOL_WAKE_REASONS = new Set([
   "issue_ready_for_closure",
   "issue_ready_for_qa_gate",
   "protocol_required_retry",
+  "protocol_progress_followup",
 ]);
 const RETRYABLE_ADAPTER_ERROR_CODES = new Set([
   "claude_stream_incomplete",
@@ -46,10 +50,13 @@ type RunLeaseLike = {
 
 type ObservedProtocolProgressMessage = {
   messageType: string;
+  payload?: unknown;
+  createdAt?: Date | string | null;
 };
 
 type HeartbeatRunEventLike = {
   eventType?: string | null;
+  payload?: unknown;
   createdAt?: Date | string | null;
 };
 
@@ -63,6 +70,59 @@ function isProtocolWatchdogCheckpointPhase(checkpointPhase: string | null) {
 
 function isShortSupervisoryProtocolRequirement(requirement: ProtocolRunRequirement | null | undefined) {
   return Boolean(requirement && SHORT_SUPERVISORY_PROTOCOL_REQUIREMENT_KEYS.has(requirement.key));
+}
+
+function classifyImplementationProgressOnlyStall(input: {
+  requirement: ProtocolRunRequirement | null;
+  workflowState?: string | null;
+  messages?: ObservedProtocolProgressMessage[];
+  latestEvent?: HeartbeatRunEventLike | null;
+  startedAt?: Date | string | null;
+  now?: Date;
+  idleThresholdMs?: number;
+}) {
+  if (input.requirement?.key !== "implementation_engineer") return false;
+  if (readNonEmptyString(input.workflowState) !== "implementing") return false;
+
+  const messages = Array.isArray(input.messages) ? input.messages : [];
+  if (messages.length === 0) {
+    const startedAtMs =
+      toEpochMillis(input.latestEvent?.createdAt)
+      ?? toEpochMillis(input.startedAt)
+      ?? 0;
+    const idleThresholdMs = input.idleThresholdMs ?? RUN_IMPLEMENTATION_PROGRESS_ONLY_WATCHDOG_MS;
+    return startedAtMs > 0 && (input.now ?? new Date()).getTime() - startedAtMs >= idleThresholdMs;
+  }
+  const observedTypes = Array.from(
+    new Set(
+      messages
+        .map((message) => readNonEmptyString(message.messageType))
+        .filter((messageType): messageType is string => Boolean(messageType)),
+    ),
+  );
+  if (observedTypes.length !== 1 || observedTypes[0] !== "REPORT_PROGRESS") return false;
+
+  const latestProgress = [...messages]
+    .reverse()
+    .find((message) => readNonEmptyString(message.messageType) === "REPORT_PROGRESS");
+  if (!latestProgress) return false;
+
+  const payload = parseObject(latestProgress.payload);
+  const changedFiles = Array.isArray(payload.changedFiles)
+    ? payload.changedFiles
+      .map((entry) => readNonEmptyString(entry))
+      .filter((entry): entry is string => Boolean(entry))
+    : [];
+  const testSummary = readNonEmptyString(payload.testSummary);
+  if (changedFiles.length > 0 || testSummary) return false;
+
+  const lastProgressAtMs =
+    toEpochMillis(latestProgress.createdAt)
+    ?? toEpochMillis(input.latestEvent?.createdAt)
+    ?? toEpochMillis(input.startedAt)
+    ?? 0;
+  const idleThresholdMs = input.idleThresholdMs ?? RUN_IMPLEMENTATION_PROGRESS_ONLY_WATCHDOG_MS;
+  return (input.now ?? new Date()).getTime() - lastProgressAtMs >= idleThresholdMs;
 }
 
 function classifySupervisoryInvokeStallReason(input: {
@@ -156,6 +216,7 @@ export function shouldRecoverIdleProtocolRun(input: {
   workflowState?: string | null;
   protocolRetryCount: number;
   checkpointJson?: unknown;
+  messages?: ObservedProtocolProgressMessage[];
   latestEvent?: HeartbeatRunEventLike | null;
   startedAt?: Date | string | null;
   now?: Date;
@@ -163,7 +224,15 @@ export function shouldRecoverIdleProtocolRun(input: {
 }) {
   if (input.runStatus !== "running") return false;
   if (!input.hasRunningProcess) return false;
-  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement)) return false;
+  const implementationProgressOnlyStall = classifyImplementationProgressOnlyStall({
+    requirement: input.requirement,
+    workflowState: input.workflowState ?? null,
+    messages: input.messages,
+    latestEvent: input.latestEvent,
+    startedAt: input.startedAt,
+    now: input.now,
+  });
+  if (!isIdleProtocolWatchdogEligibleRequirement(input.requirement) && !implementationProgressOnlyStall) return false;
   if (!shouldEnqueueProtocolRequiredRetry({
     protocolRetryCount: input.protocolRetryCount,
     issueStatus: input.issueStatus ?? null,
@@ -177,6 +246,7 @@ export function shouldRecoverIdleProtocolRun(input: {
   const checkpointPhase = readNonEmptyString(checkpoint.phase);
   const checkpointLooksIdle = isProtocolWatchdogCheckpointPhase(checkpointPhase);
   if (!checkpointLooksIdle) return false;
+  if (implementationProgressOnlyStall) return true;
 
   const lastProgressAtMs =
     readLeaseLastProgressAt(checkpoint)
@@ -398,6 +468,60 @@ export function hasRequiredProtocolProgress(input: {
   });
 }
 
+export function mergeProtocolMessagesWithHelperInvocations(input: {
+  messages: ObservedProtocolProgressMessage[];
+  helperEvents?: HeartbeatRunEventLike[];
+}) {
+  const merged = [...input.messages];
+  const seen = new Set(
+    merged.map((message) => {
+      const messageType = readNonEmptyString(message.messageType) ?? "unknown";
+      const createdAt = toEpochMillis(message.createdAt) ?? 0;
+      return `${messageType}:${createdAt}`;
+    }),
+  );
+
+  for (const event of input.helperEvents ?? []) {
+    if (readNonEmptyString(event.eventType) !== "protocol.helper_invocation") continue;
+    const payload = parseObject(event.payload);
+    const messageType = readNonEmptyString(payload.messageType);
+    if (!messageType) continue;
+    const createdAt = toEpochMillis(event.createdAt) ?? 0;
+    const key = `${messageType}:${createdAt}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({
+      messageType,
+      payload,
+      createdAt: event.createdAt ?? null,
+    });
+  }
+
+  return merged.sort((left, right) => {
+    const leftAt = toEpochMillis(left.createdAt) ?? 0;
+    const rightAt = toEpochMillis(right.createdAt) ?? 0;
+    return leftAt - rightAt;
+  });
+}
+
+export function refreshProtocolRetryContextSnapshot(input: {
+  contextSnapshot: Record<string, unknown>;
+  workflowState?: string | null;
+}) {
+  const workflowState = readNonEmptyString(input.workflowState);
+  if (!workflowState) {
+    return {
+      ...input.contextSnapshot,
+    };
+  }
+
+  return {
+    ...input.contextSnapshot,
+    protocolWorkflowStateBefore: workflowState,
+    protocolWorkflowStateAfter: workflowState,
+  };
+}
+
 export function buildRequiredProtocolProgressError(input: {
   requirement: ProtocolRunRequirement;
   observedMessageTypes: string[];
@@ -421,13 +545,32 @@ export function shouldEnqueueProtocolRequiredRetry(input: {
   workflowState?: string | null;
   requirement?: ProtocolRunRequirement | null;
 }) {
-  if (input.protocolRetryCount >= PROTOCOL_REQUIRED_RETRY_LIMIT) return false;
+  const retryLimit = input.requirement?.key === "implementation_engineer"
+    ? IMPLEMENTATION_PROTOCOL_REQUIRED_RETRY_LIMIT
+    : PROTOCOL_REQUIRED_RETRY_LIMIT;
+  if (input.protocolRetryCount >= retryLimit) return false;
   if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
   if (!input.requirement || !input.workflowState) return false;
   return isWorkflowStateEligibleForProtocolRetry({
     requirement: input.requirement,
     workflowState: input.workflowState,
   });
+}
+
+export function shouldEnqueueImplementationProgressFollowup(input: {
+  forceFollowupRun?: boolean;
+  progressFollowupCount: number;
+  issueStatus?: string | null;
+  workflowState?: string | null;
+  requirement?: ProtocolRunRequirement | null;
+  observedMessageTypes: string[];
+}) {
+  if (input.forceFollowupRun !== true) return false;
+  if (input.progressFollowupCount >= IMPLEMENTATION_PROGRESS_FOLLOWUP_LIMIT) return false;
+  if (input.issueStatus === "done" || input.issueStatus === "cancelled") return false;
+  if (input.requirement?.key !== "implementation_engineer") return false;
+  if (readNonEmptyString(input.workflowState) !== "implementing") return false;
+  return input.observedMessageTypes.length === 1 && input.observedMessageTypes[0] === "REPORT_PROGRESS";
 }
 
 export function shouldEnqueueRetryableAdapterFailure(input: {

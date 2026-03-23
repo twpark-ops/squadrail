@@ -579,6 +579,48 @@ describe("buildProtocolExecutionDispatchPlan", () => {
     expect(plan.map((item) => item.kind)).toEqual(["notify_only", "notify_only"]);
   });
 
+  it("wakes a same-agent engineer handoff when the role changes from PM to engineer", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-role-handoff",
+      protocolMessageId: "msg-role-handoff",
+      senderAgentId: "agent-same",
+      message: {
+        messageType: "REASSIGN_TASK",
+        sender: {
+          actorType: "agent",
+          actorId: "agent-same",
+          role: "pm",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "agent-same",
+            role: "engineer",
+          },
+          {
+            recipientType: "agent",
+            recipientId: "reviewer-1",
+            role: "reviewer",
+          },
+        ],
+        workflowStateBefore: "assigned",
+        workflowStateAfter: "assigned",
+        summary: "Route this issue into the correct execution lane.",
+        payload: {
+          newAssigneeAgentId: "agent-same",
+          newReviewerAgentId: "reviewer-1",
+          reason: "same-agent role handoff",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]?.kind).toBe("wakeup");
+    expect(plan[0]?.reason).toBe("issue_reassigned");
+    expect(plan[0]?.payload.forceFollowupRun).toBe(true);
+    expect(plan[0]?.payload.forceFreshAdapterSession).toBe(true);
+  });
+
   it("coalesces engineer self-START into active run with workspace override", () => {
     const plan = buildProtocolExecutionDispatchPlan({
       issueId: "issue-1",
@@ -800,15 +842,126 @@ describe("buildProtocolExecutionDispatchPlan", () => {
       recipientId: "qa-1",
       reason: "issue_ready_for_qa_gate",
       payload: {
+        techLeadAgentId: "lead-1",
+        qaAgentId: "qa-1",
         forceFollowupRun: true,
         forceFreshAdapterSession: true,
         protocolDispatchMode: "qa_gate_followup",
       },
       contextSnapshot: {
+        techLeadAgentId: "lead-1",
+        qaAgentId: "qa-1",
         forceFollowupRun: true,
         forceFreshAdapterSession: true,
         protocolDispatchMode: "qa_gate_followup",
         protocolRecipientRole: "qa",
+      },
+    });
+  });
+
+  it("includes ownership context on root implementation wakes", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-root-impl-1",
+      protocolMessageId: "msg-root-impl-1",
+      senderAgentId: "eng-1",
+      issueContext: {
+        issueId: "issue-root-impl-1",
+        parentId: null,
+        labelNames: [],
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+        reviewerAgentId: "rev-1",
+        qaAgentId: "qa-1",
+      },
+      message: {
+        messageType: "START_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "accepted",
+        workflowStateAfter: "implementing",
+        summary: "start implementation",
+        payload: {
+          implementationMode: "direct",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      payload: {
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+        reviewerAgentId: "rev-1",
+        qaAgentId: "qa-1",
+      },
+      contextSnapshot: {
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+        reviewerAgentId: "rev-1",
+        qaAgentId: "qa-1",
+      },
+    });
+  });
+
+  it("falls back to protocol state ownership on root implementation wakes without internal work item context", () => {
+    const plan = buildProtocolExecutionDispatchPlan({
+      issueId: "issue-root-impl-2",
+      protocolMessageId: "msg-root-impl-2",
+      senderAgentId: "eng-1",
+      ownershipSnapshot: {
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+        reviewerAgentId: "rev-1",
+        qaAgentId: "qa-1",
+      },
+      message: {
+        messageType: "START_IMPLEMENTATION",
+        sender: {
+          actorType: "agent",
+          actorId: "eng-1",
+          role: "engineer",
+        },
+        recipients: [
+          {
+            recipientType: "agent",
+            recipientId: "eng-1",
+            role: "engineer",
+          },
+        ],
+        workflowStateBefore: "accepted",
+        workflowStateAfter: "implementing",
+        summary: "start implementation",
+        payload: {
+          implementationMode: "direct",
+        },
+        artifacts: [],
+      },
+    });
+
+    expect(plan[0]).toMatchObject({
+      kind: "wakeup",
+      payload: {
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+        reviewerAgentId: "rev-1",
+        qaAgentId: "qa-1",
+      },
+      contextSnapshot: {
+        techLeadAgentId: "lead-1",
+        primaryEngineerAgentId: "eng-1",
+        reviewerAgentId: "rev-1",
+        qaAgentId: "qa-1",
       },
     });
   });
